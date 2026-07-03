@@ -152,7 +152,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     )
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
-        result = stage5_inference.fit_model.fn(
+        result = stage5_inference.fit_model(
             None,
             data_for_model,
             sampler_config={"method": "marginal_particle_gibbs"},
@@ -191,7 +191,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     )
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
-        result = stage5_inference.fit_model.fn(
+        result = stage5_inference.fit_model(
             None,
             data_for_model,
             sampler_config={"method": "marginal_particle_gibbs"},
@@ -230,7 +230,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     )
     compiled_ssm = {"spec": {"n_latent": 1}}
 
-    result = stage5_inference.fit_model.fn(
+    result = stage5_inference.fit_model(
         compiled_ssm,
         data_for_model,
         sampler_config={"method": "marginal_particle_gibbs"},

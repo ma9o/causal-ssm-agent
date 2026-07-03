@@ -1087,11 +1087,11 @@ class TestDictMessagesToChat:
         assert msgs[0]["reasoning_details"] == [{"type": "reasoning.text", "text": "thinking"}]
 
 
-class TestMakeLLMStageTask:
-    """Tests for the session-based make_llm_stage_task wrapper."""
+class TestMakeLLMStageRunner:
+    """Tests for the session-based make_llm_stage_runner wrapper."""
 
     def test_forwards_stage_llm_and_api_key_via_session_factory(self, monkeypatch):
-        from nof1_causal_lab.flows.llm_stage_task import make_llm_stage_task
+        from nof1_causal_lab.flows.llm_stage_runtime import make_llm_stage_runner
         from nof1_causal_lab.utils import openrouter_client
         from nof1_causal_lab.utils.agent_session import StageSessionFactory
         from nof1_causal_lab.utils.config import (
@@ -1116,18 +1116,17 @@ class TestMakeLLMStageTask:
             captured["max_tool_turns"] = session_factory._max_tool_turns
             return {"ok": True}
 
-        task = make_llm_stage_task(
+        runner = make_llm_stage_runner(
             stage_id="test-stage",
             orchestrator_fn=orchestrator_fn,
             stage_llm_getter=lambda: stage_llm,
             llm_defaults_getter=lambda: llm_defaults,
             max_tool_turns_getter=lambda: 77,
             payload_builder=lambda result: result,
-            task_options={"cache_policy": None},
         )
 
         with openrouter_client.use_openrouter_api_key("user-key"):
-            result = _run(task())
+            result = _run(runner())
 
         assert result == {"ok": True}
         assert captured["api_key"] == "user-key"

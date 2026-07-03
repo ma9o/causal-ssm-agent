@@ -58,39 +58,16 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
     }
 
 
-def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
-    client = TestClient(tool_server.app)
+def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
+    import polars as pl
 
-    called_with = {}
-
-    def fake_persist_web_patch(stage_id, patch, workspace_id):
-        called_with["stage_id"] = stage_id
-        called_with["patch"] = patch
-        called_with["workspace_id"] = workspace_id
-        return {"outcome": "success", **patch}
-
-    monkeypatch.setattr(tool_server, "persist_web_patch", fake_persist_web_patch)
-
-    response = client.post(
-        "/api/stages/stage-6/persist-web-patch",
-        json={"workspace_id": "user-123", "patch": {"llm_trace": {"messages": []}}},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "ok": True,
-        "payload": {"outcome": "success", "llm_trace": {"messages": []}},
-    }
-    assert called_with == {
-        "stage_id": "stage-6",
-        "patch": {"llm_trace": {"messages": []}},
-        "workspace_id": "user-123",
-    }
-
-
-def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch):
-    import nof1_causal_lab.flows.run_store as run_store
+    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.moves import RunStage
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
     from nof1_causal_lab.models.ssm.testing import block_ssm_spec, full_dense_matrix_dynamics_spec
+    from nof1_causal_lab.utils import data as data_module
+
+    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
 
     spec = block_ssm_spec(
         n_latent=2,
@@ -103,67 +80,130 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         spec=spec,
         observation_support=None,
     )
+    model_data = pl.DataFrame(
+        {"indicator": ["sleep_obs"], "value": [1.0], "timestamp": ["2024-01-01T00:00:00"]}
+    )
+
+    store = ArtifactStore("user-123")
+    causal_spec_info = store.write_version(
+        "causal_spec",
+        provenance="llm",
+        derived_from={},
+        produced_by="stage-1b",
+        json_files={
+            "causal_spec.json": {"causal_spec": {"identifiability": {}, "measurement": {}}}
+        },
+    )
+    model_data_info = store.write_version(
+        "model_data",
+        provenance="computed",
+        derived_from={"causal_spec": 1},
+        produced_by="stage-2",
+        parquet_files={"model_data.parquet": model_data},
+    )
+    estimands_info = store.write_version(
+        "estimands",
+        provenance="computed",
+        derived_from={"causal_spec": 1},
+        produced_by="stage-1b",
+        json_files={"estimands.json": {"treatments": ["screen_time"], "outcome": "sleep_quality"}},
+    )
+    posterior_info = store.write_version(
+        "posterior",
+        provenance="computed",
+        derived_from={"causal_spec": 1, "model_data": 1},
+        produced_by="stage-5b",
+        json_files={"diagnostics.json": {"outcome": "warn"}},
+        pickle_files={"fitted.pkl": fitted_artifact},
+    )
+    EpisodeJournal("user-123").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-07-03T00:00:00+00:00",
+            move=RunStage(stage_id="stage-5b"),
+            status="applied",
+            produced=[posterior_info],
+            state_after=EpisodeState().with_versions(
+                [causal_spec_info, model_data_info, estimands_info, posterior_info]
+            ),
+        )
+    )
+
     rebuilt_runtime = SimpleNamespace(
         observation_support="support-runtime",
         observation_data=None,
     )
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        tool_server,
-        "_load_stage_result",
-        lambda _workspace_id, stage_id: (
-            {"causal_spec": {"identifiability": {}, "measurement": {}}, "outcome": "warn"}
-            if stage_id == "stage-1b"
-            else {"outcome": "warn"}
-        ),
-    )
-    monkeypatch.setattr(tool_server, "_load_optional_stage_result", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(
-        run_store,
-        "find_run_artifact",
-        lambda _workspace_id, filenames: (
-            "/tmp/stage2.parquet"
-            if filenames == run_store.STAGE2_MODEL_PARQUET_FILENAMES
-            else "/tmp/stage5b.pkl"
-        ),
-    )
-    monkeypatch.setattr(tool_server, "load_pickle", lambda _path: fitted_artifact)
-    monkeypatch.setattr(tool_server, "load_parquet", lambda _path: object())
-    monkeypatch.setattr(tool_server, "_extract_observation_timestamps", lambda _obs: [])
-    monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
-    monkeypatch.setattr(tool_server, "get_estimable_treatments", lambda _spec: ["screen_time"])
-
     def fake_prepare_model_runtime(
         *, data_for_model, model, compiled_ssm=None, sampler_config=None
     ):
-        del data_for_model, compiled_ssm, sampler_config
+        del compiled_ssm, sampler_config
+        captured["data_for_model"] = data_for_model
         captured["model"] = model
         return rebuilt_runtime
 
     monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
+    monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
 
     ctx = tool_server._build_stage6_context("user-123")
 
     assert isinstance(captured["model"], tool_server.SSMModel)
-    assert captured["model"].spec is spec
+    # The runtime is rebuilt from the unpickled fitted artifact's spec, on the
+    # model_data version pinned by the posterior's derived_from.
+    assert captured["model"].spec is ctx["_fitted_artifact"].spec
+    assert list(captured["model"].spec.latent_names) == ["screen_time", "sleep_quality"]
+    assert captured["data_for_model"].equals(model_data)
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime
+    assert ctx["stage-1b"] == {"causal_spec": {"identifiability": {}, "measurement": {}}}
+    assert ctx["stage-5b"] == {"outcome": "warn"}
+    assert ctx["_outcome_name"] == "sleep_quality"
+    assert ctx["_identifiable_treatments"] == ["screen_time"]
+    # Every serving-chain artifact pins current versions: nothing is stale.
+    assert ctx["_stale_artifacts"] == []
 
 
-def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch):
-    import nof1_causal_lab.flows.run_store as run_store
+def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch, tmp_path):
+    import polars as pl
+
     import nof1_causal_lab.flows.stages.stage4.grounding as stage4_grounding_module
     import nof1_causal_lab.flows.stages.stage4.tool_registry as stage4_tool_registry
     from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
         make_stage4_grounding_result,
+    )
+    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.moves import RunStage
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.utils import data as data_module
+
+    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+
+    store = ArtifactStore("user-123")
+    model_data_info = store.write_version(
+        "model_data",
+        provenance="computed",
+        derived_from={},
+        produced_by="stage-2",
+        parquet_files={"model_data.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
+    )
+    EpisodeJournal("user-123").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-07-03T00:00:00+00:00",
+            move=RunStage(stage_id="stage-2"),
+            status="applied",
+            produced=[model_data_info],
+            state_after=EpisodeState().with_versions([model_data_info]),
+        )
     )
 
     expected_data_for_model = object()
     captured: dict[str, object] = {}
 
     def fake_load_parquet(path):
-        assert path == "/run/stage2-model-data.parquet"
+        # The registry resolves the episode's CURRENT model_data version.
+        assert path == store.file_path("model_data", 1, "model_data.parquet")
         return expected_data_for_model
 
     def fake_stage4_grounding(
@@ -186,15 +226,6 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
             capture_stage_output=True,
         )
 
-    monkeypatch.setattr(
-        run_store,
-        "find_run_artifact",
-        lambda workspace_id, filenames: (
-            "/run/stage2-model-data.parquet"
-            if workspace_id == "user-123" and filenames == run_store.STAGE2_MODEL_PARQUET_FILENAMES
-            else (_ for _ in ()).throw(AssertionError("unexpected artifact lookup"))
-        ),
-    )
     monkeypatch.setattr(stage4_tool_registry, "load_parquet", fake_load_parquet)
     monkeypatch.setattr(
         stage4_tool_registry,

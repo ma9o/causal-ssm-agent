@@ -174,59 +174,6 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     assert result.validation is validation
 
 
-def test_materialize_override_stage4_marks_missing_compiled_ssm_as_failure(monkeypatch):
-    from nof1_causal_lab.flows.stage_runtime import PipelineContext
-    from nof1_causal_lab.flows.stages.stage4.definition import build_stage4_definition
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.run_store.find_run_artifact",
-        lambda *_args, **_kwargs: "ignored.parquet",
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.run_store.load_parquet",
-        lambda *_args, **_kwargs: pl.DataFrame(),
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.run_store.save_json",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage4.assembly.materialize_stage4_result",
-        lambda **_kwargs: {
-            "model_spec": {"likelihoods": [], "parameters": []},
-            "authored_priors": {},
-            "resolved_priors": [],
-            "validation_warnings": [],
-        },
-    )
-
-    ctx = PipelineContext(
-        workspace_id="workspace",
-        prefect_run_id="run",
-        question="question",
-        lit_enabled=False,
-        inference_method=None,
-        supported_overrides={},
-        openrouter_api_key=None,
-        openrouter_access_mode=None,
-    )
-    states = {
-        "stage-1b": SimpleNamespace(causal_spec=SimpleNamespace(model_dump=lambda: {})),
-        "stage-3": SimpleNamespace(indicators={}),
-    }
-
-    adapter = build_stage4_definition().override_adapter
-    assert adapter is not None
-    contract = adapter.materialize(
-        {"model_spec": {"likelihoods": [], "parameters": []}, "authored_priors": {}},
-        ctx,
-        states,
-    )
-
-    assert contract.outcome == "fail"
-    assert contract.fail_reason == "model_compile_failed"
-
-
 class TestStage4Mechanics:
     def test_format_plan_status_exposes_effect_row_budget(self):
         causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context(

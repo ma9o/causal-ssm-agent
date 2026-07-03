@@ -117,8 +117,8 @@ class TestStage1bGrounding:
     def test_build_causal_spec_round_trips_schema(
         self, stage1b_simple_latent, stage1b_measurement_all_observed
     ):
-        """build_causal_spec.fn() returns a valid CausalSpec with the expected outcome."""
-        spec = build_causal_spec.fn(
+        """build_causal_spec() returns a valid CausalSpec with the expected outcome."""
+        spec = build_causal_spec(
             stage1b_simple_latent,
             stage1b_measurement_all_observed,
             identifiability_status={

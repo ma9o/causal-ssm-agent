@@ -150,7 +150,7 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
 
     monkeypatch.setattr(
         validate_run,
-        "get_execution_order",
+        "topological_stage_order",
         lambda: ("stage-0", "stage-1a", "stage-1b", "stage-2"),
     )
     monkeypatch.setattr(validate_run, "runs_dir", lambda workspace_id: f"/tmp/{workspace_id}/run")
@@ -165,14 +165,14 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
         lambda _workspace_id, stage_id: {"stage_id": stage_id},
     )
 
-    def fake_find_run_artifact(_workspace_id: str, filenames: tuple[str, ...]) -> str:
-        if filenames == validate_run.STAGE0_PARQUET_FILENAMES:
+    def fake_current_artifact_file(_workspace_id: str, artifact_id: str, _filename: str) -> str:
+        if artifact_id == "raw_data":
             return "/tmp/raw.parquet"
-        if filenames == validate_run.STAGE2_MODEL_PARQUET_FILENAMES:
-            raise AssertionError("stage-2 parquet should not be loaded past --up-to stage-1b")
-        raise AssertionError(f"unexpected artifact lookup: {filenames}")
+        raise AssertionError(
+            f"{artifact_id} should not be loaded past --up-to stage-1b"
+        )
 
-    monkeypatch.setattr(validate_run, "find_run_artifact", fake_find_run_artifact)
+    monkeypatch.setattr(validate_run, "current_artifact_file", fake_current_artifact_file)
     monkeypatch.setattr(validate_run, "load_parquet", lambda _path: FakeRawDataFrame())
 
     ctx = validate_run.load_run_context("ws", up_to="stage-1b")

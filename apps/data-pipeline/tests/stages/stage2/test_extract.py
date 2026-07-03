@@ -1,5 +1,6 @@
 """Tests for stage 2 worker extraction flow helpers."""
 
+import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
@@ -11,15 +12,11 @@ from nof1_causal_lab.flows.stages.stage2 import flow as stage2_extract
 from tests.helpers import run_async as _run
 
 
-class _FakeFuture:
-    def __init__(self, result=None, error: Exception | None = None):
-        self._result = result
-        self._error = error
-
-    def result(self):
-        if self._error is not None:
-            raise self._error
-        return self._result
+async def _worker_result(result=None, error: Exception | None = None, delay: float = 0.0):
+    await asyncio.sleep(delay)
+    if error is not None:
+        raise error
+    return result
 
 
 def _require_mapping(value: object) -> dict[str, Any]:
@@ -32,32 +29,33 @@ def _require_list(value: object) -> list[Any]:
     return value
 
 
-def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
-    monkeypatch, caplog
-):
-    future0 = _FakeFuture(
-        {"dataframe": [{"indicator": "a"}], "n_extractions": 1, "status": "completed"}
-    )
-    future1 = _FakeFuture(
-        {"dataframe": [{"indicator": "b"}], "n_extractions": 2, "status": "completed"}
-    )
-
-    def _as_completed(futures):
-        assert len(list(futures)) == 2
-        return iter([future1, future0])
-
-    monkeypatch.setattr(stage2_extract, "as_completed", _as_completed)
+def test_collect_worker_results_logs_completion_order_but_preserves_worker_order(caplog):
     logger = logging.getLogger("test_stage2_extract")
 
-    with caplog.at_level(logging.INFO, logger=logger.name):
-        rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
-            futures=[future0, future1],
+    async def _collect():
+        tasks = [
+            asyncio.ensure_future(
+                _worker_result(
+                    {"dataframe": [{"indicator": "a"}], "n_extractions": 1, "status": "completed"},
+                    delay=0.05,
+                )
+            ),
+            asyncio.ensure_future(
+                _worker_result(
+                    {"dataframe": [{"indicator": "b"}], "n_extractions": 2, "status": "completed"}
+                )
+            ),
+        ]
+        return await stage2_extract.collect_worker_results(
+            tasks=tasks,
             batch_indices=[0, 1],
             batch_n_windows=[5, 7],
             logger=logger,
-            completed_before=5,
-            total_chunks=7,
+            total_chunks=2,
         )
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        rows, statuses, n_total, sampled_trace = _run(_collect())
 
     assert rows == [{"indicator": "a"}, {"indicator": "b"}]
     assert statuses == [
@@ -66,28 +64,32 @@ def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
     ]
     assert n_total == 3
     assert sampled_trace is None
-    assert "worker 1 completed (progress=6/7" in caplog.text
-    assert "worker 0 completed (progress=7/7" in caplog.text
+    # Worker 1 finishes first: logs run in completion order, outputs stay in
+    # worker order.
+    assert "worker 1 completed (batch=1/2" in caplog.text
+    assert "worker 0 completed (batch=2/2" in caplog.text
 
 
-def test_collect_batch_results_records_failures(monkeypatch):
-    future0 = _FakeFuture(error=RuntimeError("timeout"))
-    future1 = _FakeFuture({"dataframe": [], "n_extractions": 0, "status": "completed"})
+def test_collect_worker_results_records_failures():
+    async def _collect():
+        tasks = [
+            asyncio.ensure_future(_worker_result(error=RuntimeError("timeout"))),
+            asyncio.ensure_future(
+                _worker_result(
+                    {"dataframe": [], "n_extractions": 0, "status": "completed"},
+                    delay=0.05,
+                )
+            ),
+        ]
+        return await stage2_extract.collect_worker_results(
+            tasks=tasks,
+            batch_indices=[0, 1],
+            batch_n_windows=[3, 4],
+            logger=logging.getLogger("test_stage2_extract"),
+            total_chunks=2,
+        )
 
-    def _as_completed(futures):
-        assert len(list(futures)) == 2
-        return iter([future0, future1])
-
-    monkeypatch.setattr(stage2_extract, "as_completed", _as_completed)
-
-    rows, statuses, n_total, sampled_trace = stage2_extract._collect_batch_results(
-        futures=[future0, future1],
-        batch_indices=[0, 1],
-        batch_n_windows=[3, 4],
-        logger=logging.getLogger("test_stage2_extract"),
-        completed_before=0,
-        total_chunks=2,
-    )
+    rows, statuses, n_total, sampled_trace = _run(_collect())
 
     assert rows == []
     assert statuses == [
@@ -104,7 +106,7 @@ def test_collect_batch_results_records_failures(monkeypatch):
     assert sampled_trace is None
 
 
-def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
+def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
     import nof1_causal_lab.utils.causal_spec as causal_spec_mod
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.core as worker_core
@@ -117,7 +119,6 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         StageLLMConfig,
     )
 
-    logger = logging.getLogger("test_stage2_extract")
     captured: dict[str, object] = {}
 
     stage2_llm = StageLLMConfig(harness="none", model="openrouter/mock-stage2-model")
@@ -127,7 +128,6 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         codex=CodexDefaults(),
     )
 
-    monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logger)
     monkeypatch.setattr(
         config_mod,
         "get_config",
@@ -160,9 +160,9 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     window_text = "## Window Start: 2024-01-01\n\n08:00  event1\n09:00  event2"
     window_starts = ["2024-01-01"]
 
-    with caplog.at_level(logging.INFO, logger=logger.name):
+    with caplog.at_level(logging.INFO, logger=stage2_extract.logger.name):
         result = _run(
-            stage2_extract.extract_window_chunk_task.fn(
+            stage2_extract.extract_window_chunk(
                 window_text=window_text,
                 window_starts=window_starts,
                 chunk_idx=3,
@@ -187,7 +187,7 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     assert worker_kwargs["window_starts"] == window_starts
     assert worker_kwargs["question"] == "Does treatment affect outcome?"
     assert worker_kwargs["causal_spec"] == {"measurement": {"model_clock": "1d", "indicators": []}}
-    assert worker_kwargs["logger"] is logger
+    assert worker_kwargs["logger"] is stage2_extract.logger
     factory = worker_kwargs["session_factory"]
     assert isinstance(factory, StageSessionFactory)
     # Worker timeout is applied as an override on the stage_llm inside the factory.
@@ -198,7 +198,7 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     assert "mock-stage2-model" in caplog.text
 
 
-def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
+def test_extract_window_chunk_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
     import nof1_causal_lab.utils.causal_spec as causal_spec_mod
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.core as worker_core
@@ -213,9 +213,6 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
     worker_events: list[dict[str, object]] = []
     snapshot_events: list[dict[str, object]] = []
 
-    monkeypatch.setattr(
-        stage2_extract, "get_run_logger", lambda: logging.getLogger("stage2-events")
-    )
     monkeypatch.setattr(
         config_mod,
         "get_config",
@@ -248,14 +245,14 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
     monkeypatch.setattr(
         stage2_extract,
         "emit_stage2_worker_event",
-        lambda resource_run_id, **payload: worker_events.append(
-            {"resource_run_id": resource_run_id, **payload}
+        lambda workspace_id, **payload: worker_events.append(
+            {"workspace_id": workspace_id, **payload}
         ),
     )
     monkeypatch.setattr(
         stage2_extract,
-        "_get_stage2_progress_tracker",
-        lambda _root_run_id: SimpleNamespace(
+        "get_stage2_progress_tracker",
+        lambda _workspace_id: SimpleNamespace(
             mark_running=lambda _worker_id: {
                 "total_workers": 8,
                 "pending_workers": 7,
@@ -267,26 +264,26 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
     )
     monkeypatch.setattr(
         stage2_extract,
-        "_emit_stage2_snapshot",
-        lambda resource_run_id, snapshot: snapshot_events.append(
-            {"resource_run_id": resource_run_id, **snapshot}
+        "emit_stage2_snapshot",
+        lambda workspace_id, snapshot: snapshot_events.append(
+            {"workspace_id": workspace_id, **snapshot}
         ),
     )
 
     _run(
-        stage2_extract.extract_window_chunk_task.fn(
+        stage2_extract.extract_window_chunk(
             window_text="## Window Start: 2024-01-01",
             window_starts=["2024-01-01"],
             chunk_idx=7,
             question="Q",
             causal_spec={"measurement": {"model_clock": "1d", "indicators": []}},
-            root_run_id="root-123",
+            workspace_id="ws-123",
         )
     )
 
     assert worker_events == [
         {
-            "resource_run_id": "root-123",
+            "workspace_id": "ws-123",
             "worker_id": 7,
             "state": "running",
             "n_windows": 1,
@@ -294,7 +291,7 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
     ]
     assert snapshot_events == [
         {
-            "resource_run_id": "root-123",
+            "workspace_id": "ws-123",
             "total_workers": 8,
             "pending_workers": 7,
             "running_workers": 1,
@@ -305,7 +302,7 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# _project_to_source_columns tests
+# project_to_source_columns tests
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -323,7 +320,7 @@ def test_project_keeps_only_source_columns():
         {"name": "hr", "source_columns": ["heart_rate", "timestamp"]},
         {"name": "activity", "source_columns": ["steps"]},
     ]
-    result = stage2_extract._project_to_source_columns(df, indicators)
+    result = stage2_extract.project_to_source_columns(df, indicators)
     assert set(result.columns) == {"timestamp", "heart_rate", "steps"}
 
 
@@ -331,7 +328,7 @@ def test_project_missing_columns_warns(caplog):
     df = pl.DataFrame({"a": [1], "b": [2]})
     indicators = [{"name": "x", "source_columns": ["a", "nonexistent"]}]
     with caplog.at_level(logging.WARNING):
-        result = stage2_extract._project_to_source_columns(df, indicators)
+        result = stage2_extract.project_to_source_columns(df, indicators)
     assert "a" in result.columns
     assert "nonexistent" not in result.columns
     assert "nonexistent" in caplog.text
@@ -424,61 +421,76 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
     assert result["observation_rows"] == []
 
 
-def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_events(monkeypatch):
+def test_run_semantic_chunks_asyncio_emits_stage2_plan_worker_and_snapshot_events(monkeypatch):
     plan_events: list[dict[str, object]] = []
     worker_events: list[dict[str, object]] = []
     snapshot_events: list[dict[str, object]] = []
+    extracted_texts: list[str] = []
 
     monkeypatch.setattr(
         stage2_extract,
         "emit_stage2_plan_event",
-        lambda resource_run_id, **payload: plan_events.append(
-            {"resource_run_id": resource_run_id, **payload}
+        lambda workspace_id, **payload: plan_events.append(
+            {"workspace_id": workspace_id, **payload}
         ),
     )
     monkeypatch.setattr(
         stage2_extract,
         "emit_stage2_worker_event",
-        lambda resource_run_id, **payload: worker_events.append(
-            {"resource_run_id": resource_run_id, **payload}
+        lambda workspace_id, **payload: worker_events.append(
+            {"workspace_id": workspace_id, **payload}
         ),
     )
     monkeypatch.setattr(
         stage2_extract,
-        "_emit_stage2_snapshot",
-        lambda resource_run_id, snapshot: snapshot_events.append(
-            {"resource_run_id": resource_run_id, **snapshot}
+        "emit_stage2_snapshot",
+        lambda workspace_id, snapshot: snapshot_events.append(
+            {"workspace_id": workspace_id, **snapshot}
         ),
     )
 
-    future_ok = _FakeFuture(
-        {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
-    )
-    future_fail = _FakeFuture(error=RuntimeError("timeout"))
+    async def fake_extract_window_chunk(
+        window_text,
+        window_starts,
+        chunk_idx,
+        question,
+        causal_spec,
+        workspace_id=None,
+        openrouter_api_key=None,
+    ):
+        del window_starts, question, causal_spec, workspace_id, openrouter_api_key
+        extracted_texts.append(window_text)
+        if chunk_idx == 0:
+            return {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
+        # Fail after the successful worker so the terminal transitions arrive
+        # in a deterministic order.
+        await asyncio.sleep(0.05)
+        raise RuntimeError("timeout")
 
-    def fake_map(chunk_texts, **_kwargs):
-        assert chunk_texts == ["chunk-0", "chunk-1"]
-        return [future_ok, future_fail]
+    monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
-    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
-    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+    async def fake_run_with_retries(attempt):
+        return await attempt()
+
+    monkeypatch.setattr(stage2_extract, "run_with_retries", fake_run_with_retries)
 
     rows, statuses, n_total, sampled_trace = _run(
-        stage2_extract._run_semantic_chunks_prefect(
+        stage2_extract._run_semantic_chunks_asyncio(
             chunk_texts=["chunk-0", "chunk-1"],
             chunk_window_starts=[["2024-01-01"], ["2024-01-02"]],
             chunk_contexts=[{"measurement": {}}, {"measurement": {}}],
             question="Q",
-            root_run_id="root-456",
+            workspace_id="ws-456",
             openrouter_api_key=None,
             max_concurrent_workers=6,
             max_rpm=450,
         )
     )
 
+    assert sorted(extracted_texts) == ["chunk-0", "chunk-1"]
     assert plan_events == [
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "total_workers": 2,
             "max_concurrent_workers": 6,
             "max_rpm": 450,
@@ -486,7 +498,7 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
     ]
     assert snapshot_events == [
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "total_workers": 2,
             "pending_workers": 2,
             "running_workers": 0,
@@ -494,7 +506,7 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
             "failed_workers": 0,
         },
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "total_workers": 2,
             "pending_workers": 1,
             "running_workers": 0,
@@ -502,7 +514,7 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
             "failed_workers": 0,
         },
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "total_workers": 2,
             "pending_workers": 0,
             "running_workers": 0,
@@ -512,7 +524,7 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
     ]
     assert worker_events == [
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "worker_id": 0,
             "state": "completed",
             "n_windows": 1,
@@ -520,7 +532,7 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
             "n_llm_calls": None,
         },
         {
-            "resource_run_id": "root-456",
+            "workspace_id": "ws-456",
             "worker_id": 1,
             "state": "failed",
             "n_windows": 1,
@@ -542,10 +554,18 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
     assert sampled_trace is None
 
 
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_window(
-    monkeypatch, tmp_path
-):
+def _stage2_workers_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        stage2_workers=SimpleNamespace(
+            windows_per_chunk=8,
+            max_events_per_window=50,
+            max_concurrent_workers=2,
+            max_rpm=0,
+        )
+    )
+
+
+def test_run_stage2_extraction_buckets_semantic_indicators_by_observation_window(monkeypatch):
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.utils.data as data_mod
     import nof1_causal_lab.workers.windows as windows_mod
@@ -557,21 +577,8 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
             "sleep_hours": [7.0, 6.0],
         }
     )
-    raw_path = tmp_path / "input.parquet"
-    raw_df.write_parquet(raw_path)
 
-    monkeypatch.setattr(
-        config_mod,
-        "get_config",
-        lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(
-                windows_per_chunk=8,
-                max_events_per_window=50,
-                max_concurrent_workers=2,
-                max_rpm=0,
-            )
-        ),
-    )
+    monkeypatch.setattr(config_mod, "get_config", _stage2_workers_config)
 
     bucket_windows: list[str] = []
 
@@ -587,17 +594,24 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
         lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
     )
 
-    captured_contexts: list[dict] = []
+    captured_texts: dict[int, str] = {}
+    captured_contexts: dict[int, dict] = {}
 
-    def fake_map(chunk_texts, **kwargs):
-        captured_contexts.extend(kwargs["causal_spec"])
-        return [
-            _FakeFuture({"dataframe": [], "n_extractions": 0, "status": "completed"})
-            for _ in chunk_texts
-        ]
+    async def fake_extract_window_chunk(
+        window_text,
+        window_starts,
+        chunk_idx,
+        question,
+        causal_spec,
+        workspace_id=None,
+        openrouter_api_key=None,
+    ):
+        del window_starts, question, workspace_id, openrouter_api_key
+        captured_texts[chunk_idx] = window_text
+        captured_contexts[chunk_idx] = causal_spec
+        return {"dataframe": [], "n_extractions": 0, "status": "completed"}
 
-    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
-    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+    monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
     causal_spec = {
         "latent": {"constructs": [], "edges": []},
@@ -624,24 +638,30 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
     }
 
     result = _run(
-        stage2_extract.stage2_extraction_flow.fn(
-            raw_df_path=str(raw_path),
-            question="Does stress affect sleep?",
-            causal_spec=causal_spec,
+        stage2_extract.run_stage2_extraction(
+            raw_df,
+            "Does stress affect sleep?",
+            causal_spec,
         )
     )
 
     assert bucket_windows == ["1d", "1mo"]
-    assert [ctx["measurement"]["indicators"][0]["name"] for ctx in captured_contexts] == [
+    assert [captured_texts[idx] for idx in sorted(captured_texts)] == [
+        "chunk:1d-window",
+        "chunk:1mo-window",
+    ]
+    assert [
+        captured_contexts[idx]["measurement"]["indicators"][0]["name"]
+        for idx in sorted(captured_contexts)
+    ] == [
         "stress_score",
         "monthly_sleep_hours",
     ]
     assert result["observation_rows"] == []
 
 
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_support_window(
-    monkeypatch, tmp_path
+def test_run_stage2_extraction_annotates_medical_imaging_monthly_summary_support_window(
+    monkeypatch,
 ):
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.windows as windows_mod
@@ -655,21 +675,8 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
             ],
         }
     )
-    raw_path = tmp_path / "input.parquet"
-    raw_df.write_parquet(raw_path)
 
-    monkeypatch.setattr(
-        config_mod,
-        "get_config",
-        lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(
-                windows_per_chunk=8,
-                max_events_per_window=50,
-                max_concurrent_workers=2,
-                max_rpm=0,
-            )
-        ),
-    )
+    monkeypatch.setattr(config_mod, "get_config", _stage2_workers_config)
     monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
     monkeypatch.setattr(
         windows_mod,
@@ -677,27 +684,31 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
         lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
     )
 
-    def fake_map(chunk_texts, **kwargs):
-        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
-        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
-        return [
-            _FakeFuture(
+    async def fake_extract_window_chunk(
+        window_text,
+        window_starts,
+        chunk_idx,
+        question,
+        causal_spec,
+        workspace_id=None,
+        openrouter_api_key=None,
+    ):
+        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        assert window_text == "chunk:2024-01-01T00:00:00+00:00"
+        assert window_starts == ["2024-01-01T00:00:00+00:00"]
+        return {
+            "dataframe": [
                 {
-                    "dataframe": [
-                        {
-                            "indicator": "monthly_ct_impression",
-                            "value": "stable_nodule",
-                            "timestamp": "2024-01-01T00:00:00+00:00",
-                        }
-                    ],
-                    "n_extractions": 1,
-                    "status": "completed",
+                    "indicator": "monthly_ct_impression",
+                    "value": "stable_nodule",
+                    "timestamp": "2024-01-01T00:00:00+00:00",
                 }
-            )
-        ]
+            ],
+            "n_extractions": 1,
+            "status": "completed",
+        }
 
-    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
-    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+    monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
     causal_spec = {
         "latent": {"constructs": [], "edges": []},
@@ -721,10 +732,10 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
     }
 
     result = _run(
-        stage2_extract.stage2_extraction_flow.fn(
-            raw_df_path=str(raw_path),
-            question="How do imaging findings evolve over time?",
-            causal_spec=causal_spec,
+        stage2_extract.run_stage2_extraction(
+            raw_df,
+            "How do imaging findings evolve over time?",
+            causal_spec,
         )
     )
 
@@ -744,9 +755,8 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
     assert imaging["anchor_time"] == "2024-02-01T00:00:00"
 
 
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observation_rows(
-    monkeypatch, tmp_path
+def test_run_stage2_extraction_annotates_semantic_rows_into_canonical_observation_rows(
+    monkeypatch,
 ):
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.windows as windows_mod
@@ -758,21 +768,8 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
             "mood_label": ["good"],
         }
     )
-    raw_path = tmp_path / "input.parquet"
-    raw_df.write_parquet(raw_path)
 
-    monkeypatch.setattr(
-        config_mod,
-        "get_config",
-        lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(
-                windows_per_chunk=8,
-                max_events_per_window=50,
-                max_concurrent_workers=2,
-                max_rpm=0,
-            )
-        ),
-    )
+    monkeypatch.setattr(config_mod, "get_config", _stage2_workers_config)
     monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
     monkeypatch.setattr(
         windows_mod,
@@ -780,27 +777,31 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
         lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
     )
 
-    def fake_map(chunk_texts, **kwargs):
-        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
-        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
-        return [
-            _FakeFuture(
+    async def fake_extract_window_chunk(
+        window_text,
+        window_starts,
+        chunk_idx,
+        question,
+        causal_spec,
+        workspace_id=None,
+        openrouter_api_key=None,
+    ):
+        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        assert window_text == "chunk:2024-01-01T00:00:00+00:00"
+        assert window_starts == ["2024-01-01T00:00:00+00:00"]
+        return {
+            "dataframe": [
                 {
-                    "dataframe": [
-                        {
-                            "indicator": "closing_mood",
-                            "value": "good",
-                            "timestamp": "2024-01-01T00:00:00+00:00",
-                        }
-                    ],
-                    "n_extractions": 1,
-                    "status": "completed",
+                    "indicator": "closing_mood",
+                    "value": "good",
+                    "timestamp": "2024-01-01T00:00:00+00:00",
                 }
-            )
-        ]
+            ],
+            "n_extractions": 1,
+            "status": "completed",
+        }
 
-    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
-    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+    monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
     causal_spec = {
         "latent": {"constructs": [], "edges": []},
@@ -829,10 +830,10 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
     }
 
     result = _run(
-        stage2_extract.stage2_extraction_flow.fn(
-            raw_df_path=str(raw_path),
-            question="Does stress affect mood?",
-            causal_spec=causal_spec,
+        stage2_extract.run_stage2_extraction(
+            raw_df,
+            "Does stress affect mood?",
+            causal_spec,
         )
     )
 
@@ -870,8 +871,7 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
     assert stress["anchor_time"][0] == "2024-01-02T00:00:00"
 
 
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(monkeypatch, tmp_path):
+def test_run_stage2_extraction_merges_computed_rule_rows_with_semantic_rows(monkeypatch):
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.windows as windows_mod
 
@@ -882,21 +882,8 @@ def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(mon
             "mood_label": ["good", "bad"],
         }
     )
-    raw_path = tmp_path / "input.parquet"
-    raw_df.write_parquet(raw_path)
 
-    monkeypatch.setattr(
-        config_mod,
-        "get_config",
-        lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(
-                windows_per_chunk=8,
-                max_events_per_window=50,
-                max_concurrent_workers=2,
-                max_rpm=0,
-            )
-        ),
-    )
+    monkeypatch.setattr(config_mod, "get_config", _stage2_workers_config)
     monkeypatch.setattr(windows_mod, "chunk_windows", lambda ticks, _chunk_size: [ticks])
     monkeypatch.setattr(
         windows_mod,
@@ -904,27 +891,31 @@ def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(mon
         lambda chunk, _time_col, _display_cols, _max_events: f"chunk:{chunk[0][0]}",
     )
 
-    def fake_map(chunk_texts, **kwargs):
-        assert chunk_texts == ["chunk:2024-01-01T00:00:00+00:00"]
-        assert kwargs["window_starts"] == [["2024-01-01T00:00:00+00:00"]]
-        return [
-            _FakeFuture(
+    async def fake_extract_window_chunk(
+        window_text,
+        window_starts,
+        chunk_idx,
+        question,
+        causal_spec,
+        workspace_id=None,
+        openrouter_api_key=None,
+    ):
+        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        assert window_text == "chunk:2024-01-01T00:00:00+00:00"
+        assert window_starts == ["2024-01-01T00:00:00+00:00"]
+        return {
+            "dataframe": [
                 {
-                    "dataframe": [
-                        {
-                            "indicator": "closing_mood",
-                            "value": "bad",
-                            "timestamp": "2024-01-01T00:00:00+00:00",
-                        }
-                    ],
-                    "n_extractions": 1,
-                    "status": "completed",
+                    "indicator": "closing_mood",
+                    "value": "bad",
+                    "timestamp": "2024-01-01T00:00:00+00:00",
                 }
-            )
-        ]
+            ],
+            "n_extractions": 1,
+            "status": "completed",
+        }
 
-    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
-    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+    monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
     causal_spec = {
         "latent": {"constructs": [], "edges": []},
@@ -956,10 +947,10 @@ def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(mon
     }
 
     result = _run(
-        stage2_extract.stage2_extraction_flow.fn(
-            raw_df_path=str(raw_path),
-            question="Does oxygen saturation affect mood?",
-            causal_spec=causal_spec,
+        stage2_extract.run_stage2_extraction(
+            raw_df,
+            "Does oxygen saturation affect mood?",
+            causal_spec,
         )
     )
 
