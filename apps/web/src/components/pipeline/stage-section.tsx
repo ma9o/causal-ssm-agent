@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
+import { AlertCircle, ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
 import { type ReactNode, useState } from "react";

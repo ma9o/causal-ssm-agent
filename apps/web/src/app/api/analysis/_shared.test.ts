@@ -8,12 +8,11 @@ vi.mock("@/lib/server/episode-runs", () => ({
 
 vi.mock("@/lib/storage", () => ({
   isStorageNotFoundError: (e: unknown) => e instanceof Error && e.message.startsWith("not found"),
-  prefixExists: vi.fn(),
   readData: vi.fn(),
 }));
 
 import { getEpisodeStatus, getEpisodeTimeline } from "@/lib/server/episode-runs";
-import { prefixExists, readData } from "@/lib/storage";
+import { readData } from "@/lib/storage";
 import { buildAnalysisManifest } from "./_shared";
 
 function emptyStatus(workspaceId: string): EpisodeStatus {
@@ -153,28 +152,5 @@ describe("buildAnalysisManifest", () => {
     const manifest = await buildAnalysisManifest("user-1");
 
     expect(manifest?.stages["stage-0"]?.execution?.stateType).toBe("COMPLETED");
-  });
-
-  it("builds shared workspace manifests from persisted artifacts only", async () => {
-    vi.mocked(prefixExists).mockImplementation(async (path: string) =>
-      ["DEMO/run/stage-0.json", "DEMO/run/stage-1a.json"].includes(path),
-    );
-    vi.mocked(readData).mockResolvedValue("Did escitalopram help?\n");
-
-    const manifest = await buildAnalysisManifest("DEMO");
-
-    expect(getEpisodeStatus).not.toHaveBeenCalled();
-    expect(getEpisodeTimeline).not.toHaveBeenCalled();
-    expect(manifest?.question).toBe("Did escitalopram help?");
-    expect(manifest?.stages["stage-0"]?.execution?.stateType).toBe("COMPLETED");
-    expect(manifest?.stages["stage-1a"]?.execution?.stateType).toBe("COMPLETED");
-    expect(manifest?.stages["stage-2"]).toEqual({ execution: null });
-  });
-
-  it("returns null for shared workspaces without persisted stages", async () => {
-    vi.mocked(prefixExists).mockResolvedValue(false);
-    vi.mocked(readData).mockRejectedValue(new Error("not found: query.txt"));
-
-    await expect(buildAnalysisManifest("DEMO")).resolves.toBeNull();
   });
 });

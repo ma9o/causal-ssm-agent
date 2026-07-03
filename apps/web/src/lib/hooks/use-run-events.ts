@@ -2,8 +2,6 @@
 
 import {
   getEpisodeProgress,
-  type AnalysisStageExecution,
-  type AnalysisStageRuns,
   type EpisodeEventRecord,
   type EpisodeProgressPayload,
   type EpisodeTransitionRecord,
@@ -30,7 +28,6 @@ import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
   applyStageUpdate,
   initialProgress,
-  mapExecutionStateType,
   restartStageAttempt,
   type PipelineProgress,
   type StageRunStatus,
@@ -114,59 +111,6 @@ function invalidateStageData(
   queryClient.invalidateQueries({ queryKey: getStageDataQueryKey(workspaceId, stageId) });
 }
 
-function applyHydratedExecutionToProgress(
-  progress: PipelineProgress,
-  stageId: StageId,
-  execution: AnalysisStageExecution,
-): PipelineProgress {
-  const status = mapExecutionStateType(execution.stateType);
-  if (!status) return progress;
-
-  const startTime = execution.startTime ? new Date(execution.startTime).getTime() : undefined;
-  const endTime = execution.endTime ? new Date(execution.endTime).getTime() : undefined;
-
-  if (status === "completed") {
-    let next = progress;
-    if (startTime) {
-      next = applyStageUpdate(next, stageId, "running", startTime);
-    }
-    return applyStageUpdate(next, stageId, "completed", endTime ?? startTime);
-  }
-
-  if (status === "running") {
-    return applyStageUpdate(progress, stageId, "running", startTime);
-  }
-
-  let next = progress;
-  if (startTime) {
-    next = applyStageUpdate(next, stageId, "running", startTime);
-  }
-  return applyStageUpdate(next, stageId, "failed", endTime ?? startTime);
-}
-
-function mergeHydratedManifestProgress(
-  workspaceId: string,
-  stageRuns: AnalysisStageRuns,
-  queryClient: ReturnType<typeof useQueryClient>,
-  progress?: PipelineProgress,
-) {
-  let next = progress ?? initialProgress();
-
-  for (const stage of STAGES) {
-    const execution = stageRuns[stage.id]?.execution;
-    if (!execution) {
-      continue;
-    }
-
-    next = applyHydratedExecutionToProgress(next, stage.id, execution);
-    if (next.stages[stage.id] === "completed") {
-      invalidateStageData(queryClient, workspaceId, stage.id);
-    }
-  }
-
-  return next;
-}
-
 function applyRaisedTransition(
   progress: PipelineProgress | undefined,
   transition: EpisodeTransitionRecord,
@@ -193,11 +137,7 @@ function hasRunningStage(progress: PipelineProgress | undefined): boolean {
   return !!progress && STAGES.some((stage) => progress.stages[stage.id] === "running");
 }
 
-export function useRunEvents(
-  workspaceId: string | null,
-  stageRuns?: AnalysisStageRuns,
-  { readOnly = false }: { readOnly?: boolean } = {},
-) {
+export function useRunEvents(workspaceId: string | null) {
   const queryClient = useQueryClient();
   const cursorRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
@@ -300,17 +240,6 @@ export function useRunEvents(
     queryClient.removeQueries({ queryKey: getStage4StateQueryKey(workspaceId) });
   }, [queryClient, workspaceId]);
 
-  // Hydrate completed stages from the manifest (covers shared workspaces,
-  // which have persisted artifacts but no episode journal or event stream).
-  useEffect(() => {
-    if (!workspaceId || !stageRuns) return;
-
-    queryClient.setQueryData<PipelineProgress | undefined>(
-      getPipelineStatusQueryKey(workspaceId),
-      (old) => mergeHydratedManifestProgress(workspaceId, stageRuns, queryClient, old),
-    );
-  }, [queryClient, stageRuns, workspaceId]);
-
   useEffect(() => {
     if (!workspaceId) return;
 
@@ -335,7 +264,9 @@ export function useRunEvents(
       applyProgressPayload(payload);
       return payload;
     },
-    enabled: !isMockMode() && !!workspaceId && !readOnly,
+    // Read-only viewers poll too: published workspaces carry a real journal,
+    // and a live local run publishing to the hosted store tails through here.
+    enabled: !isMockMode() && !!workspaceId,
     refetchInterval: (query) => {
       const payload = query.state.data;
       if (!payload) {

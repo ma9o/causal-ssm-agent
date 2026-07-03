@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   applyStageUpdate,
   initialProgress,
-  mapExecutionStateType,
   restartStageAttempt,
   type PipelineProgress,
 } from "./pipeline-progress";
@@ -17,15 +16,6 @@ describe("initialProgress", () => {
     expect(progress.currentStage).toBeNull();
     expect(progress.isComplete).toBe(false);
     expect(progress.isFailed).toBe(false);
-  });
-});
-
-describe("mapExecutionStateType", () => {
-  it("maps execution state types onto run statuses", () => {
-    expect(mapExecutionStateType("RUNNING")).toBe("running");
-    expect(mapExecutionStateType("COMPLETED")).toBe("completed");
-    expect(mapExecutionStateType("FAILED")).toBe("failed");
-    expect(mapExecutionStateType("UNKNOWN")).toBeNull();
   });
 });
 

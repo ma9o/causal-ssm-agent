@@ -68,5 +68,4 @@ describe("analysis api client", () => {
       }),
     );
   });
-
 });

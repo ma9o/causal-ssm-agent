@@ -90,19 +90,6 @@ export function restartStageAttempt(
   };
 }
 
-export function mapExecutionStateType(stateType: string): StageRunStatus | null {
-  switch (stateType.toUpperCase()) {
-    case "RUNNING":
-      return "running";
-    case "COMPLETED":
-      return "completed";
-    case "FAILED":
-      return "failed";
-    default:
-      return null;
-  }
-}
-
 export function applyStageUpdate(
   prev: PipelineProgress | undefined,
   stageId: StageId,

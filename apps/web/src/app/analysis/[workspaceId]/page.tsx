@@ -29,17 +29,10 @@ export default function AnalysisPage({ params }: { params: Promise<{ workspaceId
       return null;
     }
 
-    if (manifestQuery.error.message.includes("API error 401")) {
-      return "This analysis is only available in the browser session that started it.";
-    }
-    if (manifestQuery.error.message.includes("API error 403")) {
-      return "Workspace access denied for this analysis.";
-    }
-
     return manifestQuery.error.message;
   }, [manifest, manifestQuery.error]);
 
-  useRunEvents(workspaceId, manifest?.stages, { readOnly: manifest?.readOnly ?? false });
+  useRunEvents(workspaceId);
 
   useEffect(() => {
     if (!progress) {
