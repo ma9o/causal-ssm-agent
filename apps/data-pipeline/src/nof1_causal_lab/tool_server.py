@@ -71,9 +71,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from nof1_causal_lab.episode_api import capabilities_router  # noqa: E402
 from nof1_causal_lab.episode_api import router as episode_router  # noqa: E402
 
 app.include_router(episode_router)
+app.include_router(capabilities_router)
 
 
 # ---------------------------------------------------------------------------

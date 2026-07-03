@@ -1,0 +1,38 @@
+"""Read-only facade: same read endpoints as the full facade, move plane 403s."""
+
+from fastapi.testclient import TestClient
+
+from nof1_causal_lab.read_facade import create_read_facade_app
+from nof1_causal_lab.utils import data as data_module
+
+
+def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
+    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    client = TestClient(create_read_facade_app())
+
+    assert client.get("/api/capabilities").json() == {"moves_enabled": False}
+
+    status = client.get("/api/episodes/WS-READONLY")
+    assert status.status_code == 200
+    body = status.json()
+    assert body["seq"] == 0
+    assert body["auto_running"] is False
+
+    move = client.post(
+        "/api/episodes/WS-READONLY/moves",
+        json={"move": {"kind": "run", "stage_id": "stage-0"}},
+    )
+    assert move.status_code == 403
+    start = client.post("/api/episodes", json={"workspace_id": "WS-READONLY"})
+    assert start.status_code == 403
+    auto = client.post("/api/episodes/WS-READONLY/auto", json={})
+    assert auto.status_code == 403
+
+
+def test_full_facade_advertises_moves(monkeypatch):
+    monkeypatch.delenv("EPISODE_FACADE_READ_ONLY", raising=False)
+    from nof1_causal_lab import tool_server
+
+    client = TestClient(tool_server.app)
+    assert client.get("/api/capabilities").json() == {"moves_enabled": True}

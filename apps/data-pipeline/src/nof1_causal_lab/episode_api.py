@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException
@@ -41,6 +42,28 @@ from nof1_causal_lab.machine.store import EpisodeJournal
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/episodes")
+
+capabilities_router = APIRouter(prefix="/api")
+
+
+def moves_enabled() -> bool:
+    """Whether this facade deployment serves the move plane.
+
+    A read-only facade (the hosted viewer's backend) runs the same read
+    endpoints against a published store with no Temporal attached; the
+    viewer reads this capability instead of being built as a fork.
+    """
+    return os.environ.get("EPISODE_FACADE_READ_ONLY") != "1"
+
+
+def _require_moves_enabled() -> None:
+    if not moves_enabled():
+        raise HTTPException(403, "This facade is read-only: the move plane is not deployed here")
+
+
+@capabilities_router.get("/capabilities")
+def get_capabilities() -> dict[str, Any]:
+    return {"moves_enabled": moves_enabled()}
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +196,7 @@ def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
 @router.post("")
 async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
     """Ensure the episode workflow exists; optionally write the question."""
+    _require_moves_enabled()
     await _episode_handle(body.workspace_id)
     outcome = None
     if body.question is not None:
@@ -188,6 +212,7 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
 
 @router.post("/{workspace_id}/moves")
 async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
+    _require_moves_enabled()
     return await _propose(workspace_id, body)
 
 
@@ -246,6 +271,7 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
 @router.post("/{workspace_id}/auto")
 async def auto_run(workspace_id: str, body: AutoRunBody) -> dict[str, Any]:
     """Run enabled stages in dependency order until quiescent (background)."""
+    _require_moves_enabled()
     if workspace_id in _AUTO_DRIVERS:
         raise HTTPException(409, f"auto-run already active for {workspace_id}")
     await _episode_handle(workspace_id)  # fail fast if Temporal is down
