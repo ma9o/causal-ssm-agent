@@ -60,18 +60,12 @@ class TransitionEffects(BaseModel):
 class ExecOptions(BaseModel):
     """Per-move execution parameters (infra, not domain state).
 
-    ``openrouter_secret_ref`` is a single-use encrypted key reference —
-    the key itself is resolved activity-side and never enters workflow
-    history or the artifact store.
+    Credentials are never per-move: LLM stages read the ambient
+    ``OPENROUTER_API_KEY`` of whatever process executes them.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    openrouter_access_mode: str | None = None
-    openrouter_secret_ref: str | None = None
-    # Resolved key for Modal transit only — never set on options that cross
-    # the workflow/update boundary (those carry the single-use ref instead).
-    openrouter_api_key: str | None = None
     inference_method: str | None = None
     enable_literature: bool | None = None
     max_windows: int | None = None

@@ -456,9 +456,8 @@ def test_run_semantic_chunks_asyncio_emits_stage2_plan_worker_and_snapshot_event
         question,
         causal_spec,
         workspace_id=None,
-        openrouter_api_key=None,
     ):
-        del window_starts, question, causal_spec, workspace_id, openrouter_api_key
+        del window_starts, question, causal_spec, workspace_id
         extracted_texts.append(window_text)
         if chunk_idx == 0:
             return {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
@@ -481,7 +480,6 @@ def test_run_semantic_chunks_asyncio_emits_stage2_plan_worker_and_snapshot_event
             chunk_contexts=[{"measurement": {}}, {"measurement": {}}],
             question="Q",
             workspace_id="ws-456",
-            openrouter_api_key=None,
             max_concurrent_workers=6,
             max_rpm=450,
         )
@@ -604,9 +602,8 @@ def test_run_stage2_extraction_buckets_semantic_indicators_by_observation_window
         question,
         causal_spec,
         workspace_id=None,
-        openrouter_api_key=None,
     ):
-        del window_starts, question, workspace_id, openrouter_api_key
+        del window_starts, question, workspace_id
         captured_texts[chunk_idx] = window_text
         captured_contexts[chunk_idx] = causal_spec
         return {"dataframe": [], "n_extractions": 0, "status": "completed"}
@@ -691,9 +688,8 @@ def test_run_stage2_extraction_annotates_medical_imaging_monthly_summary_support
         question,
         causal_spec,
         workspace_id=None,
-        openrouter_api_key=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        del chunk_idx, question, causal_spec, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -784,9 +780,8 @@ def test_run_stage2_extraction_annotates_semantic_rows_into_canonical_observatio
         question,
         causal_spec,
         workspace_id=None,
-        openrouter_api_key=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        del chunk_idx, question, causal_spec, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -898,9 +893,8 @@ def test_run_stage2_extraction_merges_computed_rule_rows_with_semantic_rows(monk
         question,
         causal_spec,
         workspace_id=None,
-        openrouter_api_key=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id, openrouter_api_key
+        del chunk_idx, question, causal_spec, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {

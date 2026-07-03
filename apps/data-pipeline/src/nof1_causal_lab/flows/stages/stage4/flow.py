@@ -50,7 +50,6 @@ async def stage4_agentic_flow(
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
     workspace_id: str | None = None,
-    openrouter_api_key: str | None = None,
     root_run_id: str | None = None,
 ) -> dict:
     """Stage 4 LLM flow.
@@ -101,7 +100,6 @@ async def stage4_agentic_flow(
     )
     async with open_llm_stage(
         config=runtime_config,
-        openrouter_api_key=openrouter_api_key,
         logger=logger,
     ) as factory:
         paraphrase_factory: StageSessionFactory | None = None

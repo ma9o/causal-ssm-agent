@@ -12,8 +12,6 @@ import json
 import logging
 import threading
 from collections import deque
-from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic, perf_counter
 from typing import Any, Literal, cast
@@ -90,9 +88,8 @@ class RpmLimiter:
 
 
 _limiters: dict[str, RpmLimiter] = {}
-_openrouter_api_key: ContextVar[str | None] = ContextVar("openrouter_api_key", default=None)
-_openrouter_clients: dict[str, AsyncOpenAI] = {}
-_openrouter_clients_lock = threading.Lock()
+_openrouter_client: AsyncOpenAI | None = None
+_openrouter_client_lock = threading.Lock()
 
 
 def set_limiter(name: str, limiter: RpmLimiter | None) -> None:
@@ -125,50 +122,18 @@ def get_limiter_request_count(name: str) -> int:
     return limiter.request_count()
 
 
-def get_openrouter_api_key() -> str | None:
-    return _openrouter_api_key.get()
-
-
-def resolve_openrouter_api_key(api_key: str | None = None) -> str | None:
-    if api_key is not None:
-        return api_key
-    request_local_key = get_openrouter_api_key()
-    if request_local_key is not None:
-        return request_local_key
-    return get_secret("OPENROUTER_API_KEY")
-
-
-@contextmanager
-def use_openrouter_api_key(api_key: str | None):
-    token = _openrouter_api_key.set(resolve_openrouter_api_key(api_key))
-    try:
-        yield
-    finally:
-        _openrouter_api_key.reset(token)
-
-
-def _openrouter_cache_key(api_key: str | None) -> str:
-    return api_key or "__default__"
-
-
-def _build_openrouter_client(api_key: str | None) -> AsyncOpenAI:
-    return AsyncOpenAI(
-        base_url=OPENROUTER_BASE_URL,
-        # The SDK requires a string up front; missing credentials still surface
-        # as a normal authentication error on the first request.
-        api_key=api_key or "missing",
-    )
-
-
-def _get_openrouter_client(api_key: str | None = None) -> AsyncOpenAI:
-    resolved_api_key = resolve_openrouter_api_key(api_key)
-    cache_key = _openrouter_cache_key(resolved_api_key)
-    with _openrouter_clients_lock:
-        client = _openrouter_clients.get(cache_key)
-        if client is None:
-            client = _build_openrouter_client(resolved_api_key)
-            _openrouter_clients[cache_key] = client
-    return client
+def _get_openrouter_client() -> AsyncOpenAI:
+    """The process-wide client, keyed by the ambient ``OPENROUTER_API_KEY``."""
+    global _openrouter_client
+    with _openrouter_client_lock:
+        if _openrouter_client is None:
+            _openrouter_client = AsyncOpenAI(
+                base_url=OPENROUTER_BASE_URL,
+                # The SDK requires a string up front; missing credentials still
+                # surface as a normal authentication error on the first request.
+                api_key=get_secret("OPENROUTER_API_KEY") or "missing",
+            )
+    return _openrouter_client
 
 
 def normalize_openrouter_model_name(model_name: str) -> str:

@@ -129,7 +129,6 @@ async def run_stage6(
     async with (
         open_llm_stage(
             config=runtime_config,
-            openrouter_api_key=None,
             logger=logger,
         ) as factory,
         factory.open(

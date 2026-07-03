@@ -49,7 +49,6 @@ async def extract_window_chunk(
     question: str,
     causal_spec: dict,
     workspace_id: str | None = None,
-    openrouter_api_key: str | None = None,
 ) -> dict:
     """Extract indicator values from a chunk of support windows.
 
@@ -69,7 +68,6 @@ async def extract_window_chunk(
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
     from nof1_causal_lab.utils.causal_spec import get_indicators
     from nof1_causal_lab.utils.config import get_config
-    from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
     from nof1_causal_lab.workers.core import run_worker_extraction
 
     config = get_config()
@@ -102,42 +100,41 @@ async def extract_window_chunk(
         if tracker is not None:
             emit_stage2_snapshot(workspace_id, tracker.mark_running(chunk_idx))
 
-    with use_openrouter_api_key(openrouter_api_key):
-        factory = StageSessionFactory(
-            stage2_llm,
-            config.llm,
-            stage_id=f"stage-2/chunk-{chunk_idx}",
-            max_tool_turns=config.stage2_workers.max_tool_turns,
-        )
+    factory = StageSessionFactory(
+        stage2_llm,
+        config.llm,
+        stage_id=f"stage-2/chunk-{chunk_idx}",
+        max_tool_turns=config.stage2_workers.max_tool_turns,
+    )
 
-        started_at = perf_counter()
-        result = await run_worker_extraction(
-            window_text=window_text,
-            window_starts=window_starts,
-            question=question,
-            causal_spec=causal_spec,
-            session_factory=factory,
-            logger=logger,
-            call_label=chunk_label,
-        )
+    started_at = perf_counter()
+    result = await run_worker_extraction(
+        window_text=window_text,
+        window_starts=window_starts,
+        question=question,
+        causal_spec=causal_spec,
+        session_factory=factory,
+        logger=logger,
+        call_label=chunk_label,
+    )
 
-        elapsed = perf_counter() - started_at
-        logger.info(
-            "[%s] Finished in %.1fs with %d extractions and %d output rows",
-            chunk_label,
-            elapsed,
-            len(result.output.extractions),
-            result.dataframe.height,
-        )
+    elapsed = perf_counter() - started_at
+    logger.info(
+        "[%s] Finished in %.1fs with %d extractions and %d output rows",
+        chunk_label,
+        elapsed,
+        len(result.output.extractions),
+        result.dataframe.height,
+    )
 
-        result_dict: dict = {
-            "dataframe": result.dataframe.to_dicts(),
-            "n_extractions": len(result.output.extractions),
-            "status": "completed",
-        }
-        if factory.accumulated_trace.messages:
-            result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
-        return result_dict
+    result_dict: dict = {
+        "dataframe": result.dataframe.to_dicts(),
+        "n_extractions": len(result.output.extractions),
+        "status": "completed",
+    }
+    if factory.accumulated_trace.messages:
+        result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+    return result_dict
 
 
 async def _run_semantic_chunks_asyncio(
@@ -147,7 +144,6 @@ async def _run_semantic_chunks_asyncio(
     chunk_contexts: list[dict],
     question: str,
     workspace_id: str | None,
-    openrouter_api_key: str | None,
     max_concurrent_workers: int,
     max_rpm: int,
 ) -> tuple[list[dict], list[dict], int, dict | None]:
@@ -179,7 +175,6 @@ async def _run_semantic_chunks_asyncio(
                 question,
                 chunk_contexts[chunk_idx],
                 workspace_id=workspace_id,
-                openrouter_api_key=openrouter_api_key,
             )
 
         async def _bounded() -> dict:
@@ -227,7 +222,6 @@ async def run_stage2_extraction_core(
     stage2_workers: Any,
     workspace_id: str | None = None,
     max_windows: int | None = None,
-    openrouter_api_key: str | None = None,
     semantic_chunk_runner: SemanticChunkRunner | None = None,
 ) -> dict:
     """Shared Stage 2 extraction helper for the machine runner and evals.
@@ -300,7 +294,6 @@ async def run_stage2_extraction_core(
                 chunk_contexts=chunk_contexts,
                 question=question,
                 workspace_id=workspace_id,
-                openrouter_api_key=openrouter_api_key,
                 max_concurrent_workers=stage2_workers.max_concurrent_workers,
                 max_rpm=stage2_workers.max_rpm,
             )
@@ -336,7 +329,6 @@ async def run_stage2_extraction(
     causal_spec: dict,
     workspace_id: str | None = None,
     max_windows: int | None = None,
-    openrouter_api_key: str | None = None,
 ) -> dict:
     """Stage 2: Extract indicator values via hybrid computed/semantic paths.
 
@@ -355,6 +347,5 @@ async def run_stage2_extraction(
         stage2_workers=config.stage2_workers,
         workspace_id=workspace_id,
         max_windows=max_windows,
-        openrouter_api_key=openrouter_api_key,
         semantic_chunk_runner=_run_semantic_chunks_asyncio,
     )

@@ -881,7 +881,7 @@ class TestOpenRouterClient:
         monkeypatch.setattr(
             openrouter_client,
             "_get_openrouter_client",
-            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+            lambda: _FakeOpenRouterClient(response, seen),
         )
 
         with caplog.at_level(logging.INFO):
@@ -919,7 +919,7 @@ class TestOpenRouterClient:
         monkeypatch.setattr(
             openrouter_client,
             "_get_openrouter_client",
-            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+            lambda: _FakeOpenRouterClient(response, seen),
         )
 
         with caplog.at_level(logging.INFO):
@@ -956,7 +956,7 @@ class TestOpenRouterClient:
         monkeypatch.setattr(
             openrouter_client,
             "_get_openrouter_client",
-            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+            lambda: _FakeOpenRouterClient(response, seen),
         )
 
         _run(
@@ -969,40 +969,41 @@ class TestOpenRouterClient:
 
         assert _require_mapping(seen["kwargs"])["model"] == "anthropic/claude-sonnet-4"
 
-    def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
+    def test_call_model_uses_ambient_env_openrouter_key(self, monkeypatch):
         from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
-        monkeypatch.setattr(openrouter_client, "_openrouter_clients", {})
+        response = {
+            "model": "test-model",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": "ok",
+                    },
+                }
+            ],
+        }
 
-        def fake_build_client(api_key: str | None):
+        def fake_async_openai(*, base_url: str, api_key: str):
+            del base_url
             seen["api_key"] = api_key
-            response = {
-                "model": "test-model",
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-                "choices": [
-                    {
-                        "finish_reason": "stop",
-                        "message": {
-                            "content": "ok",
-                        },
-                    }
-                ],
-            }
             return _FakeOpenRouterClient(response, seen)
 
-        monkeypatch.setattr(openrouter_client, "_build_openrouter_client", fake_build_client)
+        monkeypatch.setattr(openrouter_client, "_openrouter_client", None)
+        monkeypatch.setattr(openrouter_client, "AsyncOpenAI", fake_async_openai)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
 
-        with openrouter_client.use_openrouter_api_key("user-key"):
-            _run(
-                openrouter_client.call_model(
-                    "test-model",
-                    [{"role": "user", "content": "hello"}],
-                    config=openrouter_client.GenerateConfig(),
-                )
+        _run(
+            openrouter_client.call_model(
+                "test-model",
+                [{"role": "user", "content": "hello"}],
+                config=openrouter_client.GenerateConfig(),
             )
+        )
 
-        assert seen["api_key"] == "user-key"
+        assert seen["api_key"] == "env-key"
         assert _require_mapping(seen["kwargs"])["model"] == "test-model"
 
     def test_call_model_uses_reasoning_config_in_extra_body(self, monkeypatch):
@@ -1025,7 +1026,7 @@ class TestOpenRouterClient:
         monkeypatch.setattr(
             openrouter_client,
             "_get_openrouter_client",
-            lambda _api_key=None: _FakeOpenRouterClient(response, seen),
+            lambda: _FakeOpenRouterClient(response, seen),
         )
 
         _run(
@@ -1040,16 +1041,6 @@ class TestOpenRouterClient:
             "provider": {"sort": "throughput"},
             "reasoning": {"effort": "high"},
         }
-
-    def test_use_openrouter_api_key_none_preserves_current_request_local_key(self):
-        from nof1_causal_lab.utils import openrouter_client
-
-        with (
-            openrouter_client.use_openrouter_api_key("user-key"),
-            openrouter_client.use_openrouter_api_key(None),
-        ):
-            assert openrouter_client.get_openrouter_api_key() == "user-key"
-
 
 # =============================================================================
 # dict_messages_to_chat
@@ -1090,9 +1081,8 @@ class TestDictMessagesToChat:
 class TestMakeLLMStageRunner:
     """Tests for the session-based make_llm_stage_runner wrapper."""
 
-    def test_forwards_stage_llm_and_api_key_via_session_factory(self, monkeypatch):
+    def test_forwards_stage_llm_via_session_factory(self, monkeypatch):
         from nof1_causal_lab.flows.llm_stage_runtime import make_llm_stage_runner
-        from nof1_causal_lab.utils import openrouter_client
         from nof1_causal_lab.utils.agent_session import StageSessionFactory
         from nof1_causal_lab.utils.config import (
             ClaudeCodeDefaults,
@@ -1112,7 +1102,6 @@ class TestMakeLLMStageRunner:
 
         async def orchestrator_fn(*, session_factory):
             assert isinstance(session_factory, StageSessionFactory)
-            captured["api_key"] = openrouter_client.get_openrouter_api_key()
             captured["max_tool_turns"] = session_factory._max_tool_turns
             return {"ok": True}
 
@@ -1125,9 +1114,7 @@ class TestMakeLLMStageRunner:
             payload_builder=lambda result: result,
         )
 
-        with openrouter_client.use_openrouter_api_key("user-key"):
-            result = _run(runner())
+        result = _run(runner())
 
         assert result == {"ok": True}
-        assert captured["api_key"] == "user-key"
         assert captured["max_tool_turns"] == 77

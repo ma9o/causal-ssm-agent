@@ -186,9 +186,7 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
     return dest_dir
 
 
-async def agentic_ingest(
-    workspace_id: str = "test_workspace", openrouter_api_key: str | None = None
-) -> IngestionResult:
+async def agentic_ingest(workspace_id: str = "test_workspace") -> IngestionResult:
     """Run Stage 0 end to end for the latest uploaded file."""
     raw_storage_path = _find_raw_input(workspace_id)
     raw_name = raw_storage_path.rsplit("/", 1)[-1]
@@ -203,7 +201,6 @@ async def agentic_ingest(
     )
     async with open_llm_stage(
         config=runtime_config,
-        openrouter_api_key=openrouter_api_key,
         logger=logger,
     ) as factory:
         with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:

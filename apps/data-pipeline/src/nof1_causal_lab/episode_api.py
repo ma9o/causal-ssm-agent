@@ -10,10 +10,6 @@ The ``auto`` endpoint is the default navigation policy — run enabled
 stages in dependency order while their outputs are missing or stale —
 giving the web "run the pipeline" parity as one background driver. An
 LLM navigator replaces this policy by calling ``moves`` directly.
-
-BYOK caveat: an ``openrouter_secret_ref`` is single-use, so it authorizes
-exactly one move; auto-run across LLM stages needs ambient credentials
-(``openrouter_access_mode: local``).
 """
 
 from __future__ import annotations

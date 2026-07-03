@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.utils.agent_session import StageSessionFactory
-from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -53,38 +52,36 @@ def attach_trace(payload: dict[str, Any], trace: LLMTrace) -> dict[str, Any]:
 async def open_llm_stage(
     *,
     config: LLMStageRuntimeConfig,
-    openrouter_api_key: str | None,
     logger: logging.Logger,
 ) -> AsyncIterator[StageSessionFactory]:
-    """Open the OpenRouter context and stage session factory for one stage run."""
+    """Open the stage session factory for one stage run."""
     started_at = time.monotonic()
-    with use_openrouter_api_key(openrouter_api_key):
-        logger.info("[%s] starting", config.stage_id)
-        factory = build_stage_session_factory(config)
-        try:
-            yield factory
-        except Exception as exc:
-            elapsed = time.monotonic() - started_at
-            trace_messages = len(factory.accumulated_trace.messages)
-            if trace_messages:
-                logger.error(
-                    "[%s] failed after %.1fs with %d trace messages: %s",
-                    config.stage_id,
-                    elapsed,
-                    trace_messages,
-                    exc,
-                )
-            else:
-                logger.error("[%s] failed after %.1fs: %s", config.stage_id, elapsed, exc)
-            raise
+    logger.info("[%s] starting", config.stage_id)
+    factory = build_stage_session_factory(config)
+    try:
+        yield factory
+    except Exception as exc:
         elapsed = time.monotonic() - started_at
-        logger.info(
-            "[%s] completed in %.1fs (harness=%s, model=%s)",
-            config.stage_id,
-            elapsed,
-            config.stage_llm.harness,
-            config.stage_llm.model,
-        )
+        trace_messages = len(factory.accumulated_trace.messages)
+        if trace_messages:
+            logger.error(
+                "[%s] failed after %.1fs with %d trace messages: %s",
+                config.stage_id,
+                elapsed,
+                trace_messages,
+                exc,
+            )
+        else:
+            logger.error("[%s] failed after %.1fs: %s", config.stage_id, elapsed, exc)
+        raise
+    elapsed = time.monotonic() - started_at
+    logger.info(
+        "[%s] completed in %.1fs (harness=%s, model=%s)",
+        config.stage_id,
+        elapsed,
+        config.stage_llm.harness,
+        config.stage_llm.model,
+    )
 
 
 def make_llm_stage_runner(
@@ -109,7 +106,6 @@ def make_llm_stage_runner(
     logger = logging.getLogger(f"nof1_causal_lab.flows.{stage_id}")
 
     async def _run(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        openrouter_api_key = kwargs.pop("openrouter_api_key", None)
         runtime_config = LLMStageRuntimeConfig(
             stage_id=stage_id,
             stage_llm=stage_llm_getter(),
@@ -118,7 +114,6 @@ def make_llm_stage_runner(
         )
         async with open_llm_stage(
             config=runtime_config,
-            openrouter_api_key=openrouter_api_key,
             logger=logger,
         ) as factory:
             result = await orchestrator_fn(*args, session_factory=factory, **kwargs)

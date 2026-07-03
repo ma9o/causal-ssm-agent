@@ -42,20 +42,6 @@ def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str,
     return {k: v for k, v in data.items() if k in fields}
 
 
-def resolve_openrouter_api_key(options: ExecOptions) -> str | None:
-    """Resolve the per-move OpenRouter key (single-use ref, activity-side)."""
-    if options.openrouter_api_key:
-        return options.openrouter_api_key
-    if options.openrouter_secret_ref:
-        from nof1_causal_lab.utils.byok_secret_store import consume_byok_secret_ref
-
-        key = consume_byok_secret_ref(options.openrouter_secret_ref)
-        if key is None:
-            raise ValueError("Invalid or expired OpenRouter secret reference")
-        return key
-    return None
-
-
 def _question_text(store: ArtifactStore, pins: dict[ArtifactId, int]) -> str:
     return store.read_json_file("question", pins["question"], "question.json")["text"]
 
@@ -84,9 +70,8 @@ async def _run_stage0(
     from nof1_causal_lab.flows.pipeline_helpers import build_stage0_payload
     from nof1_causal_lab.flows.stages.stage0.flow import agentic_ingest
 
-    result = await agentic_ingest(
-        workspace_id, openrouter_api_key=resolve_openrouter_api_key(options)
-    )
+    del options
+    result = await agentic_ingest(workspace_id)
     payload = build_stage0_payload(result)
     info = store.write_version(
         "raw_data",
@@ -108,10 +93,8 @@ async def _run_stage1a(
 ) -> list[ArtifactVersionInfo]:
     from nof1_causal_lab.flows.stages.stage1a.flow import propose_latent_model
 
-    payload = await propose_latent_model(
-        _question_text(store, pins),
-        openrouter_api_key=resolve_openrouter_api_key(options),
-    )
+    del options
+    payload = await propose_latent_model(_question_text(store, pins))
     info = store.write_version(
         "constructs",
         provenance="computed",
@@ -136,6 +119,7 @@ async def _run_stage1b(
     )
     from nof1_causal_lab.flows.stages.stage1b.result import split_stage1b_result
 
+    del options
     question = _question_text(store, pins)
     profile = store.read_json_file("raw_data", pins["raw_data"], "profile.json")
     raw_df = store.read_parquet_file("raw_data", pins["raw_data"], "raw.parquet")
@@ -151,7 +135,6 @@ async def _run_stage1b(
         latent_model,
         [dataset_schema],
         dataset_summary=f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
-        openrouter_api_key=resolve_openrouter_api_key(options),
     )
     artifacts = split_stage1b_result(result, latent_model=latent_model)
 
@@ -206,7 +189,6 @@ async def _run_stage2(
         causal_spec,
         workspace_id=workspace_id,
         max_windows=options.max_windows,
-        openrouter_api_key=resolve_openrouter_api_key(options),
     )
     materialized = materialize_stage2_outputs(result, causal_spec)
     data_for_model = materialized["data_for_model"]
@@ -314,7 +296,6 @@ async def _run_stage4(
         indicator_audits=validation_report.get("indicators", {}),
         enable_literature=lit_enabled,
         workspace_id=workspace_id,
-        openrouter_api_key=resolve_openrouter_api_key(options),
         root_run_id=workspace_id,
     )
 
@@ -463,9 +444,7 @@ async def execute_stage(
     """Run a stage, routing heavy stages to Modal in production."""
     pins = input_pins(state, stage_spec(stage_id))
     if os.environ.get("DEPLOYMENT_ENV") == "production" and stage_id in _MODAL_STAGES:
-        local_llm = options.openrouter_access_mode == "local"
-        if not (stage_id == "stage-4" and local_llm):
-            from nof1_causal_lab.flows.modal_runners import run_stage_on_modal
+        from nof1_causal_lab.flows.modal_runners import run_stage_on_modal
 
-            return await run_stage_on_modal(workspace_id, stage_id, pins, options)
+        return await run_stage_on_modal(workspace_id, stage_id, pins, options)
     return await execute_stage_locally(workspace_id, stage_id, pins, options)

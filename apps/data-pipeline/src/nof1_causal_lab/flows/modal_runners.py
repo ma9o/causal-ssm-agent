@@ -142,21 +142,15 @@ async def run_stage_on_modal(
     pins: dict[ArtifactId, int],
     options: ExecOptions,
 ) -> TransitionEffects:
-    """Invoke a stage remotely; the single-use key ref is resolved here so
-    only the raw key (never the ref, which is locally consumed) transits."""
+    """Invoke a stage remotely; credentials come from the Modal secret block."""
     from nof1_causal_lab.machine.moves import TransitionEffects
-    from nof1_causal_lab.machine.runners import resolve_openrouter_api_key
 
-    api_key = resolve_openrouter_api_key(options)
-    remote_options = options.model_copy(
-        update={"openrouter_secret_ref": None, "openrouter_api_key": api_key}
-    )
     remote_fn = _run_stage_gpu if stage_id in _GPU_STAGES else _run_stage_cpu
     raw = await remote_fn.remote.aio(
         workspace_id,
         stage_id,
         dict(pins),
-        remote_options.model_dump(mode="json"),
+        options.model_dump(mode="json"),
     )
     return TransitionEffects.model_validate(raw)
 
