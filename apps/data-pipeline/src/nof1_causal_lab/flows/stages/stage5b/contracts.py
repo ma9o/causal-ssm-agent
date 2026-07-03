@@ -48,5 +48,5 @@ class Stage5bContract(BaseStageContract):
         return (
             f"Stage 5b summary: method={self.inference_metadata.method} "
             f"samples={self.inference_metadata.n_samples} "
-            f"ppc_warnings={ppc_warnings} outcome={self.outcome}"
+            f"ppc_warnings={ppc_warnings}"
         )

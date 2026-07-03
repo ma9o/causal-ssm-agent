@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import TYPE_CHECKING, Any
-
-from nof1_causal_lab.flows import get_prefect_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def make_stage_tool(

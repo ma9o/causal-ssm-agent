@@ -1,21 +1,23 @@
 """Stage 2: Hybrid computed/semantic extraction entrypoints."""
 
-from collections.abc import Awaitable, Callable, Sequence
-from pathlib import Path
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any, cast
 
 import polars as pl
-from prefect import flow, get_run_logger, task
-from prefect.futures import as_completed
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.runtime_events import (
-    emit_nested_stage_running_event,
     emit_stage2_plan_event,
     emit_stage2_worker_event,
 )
-from nof1_causal_lab.flows.stages.stage2.execution import collect_batch_results
+from nof1_causal_lab.flows.stages.stage2.execution import (
+    collect_worker_results,
+    run_with_retries,
+)
 from nof1_causal_lab.flows.stages.stage2.planning import (
     chunk_log_label,
     prepare_semantic_chunks,
@@ -28,101 +30,128 @@ from nof1_causal_lab.flows.stages.stage2.progress import (
     register_stage2_progress_tracker,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
-SemanticChunkRunner = Callable[..., Awaitable[tuple[list[dict], list[dict], int, dict | None]]]
+SemanticChunkRunner = Callable[..., "Awaitable[tuple[list[dict], list[dict], int, dict | None]]"]
 
-
-def _register_stage2_progress_tracker(
-    root_run_id: str,
-    *,
-    total_workers: int,
-) -> Any:
-    return register_stage2_progress_tracker(root_run_id, total_workers=total_workers)
-
-
-def _get_stage2_progress_tracker(root_run_id: str) -> Any | None:
-    return get_stage2_progress_tracker(root_run_id)
+__all__ = [
+    "extract_window_chunk",
+    "project_to_source_columns",
+    "run_stage2_extraction",
+    "run_stage2_extraction_core",
+]
 
 
-def _clear_stage2_progress_tracker(root_run_id: str) -> None:
-    clear_stage2_progress_tracker(root_run_id)
-
-
-def _emit_stage2_snapshot(root_run_id: str, snapshot: dict[str, int]) -> None:
-    emit_stage2_snapshot(root_run_id, snapshot)
-
-
-def _project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.DataFrame:
-    return project_to_source_columns(df, indicators)
-
-
-def _chunk_log_label(chunk_idx: int, n_windows: int, n_events: int) -> str:
-    return chunk_log_label(chunk_idx, n_windows, n_events)
-
-
-def _collect_batch_results(
-    *,
-    futures: Sequence[Any],
-    batch_indices: Sequence[int],
-    batch_n_windows: Sequence[int],
-    logger: Any,
-    completed_before: int,
-    total_chunks: int,
-    root_run_id: str | None = None,
-) -> tuple[list[dict], list[dict], int, dict | None]:
-    return collect_batch_results(
-        futures=futures,
-        batch_indices=batch_indices,
-        batch_n_windows=batch_n_windows,
-        logger=logger,
-        completed_before=completed_before,
-        total_chunks=total_chunks,
-        as_completed_fn=as_completed,
-        root_run_id=root_run_id,
-        emit_worker_event=emit_stage2_worker_event,
-        get_tracker=_get_stage2_progress_tracker,
-        emit_snapshot=_emit_stage2_snapshot,
-    )
-
-
-def _prepare_semantic_chunks(
-    *,
-    raw_df: pl.DataFrame,
-    semantic_inds: list[dict],
+async def extract_window_chunk(
+    window_text: str,
+    window_starts: list[str],
+    chunk_idx: int,
+    question: str,
     causal_spec: dict,
-    model_clock: str,
-    time_col: str,
-    windows_per_chunk: int,
-    max_events_per_window: int,
-    max_windows: int | None,
-) -> tuple[list[str], list[list[str]], list[dict]]:
-    return prepare_semantic_chunks(
-        raw_df=raw_df,
-        semantic_inds=semantic_inds,
-        causal_spec=causal_spec,
-        model_clock=model_clock,
-        time_col=time_col,
-        windows_per_chunk=windows_per_chunk,
-        max_events_per_window=max_events_per_window,
-        max_windows=max_windows,
+    workspace_id: str | None = None,
+    openrouter_api_key: str | None = None,
+) -> dict:
+    """Extract indicator values from a chunk of support windows.
+
+    Args:
+        window_text: Pre-formatted text of support-window events.
+        window_starts: Expected support-window starts in this chunk.
+        chunk_idx: Index of this chunk (for logging/naming).
+        question: The causal research question.
+        causal_spec: Full CausalSpec dict with measurement model.
+
+    Returns:
+        Dict with 'dataframe' (as list of dicts for serialization),
+        'n_extractions', and 'status'.
+    """
+    from dataclasses import replace
+
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.causal_spec import get_indicators
+    from nof1_causal_lab.utils.config import get_config
+    from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
+    from nof1_causal_lab.workers.core import run_worker_extraction
+
+    config = get_config()
+    # Stage 2 workers override only the per-call timeout (prevents hung calls).
+    # Everything else inherits the embedded LLM defaults.
+    stage2_llm = replace(
+        config.stage2_workers.llm,
+        timeout=config.stage2_workers.worker_timeout,
     )
+    indicator_count = len(get_indicators(causal_spec))
+    n_events = window_text.count("\n")
+    chunk_label = chunk_log_label(chunk_idx, len(window_starts), n_events)
+
+    logger.info(
+        "[%s] Starting extraction with %d windows, %d indicators using model %s (timeout=%ds)",
+        chunk_label,
+        len(window_starts),
+        indicator_count,
+        stage2_llm.model,
+        stage2_llm.timeout,
+    )
+    if workspace_id:
+        emit_stage2_worker_event(
+            workspace_id,
+            worker_id=chunk_idx,
+            state="running",
+            n_windows=len(window_starts),
+        )
+        tracker = get_stage2_progress_tracker(workspace_id)
+        if tracker is not None:
+            emit_stage2_snapshot(workspace_id, tracker.mark_running(chunk_idx))
+
+    with use_openrouter_api_key(openrouter_api_key):
+        factory = StageSessionFactory(
+            stage2_llm,
+            config.llm,
+            stage_id=f"stage-2/chunk-{chunk_idx}",
+            max_tool_turns=config.stage2_workers.max_tool_turns,
+        )
+
+        started_at = perf_counter()
+        result = await run_worker_extraction(
+            window_text=window_text,
+            window_starts=window_starts,
+            question=question,
+            causal_spec=causal_spec,
+            session_factory=factory,
+            logger=logger,
+            call_label=chunk_label,
+        )
+
+        elapsed = perf_counter() - started_at
+        logger.info(
+            "[%s] Finished in %.1fs with %d extractions and %d output rows",
+            chunk_label,
+            elapsed,
+            len(result.output.extractions),
+            result.dataframe.height,
+        )
+
+        result_dict: dict = {
+            "dataframe": result.dataframe.to_dicts(),
+            "n_extractions": len(result.output.extractions),
+            "status": "completed",
+        }
+        if factory.accumulated_trace.messages:
+            result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+        return result_dict
 
 
-async def _run_semantic_chunks_prefect(
+async def _run_semantic_chunks_asyncio(
     *,
     chunk_texts: list[str],
     chunk_window_starts: list[list[str]],
     chunk_contexts: list[dict],
     question: str,
-    root_run_id: str | None,
+    workspace_id: str | None,
     openrouter_api_key: str | None,
     max_concurrent_workers: int,
     max_rpm: int,
 ) -> tuple[list[dict], list[dict], int, dict | None]:
-    """Execute semantic chunks through the existing Prefect worker path."""
-    from prefect.utilities.annotations import unmapped
-
+    """Execute semantic chunks concurrently with a semaphore and retries."""
     from nof1_causal_lab.utils.openrouter_client import RpmLimiter, set_limiter
 
     all_indices = list(range(len(chunk_texts)))
@@ -139,40 +168,54 @@ async def _run_semantic_chunks_prefect(
     if max_rpm:
         set_limiter("llm", RpmLimiter(max_rpm))
 
+    semaphore = asyncio.Semaphore(max_concurrent_workers)
+
+    def _worker(chunk_idx: int) -> Awaitable[dict]:
+        async def _attempt() -> dict:
+            return await extract_window_chunk(
+                chunk_texts[chunk_idx],
+                chunk_window_starts[chunk_idx],
+                chunk_idx,
+                question,
+                chunk_contexts[chunk_idx],
+                workspace_id=workspace_id,
+                openrouter_api_key=openrouter_api_key,
+            )
+
+        async def _bounded() -> dict:
+            async with semaphore:
+                return await run_with_retries(_attempt)
+
+        return _bounded()
+
     try:
-        if root_run_id:
+        if workspace_id:
             emit_stage2_plan_event(
-                root_run_id,
+                workspace_id,
                 total_workers=len(chunk_texts),
                 max_concurrent_workers=max_concurrent_workers,
                 max_rpm=max_rpm,
             )
-            tracker = _register_stage2_progress_tracker(
-                root_run_id,
+            tracker = register_stage2_progress_tracker(
+                workspace_id,
                 total_workers=len(chunk_texts),
             )
-            _emit_stage2_snapshot(root_run_id, tracker.snapshot())
-        results = extract_window_chunk_task.map(
-            chunk_texts,
-            window_starts=chunk_window_starts,
-            chunk_idx=all_indices,
-            question=unmapped(question),
-            causal_spec=chunk_contexts,
-            root_run_id=unmapped(root_run_id),
-            openrouter_api_key=unmapped(openrouter_api_key),
-        )
-        return _collect_batch_results(
-            futures=results,
+            emit_stage2_snapshot(workspace_id, tracker.snapshot())
+        tasks = [asyncio.ensure_future(_worker(idx)) for idx in all_indices]
+        return await collect_worker_results(
+            tasks=tasks,
             batch_indices=all_indices,
             batch_n_windows=all_n_windows,
             logger=logger,
-            completed_before=0,
             total_chunks=len(chunk_texts),
-            root_run_id=root_run_id,
+            workspace_id=workspace_id,
+            emit_worker_event=emit_stage2_worker_event,
+            get_tracker=get_stage2_progress_tracker,
+            emit_snapshot=emit_stage2_snapshot,
         )
     finally:
-        if root_run_id:
-            _clear_stage2_progress_tracker(root_run_id)
+        if workspace_id:
+            clear_stage2_progress_tracker(workspace_id)
         set_limiter("llm", None)
 
 
@@ -182,12 +225,12 @@ async def run_stage2_extraction_core(
     question: str,
     causal_spec: dict,
     stage2_workers: Any,
-    root_run_id: str | None = None,
+    workspace_id: str | None = None,
     max_windows: int | None = None,
     openrouter_api_key: str | None = None,
     semantic_chunk_runner: SemanticChunkRunner | None = None,
 ) -> dict:
-    """Shared Stage 2 extraction helper for flows and evals.
+    """Shared Stage 2 extraction helper for the machine runner and evals.
 
     This is the deterministic orchestration core for:
     1. splitting computed vs semantic indicators
@@ -199,7 +242,7 @@ async def run_stage2_extraction_core(
     from nof1_causal_lab.utils.causal_spec import get_indicators
     from nof1_causal_lab.utils.data import ObservationRecord, annotate_observation_rows
 
-    semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_prefect
+    semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_asyncio
 
     all_indicators = get_indicators(causal_spec)
     time_col = "timestamp"
@@ -234,7 +277,7 @@ async def run_stage2_extraction_core(
     n_semantic_total = 0
 
     if semantic_inds:
-        chunk_texts, chunk_window_starts, chunk_contexts = _prepare_semantic_chunks(
+        chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
             raw_df=raw_df,
             semantic_inds=semantic_inds,
             causal_spec=causal_spec,
@@ -256,7 +299,7 @@ async def run_stage2_extraction_core(
                 chunk_window_starts=chunk_window_starts,
                 chunk_contexts=chunk_contexts,
                 question=question,
-                root_run_id=root_run_id,
+                workspace_id=workspace_id,
                 openrouter_api_key=openrouter_api_key,
                 max_concurrent_workers=stage2_workers.max_concurrent_workers,
                 max_rpm=stage2_workers.max_rpm,
@@ -287,122 +330,11 @@ async def run_stage2_extraction_core(
     return result
 
 
-@task(
-    retries=2,
-    retry_delay_seconds=10,
-    timeout_seconds=300,
-    task_run_name="extract-windows-{chunk_idx}",
-)
-async def extract_window_chunk_task(
-    window_text: str,
-    window_starts: list[str],
-    chunk_idx: int,
+async def run_stage2_extraction(
+    raw_df: pl.DataFrame,
     question: str,
     causal_spec: dict,
-    root_run_id: str | None = None,
-    openrouter_api_key: str | None = None,
-) -> dict:
-    """Extract indicator values from a chunk of support windows.
-
-    Args:
-        window_text: Pre-formatted text of support-window events.
-        window_starts: Expected support-window starts in this chunk.
-        chunk_idx: Index of this chunk (for logging/naming).
-        question: The causal research question.
-        causal_spec: Full CausalSpec dict with measurement model.
-
-    Returns:
-        Dict with 'dataframe' (as list of dicts for serialization),
-        'n_extractions', and 'status'.
-    """
-    from dataclasses import replace
-
-    from nof1_causal_lab.utils.agent_session import StageSessionFactory
-    from nof1_causal_lab.utils.causal_spec import get_indicators
-    from nof1_causal_lab.utils.config import get_config
-    from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
-    from nof1_causal_lab.workers.core import run_worker_extraction
-
-    run_logger = get_run_logger()
-    config = get_config()
-    # Stage 2 workers override only the per-call timeout (prevents hung calls).
-    # Everything else inherits the embedded LLM defaults.
-    stage2_llm = replace(
-        config.stage2_workers.llm,
-        timeout=config.stage2_workers.worker_timeout,
-    )
-    indicator_count = len(get_indicators(causal_spec))
-    n_events = window_text.count("\n")
-    chunk_label = _chunk_log_label(chunk_idx, len(window_starts), n_events)
-
-    run_logger.info(
-        "[%s] Starting extraction with %d windows, %d indicators using model %s (timeout=%ds)",
-        chunk_label,
-        len(window_starts),
-        indicator_count,
-        stage2_llm.model,
-        stage2_llm.timeout,
-    )
-    if root_run_id:
-        emit_stage2_worker_event(
-            root_run_id,
-            worker_id=chunk_idx,
-            state="running",
-            n_windows=len(window_starts),
-        )
-        tracker = _get_stage2_progress_tracker(root_run_id)
-        if tracker is not None:
-            _emit_stage2_snapshot(root_run_id, tracker.mark_running(chunk_idx))
-
-    with use_openrouter_api_key(openrouter_api_key):
-        factory = StageSessionFactory(
-            stage2_llm,
-            config.llm,
-            stage_id=f"stage-2/chunk-{chunk_idx}",
-            max_tool_turns=config.stage2_workers.max_tool_turns,
-        )
-
-        started_at = perf_counter()
-        result = await run_worker_extraction(
-            window_text=window_text,
-            window_starts=window_starts,
-            question=question,
-            causal_spec=causal_spec,
-            session_factory=factory,
-            logger=run_logger,
-            call_label=chunk_label,
-        )
-
-        elapsed = perf_counter() - started_at
-        run_logger.info(
-            "[%s] Finished in %.1fs with %d extractions and %d output rows",
-            chunk_label,
-            elapsed,
-            len(result.output.extractions),
-            result.dataframe.height,
-        )
-
-        result_dict: dict = {
-            "dataframe": result.dataframe.to_dicts(),
-            "n_extractions": len(result.output.extractions),
-            "status": "completed",
-        }
-        if factory.accumulated_trace.messages:
-            result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
-        return result_dict
-
-
-@flow(
-    name="stage2-worker-extraction",
-    log_prints=True,
-    persist_result=True,
-    result_serializer="json",
-)
-async def stage2_extraction_flow(
-    raw_df_path: str,
-    question: str,
-    causal_spec: dict,
-    root_run_id: str | None = None,
+    workspace_id: str | None = None,
     max_windows: int | None = None,
     openrouter_api_key: str | None = None,
 ) -> dict:
@@ -410,32 +342,19 @@ async def stage2_extraction_flow(
 
     1. Splits indicators by extraction_mode (computed vs semantic)
     2. Computed path: direct Polars aggregation (~50ms)
-    3. Semantic path: support-window LLM workers
+    3. Semantic path: support-window LLM workers (asyncio fan-out)
     4. Merges results into canonical observation rows with support metadata
-
-    Args:
-        raw_df_path: Path to the raw wide-format DataFrame from Stage 0 ingestion.
-        question: The causal research question.
-        causal_spec: Full CausalSpec dict with measurement model.
-
-    Returns:
-        Dict with 'observation_rows' (long-format observation rows as list of dicts),
-        'worker_statuses', and 'n_total_extractions'.
     """
     from nof1_causal_lab.utils.config import get_config
 
-    if root_run_id:
-        emit_nested_stage_running_event(root_run_id, "stage-2")
-
     config = get_config()
-    raw_df = pl.read_parquet(Path(raw_df_path))
     return await run_stage2_extraction_core(
         raw_df=raw_df,
         question=question,
         causal_spec=causal_spec,
         stage2_workers=config.stage2_workers,
-        root_run_id=root_run_id,
+        workspace_id=workspace_id,
         max_windows=max_windows,
         openrouter_api_key=openrouter_api_key,
-        semantic_chunk_runner=_run_semantic_chunks_prefect,
+        semantic_chunk_runner=_run_semantic_chunks_asyncio,
     )

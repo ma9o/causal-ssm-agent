@@ -1,13 +1,12 @@
 """Stage 5b: Bayesian inference and diagnostics."""
 
+import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import polars as pl
-from prefect import task
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.stage4_compile_cache import restore_stage4_compile_cache
 from nof1_causal_lab.models.ssm.runtime import (
     PreparedModelRuntime,
@@ -18,7 +17,7 @@ from nof1_causal_lab.models.ssm.runtime import (
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference import InferenceResult
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _elapsed_seconds(start: float) -> float:
@@ -59,7 +58,6 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
     )
 
 
-@task(persist_result=False)
 def fit_model(
     compiled_ssm: dict | None,
     data_for_model: pl.DataFrame,
@@ -213,7 +211,6 @@ def fit_model(
         }
 
 
-@task(task_run_name="posterior-predictive-checks", persist_result=False)
 def run_ppc(fitted_result: dict) -> dict:
     """Run posterior predictive checks on the fitted model.
 

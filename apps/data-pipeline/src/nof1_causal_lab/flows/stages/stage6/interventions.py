@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
-from prefect import task
-
-from nof1_causal_lab.flows import get_prefect_logger
-
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
 
-@task(result_serializer="json")
 def run_interventions(
     fitted_artifact: FittedArtifact,
     treatments: list[str],

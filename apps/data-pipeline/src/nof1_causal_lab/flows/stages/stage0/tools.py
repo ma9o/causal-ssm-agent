@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import tarfile
 from typing import TYPE_CHECKING
 
 import polars as pl
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils.openrouter_client import Tool, tool
 
 if TYPE_CHECKING:
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     import modal
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Runner script executed inside the Modal sandbox.

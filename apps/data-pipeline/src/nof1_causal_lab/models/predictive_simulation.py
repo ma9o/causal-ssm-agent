@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import jax
@@ -11,7 +12,6 @@ import numpy as np
 from jax import vmap
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_heterogeneous_observation_kernel,
     build_observation_kernel,
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class PredictiveObservationMeanOverflow(RuntimeError):

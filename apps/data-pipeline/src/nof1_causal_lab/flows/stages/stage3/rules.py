@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.stages.stage3.checks import (
     MIN_OBSERVATIONS,
     OBSERVATION_TIME_COLUMN,
@@ -25,7 +25,7 @@ from nof1_causal_lab.flows.stages.stage3.checks import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -131,29 +131,15 @@ def issues_from_raw(
     return issues
 
 
-def derive_validation_status(
-    issues: list[dict[str, Any]],
-) -> dict[str, bool | Literal["success", "warn", "fail"] | str | None]:
+def derive_validation_status(issues: list[dict[str, Any]]) -> dict[str, bool]:
+    """Validation errors invalidate the report; warnings are diagnostics.
+
+    ``is_valid`` is information for the navigator, never control flow —
+    stage-4 consumes the report either way and decides what to do with it.
+    """
     has_error = any(issue.get("severity") == "error" for issue in issues)
     has_warning = any(issue.get("severity") == "warning" for issue in issues)
-
-    if has_error:
-        return {
-            "is_valid": False,
-            "outcome": "fail",
-            "fail_reason": "data_validation_failed",
-        }
-    if has_warning:
-        return {
-            "is_valid": True,
-            "outcome": "warn",
-            "fail_reason": None,
-        }
-    return {
-        "is_valid": True,
-        "outcome": "success",
-        "fail_reason": None,
-    }
+    return {"is_valid": not has_error, "has_warnings": has_warning}
 
 
 def no_data_validation_result() -> dict[str, Any]:

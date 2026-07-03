@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
-from nof1_causal_lab.flows import get_prefect_logger
 
 from .prompting import templates
 
 if TYPE_CHECKING:
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass

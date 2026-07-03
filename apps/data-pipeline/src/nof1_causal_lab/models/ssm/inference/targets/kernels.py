@@ -11,6 +11,7 @@ TransitionKernel: p(x_t | x_{t-1}) — process noise sampling.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -22,7 +23,6 @@ import jax.scipy.stats as jstats
 import numpy as np
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 from .emissions import (
@@ -34,7 +34,7 @@ from .observation_dispatch import (
     get_emission_score_weight_fn,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

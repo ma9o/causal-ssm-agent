@@ -5,13 +5,12 @@ and Polars aggregation expression builders used by the pipeline's stage 2 logic.
 """
 
 import ast
+import logging
 
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.flows import get_prefect_logger
-
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Aggregations that require map_groups (cannot be expressed as a single Polars expr)
 _MAP_GROUPS_AGGREGATIONS = {"trend"}

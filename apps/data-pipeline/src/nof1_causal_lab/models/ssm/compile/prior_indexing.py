@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec, ParameterRole
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import axis_names_with_fallback
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
-logger = get_prefect_logger("nof1_causal_lab.models.ssm.compile.inputs")
+logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 
 
 class PriorIndexingError(AggregatedCompileError):

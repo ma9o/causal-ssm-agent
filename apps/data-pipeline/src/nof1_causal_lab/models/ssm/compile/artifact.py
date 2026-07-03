@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -26,11 +27,10 @@ from nof1_causal_lab.artifacts.model_spec import (
     validate_model_spec_dict,
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

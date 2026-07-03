@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from inspect import isawaitable
+import logging
 from typing import Any
 
 from nof1_causal_lab.flows.llm_stage_runtime import (
@@ -11,14 +11,9 @@ from nof1_causal_lab.flows.llm_stage_runtime import (
     attach_trace,
     open_llm_stage,
 )
-from nof1_causal_lab.flows.run_store import load_pickle, unwrap_task_result
+from nof1_causal_lab.flows.run_store import load_pickle
 
 from .interventions import run_interventions
-
-
-async def _await_artifact(artifact: Any) -> None:
-    if isawaitable(artifact):
-        await artifact
 
 
 def _first_assistant_summary(trace: Any) -> str | None:
@@ -44,13 +39,10 @@ async def run_stage6(
     question: str | None = None,
 ) -> dict[str, Any]:
     """Run interventions and synthesize the Stage 6 commentary payload."""
-    from prefect.artifacts import create_table_artifact
-
-    from nof1_causal_lab.flows import get_prefect_logger
     from nof1_causal_lab.utils.causal_spec import get_outcome_name
     from nof1_causal_lab.utils.config import get_config
 
-    logger = get_prefect_logger(__name__)
+    logger = logging.getLogger(__name__)
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b["_identified_treatments"]
     causal_spec = stage1b["causal_spec"]
@@ -59,13 +51,12 @@ async def run_stage6(
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
 
-    results = run_interventions(
+    intervention_results = run_interventions(
         fitted_artifact,
         treatments,
         outcome_name,
         causal_spec,
     )
-    intervention_results = unwrap_task_result(results)
 
     if intervention_results:
         logger.info("%-5s %-30s %10s %8s", "Rank", "Treatment", "Effect", "P(>0)")
@@ -78,31 +69,6 @@ async def run_stage6(
             else:
                 logger.info("%-5d %-30s %10s", rank, name, "—")
 
-        await _await_artifact(
-            create_table_artifact(
-                key="treatment-ranking",
-                table=[
-                    {
-                        "rank": index + 1,
-                        "treatment": result["treatment"],
-                        "effect": (
-                            f"{effect:+.4f}"
-                            if (effect := _draws_stats(result.get("posterior_draws"))[0])
-                            is not None
-                            else "---"
-                        ),
-                        "P(>0)": (
-                            f"{prob:.2f}"
-                            if (prob := _draws_stats(result.get("posterior_draws"))[1]) is not None
-                            else ""
-                        ),
-                    }
-                    for index, result in enumerate(intervention_results)
-                ],
-                description="Final treatment effect ranking",
-            )
-        )
-
     ppc_warnings = [
         {
             "variable": warning.get("variable"),
@@ -112,7 +78,6 @@ async def run_stage6(
         }
         for warning in stage5b.get("ppc", {}).get("per_variable_warnings", [])
     ][:5]
-    has_warnings = bool(ppc_warnings)
 
     top_results = [
         {
@@ -176,7 +141,6 @@ async def run_stage6(
 
     result: dict[str, Any] = {
         "intervention_results": intervention_results,
-        "outcome": "warn" if has_warnings else "success",
     }
     final_summary = _first_assistant_summary(factory.accumulated_trace)
     if final_summary:

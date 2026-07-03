@@ -44,7 +44,4 @@ class Stage2Contract(LLMStageContract):
     def summary_message(self) -> str:
         completed = sum(1 for worker in self.workers if worker.status == "completed")
         failed = sum(1 for worker in self.workers if worker.status == "failed")
-        return (
-            f"Stage 2 summary: workers={len(self.workers)} completed={completed} "
-            f"failed={failed} outcome={self.outcome}"
-        )
+        return f"Stage 2 summary: workers={len(self.workers)} completed={completed} failed={failed}"

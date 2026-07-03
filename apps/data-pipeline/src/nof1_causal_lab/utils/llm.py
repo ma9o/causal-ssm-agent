@@ -2,13 +2,13 @@
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils.openrouter_client import (
     GenerateConfig,
     Tool,
@@ -17,7 +17,7 @@ from nof1_causal_lab.utils.openrouter_client import (
     normalize_message,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 

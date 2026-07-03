@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from numpyro import handlers
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def select_default_method(

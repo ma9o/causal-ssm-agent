@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import threading
 from collections import deque
 from contextlib import contextmanager
@@ -20,10 +21,9 @@ from typing import Any, Literal, cast
 from openai import AsyncOpenAI
 from pydantic import Field, ValidationError, create_model
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils.config import get_secret
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
     ArithmeticError,
     AssertionError,

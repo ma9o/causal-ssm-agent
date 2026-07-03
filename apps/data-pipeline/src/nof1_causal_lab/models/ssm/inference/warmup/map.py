@@ -10,6 +10,7 @@ Implements the outer optimization loop for MAP inference:
 from __future__ import annotations
 
 import functools
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -22,7 +23,6 @@ import numpy as np
 import scipy.optimize as spo
 from jax.flatten_util import ravel_pytree
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
@@ -37,7 +37,7 @@ from nof1_causal_lab.models.ssm.inference.utils import (
 )
 from nof1_causal_lab.models.ssm.parameterization import assemble_deterministics_from_registry
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

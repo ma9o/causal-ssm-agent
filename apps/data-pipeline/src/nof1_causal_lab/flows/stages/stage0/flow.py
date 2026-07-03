@@ -5,6 +5,7 @@ the contents, and produces a single Polars DataFrame. Code execution happens
 inside a Modal CPU sandbox for isolation.
 """
 
+import logging
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -12,10 +13,7 @@ from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
 import polars as pl
-from prefect import task
-from prefect.cache_policies import INPUTS
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.llm_stage_runtime import (
     LLMStageRuntimeConfig,
     attach_trace,
@@ -28,7 +26,7 @@ from nof1_causal_lab.utils.data import input_dir
 
 from .tools import ModalCodeSandbox, make_ingestion_tools
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -188,7 +186,6 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
     return dest_dir
 
 
-@task(cache_policy=INPUTS, persist_result=True, result_serializer="pickle")
 async def agentic_ingest(
     workspace_id: str = "test_workspace", openrouter_api_key: str | None = None
 ) -> IngestionResult:

@@ -4,13 +4,12 @@ Thin Prefect wrapper around the Stage 4 agent loop and runtime projections.
 This module manages config, Prefect lifecycle, and materialization.
 """
 
+import logging
 from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
-from prefect import flow
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.llm_stage_runtime import (
     LLMStageRuntimeConfig,
     attach_trace,
@@ -18,7 +17,6 @@ from nof1_causal_lab.flows.llm_stage_runtime import (
     open_llm_stage,
 )
 from nof1_causal_lab.flows.runtime_events import (
-    emit_nested_stage_running_event,
     emit_stage4_block_transition_event,
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
@@ -31,7 +29,7 @@ from nof1_causal_lab.utils.data import runs_dir
 from nof1_causal_lab.utils.llm import get_generate_config
 from nof1_causal_lab.utils.openrouter_client import GenerateConfig
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _stage4_generate_config() -> GenerateConfig:
@@ -45,7 +43,6 @@ def _stage4_generate_config() -> GenerateConfig:
     )
 
 
-@flow(name="stage4-agentic", log_prints=True, persist_result=True, result_serializer="json")
 async def stage4_agentic_flow(
     causal_spec: dict,
     question: str,
@@ -81,9 +78,6 @@ async def stage4_agentic_flow(
     )
 
     from .assembly import materialize_stage4_result
-
-    if root_run_id:
-        emit_nested_stage_running_event(root_run_id, "stage-4")
 
     config = get_config()
     s4 = config.stage4_prior_elicitation

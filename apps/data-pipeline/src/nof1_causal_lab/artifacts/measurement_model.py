@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from enum import StrEnum
 from typing import Any, get_args
@@ -16,7 +17,6 @@ from pydantic import (
     model_validator,
 )
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
 from nof1_causal_lab.utils.aggregations import COMPUTED_RULE_FUNCTIONS
 from nof1_causal_lab.utils.observation_semantics import (
@@ -31,7 +31,7 @@ from nof1_causal_lab.utils.observation_semantics import (
 from .duration import parse_duration_to_hours
 from .latent_model import LatentModel  # noqa: TC001
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))
 VALID_MEASUREMENT_DTYPES: set[str] = set(get_args(MeasurementDtype))

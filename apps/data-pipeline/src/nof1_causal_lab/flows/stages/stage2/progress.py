@@ -84,31 +84,31 @@ _stage2_progress_trackers_lock = threading.Lock()
 
 
 def register_stage2_progress_tracker(
-    root_run_id: str,
+    workspace_id: str,
     *,
     total_workers: int,
 ) -> Stage2ProgressTracker:
     tracker = Stage2ProgressTracker.create(total_workers)
     with _stage2_progress_trackers_lock:
-        _stage2_progress_trackers[root_run_id] = tracker
+        _stage2_progress_trackers[workspace_id] = tracker
     return tracker
 
 
-def get_stage2_progress_tracker(root_run_id: str) -> Stage2ProgressTracker | None:
+def get_stage2_progress_tracker(workspace_id: str) -> Stage2ProgressTracker | None:
     with _stage2_progress_trackers_lock:
-        return _stage2_progress_trackers.get(root_run_id)
+        return _stage2_progress_trackers.get(workspace_id)
 
 
-def clear_stage2_progress_tracker(root_run_id: str) -> None:
+def clear_stage2_progress_tracker(workspace_id: str) -> None:
     with _stage2_progress_trackers_lock:
-        _stage2_progress_trackers.pop(root_run_id, None)
+        _stage2_progress_trackers.pop(workspace_id, None)
 
 
-def emit_stage2_snapshot(root_run_id: str, snapshot: dict[str, int]) -> None:
+def emit_stage2_snapshot(workspace_id: str, snapshot: dict[str, int]) -> None:
     from nof1_causal_lab.utils.openrouter_client import get_limiter_request_count
 
     emit_stage2_snapshot_event(
-        root_run_id,
+        workspace_id,
         snapshot={
             **snapshot,
             "llm_requests_last_60s": get_limiter_request_count("llm"),

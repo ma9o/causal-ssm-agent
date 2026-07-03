@@ -9,7 +9,8 @@ should import from here instead of duplicating path logic.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+import logging
+from typing import Any
 from urllib.parse import quote
 
 import cloudpickle
@@ -17,14 +18,8 @@ import cloudpickle
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.data import runs_dir
 
-from . import get_prefect_logger
+logger = logging.getLogger(__name__)
 
-logger = get_prefect_logger(__name__)
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
-
-    from .stage_contracts import BaseStageContract
 
 # ---------------------------------------------------------------------------
 # Filename constants for run artifacts
@@ -117,29 +112,6 @@ def save_json(value: Any, workspace_id: str, filename: str) -> str:
 def load_json(path: str) -> Any:
     """Read a JSON value from storage."""
     return storage.read_json(path)
-
-
-# ---------------------------------------------------------------------------
-# Stage snapshots (full internal state)
-# ---------------------------------------------------------------------------
-
-
-def save_stage_snapshot(stage_id: str, state: BaseModel, workspace_id: str) -> None:
-    """Persist full stage state (result + web) for resume."""
-    path = storage.join(ensure_run_dir(workspace_id), f"{stage_id}-state.pkl")
-    with storage.open_file(path, "wb") as f:
-        cloudpickle.dump(state, f)
-
-
-def load_stage_snapshot(workspace_id: str, stage_id: str) -> BaseModel:
-    """Load a previously saved stage snapshot."""
-    path = storage.join(existing_run_dir(workspace_id), f"{stage_id}-state.pkl")
-    if not storage.exists(path):
-        raise FileNotFoundError(
-            f"No stage snapshot found for {stage_id} in workspace_id {workspace_id}"
-        )
-    with storage.open_file(path, "rb") as f:
-        return cloudpickle.load(f)
 
 
 def _stage4_checkpoint_dir(workspace_id: str, *, create: bool) -> str:
@@ -243,15 +215,6 @@ def clear_stage4_checkpoint(workspace_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _unwrap_persisted_result(raw: Any) -> Any:
-    """Strip Prefect's result wrapper if present."""
-    if isinstance(raw, dict) and "result" in raw:
-        raw = raw["result"]
-    if isinstance(raw, str):
-        return json.loads(raw)
-    return raw
-
-
 def load_public_payload(workspace_id: str, stage_id: str) -> dict[str, Any]:
     """Load a persisted web-facing stage payload."""
     path = storage.join(existing_run_dir(workspace_id), f"{stage_id}.json")
@@ -259,8 +222,7 @@ def load_public_payload(workspace_id: str, stage_id: str) -> dict[str, Any]:
         raise FileNotFoundError(
             f"No public stage payload found for {stage_id} in workspace_id {workspace_id}"
         )
-    raw = storage.read_json(path)
-    payload = _unwrap_persisted_result(raw)
+    payload = storage.read_json(path)
     if not isinstance(payload, dict):
         raise TypeError(
             f"Persisted payload for {stage_id} in workspace_id {workspace_id} is not a dict"
@@ -282,37 +244,3 @@ def find_run_artifact(workspace_id: str, filenames: tuple[str, ...]) -> str:
             return path
     expected = ", ".join(filenames)
     raise FileNotFoundError(f"None of [{expected}] exist for workspace_id {workspace_id}")
-
-
-# ---------------------------------------------------------------------------
-# Stage lifecycle helpers
-# ---------------------------------------------------------------------------
-
-
-def finalize_stage(
-    stage_id: str,
-    contract: BaseStageContract,
-    workspace_id: str,
-) -> BaseStageContract:
-    """Persist contract as web JSON, save snapshot, return contract."""
-    from .stage_persistence import persist_contract
-
-    persist_contract(stage_id, contract, workspace_id)
-    save_stage_snapshot(stage_id, contract, workspace_id)
-    return contract
-
-
-# ---------------------------------------------------------------------------
-# Task result helpers
-# ---------------------------------------------------------------------------
-
-
-def unwrap_task_result(task_or_value: Any) -> Any:
-    """Extract the result from a Prefect task return, or pass through raw values.
-
-    Prefect tasks may return either a raw value or a future-like object with a
-    ``.result()`` method.  This helper normalises both to a plain value.
-    """
-    if hasattr(task_or_value, "result"):
-        return task_or_value.result()
-    return task_or_value

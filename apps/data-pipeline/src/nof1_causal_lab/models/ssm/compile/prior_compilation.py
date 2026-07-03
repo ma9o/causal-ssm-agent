@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,7 +16,6 @@ from nof1_causal_lab.distributions import (
     get_positive_runtime_family_index,
     get_real_runtime_family_index,
 )
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
-logger = get_prefect_logger("nof1_causal_lab.models.ssm.compile.inputs")
+logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
 PriorFailureStage = Literal[
     "compiled_parameters",

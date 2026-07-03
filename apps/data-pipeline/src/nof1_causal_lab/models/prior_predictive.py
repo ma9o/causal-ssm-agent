@@ -7,6 +7,7 @@ values, scale plausibility).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 import jax.numpy as jnp
@@ -16,7 +17,6 @@ import polars as pl
 from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, ModelSpec
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
 from nof1_causal_lab.workers.schemas_prior import (
@@ -26,7 +26,7 @@ from nof1_causal_lab.workers.schemas_prior import (
     PriorValidationResult,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 _AFFINE_DRIFT_VIEW = "drift"
 _RECOVERABLE_MODEL_BUILD_ERRORS = (
     AggregatedCompileError,

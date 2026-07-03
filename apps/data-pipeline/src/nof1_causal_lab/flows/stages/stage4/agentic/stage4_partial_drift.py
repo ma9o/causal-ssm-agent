@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from nof1_causal_lab.artifacts.model_spec import ParameterRole
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.compile.artifact import validate_model_spec_for_compilation
 from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
@@ -25,7 +25,7 @@ from nof1_causal_lab.workers.schemas_prior import (
     PriorValidationResult,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 _DRIFT_EPSILON = 1e-6
 
 

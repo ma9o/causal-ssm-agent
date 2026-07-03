@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
-
-from nof1_causal_lab.flows import get_prefect_logger
 
 if TYPE_CHECKING:
     import polars as pl
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.DataFrame:

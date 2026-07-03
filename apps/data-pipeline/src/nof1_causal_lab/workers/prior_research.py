@@ -9,13 +9,13 @@ Each worker researches a single parameter using:
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 import httpx
 import numpy as np
 from pydantic import ValidationError
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ from nof1_causal_lab.workers.schemas_prior import (
     RawPriorSample,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _make_prior_tool() -> tuple[Tool, dict]:

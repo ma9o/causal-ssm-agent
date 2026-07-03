@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 from nof1_causal_lab.utils.llm import LLMTrace  # noqa: TC001
 
@@ -67,29 +66,18 @@ class ToolContract:
 
 
 class BaseStageContract(BaseModel):
-    """Shared base for persisted stage payloads."""
+    """Shared base for persisted stage payloads.
+
+    Contracts are pure artifacts: execution failure is a typed exception on
+    the transition (state unchanged, attempt journaled), and negative
+    findings are report-present / enabling-artifact-absent — never an
+    ``outcome`` enum on the payload.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    outcome: Literal["success", "warn", "fail"] = "success"
-    fail_reason: str | None = None
-
-    @model_validator(mode="after")
-    def validate_fail_reason(self) -> BaseStageContract:
-        if self.outcome == "fail" and self.fail_reason is None:
-            raise ValueError("fail_reason is required when outcome='fail'")
-        if self.outcome != "fail" and self.fail_reason is not None:
-            raise ValueError("fail_reason is only allowed when outcome='fail'")
-        return self
-
-    def summary_level(self) -> int:
-        return logging.WARNING if self.outcome in {"warn", "fail"} else logging.INFO
-
     def summary_message(self) -> str:
         raise NotImplementedError
-
-    def summarize(self) -> tuple[int, str]:
-        return self.summary_level(), self.summary_message()
 
 
 class LLMStageContract(BaseStageContract):

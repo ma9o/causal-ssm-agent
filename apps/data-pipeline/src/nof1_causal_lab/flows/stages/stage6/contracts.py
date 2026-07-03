@@ -317,7 +317,4 @@ class Stage6Contract(LLMStageContract):
     final_summary: str | None = None
 
     def summary_message(self) -> str:
-        return (
-            f"Stage 6 summary: treatments_ranked={len(self.intervention_results)} "
-            f"outcome={self.outcome}"
-        )
+        return f"Stage 6 summary: treatments_ranked={len(self.intervention_results)}"

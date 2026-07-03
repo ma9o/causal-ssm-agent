@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import heapq
+import logging
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.flows import get_prefect_logger
-
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import DistributionFamily

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import tarfile
@@ -13,7 +14,6 @@ from typing import Any
 
 from typing_extensions import TypeIs
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils import storage
 
 from .run_store import (
@@ -27,7 +27,7 @@ from .run_store import (
     save_json,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _STAGE4_COMPILE_CACHE_SCHEMA_VERSION = 1
 _STAGE4_COMPILE_CACHE_ACCELERATOR = "modal-a100-80gb"

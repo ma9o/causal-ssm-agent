@@ -1,109 +1,76 @@
-"""Shared runtime event helpers for stage progress and nested stage metadata."""
+"""Intra-stage telemetry events, persisted for UI polling.
+
+These are NOT machine transitions: worker fan-out progress (stage 2) and
+agent-graph streaming (stage 4) are live telemetry the web UI renders while
+a stage runs. Events land as one JSON file each under
+``data/{workspace_id}/episode/events/`` (neither local fs nor R2 supports
+atomic append); consumers list the directory and sort by filename, which is
+time-ordered by construction.
+
+``workspace_id`` is the stream key — one episode per workspace.
+"""
 
 from __future__ import annotations
 
+import json
+import time
+import uuid
 from typing import Any
 
-from prefect.events import emit_event
-
-from nof1_causal_lab.flows import get_current_flow_run_id
+from nof1_causal_lab.utils import data as data_module
+from nof1_causal_lab.utils import storage
 
 STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"
 STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2"
+STAGE4_EVENT_PREFIX = "nof1-causal-lab.stage4"
 
 
-def _normalize_log_flow_run_ids(
-    stage_subflow_run_id: str | None,
-    log_flow_run_ids: list[str] | None,
-) -> list[str]:
-    ordered_ids: list[str] = []
-    seen: set[str] = set()
+def events_dir(workspace_id: str) -> str:
+    return storage.join(data_module.DATA_URI, workspace_id, "episode", "events")
 
-    for candidate in [stage_subflow_run_id, *(log_flow_run_ids or [])]:
-        if not candidate:
+
+def emit_event(workspace_id: str, event: str, payload: dict[str, Any]) -> None:
+    directory = events_dir(workspace_id)
+    storage.makedirs(directory)
+    name = f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.json"
+    storage.write_text(
+        storage.join(directory, name),
+        json.dumps({"event": event, "payload": payload}),
+    )
+
+
+def read_events(workspace_id: str, *, after: str | None = None) -> list[dict[str, Any]]:
+    """Events in emission order; ``after`` is the last seen filename cursor."""
+    directory = events_dir(workspace_id)
+    if not storage.exists(directory):
+        return []
+    entries = sorted(e for e in storage.listdir(directory) if e.endswith(".json"))
+    events = []
+    for entry in entries:
+        cursor = entry.rsplit("/", 1)[-1]
+        if after is not None and cursor <= after:
             continue
-        normalized = candidate.strip()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        ordered_ids.append(normalized)
-
-    return ordered_ids
+        record = storage.read_json(entry)
+        record["cursor"] = cursor
+        events.append(record)
+    return events
 
 
 def emit_stage_progress_event(
-    resource_run_id: str,
+    workspace_id: str,
     stage_id: str,
     status: str,
     *,
-    outcome: str | None = None,
     error: dict[str, Any] | None = None,
-    stage_subflow_run_id: str | None = None,
-    log_flow_run_ids: list[str] | None = None,
 ) -> None:
-    payload: dict[str, Any] = {
-        "stage_id": stage_id,
-        "status": status,
-    }
-    if outcome is not None:
-        payload["outcome"] = outcome
+    payload: dict[str, Any] = {"stage_id": stage_id, "status": status}
     if error is not None:
         payload["error"] = error
-
-    normalized_subflow_run_id = (
-        stage_subflow_run_id.strip()
-        if stage_subflow_run_id and stage_subflow_run_id.strip()
-        else None
-    )
-    normalized_log_flow_run_ids = _normalize_log_flow_run_ids(
-        normalized_subflow_run_id,
-        log_flow_run_ids,
-    )
-
-    if normalized_subflow_run_id is not None:
-        payload["stage_subflow_run_id"] = normalized_subflow_run_id
-    if normalized_log_flow_run_ids:
-        payload["log_flow_run_ids"] = normalized_log_flow_run_ids
-
-    related: list[dict[str, str]] | None = None
-    if normalized_subflow_run_id is not None:
-        related = [
-            {
-                "prefect.resource.id": f"prefect.flow-run.{normalized_subflow_run_id}",
-                "prefect.resource.role": "stage-subflow",
-            }
-        ]
-
-    emit_event(
-        event=f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        related=related,
-        payload=payload,
-    )
-
-
-def emit_nested_stage_running_event(
-    root_run_id: str,
-    stage_id: str,
-    *,
-    log_flow_run_ids: list[str] | None = None,
-) -> str:
-    stage_subflow_run_id = get_current_flow_run_id()
-    emit_stage_progress_event(
-        root_run_id,
-        stage_id,
-        "running",
-        stage_subflow_run_id=stage_subflow_run_id,
-        log_flow_run_ids=log_flow_run_ids,
-    )
-    return stage_subflow_run_id
+    emit_event(workspace_id, f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}", payload)
 
 
 def emit_stage2_plan_event(
-    resource_run_id: str,
+    workspace_id: str,
     *,
     total_workers: int,
     max_concurrent_workers: int | None,
@@ -111,12 +78,9 @@ def emit_stage2_plan_event(
 ) -> None:
     """Emit the static Stage 2 execution plan for replay/bootstrap."""
     emit_event(
-        event=f"{STAGE2_EVENT_PREFIX}.plan",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload={
+        workspace_id,
+        f"{STAGE2_EVENT_PREFIX}.plan",
+        {
             "stage_id": "stage-2",
             "type": "plan",
             "total_workers": total_workers,
@@ -127,7 +91,7 @@ def emit_stage2_plan_event(
 
 
 def emit_stage2_worker_event(
-    resource_run_id: str,
+    workspace_id: str,
     *,
     worker_id: int,
     state: str,
@@ -136,7 +100,7 @@ def emit_stage2_worker_event(
     n_llm_calls: int | None = None,
     error: str | None = None,
 ) -> None:
-    """Emit a Stage 2 worker state transition on the root flow run resource."""
+    """Emit a Stage 2 worker state transition."""
     payload: dict[str, Any] = {
         "stage_id": "stage-2",
         "type": "worker",
@@ -150,81 +114,42 @@ def emit_stage2_worker_event(
         payload["n_llm_calls"] = n_llm_calls
     if error is not None:
         payload["error"] = error
+    emit_event(workspace_id, f"{STAGE2_EVENT_PREFIX}.worker", payload)
 
+
+def emit_stage2_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -> None:
+    """Emit a Stage 2 runtime snapshot."""
     emit_event(
-        event=f"{STAGE2_EVENT_PREFIX}.worker",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload=payload,
+        workspace_id,
+        f"{STAGE2_EVENT_PREFIX}.snapshot",
+        {"stage_id": "stage-2", "type": "snapshot", **snapshot},
     )
 
 
-def emit_stage2_snapshot_event(
-    resource_run_id: str,
-    *,
-    snapshot: dict[str, Any],
-) -> None:
-    """Emit a Stage 2 runtime snapshot as a Prefect custom event."""
+def emit_stage4_graph_event(workspace_id: str, *, graph: dict[str, Any]) -> None:
+    """Emit the static Stage 4 graph topology."""
     emit_event(
-        event=f"{STAGE2_EVENT_PREFIX}.snapshot",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload={"stage_id": "stage-2", "type": "snapshot", **snapshot},
+        workspace_id,
+        f"{STAGE4_EVENT_PREFIX}.graph",
+        {"stage_id": "stage-4", "type": "graph", **graph},
     )
 
 
-STAGE4_EVENT_PREFIX = "nof1-causal-lab.stage4"
-
-
-def emit_stage4_graph_event(
-    resource_run_id: str,
-    *,
-    graph: dict[str, Any],
-) -> None:
-    """Emit the static Stage 4 graph topology as a Prefect custom event."""
+def emit_stage4_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -> None:
+    """Emit a Stage 4 runtime state snapshot."""
     emit_event(
-        event=f"{STAGE4_EVENT_PREFIX}.graph",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload={"stage_id": "stage-4", "type": "graph", **graph},
+        workspace_id,
+        f"{STAGE4_EVENT_PREFIX}.snapshot",
+        {"stage_id": "stage-4", "type": "snapshot", **snapshot},
     )
 
 
-def emit_stage4_snapshot_event(
-    resource_run_id: str,
-    *,
-    snapshot: dict[str, Any],
-) -> None:
-    """Emit a Stage 4 runtime state snapshot as a Prefect custom event."""
-    emit_event(
-        event=f"{STAGE4_EVENT_PREFIX}.snapshot",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload={"stage_id": "stage-4", "type": "snapshot", **snapshot},
-    )
-
-
-def emit_stage4_block_transition_event(
-    resource_run_id: str,
-    *,
-    transition: dict[str, Any],
-) -> None:
+def emit_stage4_block_transition_event(workspace_id: str, *, transition: dict[str, Any]) -> None:
     """Emit one Stage 4 dot-level transition event for replayable UI history."""
     emit_event(
-        event=f"{STAGE4_EVENT_PREFIX}.block_transition",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
-            "prefect.resource.name": resource_run_id,
-        },
-        payload={"stage_id": "stage-4", "type": "block_transition", **transition},
+        workspace_id,
+        f"{STAGE4_EVENT_PREFIX}.block_transition",
+        {"stage_id": "stage-4", "type": "block_transition", **transition},
     )
 
 
@@ -232,7 +157,7 @@ __all__ = [
     "STAGE2_EVENT_PREFIX",
     "STAGE4_EVENT_PREFIX",
     "STAGE_PROGRESS_EVENT_PREFIX",
-    "emit_nested_stage_running_event",
+    "emit_event",
     "emit_stage2_plan_event",
     "emit_stage2_snapshot_event",
     "emit_stage2_worker_event",
@@ -240,4 +165,6 @@ __all__ = [
     "emit_stage4_graph_event",
     "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
+    "events_dir",
+    "read_events",
 ]

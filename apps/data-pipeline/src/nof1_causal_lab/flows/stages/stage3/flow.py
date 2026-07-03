@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import polars as pl
-from prefect import task
-from prefect.cache_policies import INPUTS
 
 from nof1_causal_lab.flows.stages.stage3.rules import (
     RULES,
@@ -20,7 +18,6 @@ from nof1_causal_lab.flows.stages.stage3.rules import (
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-@task(cache_policy=INPUTS, result_serializer="json")
 def validate_extraction(
     causal_spec: dict,
     dataframes: list[pl.DataFrame],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -11,9 +12,8 @@ from nof1_causal_lab.utils.agent_session import StageSessionFactory
 from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
-    from nof1_causal_lab.flows import _PrefectAwareLogger
     from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
     from nof1_causal_lab.utils.llm import LLMTrace
 
@@ -54,7 +54,7 @@ async def open_llm_stage(
     *,
     config: LLMStageRuntimeConfig,
     openrouter_api_key: str | None,
-    logger: _PrefectAwareLogger,
+    logger: logging.Logger,
 ) -> AsyncIterator[StageSessionFactory]:
     """Open the OpenRouter context and stage session factory for one stage run."""
     started_at = time.monotonic()
@@ -85,3 +85,45 @@ async def open_llm_stage(
             config.stage_llm.harness,
             config.stage_llm.model,
         )
+
+
+def make_llm_stage_runner(
+    *,
+    stage_id: str,
+    orchestrator_fn: Callable[..., Awaitable[Any]],
+    stage_llm_getter: Callable[[], StageLLMConfig],
+    payload_builder: Callable[[Any], dict[str, Any]],
+    max_tool_turns_getter: Callable[[], int] | None = None,
+    llm_defaults_getter: Callable[[], LLMDefaults] | None = None,
+):
+    """Build a plain async runner for an LLM-backed stage.
+
+    The wrapper opens a :class:`StageSessionFactory` bound to the stage's
+    LLM config, passes it to ``orchestrator_fn`` as ``session_factory=``,
+    and attaches the accumulated LLM trace to the payload. Retries live in
+    the Temporal activity policy, not here.
+    """
+    from nof1_causal_lab.utils.config import get_config
+
+    _llm_defaults_getter = llm_defaults_getter or (lambda: get_config().llm)
+    logger = logging.getLogger(f"nof1_causal_lab.flows.{stage_id}")
+
+    async def _run(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        openrouter_api_key = kwargs.pop("openrouter_api_key", None)
+        runtime_config = LLMStageRuntimeConfig(
+            stage_id=stage_id,
+            stage_llm=stage_llm_getter(),
+            llm_defaults=_llm_defaults_getter(),
+            max_tool_turns=max_tool_turns_getter() if max_tool_turns_getter else None,
+        )
+        async with open_llm_stage(
+            config=runtime_config,
+            openrouter_api_key=openrouter_api_key,
+            logger=logger,
+        ) as factory:
+            result = await orchestrator_fn(*args, session_factory=factory, **kwargs)
+            payload = payload_builder(result)
+            attach_trace(payload, factory.accumulated_trace)
+            return payload
+
+    return _run

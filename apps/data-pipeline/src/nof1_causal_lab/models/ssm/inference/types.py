@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -9,7 +10,6 @@ import jax.numpy as jnp
 import jax.random as random
 from numpyro.infer import Predictive
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -26,7 +26,7 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 )
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 InferenceMethod = Literal["marginal_particle_gibbs", "particle_marginal_mh"]

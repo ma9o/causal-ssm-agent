@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import jax.numpy as jnp
 from jax import Array
 
-from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
     VariableOverride,
@@ -27,7 +27,7 @@ from .estimands import (
     summarize_temporal_effect,
 )
 
-logger = get_prefect_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _steady_state_treatment_effect_canonical(

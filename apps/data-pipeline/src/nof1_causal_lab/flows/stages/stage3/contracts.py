@@ -75,5 +75,5 @@ class Stage3Contract(BaseStageContract):
         return (
             f"Stage 3 summary: is_valid={self.is_valid} "
             f"issues={len(all_issues)} "
-            f"errors={errors} warnings={warnings} outcome={self.outcome}"
+            f"errors={errors} warnings={warnings}"
         )
