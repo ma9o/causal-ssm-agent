@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.runtime_events import read_events
+from nof1_causal_lab.machine.artifacts import ArtifactId  # noqa: TC001 (FastAPI runtime annotation)
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_stage_order
 
 if TYPE_CHECKING:
@@ -185,6 +186,53 @@ def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
     return {
         "workspace_id": workspace_id,
         "events": read_events(workspace_id, after=after),
+    }
+
+
+@router.get("/{workspace_id}/artifacts/{artifact_id}")
+def get_artifact(
+    workspace_id: str, artifact_id: ArtifactId, version: int | None = None
+) -> dict[str, Any]:
+    """One artifact version: meta + inline JSON payloads.
+
+    Defaults to the episode's *current* version (the journal projection,
+    not merely the highest on disk). Binary payload files (parquet,
+    pickle) are listed by name, never inlined.
+    """
+    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.utils import storage
+
+    store = ArtifactStore(workspace_id)
+    if version is None:
+        info = EpisodeJournal(workspace_id).latest_state().get(artifact_id)
+        if info is None:
+            raise HTTPException(
+                404, f"No current '{artifact_id}' artifact for workspace {workspace_id}"
+            )
+        version = info.version
+
+    version_dir = store.version_dir(artifact_id, version)
+    if not storage.exists(storage.join(version_dir, "meta.json")):
+        raise HTTPException(404, f"{artifact_id} v{version} does not exist for {workspace_id}")
+
+    payload: dict[str, Any] = {}
+    binary_files: list[str] = []
+    for entry in storage.listdir(version_dir):
+        name = entry.rstrip("/").rsplit("/", 1)[-1]
+        if name == "meta.json":
+            continue
+        if name.endswith(".json"):
+            payload[name] = store.read_json_file(artifact_id, version, name)
+        else:
+            binary_files.append(name)
+
+    return {
+        "workspace_id": workspace_id,
+        "artifact_id": artifact_id,
+        "version": version,
+        "meta": store.read_meta(artifact_id, version).model_dump(mode="json"),
+        "payload": payload,
+        "binary_files": sorted(binary_files),
     }
 
 

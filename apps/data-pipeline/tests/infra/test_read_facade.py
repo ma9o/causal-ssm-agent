@@ -30,6 +30,34 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
     assert auto.status_code == 403
 
 
+def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
+    from nof1_causal_lab.machine.store import ArtifactStore
+
+    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    store = ArtifactStore("WS-ART")
+    store.write_version(
+        "question",
+        provenance="human",
+        derived_from={},
+        produced_by=None,
+        json_files={"question.json": {"text": "does X cause Y?"}},
+    )
+    client = TestClient(create_read_facade_app())
+
+    pinned = client.get("/api/episodes/WS-ART/artifacts/question", params={"version": 1})
+    assert pinned.status_code == 200
+    body = pinned.json()
+    assert body["payload"]["question.json"] == {"text": "does X cause Y?"}
+    assert body["meta"]["provenance"] == "human"
+    assert body["binary_files"] == []
+
+    # No journal projection yet: there is no *current* version to default to.
+    assert client.get("/api/episodes/WS-ART/artifacts/question").status_code == 404
+    missing = client.get("/api/episodes/WS-ART/artifacts/question", params={"version": 7})
+    assert missing.status_code == 404
+
+
 def test_full_facade_advertises_moves(monkeypatch):
     monkeypatch.delenv("EPISODE_FACADE_READ_ONLY", raising=False)
     from nof1_causal_lab import tool_server
