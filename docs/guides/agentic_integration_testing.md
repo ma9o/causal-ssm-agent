@@ -10,10 +10,6 @@
 
 ## Prerequisites
 
-All backend processes that might touch BYOK replay/refinement paths must source the
-same root `.env` as the web app so `APP_SECRET` is available everywhere, not just
-in Next.js.
-
 ```bash
 bun run integration:start
 ```
@@ -47,22 +43,21 @@ data/
 ### 1. Create the workspace and start the run
 
 ```bash
-COOKIE_JAR=$(mktemp)
 WORKSPACE_ID="T3ST42"
 QUESTION="How does screen time affect sleep?"
-LAUNCH_ID="launch-1"
 
-curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/upload \
+curl -s -X POST http://localhost:3000/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
   -F "file=@data/GOLDEN/input/MyActivity.json"
 
-curl -sf -b "$COOKIE_JAR" http://localhost:3000/api/auth/status \
-  | jq -e '.canRun == true'
-
-curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/runs \
+curl -s -X POST http://localhost:3000/api/runs \
   -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"launchId\":\"$LAUNCH_ID\",\"query\":\"$QUESTION\"}"
+  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
 ```
+
+There is no auth: the facade is the source of truth for what is allowed, and
+`curl -s http://localhost:8100/api/capabilities` reports whether the move
+plane is available (`moves_enabled` is `false` on a read-only facade).
 
 This writes the `question` artifact and starts the **auto-run driver**: a
 default navigation policy that proposes `run(stage)` moves in dependency
@@ -138,9 +133,9 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
-Through the web app, [`/api/refine/apply`](../../apps/web/src/app/api/refine/apply/route.ts)
-and [`/api/replay`](../../apps/web/src/app/api/replay/route.ts) perform the
-same write-then-auto sequence with payload merging.
+Through the web app, [`/api/replay`](../../apps/web/src/app/api/replay/route.ts)
+performs the same write-then-auto sequence; an external agent proposes the
+same moves over MCP (see the [agent quickstart](agent_quickstart.md)).
 
 ### Valid stage IDs
 

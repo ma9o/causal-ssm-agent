@@ -24,7 +24,7 @@ uv sync --frozen --group dev
 cd ../..
 cp .env.example.dev .env
 # Fill in OPENROUTER_API_KEY (required)
-# Optional: EXA_API_KEY, PREFECT_API_URL, TOOL_SERVER_URL
+# Optional: EXA_API_KEY, TOOL_SERVER_URL
 
 # 4. Code generation (Python Pydantic → TypeScript types and generated docs)
 bun run docs:codegen
@@ -32,20 +32,14 @@ bun run docs:codegen
 
 Edit `.env` and fill in at minimum:
 
-- `OPENROUTER_API_KEY` — required for LLM-backed pipeline stages and anonymous local web execution
-- `APP_SECRET` — required for the web session secret and BYOK store secret derivation; use at least 32 characters
+- `OPENROUTER_API_KEY` — the ambient credential for LLM-backed pipeline stages (the only key mechanism; there is no per-user handoff)
 
 Optional keys:
 
 - `EXA_API_KEY` — literature search
-- `OPENROUTER_CREDITS_API_KEY` — optional credit inspection for the web trial pool
-- `BYOK_SECRET_STORE_URL` — libSQL URL for OpenRouter handoff refs; use `file:.local/byok-secret-store.db` locally or `libsql://...` in deployed environments
-- `BYOK_SECRET_STORE_AUTH_TOKEN` — optional auth token for remote libSQL/Turso deployments
-- `PREFECT_API_URL` — override the web app's server-side Prefect API base URL (default `http://localhost:4200/api`)
-- `TOOL_SERVER_URL` — override the refinement tool server URL (default `http://localhost:8100`)
-- `NEXT_PUBLIC_PREFECT_EVENTS_URL` — override the browser-side Prefect event WebSocket URL
-
-The Next.js app reads `OPENROUTER_API_KEY`, `APP_SECRET`, `OPENROUTER_CREDITS_API_KEY`, `BYOK_SECRET_STORE_URL`, and `BYOK_SECRET_STORE_AUTH_TOKEN` from the runtime environment first, then falls back to the monorepo root `.env` for local development. `APP_SECRET` is required for session-cookie encryption and BYOK store encryption. Web-launched runs hand off the effective OpenRouter key, plus an explicit access mode, through a single-use encrypted ref in the shared libSQL store. Local dev and CI can use the default file URL directly; deployed environments can point the same code at Turso with one URL plus an auth token.
+- `TOOL_SERVER_URL` — override the episode facade / tool server URL (default `http://localhost:8100`)
+- `TEMPORAL_ADDRESS` — override the Temporal dev server address (default `localhost:7233`)
+- `EPISODE_FACADE_READ_ONLY=1` — serve reads only (what the hosted viewer's facade sets)
 
 ### 4. Generate Types and Docs
 
@@ -62,12 +56,12 @@ Or individually:
 
 | App | Command | Port |
 |-----|---------|------|
-| Web frontend | `cd apps/web && bun run dev` | 3000 |
-| Prefect server | `cd apps/data-pipeline && PREFECT_SERVER_LOGS_STREAM_OUT_ENABLED=true PREFECT_SERVER_LOGS_STREAM_PUBLISHING_ENABLED=true uv run prefect server start` | 4200 |
-| Tool server | `cd apps/data-pipeline && bun run dev` | 8100 |
-| Pipeline deployment | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.flows.pipeline` | — |
+| Web viewer | `cd apps/web && bun run dev` | 3000 |
+| Temporal dev server | `cd apps/data-pipeline && uv run python scripts/temporal_dev_server.py` | 7233 |
+| Episode worker | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.machine.temporal.worker` | — |
+| Tool server / episode facade | `cd apps/data-pipeline && bun run dev` | 8100 |
 
-The web frontend works standalone with mock data. Live pipeline runs also need the Prefect server, tool server, and pipeline deployment.
+The web viewer works standalone with mock data. Live episodes also need the Temporal dev server, the episode worker, and the tool server — `bun run integration:start` brings up the whole stack (see the [agent quickstart](agent_quickstart.md) and the [integration testing guide](agentic_integration_testing.md)).
 
 ## Common Commands
 
