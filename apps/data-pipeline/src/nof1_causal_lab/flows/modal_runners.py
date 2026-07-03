@@ -16,7 +16,7 @@ import modal
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId
-    from nof1_causal_lab.machine.runners import ExecOptions, StageRunResult
+    from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -72,7 +72,8 @@ async def _run_stage_gpu(
     options: dict[str, Any],
 ) -> dict[str, Any]:
     """Run a stage on Modal GPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.runners import ExecOptions, execute_stage_locally
+    from nof1_causal_lab.machine.moves import ExecOptions
+    from nof1_causal_lab.machine.runners import execute_stage_locally
 
     result = await execute_stage_locally(
         workspace_id,
@@ -91,7 +92,8 @@ async def _run_stage_cpu(
     options: dict[str, Any],
 ) -> dict[str, Any]:
     """Run a stage on Modal CPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.runners import ExecOptions, execute_stage_locally
+    from nof1_causal_lab.machine.moves import ExecOptions
+    from nof1_causal_lab.machine.runners import execute_stage_locally
 
     result = await execute_stage_locally(
         workspace_id,
@@ -139,10 +141,11 @@ async def run_stage_on_modal(
     stage_id: str,
     pins: dict[ArtifactId, int],
     options: ExecOptions,
-) -> StageRunResult:
+) -> TransitionEffects:
     """Invoke a stage remotely; the single-use key ref is resolved here so
     only the raw key (never the ref, which is locally consumed) transits."""
-    from nof1_causal_lab.machine.runners import StageRunResult, resolve_openrouter_api_key
+    from nof1_causal_lab.machine.moves import TransitionEffects
+    from nof1_causal_lab.machine.runners import resolve_openrouter_api_key
 
     api_key = resolve_openrouter_api_key(options)
     remote_options = options.model_copy(
@@ -155,7 +158,7 @@ async def run_stage_on_modal(
         dict(pins),
         remote_options.model_dump(mode="json"),
     )
-    return StageRunResult.model_validate(raw)
+    return TransitionEffects.model_validate(raw)
 
 
 def spawn_stage4_model_compile_warmup(

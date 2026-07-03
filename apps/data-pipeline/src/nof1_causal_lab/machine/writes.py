@@ -16,24 +16,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
-    ArtifactVersionInfo,
     Provenance,
 )
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
+from nof1_causal_lab.machine.moves import TransitionEffects
 from nof1_causal_lab.machine.store import ArtifactStore
-
-
-class WriteResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    # Optional artifacts withheld by a fan-out derivation (e.g. an edited
-    # causal_spec under which nothing is estimable retracts estimands).
-    retracted: list[ArtifactId] = Field(default_factory=list)
 
 
 def _validated(artifact_id: ArtifactId, model_cls: type[BaseModel], payload: dict) -> dict:
@@ -45,7 +36,7 @@ def _validated(artifact_id: ArtifactId, model_cls: type[BaseModel], payload: dic
 
 def _write_question(
     store: ArtifactStore, payload: dict[str, Any], provenance: Provenance
-) -> WriteResult:
+) -> TransitionEffects:
     text = payload.get("text", "")
     if not isinstance(text, str) or not text.strip():
         raise ArtifactWriteRejected(
@@ -58,12 +49,12 @@ def _write_question(
         produced_by=None,
         json_files={"question.json": {"text": text.strip()}},
     )
-    return WriteResult(produced=[info])
+    return TransitionEffects(produced=[info])
 
 
 def _write_causal_spec(
     store: ArtifactStore, payload: dict[str, Any], provenance: Provenance
-) -> WriteResult:
+) -> TransitionEffects:
     from nof1_causal_lab.flows.stage_contracts import Stage1bContract
     from nof1_causal_lab.flows.stages.stage1b.contracts import (
         EstimandsContract,
@@ -113,12 +104,12 @@ def _write_causal_spec(
     from nof1_causal_lab.flows.stage_persistence import persist_validated_web_result
 
     persist_validated_web_result("stage-1b", validated, store.workspace_id)
-    return WriteResult(produced=produced, retracted=retracted)
+    return TransitionEffects(produced=produced, retracted=retracted)
 
 
 def _write_saved_scenarios(
     store: ArtifactStore, payload: dict[str, Any], provenance: Provenance
-) -> WriteResult:
+) -> TransitionEffects:
     from nof1_causal_lab.flows.stages.stage6.contracts import SavedScenarioContract
 
     scenarios = payload.get("scenarios")
@@ -144,7 +135,7 @@ def _write_saved_scenarios(
         produced_by=None,
         json_files={"saved_scenarios.json": {"scenarios": validated}},
     )
-    return WriteResult(produced=[info])
+    return TransitionEffects(produced=[info])
 
 
 _CONTRACT_WRITES: dict[ArtifactId, tuple[str, str]] = {
@@ -172,7 +163,7 @@ def execute_write(
     artifact_id: ArtifactId,
     payload: dict[str, Any],
     provenance: Provenance,
-) -> WriteResult:
+) -> TransitionEffects:
     """Validate and persist a write move; raises ArtifactWriteRejected."""
     store = ArtifactStore(workspace_id)
     if artifact_id == "question":
@@ -191,7 +182,7 @@ def execute_write(
             produced_by=None,
             json_files={filename: validated},
         )
-        return WriteResult(produced=[info])
+        return TransitionEffects(produced=[info])
     raise ArtifactWriteRejected(
         f"artifact '{artifact_id}' has no write executor (binary payloads are "
         "produced by stages, not written directly)",

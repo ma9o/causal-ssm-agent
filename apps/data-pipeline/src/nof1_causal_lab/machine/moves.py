@@ -20,12 +20,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from nof1_causal_lab.machine.artifacts import (
     ARTIFACT_IDS,
     ArtifactId,
+    ArtifactVersionInfo,
     Provenance,
 )
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, stage_spec
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
+    from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.graph import StageSpec
 
 
@@ -45,6 +46,35 @@ class WriteArtifact(BaseModel):
 
 
 Move = Annotated[RunStage | WriteArtifact, Field(discriminator="kind")]
+
+
+class TransitionEffects(BaseModel):
+    """What an executed move did to the store: the workflow installs this."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    produced: list[ArtifactVersionInfo] = Field(default_factory=list)
+    retracted: list[ArtifactId] = Field(default_factory=list)
+
+
+class ExecOptions(BaseModel):
+    """Per-move execution parameters (infra, not domain state).
+
+    ``openrouter_secret_ref`` is a single-use encrypted key reference —
+    the key itself is resolved activity-side and never enters workflow
+    history or the artifact store.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    openrouter_access_mode: str | None = None
+    openrouter_secret_ref: str | None = None
+    # Resolved key for Modal transit only — never set on options that cross
+    # the workflow/update boundary (those carry the single-use ref instead).
+    openrouter_api_key: str | None = None
+    inference_method: str | None = None
+    enable_literature: bool | None = None
+    max_windows: int | None = None
 
 
 def legal_moves(state: EpisodeState) -> list[Move]:
