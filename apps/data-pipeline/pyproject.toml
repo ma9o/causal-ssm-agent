@@ -42,6 +42,7 @@ dependencies = [
 
 [project.scripts]
 nof1-mcp = "nof1_causal_lab.mcp_gateway:main"
+nof1-publish = "nof1_causal_lab.publish:main"
 
 [build-system]
 requires = ["uv_build>=0.8.24,<0.11.0"]
