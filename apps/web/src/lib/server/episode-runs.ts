@@ -1,6 +1,4 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
-import { createByokSecretRef } from "@/lib/server/byok-secret-store";
-import { noAccessMessage, resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 
 const TOOL_SERVER = getToolServerUrl();
 
@@ -24,12 +22,6 @@ export type EpisodeArtifactId =
 export type EpisodeMove =
   | { kind: "run"; stage_id: string }
   | { kind: "write"; artifact_id: EpisodeArtifactId; provenance: EpisodeProvenance };
-
-/** Per-move execution parameters accepted by the facade (infra, not domain state). */
-export interface EpisodeExecOptions {
-  openrouter_access_mode?: string;
-  openrouter_secret_ref?: string;
-}
 
 export interface ArtifactVersionInfo {
   artifact_id: EpisodeArtifactId;
@@ -144,26 +136,21 @@ export async function proposeMove(
   workspaceId: string,
   move: EpisodeMove,
   payload?: Record<string, unknown>,
-  options?: EpisodeExecOptions,
 ): Promise<MoveOutcome> {
   return episodeFetch(`/${workspaceId}/moves`, {
     method: "POST",
     body: JSON.stringify({
       move,
       ...(payload !== undefined ? { payload } : {}),
-      ...(options !== undefined ? { options } : {}),
     }),
   });
 }
 
 /** Starts the background auto-run driver; throws EpisodeRunError(409) when already running. */
-export async function startAutoRun(
-  workspaceId: string,
-  options: EpisodeExecOptions,
-): Promise<void> {
+export async function startAutoRun(workspaceId: string): Promise<void> {
   await episodeFetch(`/${workspaceId}/auto`, {
     method: "POST",
-    body: JSON.stringify({ options }),
+    body: JSON.stringify({}),
   });
 }
 
@@ -186,31 +173,13 @@ export async function getEpisodeEvents(
 }
 
 /**
- * Resolve OpenRouter access into the exec options for an auto-run.
- *
- * Local mode uses ambient credentials on the worker. For user/anonymous modes
- * the key is handed off as a single-use encrypted secret ref.
- * TODO: a secret ref authorizes exactly one move, so an auto-run spanning
- * multiple LLM stages exhausts it after the first stage; per-move secret refs
- * are not supported by the facade yet.
+ * Facade deployment capabilities. A read-only facade (the hosted viewer's
+ * backend) reports moves_enabled=false; the UI hides move affordances.
  */
-export async function resolveAutoRunExecOptions(): Promise<EpisodeExecOptions> {
-  const access = await resolveOpenRouterAccess();
-  if (access.mode === "none") {
-    throw new EpisodeRunError(402, noAccessMessage(access.reason));
+export async function getFacadeCapabilities(): Promise<{ moves_enabled: boolean }> {
+  const response = await fetch(`${TOOL_SERVER}/api/capabilities`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new EpisodeRunError(502, `Capabilities error ${response.status}`);
   }
-  if (access.mode === "local") {
-    return { openrouter_access_mode: "local" };
-  }
-
-  let secretRef: string;
-  try {
-    secretRef = await createByokSecretRef(access.apiKey);
-  } catch {
-    throw new EpisodeRunError(500, "OpenRouter secret handoff is not configured.");
-  }
-  return {
-    openrouter_access_mode: access.mode,
-    openrouter_secret_ref: secretRef,
-  };
+  return response.json() as Promise<{ moves_enabled: boolean }>;
 }

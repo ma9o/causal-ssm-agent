@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getEpisodeEvents, getEpisodeStatus, getEpisodeTimeline } from "@/lib/server/episode-runs";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
  * GET /api/analysis/[workspaceId]/progress?after=<cursor>
@@ -15,24 +15,23 @@ export async function GET(
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
   const { workspaceId } = await params;
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const { workspaceId: normalizedWorkspaceId } = workspaceAccess;
 
   const url = new URL(request.url);
   const after = url.searchParams.get("after");
 
   try {
     const [status, timeline, events] = await Promise.all([
-      getEpisodeStatus(normalizedWorkspaceId),
-      getEpisodeTimeline(normalizedWorkspaceId),
-      getEpisodeEvents(normalizedWorkspaceId, after),
+      getEpisodeStatus(safeWorkspaceId),
+      getEpisodeTimeline(safeWorkspaceId),
+      getEpisodeEvents(safeWorkspaceId, after),
     ]);
 
     return NextResponse.json({
-      workspaceId: normalizedWorkspaceId,
+      workspaceId: safeWorkspaceId,
       autoRunning: status.auto_running,
       seq: status.seq,
       artifacts: status.artifacts,

@@ -1,18 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/storage", () => ({
-  deleteData: vi.fn(),
   ensureDir: vi.fn(),
   writeBinary: vi.fn(),
 }));
 
-vi.mock("@/lib/workspace-access", () => ({
-  finalizeWorkspaceCreate: vi.fn(),
-  requireWorkspaceAccess: vi.fn(),
-}));
-
-import { deleteData, ensureDir, writeBinary } from "@/lib/storage";
-import { finalizeWorkspaceCreate, requireWorkspaceAccess } from "@/lib/workspace-access";
+import { ensureDir, writeBinary } from "@/lib/storage";
 import { POST } from "./route";
 
 describe("POST /api/upload", () => {
@@ -20,14 +13,7 @@ describe("POST /api/upload", () => {
     vi.clearAllMocks();
   });
 
-  it("finalizes a new workspace only after the upload succeeds", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "NEWSPACE",
-      creationPending: true,
-      readOnly: false,
-    });
-
+  it("stores the uploaded file under the workspace input prefix", async () => {
     const file = new File(["hello"], "data.csv", { type: "text/csv" });
     const formData = new FormData();
     formData.set("workspaceId", "NEWSPACE");
@@ -46,17 +32,9 @@ describe("POST /api/upload", () => {
     });
     expect(ensureDir).toHaveBeenCalledWith("NEWSPACE/input");
     expect(writeBinary).toHaveBeenCalledTimes(1);
-    expect(finalizeWorkspaceCreate).toHaveBeenCalledWith("NEWSPACE");
   });
 
-  it("does not finalize a workspace when validation fails before the write", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "BROKEN",
-      creationPending: true,
-      readOnly: false,
-    });
-
+  it("rejects empty file names before writing", async () => {
     const file = new File(["hello"], "", { type: "text/csv" });
     const formData = new FormData();
     formData.set("workspaceId", "BROKEN");
@@ -72,21 +50,12 @@ describe("POST /api/upload", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Invalid file name" });
     expect(writeBinary).not.toHaveBeenCalled();
-    expect(finalizeWorkspaceCreate).not.toHaveBeenCalled();
   });
 
-  it("rolls back the uploaded file when workspace finalization fails", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "BROKEN",
-      creationPending: true,
-      readOnly: false,
-    });
-    vi.mocked(finalizeWorkspaceCreate).mockRejectedValue(new Error("finalize failed"));
-
+  it("rejects malformed workspace ids", async () => {
     const file = new File(["hello"], "data.csv", { type: "text/csv" });
     const formData = new FormData();
-    formData.set("workspaceId", "BROKEN");
+    formData.set("workspaceId", "../etc");
     formData.set("file", file);
 
     const response = await POST(
@@ -96,10 +65,7 @@ describe("POST /api/upload", () => {
       }),
     );
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Failed to finalize workspace creation",
-    });
-    expect(deleteData).toHaveBeenCalledWith("BROKEN/input/data.csv");
+    expect(response.status).toBe(400);
+    expect(writeBinary).not.toHaveBeenCalled();
   });
 });

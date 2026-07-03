@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import {
   EpisodeRunError,
   proposeMove,
-  resolveAutoRunExecOptions,
   STAGE_EDIT_ARTIFACTS,
   startAutoRun,
 } from "@/lib/server/episode-runs";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { isRecord } from "@/lib/utils/type-guards";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
  * POST /api/replay
@@ -36,13 +35,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "stageData must be an object" }, { status: 400 });
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
-    requireMutable: true,
-  });
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId =
+    typeof workspaceId === "string" ? normalizeWorkspaceId(workspaceId) : null;
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   const artifactId = STAGE_EDIT_ARTIFACTS[safeStageId];
   if (!artifactId) {
@@ -68,8 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const options = await resolveAutoRunExecOptions();
-    await startAutoRun(safeWorkspaceId, options);
+    await startAutoRun(safeWorkspaceId);
 
     return NextResponse.json({ ok: true, workspaceId: safeWorkspaceId });
   } catch (err) {

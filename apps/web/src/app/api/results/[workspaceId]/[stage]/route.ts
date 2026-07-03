@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { SHARED_WORKSPACE_CACHE_CONTROL } from "@/lib/shared-workspace-cache";
-import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import { loadStageResult } from "@/lib/stage-result-loader";
 import { isStorageNotFoundError, readData } from "@/lib/storage";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ workspaceId: string; stage: string }> },
 ) {
   const { workspaceId, stage } = await params;
@@ -15,21 +13,16 @@ export async function GET(
   if (!safeStage || /[\\/]/.test(safeStage)) {
     return NextResponse.json({ error: "Invalid route parameters" }, { status: 400 });
   }
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   try {
     const raw = await readData(`${safeWorkspaceId}/run/${safeStage}.json`);
 
     try {
-      const response = NextResponse.json(await loadStageResult(safeStage, raw, safeWorkspaceId));
-      if (isSharedWorkspaceId(safeWorkspaceId)) {
-        response.headers.set("Cache-Control", SHARED_WORKSPACE_CACHE_CONTROL);
-      }
-      return response;
+      return NextResponse.json(await loadStageResult(safeStage, raw, safeWorkspaceId));
     } catch (error) {
       return NextResponse.json(
         {

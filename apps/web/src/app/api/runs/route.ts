@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  EpisodeRunError,
-  resolveAutoRunExecOptions,
-  startAutoRun,
-  startEpisode,
-} from "@/lib/server/episode-runs";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { EpisodeRunError, startAutoRun, startEpisode } from "@/lib/server/episode-runs";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function POST(request: Request) {
   const { workspaceId, query } = await request.json();
@@ -16,20 +11,16 @@ export async function POST(request: Request) {
   if (typeof query !== "string" || !query.trim()) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
-
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
-    requireMutable: true,
-  });
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
 
   try {
-    const options = await resolveAutoRunExecOptions();
-    await startEpisode(workspaceAccess.workspaceId, query.trim());
-    await startAutoRun(workspaceAccess.workspaceId, options);
+    await startEpisode(safeWorkspaceId, query.trim());
+    await startAutoRun(safeWorkspaceId);
 
-    return NextResponse.json({ workspaceId: workspaceAccess.workspaceId });
+    return NextResponse.json({ workspaceId: safeWorkspaceId });
   } catch (error) {
     if (error instanceof EpisodeRunError) {
       if (error.status === 409) {

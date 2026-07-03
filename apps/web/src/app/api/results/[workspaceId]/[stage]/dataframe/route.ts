@@ -1,5 +1,5 @@
 import { isStorageNotFoundError, readBinary } from "@/lib/storage";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
  * Map stage IDs to their parquet artifact filenames.
@@ -11,7 +11,7 @@ const PARQUET_MAP: Record<string, string[]> = {
 };
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ workspaceId: string; stage: string }> },
 ) {
   const { workspaceId, stage } = await params;
@@ -19,11 +19,10 @@ export async function GET(
   if (!safeStage || /[\\/]/.test(safeStage)) {
     return new Response("Invalid route parameters", { status: 400 });
   }
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return new Response("Invalid workspaceId format", { status: 400 });
   }
-  const { workspaceId: safeWorkspaceId } = workspaceAccess;
 
   const filenames = PARQUET_MAP[safeStage];
   if (!filenames) {

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { listAccessibleWorkspaces } from "@/lib/server/workspace-ownership";
+import { listWorkspaces } from "@/lib/server/workspaces";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json(await listAccessibleWorkspaces());
+  return NextResponse.json(await listWorkspaces());
 }

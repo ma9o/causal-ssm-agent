@@ -1,13 +1,12 @@
 "use client";
 
 import { LandingPageView, MAX_FILE_SIZE } from "@/components/landing/landing-page-view";
-import { AccessibleWorkspacesRail } from "@/components/pipeline/accessible-workspaces-rail";
+import { WorkspacesRail } from "@/components/pipeline/workspaces-rail";
 import { apiFetch } from "@/lib/api/client";
-import { getAccessibleWorkspaces, getAccessibleWorkspacesQueryKey } from "@/lib/api/workspaces";
+import { getCapabilities, getCapabilitiesQueryKey } from "@/lib/api/capabilities";
+import { getWorkspaces, getWorkspacesQueryKey } from "@/lib/api/workspaces";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
-import { initiateOpenRouterAuth } from "@/lib/auth";
-import { useAuth } from "@/lib/hooks/use-auth";
 import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -20,11 +19,17 @@ export default function LandingPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const auth = useAuth();
-  const accessibleWorkspacesQuery = useQuery({
-    queryKey: getAccessibleWorkspacesQueryKey(auth.access?.authScope ?? "pending"),
-    queryFn: getAccessibleWorkspaces,
-    enabled: auth.access !== null,
+  const capabilitiesQuery = useQuery({
+    queryKey: getCapabilitiesQueryKey(),
+    queryFn: getCapabilities,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const movesEnabled = capabilitiesQuery.data?.moves_enabled ?? null;
+
+  const workspacesQuery = useQuery({
+    queryKey: getWorkspacesQueryKey(),
+    queryFn: getWorkspaces,
     staleTime: 30_000,
     retry: false,
   });
@@ -95,17 +100,10 @@ export default function LandingPage() {
     }
   };
 
-  const handleOpenRouterAuth = async () => {
-    await initiateOpenRouterAuth(`${window.location.origin}/auth/callback`);
-  };
-
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4 py-6 sm:px-6 xl:grid xl:grid-cols-[1fr_auto_1fr] xl:items-center xl:gap-6">
       <LandingPageView
-        access={auth.access}
-        noAccess={auth.noAccess}
-        onSignOut={() => void auth.signOut()}
-        onOpenRouterAuth={handleOpenRouterAuth}
+        movesEnabled={movesEnabled}
         question={question}
         onQuestionChange={(q) => {
           setQuestion(q);
@@ -115,15 +113,15 @@ export default function LandingPage() {
         onFileSelect={handleFileSelect}
         onFileRemove={() => setFile(null)}
         isSubmitting={isSubmitting}
-        submitDisabled={isSubmitting || !question.trim() || !file || auth.noAccess}
+        submitDisabled={isSubmitting || !question.trim() || !file || movesEnabled === false}
         onSubmit={handleSubmit}
         error={error}
       />
       <div className="hidden xl:block w-px h-2/3 bg-border" />
-      <AccessibleWorkspacesRail
-        data={accessibleWorkspacesQuery.data}
-        error={accessibleWorkspacesQuery.error?.message ?? null}
-        isLoading={auth.access === null || accessibleWorkspacesQuery.isLoading}
+      <WorkspacesRail
+        data={workspacesQuery.data}
+        error={workspacesQuery.error?.message ?? null}
+        isLoading={workspacesQuery.isLoading}
       />
     </div>
   );

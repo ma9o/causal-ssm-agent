@@ -2,15 +2,6 @@ import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LLMTrace, Stage3Data, Stage4PersistedData } from "@nof1-causal-lab/api-types";
 
-vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi
-    .fn()
-    .mockImplementation(async (_request: Request, workspaceId: string) => ({
-      ok: true,
-      workspaceId,
-    })),
-}));
-
 vi.mock("@/lib/storage", () => ({
   readData: vi.fn(),
   readBinary: vi.fn(),
@@ -20,8 +11,6 @@ vi.mock("@/lib/storage", () => ({
 import { deriveStage2Data } from "@/lib/stage2-data";
 import { deriveStage4Data } from "@/lib/stage4-derived-data";
 import { readBinary, readData } from "@/lib/storage";
-import { SHARED_WORKSPACE_CACHE_CONTROL } from "@/lib/shared-workspace-cache";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
 
 describe("GET /api/results/[workspaceId]/[stage]", () => {
@@ -45,7 +34,6 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
       lower: null,
       label: "Infinity should stay a string",
     });
-    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user");
   });
 
   it("normalizes top-level non-finite numbers in persisted stage payloads", async () => {
@@ -62,28 +50,6 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
       outcome: "warn",
       inference_metadata: { duration_seconds: null },
     });
-  });
-
-  it("adds public CDN caching to shared workspace result responses", async () => {
-    vi.mocked(readData).mockResolvedValue('{"outcome":"success"}');
-
-    const response = await GET(new Request("http://localhost/api/results/DEMO/stage-5b"), {
-      params: Promise.resolve({ workspaceId: "DEMO", stage: "stage-5b" }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe(SHARED_WORKSPACE_CACHE_CONTROL);
-  });
-
-  it("keeps non-shared workspace result responses uncached", async () => {
-    vi.mocked(readData).mockResolvedValue('{"outcome":"success"}');
-
-    const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
-      params: Promise.resolve({ workspaceId: "user", stage: "stage-5b" }),
-    });
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBeNull();
   });
 
   it("returns a parse error when the persisted payload is invalid", async () => {

@@ -1,18 +1,15 @@
 "use client";
 
-import type {
-  AccessibleWorkspaceEntry,
-  AccessibleWorkspaceList,
-} from "@/lib/server/workspace-ownership";
+import type { WorkspaceEntry, WorkspaceList } from "@/lib/server/workspaces";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 
-export function AccessibleWorkspacesRail({
+export function WorkspacesRail({
   data,
   error,
   isLoading,
 }: {
-  data?: AccessibleWorkspaceList;
+  data?: WorkspaceList;
   error?: string | null;
   isLoading: boolean;
 }) {
@@ -47,7 +44,7 @@ export function AccessibleWorkspacesRail({
   );
 }
 
-function WorkspaceCard({ workspace }: { workspace: AccessibleWorkspaceEntry }) {
+function WorkspaceCard({ workspace }: { workspace: WorkspaceEntry }) {
   return (
     <Link
       href={workspace.href}

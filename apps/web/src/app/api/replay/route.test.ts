@@ -1,17 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MoveOutcome } from "@/lib/server/episode-runs";
 
-vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi
-    .fn()
-    .mockImplementation(async (_request: Request, workspaceId: string) => ({
-      ok: true,
-      workspaceId,
-      creationPending: false,
-      readOnly: false,
-    })),
-}));
-
 vi.mock("@/lib/server/episode-runs", () => ({
   EpisodeRunError: class EpisodeRunError extends Error {
     status: number;
@@ -27,16 +16,10 @@ vi.mock("@/lib/server/episode-runs", () => ({
     "stage-6": "baseline_ranking",
   },
   proposeMove: vi.fn(),
-  resolveAutoRunExecOptions: vi.fn(),
   startAutoRun: vi.fn(),
 }));
 
-import {
-  EpisodeRunError,
-  proposeMove,
-  resolveAutoRunExecOptions,
-  startAutoRun,
-} from "@/lib/server/episode-runs";
+import { EpisodeRunError, proposeMove, startAutoRun } from "@/lib/server/episode-runs";
 import { POST } from "./route";
 
 function appliedOutcome(): MoveOutcome {
@@ -86,9 +69,6 @@ describe("POST /api/replay", () => {
 
   it("writes the stage artifact with human provenance and starts auto-run", async () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
-    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
-      openrouter_access_mode: "local",
-    });
     vi.mocked(startAutoRun).mockResolvedValue();
 
     const stageData = { latent_model: { constructs: [] } };
@@ -103,16 +83,11 @@ describe("POST /api/replay", () => {
       { kind: "write", artifact_id: "constructs", provenance: "human" },
       stageData,
     );
-    expect(startAutoRun).toHaveBeenCalledWith("user-1", {
-      openrouter_access_mode: "local",
-    });
+    expect(startAutoRun).toHaveBeenCalledWith("user-1");
   });
 
   it("maps stage ids to their edited artifacts", async () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
-    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
-      openrouter_access_mode: "local",
-    });
     vi.mocked(startAutoRun).mockResolvedValue();
 
     await POST(makeRequest({ workspaceId: "user-1", stageId: "stage-1b", stageData: { a: 1 } }));
@@ -170,9 +145,6 @@ describe("POST /api/replay", () => {
 
   it("returns 409 when an auto-run is already active", async () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
-    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
-      openrouter_access_mode: "local",
-    });
     vi.mocked(startAutoRun).mockRejectedValue(
       new EpisodeRunError(409, "auto-run already active for user-1"),
     );

@@ -154,6 +154,47 @@ export async function ensureDir(relativePath: string): Promise<void> {
   await mkdir(resolve(LOCAL_DATA_DIR, relativePath), { recursive: true });
 }
 
+/** Top-level directories under the data root (= workspace ids). */
+export async function listTopLevelDirs(): Promise<string[]> {
+  if (isRemote) {
+    const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+    const names = new Set<string>();
+    let continuationToken: string | undefined;
+    do {
+      const response = await getS3().send(
+        new ListObjectsV2Command({
+          Bucket: BUCKET,
+          Prefix: `${PREFIX}/`,
+          Delimiter: "/",
+          ContinuationToken: continuationToken,
+        }),
+      );
+      for (const common of response.CommonPrefixes ?? []) {
+        const name = common.Prefix?.slice(PREFIX.length + 1).replace(/\/$/, "");
+        if (name && !name.startsWith(".")) {
+          names.add(name);
+        }
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }
+
+  const { readdir } = await import("node:fs/promises");
+  try {
+    const entries = await readdir(LOCAL_DATA_DIR, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right));
+  } catch (e: unknown) {
+    if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw e;
+  }
+}
+
 export async function prefixExists(relativePrefix: string): Promise<boolean> {
   if (isRemote) {
     const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");

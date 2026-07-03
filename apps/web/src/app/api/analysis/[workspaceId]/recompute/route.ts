@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  EpisodeRunError,
-  resolveAutoRunExecOptions,
-  startAutoRun,
-} from "@/lib/server/episode-runs";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { EpisodeRunError, startAutoRun } from "@/lib/server/episode-runs";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
  * POST /api/analysis/[workspaceId]/recompute
@@ -15,26 +11,22 @@ import { requireWorkspaceAccess } from "@/lib/workspace-access";
  * 409 is treated as success.
  */
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
   const { workspaceId } = await params;
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
-    requireMutable: true,
-  });
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const { workspaceId: normalizedWorkspaceId } = workspaceAccess;
 
   try {
-    const options = await resolveAutoRunExecOptions();
-    await startAutoRun(normalizedWorkspaceId, options);
-    return NextResponse.json({ ok: true, workspaceId: normalizedWorkspaceId });
+    await startAutoRun(safeWorkspaceId);
+    return NextResponse.json({ ok: true, workspaceId: safeWorkspaceId });
   } catch (error) {
     if (error instanceof EpisodeRunError) {
       if (error.status === 409) {
-        return NextResponse.json({ ok: true, workspaceId: normalizedWorkspaceId });
+        return NextResponse.json({ ok: true, workspaceId: safeWorkspaceId });
       }
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

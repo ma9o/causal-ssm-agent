@@ -1,12 +1,12 @@
 import { apiFetch } from "@/lib/api/client";
-import type { AccessibleWorkspaceList } from "@/lib/server/workspace-ownership";
+import type { WorkspaceList } from "@/lib/server/workspaces";
 
-export function getAccessibleWorkspacesQueryKey(authScope: string) {
-  return ["accessible-workspaces", authScope] as const;
+export function getWorkspacesQueryKey() {
+  return ["workspaces"] as const;
 }
 
-export async function getAccessibleWorkspaces(): Promise<AccessibleWorkspaceList> {
-  return apiFetch<AccessibleWorkspaceList>("/api/workspaces", {
+export async function getWorkspaces(): Promise<WorkspaceList> {
+  return apiFetch<WorkspaceList>("/api/workspaces", {
     cache: "no-store",
   });
 }

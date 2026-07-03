@@ -1,28 +1,25 @@
 import { NextResponse } from "next/server";
-import { SHARED_WORKSPACE_CACHE_CONTROL } from "@/lib/shared-workspace-cache";
-import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { getFacadeCapabilities } from "@/lib/server/episode-runs";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 import { buildAnalysisManifest } from "../_shared";
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ workspaceId: string }> },
 ) {
   const { workspaceId } = await params;
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
+  const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const { workspaceId: normalizedWorkspaceId, readOnly } = workspaceAccess;
 
   try {
-    const manifest = await buildAnalysisManifest(normalizedWorkspaceId);
+    const [manifest, capabilities] = await Promise.all([
+      buildAnalysisManifest(safeWorkspaceId),
+      getFacadeCapabilities(),
+    ]);
     if (manifest) {
-      const response = NextResponse.json({ ...manifest, readOnly });
-      if (isSharedWorkspaceId(normalizedWorkspaceId)) {
-        response.headers.set("Cache-Control", SHARED_WORKSPACE_CACHE_CONTROL);
-      }
-      return response;
+      return NextResponse.json({ ...manifest, readOnly: !capabilities.moves_enabled });
     }
   } catch {
     // Fall through
