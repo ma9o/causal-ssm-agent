@@ -101,36 +101,45 @@ AMPS = (0.2, 0.6, 1.0, 1.5, 2.0, 2.6)
 
 @dataclass(frozen=True)
 class Cfg:
-    """Which pieces of the model are linear / Gaussian (True = relaxed)."""
+    """Which spots the candidate treats as linear / Gaussian (True = relaxed).
+
+    Four orthogonal model spots: the two nonlinearities (dynamics drift, sensor readout) and
+    the two noise distributions (process, observation). The *filter* used on a config is a
+    separate axis (KF / EKF / UKF / PF), passed explicitly where it matters."""
 
     dyn_linear: bool
     obs_linear: bool
-    gauss_noise: bool
+    proc_gauss: bool
+    obs_gauss: bool
 
 
 # Named configs used throughout
-KF = Cfg(True, True, True)  # fully linear-Gaussian -> the candidate is an exact Kalman filter
-FULL = Cfg(False, False, False)  # the realistic truth: nonlinear drift + readout + Student-t
-BEST = Cfg(False, False, True)  # cheapest *faithful* Gaussian filter: EKF over the true funcs
+KF = Cfg(True, True, True, True)  # fully linear-Gaussian -> the candidate is an exact Kalman filter
+FULL = Cfg(
+    False, False, False, False
+)  # the realistic truth: nonlinear drift + readout, heavy noise
+BEST = Cfg(False, False, True, True)  # cheapest *faithful* Gaussian filter: EKF over the true funcs
 
-# A single knob relaxed in the *truth*, away from the fully-linear-Gaussian KF candidate.
-# (Filtering with the exact KF means no EKF error contaminates the single-knob signal.)
-TRUTH_NOISE = Cfg(True, True, False)  # only the noise is heavy-tailed
-TRUTH_DYN = Cfg(False, True, True)  # only the restoring force is nonlinear
-TRUTH_OBS = Cfg(True, False, True)  # only the readout folds
+# Each truth relaxes exactly ONE of the four spots away from the fully-linear-Gaussian KF
+# candidate, so its single-knob panel isolates that spot's cost (the KF candidate stays exact).
+TRUTH_DYN = Cfg(False, True, True, True)  # only the restoring force is nonlinear
+TRUTH_OBS = Cfg(True, False, True, True)  # only the readout folds
+TRUTH_PROC = Cfg(True, True, False, True)  # only the process noise is heavy-tailed
+TRUTH_OBSNOISE = Cfg(True, True, True, False)  # only the observation noise is heavy-tailed
 
 # Candidate strategies for the regime heatmap (truth held at FULL)
 HEATMAP_CANDS = (
     ("fully-linear KF", KF),
-    ("EKF · keep dynamics", Cfg(False, True, True)),
-    ("EKF · keep readout", Cfg(True, False, True)),
+    ("EKF · keep dynamics", Cfg(False, True, True, True)),
+    ("EKF · keep readout", Cfg(True, False, True, True)),
     ("EKF · keep both", BEST),
 )
 
 # ── Semantic palette for the knobs (built on the shared calibration colours) ─────
 C_DYN = C_UNDER  # dynamics knob — blue
 C_OBSK = C_OVER  # readout knob — red (the dominant cost)
-C_NOISE = C_BIAS  # noise knob — orange
+C_NOISE = C_BIAS  # process-noise knob — orange
+C_OBSNOISE = "#7c3aed"  # observation-noise knob — purple
 # colour per heatmap candidate (red = worst fully-linear … green = best keep-both)
 HEATMAP_COLORS = (C_OBSK, C_NOISE, C_DYN, C_PASS)
 
@@ -159,13 +168,10 @@ def obs_jac(th, obs_linear):
 # ── Simulate the (possibly nonlinear / Student-t) truth ──────────────────────────
 def simulate(key, q, r, gamma, amp, cfg: Cfg):
     kp, ko, ki = jax.random.split(key, 3)
-    if cfg.gauss_noise:
-        wp = jax.random.normal(kp, (T,)) * q
-        wo = jax.random.normal(ko, (T,)) * r
-    else:  # standardise Student-t to unit variance so q, r stay the noise *sd* (variance-matched)
-        s = np.sqrt((NU - 2.0) / NU)
-        wp = jax.random.t(kp, NU, (T,)) * s * q
-        wo = jax.random.t(ko, NU, (T,)) * s * r
+    # standardise Student-t to unit variance so q, r stay the noise *sd* (variance-matched)
+    s = np.sqrt((NU - 2.0) / NU)
+    wp = (jax.random.normal(kp, (T,)) if cfg.proc_gauss else jax.random.t(kp, NU, (T,)) * s) * q
+    wo = (jax.random.normal(ko, (T,)) if cfg.obs_gauss else jax.random.t(ko, NU, (T,)) * s) * r
 
     def step(z, w):
         zn = trans_mean(z, gamma, cfg.dyn_linear) + jnp.array([0.0, w])
@@ -302,13 +308,13 @@ def _oracle_forecast(key, zb, q, r, gamma, cfg: Cfg, M):
     (A scan-in-vmap over the same work was the runtime bottleneck.)"""
     n = zb.shape[0]
     kp, ko = jax.random.split(key)
-    if cfg.gauss_noise:
-        wp = jax.random.normal(kp, (n, M, H)) * q[:, None, None]
-        wo = jax.random.normal(ko, (n, M)) * r[:, None]
-    else:
-        s = np.sqrt((NU - 2.0) / NU)
-        wp = jax.random.t(kp, NU, (n, M, H)) * s * q[:, None, None]
-        wo = jax.random.t(ko, NU, (n, M)) * s * r[:, None]
+    s = np.sqrt((NU - 2.0) / NU)
+    wp = (
+        jax.random.normal(kp, (n, M, H)) if cfg.proc_gauss else jax.random.t(kp, NU, (n, M, H)) * s
+    ) * q[:, None, None]
+    wo = (jax.random.normal(ko, (n, M)) if cfg.obs_gauss else jax.random.t(ko, NU, (n, M)) * s) * r[
+        :, None
+    ]
     th = jnp.broadcast_to(zb[:, None, 0], (n, M))
     om = jnp.broadcast_to(zb[:, None, 1], (n, M))
     g = gamma[:, None]
@@ -333,6 +339,19 @@ def _crps_gaussian(mu: np.ndarray, sd: np.ndarray, y: np.ndarray) -> np.ndarray:
     sd = np.maximum(sd, 1e-9)
     z = (y - mu) / sd
     return sd * (z * (2 * sstats.norm.cdf(z) - 1) + 2 * sstats.norm.pdf(z) - 1.0 / np.sqrt(np.pi))
+
+
+def _crps_ensemble(samples: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """CRPS of an ensemble (sample) predictive — the proper score for the particle filter,
+    whose forecast can be non-Gaussian (e.g. bimodal under a folding readout) and is thus not
+    captured by a mean/sd summary. Sorted O(M log M) form of E|X−y| − ½E|X−X'|; verified to
+    agree with the closed-form Gaussian CRPS on Gaussian samples."""
+    s = np.sort(samples, axis=1)
+    m = s.shape[1]
+    i = np.arange(m)
+    return np.mean(np.abs(s - y[:, None]), axis=1) - (1.0 / m**2) * np.sum(
+        (2 * i + 1 - m) * s, axis=1
+    )
 
 
 class _Scored(NamedTuple):
@@ -812,18 +831,19 @@ def fig_gate(S: int = S_DEFAULT, bins: int = BINS_DEFAULT) -> go.Figure:
 def fig_cost_gallery(
     amp: float = GALLERY_AMP, S: int = S_DEFAULT, bins: int = BINS_DEFAULT
 ) -> go.Figure:
-    """Relax exactly one piece of the truth away from the fully-linear-Gaussian Kalman
-    candidate and read the predictive PIT. The gate (left) is flat; each knob writes its own
-    signature. The heavy-tailed noise leaves a *diffuse* miscalibration with no single clean
-    shape — the filter inflates its estimated noise scale to absorb the outliers, so χ² sees
-    a real cost that a KS statistic or a per-bin band can miss. A nonlinear restoring force
-    tilts the histogram (a cost that grows with amplitude), and the folding readout is the
-    violent one. The χ² score (uniform ≈ bins-1) headlines each panel."""
+    """Relax exactly one of the four spots in the truth away from the fully-linear-Gaussian
+    Kalman candidate and read the predictive PIT. The gate (left) is flat; each spot writes
+    its own signature. The two **nonlinearity** spots tilt the histogram — the folding readout
+    violently (χ² in the hundreds), the small-angle dynamics mildly. The two **noise** spots
+    are subtler and diffuse: the Gaussian filter inflates its estimated noise scale to absorb
+    the heavy-tailed shocks, so χ² registers a real cost a KS statistic or per-bin band can
+    miss. The χ² score (uniform ≈ bins-1) headlines each panel."""
     cases = (
         ("gate (exact KF)", KF, C_PASS),
-        ("noise → Student-t", TRUTH_NOISE, C_NOISE),
         ("dynamics → sin θ", TRUTH_DYN, C_DYN),
         ("readout → sin θ", TRUTH_OBS, C_OBSK),
+        ("process noise → t", TRUTH_PROC, C_NOISE),
+        ("obs noise → t", TRUTH_OBSNOISE, C_OBSNOISE),
     )
     titles = []
     pits = []
@@ -831,31 +851,32 @@ def fig_cost_gallery(
         _, dp = crossgen(truth, KF, amp, S, GRID_DEFAULT, SEED)
         pits.append(dp)
         titles.append(f"{label}<br>χ² = {calib_chi2(dp, bins):.0f}")
-    fig = make_subplots(rows=1, cols=4, subplot_titles=titles, horizontal_spacing=0.035)
+    fig = make_subplots(rows=1, cols=5, subplot_titles=titles, horizontal_spacing=0.028)
     for c, ((_label, _truth, color), dp) in enumerate(zip(cases, pits, strict=True), start=1):
         _add_pit_hist(fig, dp, S, bins, color, row=1, col=c, show_legend=(c == 1))
         fig.update_xaxes(title_text="predictive PIT", row=1, col=c)
     fig.update_yaxes(title_text="count", row=1, col=1)
-    fig.update_annotations(font=dict(size=12))
+    fig.update_annotations(font=dict(size=11))
     return _layout(
         fig.update_layout(title_text=None),
-        f"The cost of each single relaxation at swing θ₀ = {amp:.2f}  (uniform χ² ≈ {bins - 1})",
+        f"The cost of relaxing each single spot at swing θ₀ = {amp:.2f}  (uniform χ² ≈ {bins - 1})",
         height=420,
-        width=1040,
+        width=1160,
     )
 
 
 # ── Figure 5: binning-free ECDF view of the same costs ───────────────────────────
 def fig_ecdf_costs(amp: float = GALLERY_AMP, S: int = S_DEFAULT) -> go.Figure:
-    """The same four configurations as ECDF-minus-uniform curves — no bin choice to second
+    """The same five configurations as ECDF-minus-uniform curves — no bin choice to second
     guess. Calibration is the flat line at 0 inside the grey band; a slope-shaped excursion is
     a bias, an S-shaped one a mis-scaled spread. The folding readout leaves the band by the
-    widest margin."""
+    widest margin; the two noise spots wander only slightly."""
     cases = (
         ("gate (exact KF)", KF, C_PASS, "solid"),
-        ("noise → Student-t", TRUTH_NOISE, C_NOISE, "dash"),
         ("dynamics → sin θ", TRUTH_DYN, C_DYN, "dot"),
         ("readout → sin θ", TRUTH_OBS, C_OBSK, "dashdot"),
+        ("process noise → t", TRUTH_PROC, C_NOISE, "dash"),
+        ("obs noise → t", TRUTH_OBSNOISE, C_OBSNOISE, "longdash"),
     )
     fig = go.Figure()
     grid, lo, hi = pit_ecdf_band(S)
@@ -1215,4 +1236,192 @@ def fig_oracle_screen(S: int = S_HEATMAP) -> go.Figure:
         "Calibration says honest; the oracle score says whether it is sharp",
         height=620,
         width=920,
+    )
+
+
+# ── The filter axis: KF / EKF / UKF / PF (the "states" / inference spot) ─────────
+# The knobs above relax the *model*; this axis fixes the full nonlinear model (with the true
+# params, like the oracle) and varies only HOW the posterior over the latent state is computed:
+#   KF  — linearize the model to fully-linear, then the exact Kalman filter
+#   EKF — keep the model, linearize each step at the mean (first-order Jacobian)
+#   UKF — keep the model, match moments through deterministic sigma points (no Jacobian)
+#   PF  — keep the model, represent the state belief by a particle cloud (no Gaussian assumption)
+# On a linear-Gaussian model KF == EKF == UKF == PF (all exact); their spread on the nonlinear
+# model is the cost of the Gaussian-state approximation — the spot the particle filter removes.
+N_PF = 1500  # particles for the bootstrap filter
+
+
+def _ukf_forecast(params, amp, y, cfg: Cfg):
+    """Unscented (sigma-point) Kalman filter; returns the H-step forecast (mean, var).
+    Exact for linear-Gaussian models — validated == the exact KF — so any EKF↔UKF gap is purely
+    how each linearization handles curvature."""
+    q, r, gamma = params
+    Q = jnp.array([[0.0, 0.0], [0.0, q * q]])
+    R = r * r
+    n = 2
+    lam = 3.0 - n  # κ = 3 − n with α = 1 ⇒ λ = κ
+    nl = n + lam
+    wm = jnp.array([lam / nl, *([1.0 / (2 * nl)] * (2 * n))])
+    wc = wm.at[0].set(lam / nl + 2.0)  # α = 1, β = 2
+    eye = jnp.eye(n)
+
+    def sigma(m, P):
+        chol = jnp.linalg.cholesky(nl * (0.5 * (P + P.T)) + 1e-9 * eye)
+        return jnp.concatenate([m[None, :], m[None, :] + chol.T, m[None, :] - chol.T], axis=0)
+
+    def predict(m, P):
+        prop = jax.vmap(lambda z: trans_mean(z, gamma, cfg.dyn_linear))(sigma(m, P))
+        mp = wm @ prop
+        d = prop - mp
+        return mp, (wc[:, None] * d).T @ d + Q
+
+    def obs_moments(m, P):
+        pts = sigma(m, P)
+        ys = obs_mean(pts[:, 0], cfg.obs_linear)
+        yh = wm @ ys
+        dy = ys - yh
+        return pts, yh, jnp.sum(wc * dy * dy) + R, (wc[:, None] * (pts - m)).T @ dy
+
+    def update(m, P, yt):
+        _pts, yh, S, Pxy = obs_moments(m, P)
+        K = Pxy / S
+        return m + K * (yt - yh), P - S * jnp.outer(K, K)
+
+    Tfit = T - H
+    m, P = jnp.array([amp, 0.0]), jnp.diag(P0)
+    m, P = update(m, P, y[0])
+
+    def step(carry, yt):
+        m, P = predict(*carry)
+        return update(m, P, yt), None
+
+    (m, P), _ = jax.lax.scan(step, (m, P), y[1:Tfit])
+    (m, P), _ = jax.lax.scan(lambda c, _: (predict(*c), None), (m, P), None, length=H)
+    _pts, yhat_f, S_f, _ = obs_moments(m, P)
+    return yhat_f, S_f
+
+
+def _pf_forecast(key, params, amp, y, cfg: Cfg, N):
+    """Bootstrap particle filter over the (true-param) model; returns N H-step-ahead forecast
+    samples. The exact state filter (as N→∞): no Gaussian-belief assumption, so it keeps a
+    multimodal state posterior when the folding readout induces one. Validated against the KF
+    forecast on linear-Gaussian models."""
+    q, r, gamma = params
+    ki, kfit, kfwd, kobs = (
+        jax.random.fold_in(key, 0),
+        jax.random.fold_in(key, 1),
+        jax.random.fold_in(key, 2),
+        jax.random.fold_in(key, 3),
+    )
+    x = jnp.array([amp, 0.0]) + jnp.sqrt(P0) * jax.random.normal(ki, (N, 2))
+    Tfit = T - H
+
+    def logw(x, yt):
+        return -0.5 * (yt - obs_mean(x[:, 0], cfg.obs_linear)) ** 2 / (r * r)
+
+    def resample(k, x, lw):
+        u = (jax.random.uniform(k) + jnp.arange(N)) / N
+        idx = jnp.searchsorted(jnp.cumsum(jax.nn.softmax(lw)), u)
+        return x[jnp.clip(idx, 0, N - 1)]
+
+    fit_keys = jax.random.split(kfit, Tfit)
+    x = resample(fit_keys[0], x, logw(x, y[0]))
+
+    def step(x, inp):
+        yt, k = inp
+        kp, kr = jax.random.split(k)
+        xn = jax.vmap(lambda z: trans_mean(z, gamma, cfg.dyn_linear))(x)
+        xn = xn.at[:, 1].add(jax.random.normal(kp, (N,)) * q)
+        return resample(kr, xn, logw(xn, yt)), None
+
+    x, _ = jax.lax.scan(step, x, (y[1:Tfit], fit_keys[1:Tfit]))
+
+    def fwd(x, k):
+        xn = jax.vmap(lambda z: trans_mean(z, gamma, cfg.dyn_linear))(x)
+        return xn.at[:, 1].add(jax.random.normal(k, (N,)) * q), None
+
+    x, _ = jax.lax.scan(fwd, x, jax.random.split(kfwd, H))
+    return obs_mean(x[:, 0], cfg.obs_linear) + jax.random.normal(kobs, (N,)) * r
+
+
+_kf_batch = jax.jit(jax.vmap(filter_forecast, in_axes=(0, None, 0, None)), static_argnums=(3,))
+_ukf_batch = jax.jit(jax.vmap(_ukf_forecast, in_axes=(0, None, 0, None)), static_argnums=(3,))
+_pf_batch = jax.jit(
+    jax.vmap(_pf_forecast, in_axes=(0, 0, None, 0, None, None)), static_argnums=(4, 5)
+)
+
+# colour per filter (worst → best): KF red, EKF orange, UKF blue, PF green; oracle = grey
+FILTER_COLORS = {"KF": C_OBSK, "EKF": C_NOISE, "UKF": C_DYN, "PF": C_PASS, "oracle": C_UNIFORM}
+
+
+@lru_cache(maxsize=64)
+def filter_compare(amp: float, n_sims: int, seed: int, n_pf: int, m_or: int) -> dict:
+    """Forecast CRPS for KF/EKF/UKF/PF + the oracle floor, all at the TRUE params on a full
+    nonlinear, Gaussian-noise truth (so only the state-inference differs). Lower = sharper."""
+    truth = BEST  # nonlinear dynamics + readout, Gaussian noise (so noise is not a confound)
+    base = jax.random.PRNGKey(seed)
+    tkey, skey, pkey, okey = jax.random.split(base, 4)
+    p_true = jnp.exp(MU + SIG * jax.random.normal(tkey, (n_sims, 3)))
+    q, rr, g = p_true[:, 0], p_true[:, 1], p_true[:, 2]
+    ys, zfull = _sim_batch(jax.random.split(skey, n_sims), q, rr, g, amp, truth)
+    ystar = np.asarray(ys[:, T - 1])
+
+    kf_y, kf_s = _kf_batch(p_true, amp, ys, KF)[1:]
+    ekf_y, ekf_s = _kf_batch(p_true, amp, ys, BEST)[1:]
+    ukf_y, ukf_s = _ukf_batch(p_true, amp, ys, BEST)
+    pf = np.asarray(_pf_batch(jax.random.split(pkey, n_sims), p_true, amp, ys, BEST, n_pf))
+    orc = np.asarray(_oracle_forecast_j(okey, zfull[:, T - H - 1, :], q, rr, g, truth, m_or))
+    return {
+        "KF": float(_crps_gaussian(np.asarray(kf_y), np.sqrt(np.asarray(kf_s)), ystar).mean()),
+        "EKF": float(_crps_gaussian(np.asarray(ekf_y), np.sqrt(np.asarray(ekf_s)), ystar).mean()),
+        "UKF": float(_crps_gaussian(np.asarray(ukf_y), np.sqrt(np.asarray(ukf_s)), ystar).mean()),
+        "PF": float(_crps_ensemble(pf, ystar).mean()),
+        "oracle": float(_crps_ensemble(orc, ystar).mean()),
+    }
+
+
+# ── Figure 12: the filter axis — Gaussian-state cost vs the exact particle filter ─
+def fig_filter_comparison(n_sims: int = 250) -> go.Figure:
+    """The fourth spot: holding the full nonlinear model and the TRUE parameters fixed, vary
+    only the state-inference engine. KF (linearize the whole model) is worst; EKF and UKF keep
+    the model but force a single-Gaussian state belief; the PF keeps the exact (sample) state
+    posterior. The PF→Gaussian-filter gap is the cost of the Gaussian-state approximation — the
+    one spot the other knobs never touch — and the PF→oracle gap is the irreducible uncertainty
+    of not knowing the state. Forecast CRPS (lower = sharper); ν makes no difference here since
+    the truth's noise is Gaussian, so this isolates state representation alone."""
+    rows = {k: [] for k in FILTER_COLORS}
+    for a in AMPS:
+        res = filter_compare(a, n_sims, SEED, N_PF, M_SCORE)
+        for k in FILTER_COLORS:
+            rows[k].append(res[k])
+    fig = go.Figure()
+    for k in ("KF", "EKF", "UKF", "PF"):
+        fig.add_trace(
+            go.Scatter(
+                x=list(AMPS),
+                y=rows[k],
+                mode="lines+markers",
+                line=dict(color=FILTER_COLORS[k], width=2.4),
+                marker=dict(size=7),
+                name=k,
+                hoverinfo="skip",
+            )
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=list(AMPS),
+            y=rows["oracle"],
+            mode="lines",
+            line=dict(color=FILTER_COLORS["oracle"], width=2.0, dash="dash"),
+            name="oracle floor",
+            hoverinfo="skip",
+        )
+    )
+    fig.update_xaxes(title_text="swing amplitude θ₀ (rad)  →  more nonlinear")
+    fig.update_yaxes(title_text="forecast CRPS (lower = sharper)")
+    return _layout(
+        fig,
+        "The state-inference spot: Gaussian filters vs the exact particle filter",
+        height=470,
+        width=900,
     )

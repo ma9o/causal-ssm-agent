@@ -20,6 +20,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 PORT = int(os.environ.get("MARIMO_CLAUDE_SHIM_PORT", "8011"))
 TIMEOUT_S = float(os.environ.get("MARIMO_CLAUDE_SHIM_TIMEOUT", "180"))
+# Pin model + reasoning effort regardless of the CLI's global default. Override
+# with MARIMO_CLAUDE_MODEL / MARIMO_CLAUDE_EFFORT (effort: low|medium|high|xhigh|max).
+MODEL = os.environ.get("MARIMO_CLAUDE_MODEL", "claude-opus-4-8")
+EFFORT = os.environ.get("MARIMO_CLAUDE_EFFORT", "xhigh")
 
 # marimo can only APPEND to its hardcoded "you are a sandboxed notebook copilot"
 # system prompt (via `[ai] rules`), never replace it. So we reframe here instead:
@@ -52,6 +56,10 @@ async def _run_claude(messages: list[dict]) -> str:
         "claude",
         "-p",
         convo,
+        "--model",
+        MODEL,
+        "--effort",
+        EFFORT,
         "--output-format",
         "json",
         # Non-interactive: never block on a permission prompt that can't be answered.

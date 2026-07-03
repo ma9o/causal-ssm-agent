@@ -93,24 +93,30 @@ def traj_fig(lab, mo, traj_amp):
 @app.cell(hide_code=True)
 def relaxations_md(mo):
     mo.md(r"""
-    ## 2. Three knobs, each relaxing one piece
+    ## 2. Four model spots, plus the filter
 
     The candidate model is built by turning the truth's hard parts into their easy stand-ins,
-    one piece at a time — three **orthogonal** knobs:
+    one spot at a time. There are **four orthogonal model spots**, paired into two kinds:
 
     - **dynamics** — the restoring torque $-\omega_0^2\sin\theta \to -\omega_0^2\,\theta$;
     - **measurement** — the readout $\sin\theta \to \theta$;
-    - **noise** — Student-t $\to$ a *variance-matched* Gaussian (same spread, lighter tails).
+    - **process noise** — Student-t $\to$ a *variance-matched* Gaussian;
+    - **observation noise** — Student-t $\to$ a variance-matched Gaussian.
 
-    Relax **all three** and the model becomes an exact linear-Gaussian state-space model, so
-    the cheapest valid fit is the **exact Kalman filter**. Keep any nonlinear piece and the
-    cheapest valid fit is the **extended Kalman filter** (EKF), which straightens that piece
-    to its tangent each step — still $O(T)$, still cheap (its mechanics are dissected in
-    `filtering_anatomy_walkthrough.py`). Three static parameters are inferred throughout: the
-    process-noise scale $q$, the observation-noise scale $r$, and the damping $\gamma$.
+    (The panel below draws the two *nonlinearity* spots, identical sin-vs-line curves, and the
+    shared noise shape — Student-t vs Gaussian — which applies to both noise spots.) Relax
+    **all four** and the model is an exact linear-Gaussian SSM, so the cheapest valid fit is the
+    **exact Kalman filter**. Keep a nonlinear piece and the cheapest valid Gaussian fit is the
+    **extended Kalman filter** (EKF), which straightens that piece to its tangent each step
+    (mechanics in `filtering_anatomy_walkthrough.py`). Three static parameters are inferred
+    throughout: $q$, $r$, $\gamma$.
 
-    The green strip marks the small-angle window where the first two knobs cost almost
-    nothing. The noise knob is different in kind: it matches in the bulk but, on a log scale,
+    There is also a **fifth, different kind of spot** — *how* you compute the state posterior
+    given the model: KF / EKF / UKF / particle filter. That is the inference axis, taken up in
+    §13; the four spots here are about the *model* the candidate believes.
+
+    The green strip marks the small-angle window where the nonlinearity spots cost almost
+    nothing. The noise spots are different in kind: they match in the bulk but, on a log scale,
     the Gaussian's tail plunges while the Student-t's stays fat — the disagreement lives
     entirely in the rare, large events.
     """)
@@ -182,32 +188,31 @@ def gate_fig(lab):
 @app.cell(hide_code=True)
 def costs_md(mo):
     mo.md(r"""
-    ## 5. The dictionary of costs
+    ## 5. The dictionary of costs — one spot at a time
 
-    Now relax exactly **one** piece of the truth away from the (fixed) fully-linear Kalman
-    candidate, so each panel isolates a single knob's cost — and read the **predictive PIT**.
-    The gate stays flat; each relaxation signs its name, in the same vocabulary as the SBC
-    dictionary — but one of them signs it faintly:
+    Now relax exactly **one** of the four spots in the truth away from the (fixed) fully-linear
+    Kalman candidate, so each panel isolates that spot's cost — and read the **predictive PIT**.
+    The gate stays flat; each spot signs its name in the SBC dictionary's vocabulary, and the
+    four are revealingly *different*:
 
-    - **noise → Gaussian** — a **diffuse** miscalibration with no single clean shape, and the
-      most instructive case. You might expect a ∪ (a Gaussian filter under-rating rare shocks
-      should pile the true future into the tails), but the filter *estimates* its noise scale,
-      and the in-sample outliers inflate that estimate — so the forecasts come out slightly
-      *over*-dispersed, and the two effects nearly cancel. What is left is a real but shapeless
-      cost that **χ² registers and a Kolmogorov–Smirnov statistic or a per-bin band miss** (KS
-      sees only the largest single gap; the band asks each bar individually). The lesson is as
-      much about the *scalar* as the model: choose the wrong summary and heavy-tailed
-      miscalibration is invisible. This cost is roughly **amplitude-independent** — heavy tails
-      do not care how far the pendulum swings.
-    - **dynamics → small-angle** — a gentle tilt that grows with amplitude as the linear
-      restoring force drifts out of phase with the true one.
     - **readout → linear** — the violent one. The candidate believes $y=\theta$ while reality
       folds to $y=\sin\theta$, so as the swing grows the histogram collapses to one side
-      (χ² in the hundreds). This is the small-angle pendulum's, and the folding sensor's,
-      revenge.
+      (χ² in the hundreds). The small-angle pendulum's, and the folding sensor's, revenge.
+    - **dynamics → small-angle** — a gentle tilt that grows with amplitude as the linear
+      restoring force drifts out of phase with the true one.
+    - **process noise → Student-t** — **almost free** (χ² near the floor). Heavy kicks enter
+      the *velocity* and are integrated and smeared by the dynamics before they reach the
+      observed signal, so the forecast barely notices them.
+    - **observation noise → Student-t** — a small, **diffuse** cost (no clean shape). Heavy tails
+      hit the measurement directly, but because the filter *estimates* its noise scale, the
+      in-sample outliers inflate that estimate and partly self-correct. What is left is a cost
+      that **χ² registers but a Kolmogorov–Smirnov statistic or a per-bin band can miss** — a
+      reminder that the scalar you choose decides what you can see. Both noise costs are roughly
+      **amplitude-independent** — heavy tails do not care how far the pendulum swings.
 
-    Drag the amplitude and watch the noise panel hold its modest χ² steady while the readout
-    panel detonates.
+    The clean separation of the two noise spots is the payoff of splitting them: *where* the
+    heavy tail enters (hidden velocity vs observed signal) decides whether it costs anything.
+    Drag the amplitude and watch the noise panels hold steady while the readout panel detonates.
     """)
     return
 
@@ -235,10 +240,10 @@ def ecdf_md(mo):
     Vehtari 2022, arXiv [2103.10522](https://arxiv.org/abs/2103.10522)) plots the empirical
     CDF of the PITs **minus** the uniform diagonal, so calibration is the flat line at $0$
     inside the band. Each defect bends the curve its own way: a slope is a bias (the readout
-    relaxation's signature once it skews), an S that crosses zero in the middle is a
-    mis-scaled spread (the noise relaxation, whose inflated scale leaves a faint S). Same
-    evidence as §5, at full resolution, with no knob to second-guess — it shares the amplitude
-    slider above.
+    relaxation, growing as it skews), an S that crosses zero in the middle is a mis-scaled
+    spread (the observation-noise relaxation's faint S). The process-noise curve barely leaves
+    the band at all. Same five configurations as §5, at full resolution, no bins to second-guess
+    — it shares the amplitude slider above.
     """)
     return
 
@@ -462,22 +467,68 @@ def oracle_fig(lab):
 
 
 @app.cell(hide_code=True)
+def filter_md(mo):
+    mo.md(r"""
+    ## 13. The fourth spot: how you compute the state
+
+    Everything so far relaxed the *model*. There is one more place an approximation lives — the
+    one your question about "states" points at — and it is a different kind: **how you compute
+    the posterior over the latent state**, holding the model fixed. Four engines, in increasing
+    fidelity, all run here on the *full* nonlinear model at the *true* parameters (so only the
+    state inference differs), against a Gaussian-noise truth (so heavy tails are not a confound
+    and this isolates state representation alone):
+
+    - **KF** — linearize the whole model to fully-linear, then the exact Kalman filter;
+    - **EKF** — keep the model, linearize each step at the mean (first-order Jacobian);
+    - **UKF** — keep the model, match moments through deterministic sigma points (no Jacobian);
+    - **PF** — keep the model, carry the state belief as a particle cloud (no Gaussian assumption).
+
+    On a linear-Gaussian model all four coincide exactly (verified to machine precision — the KF
+    is the reference the EKF/UKF/PF are checked against). On the nonlinear model the lines fan
+    out, and each gap names a spot:
+
+    - **KF → EKF/UKF** — the cost of linearizing the *model* (large, grows with swing);
+    - **EKF → UKF** — the linearization *quality* (Jacobian vs sigma points): small here, since
+      the curvature is mild — an honest near-tie;
+    - **UKF → PF** — the cost of the **Gaussian-state** assumption: the particle filter keeps the
+      whole (and, under the folding readout, increasingly non-Gaussian) state posterior, so it
+      pulls ahead as the swing grows. This is the "states" spot the other knobs never touch;
+    - **PF → oracle** — the **irreducible** uncertainty of inferring the state from finite data
+      rather than knowing it. It is large and roughly flat.
+
+    That last decomposition sharpens §11–§12: the oracle gap a candidate shows is
+    *recoverable* (candidate → PF, what a better engine could claw back) **plus** *irreducible*
+    (PF → oracle, which no engine can). A cheap filter is worth replacing only to the extent of
+    the first.
+    """)
+    return
+
+
+@app.cell
+def filter_fig(lab):
+    lab.fig_filter_comparison()
+    return
+
+
+@app.cell(hide_code=True)
 def bridge_md(mo):
     mo.md(r"""
-    ## 13. Back to the engine
+    ## 14. Back to the engine
 
     This notebook is the **cheap front end** of a decision the expensive engine then makes
     properly. The mapping is direct:
 
     | in this demo | in the codebase |
     |---|---|
-    | the relaxed Gaussian candidate (Kalman/EKF) | a linearized surrogate (IEKS / Laplace / local-linear) |
+    | the relaxed Gaussian candidate (KF/EKF/UKF) | a linearized surrogate (IEKS / Laplace / local-linear) |
+    | the particle filter (§13) | `cuthbert`'s `smc.particle_filter` over the true emission |
     | the full nonlinear/Student-t truth | the true continuous-time nonlinear SSM |
-    | the exact production posterior | `cuthbert`'s `smc.particle_filter` over the true emission, Euler–Maruyama over the true drift |
+    | the exact production posterior | particle/SMC over the true emission, Euler–Maruyama over the true drift |
     | a flat predictive PIT in this regime | a regime where linear warm-starting is safe and cheap |
     | a detonating predictive PIT | a regime where only the exact engine may produce a reported number |
     | the oracle predictive (true state + params) | the best-possible forecast — a simulation-only yardstick, no fittable analogue |
     | the CRPS gap to the oracle | the sharpness-aware accuracy loss the PIT cannot see |
+    | the PF→oracle gap (§13) | the irreducible part of that loss — what *no* engine recovers |
 
     The policy survives this demo intact. A linearized filter is *fine to initialise with* —
     the §9 left edge shows the *nonlinearity* cost is nearly free where curvature is small,
