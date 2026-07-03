@@ -6,7 +6,7 @@ import {
   createStageStatusStory,
   stageStoryDecorators,
 } from "../stage-story-helpers";
-import Stage3Content, { Stage3FixAction } from "./stage-3-content";
+import Stage3Content from "./stage-3-content";
 import fixture from "../../../../../../data/DEMO/run/stage-3.json";
 
 const stage = STAGES.find((s) => s.id === "stage-3")!;
@@ -29,9 +29,6 @@ export const Completed = createCompletedStageStory({
   stage,
   args: { data },
   elapsedMs: 3_800,
-  renderShellProps: (args) => ({
-    actions: <Stage3FixAction data={args.data} onFix={() => undefined} />,
-  }),
   renderContent: (args) => <Stage3Content {...args} />,
 });
 

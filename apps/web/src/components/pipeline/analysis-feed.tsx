@@ -3,18 +3,16 @@
 import { BackToTop } from "@/components/back-to-top";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AnalysisStageRuns } from "@/lib/api/analysis";
-import { RefinementProvider, useRefinement } from "@/lib/contexts/refinement-context";
+import { WorkspaceViewProvider } from "@/lib/contexts/workspace-view-context";
 import { useKeyboardNav } from "@/lib/hooks/use-keyboard-nav";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@nof1-causal-lab/api-types";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ActiveStageIndicator } from "./active-stage-indicator";
-import { InvalidationWarningModal } from "./invalidation-warning-modal";
 import { LazyStageMount } from "./lazy-stage-mount";
 import { NewStagesNotification } from "./new-stages-notification";
 import { PipelineProgressBar } from "./progress-bar";
-import { ResumeButton } from "./resume-button";
 import { StageSectionRouter } from "./stage-section-router";
 import { StaleRecomputeBanner } from "./stale-recompute-banner";
 
@@ -23,14 +21,14 @@ function FeedContent({
   stageRuns,
   question,
   progress,
+  readOnly,
 }: {
   workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress;
+  readOnly: boolean;
 }) {
-  const { refiningStageId, settled } = useRefinement();
-
   const visibleStageIds = useMemo(
     () => STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id),
     [progress],
@@ -43,7 +41,7 @@ function FeedContent({
     <div>
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 lg:px-10 2xl:px-12">
-        <StaleRecomputeBanner workspaceId={workspaceId} progress={progress} />
+        {!readOnly && <StaleRecomputeBanner workspaceId={workspaceId} progress={progress} />}
         {visibleStages.map((stage) => (
           <LazyStageMount key={stage.id} stage={stage}>
             <StageSectionRouter
@@ -62,11 +60,7 @@ function FeedContent({
             <ActiveStageIndicator stageId={progress.currentStage} />
           </div>
         )}
-        {refiningStageId && settled && (
-          <ResumeButton workspaceId={workspaceId} stageId={refiningStageId} />
-        )}
       </div>
-      <InvalidationWarningModal />
       <NewStagesNotification progress={progress} />
       <BackToTop />
     </div>
@@ -105,13 +99,14 @@ export function AnalysisFeed({
   }
 
   return (
-    <RefinementProvider readOnly={readOnly}>
+    <WorkspaceViewProvider readOnly={readOnly}>
       <FeedContent
         workspaceId={workspaceId}
         stageRuns={stageRuns}
         question={question}
         progress={progress}
+        readOnly={readOnly}
       />
-    </RefinementProvider>
+    </WorkspaceViewProvider>
   );
 }

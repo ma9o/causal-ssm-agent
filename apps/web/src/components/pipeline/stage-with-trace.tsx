@@ -1,6 +1,5 @@
 "use client";
 
-import { useRefinement } from "@/lib/contexts/refinement-context";
 import { cn } from "@/lib/utils";
 import { Bot } from "lucide-react";
 import { motion } from "motion/react";
@@ -39,14 +38,12 @@ function useControllableOpen({
 export function StageWithTraceView({
   children,
   panelContent,
-  interactive,
   open,
   defaultOpen = false,
   onOpenChange,
 }: {
   children: ReactNode;
   panelContent: ReactNode;
-  interactive?: boolean;
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (nextOpen: boolean) => void;
@@ -91,7 +88,7 @@ export function StageWithTraceView({
               className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:shadow-md"
             >
               <Bot className="h-3.5 w-3.5" />
-              {interactive ? "Interact with LLM" : "Show LLM Trace"}
+              Show LLM Trace
             </button>
           </div>
         )}
@@ -112,7 +109,7 @@ export function StageWithTraceView({
               className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors"
             >
               <Bot className="h-3.5 w-3.5" />
-              {interactive ? "Hide LLM Chat" : "Hide LLM Trace"}
+              Hide LLM Trace
             </button>
             <div className="min-h-0 flex-1 flex flex-col rounded-lg border bg-muted/30 p-3">
               {panelContent}
@@ -124,41 +121,3 @@ export function StageWithTraceView({
   );
 }
 
-/**
- * Connected shell that reacts to refinement prefill state at runtime.
- * This wrapper owns app state; `StageWithTraceView` owns presentation.
- */
-export function StageWithTrace({
-  children,
-  panelContent,
-  stageId,
-  interactive,
-  defaultOpen = false,
-}: {
-  children: ReactNode;
-  panelContent: ReactNode;
-  stageId?: string;
-  interactive?: boolean;
-  defaultOpen?: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const { prefill, readOnly } = useRefinement();
-
-  useEffect(() => {
-    if (stageId && prefill?.stageId === stageId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- prefill comes from external refinement context and should open the shell immediately when targeted.
-      setIsOpen(true);
-    }
-  }, [prefill, stageId]);
-
-  return (
-    <StageWithTraceView
-      interactive={interactive && !readOnly}
-      open={isOpen}
-      onOpenChange={setIsOpen}
-      panelContent={panelContent}
-    >
-      {children}
-    </StageWithTraceView>
-  );
-}

@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  applyRefinement,
-  getAnalysisManifest,
-  getEpisodeProgress,
-  replayStageOverride,
-} from "./analysis";
+import { getAnalysisManifest, getEpisodeProgress, replayStageOverride } from "./analysis";
 
 const originalFetch = globalThis.fetch;
 
@@ -74,18 +69,4 @@ describe("analysis api client", () => {
     );
   });
 
-  it("posts refinements to the apply route", async () => {
-    const fetchMock = mockFetchJson({ ok: true, updatedFields: [] });
-
-    await applyRefinement({
-      workspaceId: "user-1",
-      stageId: "stage-6",
-      stagePatch: { final_summary: "Updated." },
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/refine/apply",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
 });

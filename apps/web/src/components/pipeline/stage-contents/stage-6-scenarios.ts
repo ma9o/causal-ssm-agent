@@ -2,10 +2,10 @@
  * Stage 6 scenario model.
  *
  * Every Stage 6 "scenario" is a materialized `simulate` tool result — a start
- * state + a list of timed latent clamps — sourced from the persisted trace ∪ the
- * in-memory refinement conversation, carrying the full per-node `visualization`
- * trajectories that drive the living DAG. Two provenances, distinguished purely
- * by whether any clamp is applied:
+ * state + a list of timed latent clamps — sourced from the persisted stage
+ * trace (plus any injected extra message streams, e.g. dev mocks), carrying the
+ * full per-node `visualization` trajectories that drive the living DAG. Two
+ * provenances, distinguished purely by whether any clamp is applied:
  *
  *  - **baseline** — the no-intervention reference world (`clamps: []`): the system
  *    evolving under its own dynamics. There is at most one, shown first.
@@ -51,13 +51,13 @@ export interface Stage6Scenario {
   manifestEffects: Record<string, number> | null;
   result: Stage6SimulationResult;
   requestedHorizonDays?: number;
-  /** The user prompt that minted this scenario (refinement chat). */
+  /** The user prompt that minted this scenario. */
   userQuery?: string;
   /** LLM-authored explanation produced with this scenario (assistant text beside the tool call). */
   blurb?: string;
 }
 
-// ── simulation sourcing (trace ∪ refinement) ────────────────────────────────
+// ── simulation sourcing ─────────────────────────────────────────────────────
 
 const SIMULATION_TOOLS = new Set(["simulate"]);
 
@@ -226,16 +226,17 @@ function toScenario(raw: RawSimulation): Stage6Scenario {
  */
 export function buildStage6Scenarios(args: {
   trace?: LLMTrace | null;
-  refinementMessages?: UIMessage[];
+  /** Additional UI-message streams to source simulations from (e.g. dev mocks). */
+  extraMessages?: UIMessage[];
 }): Stage6Scenario[] {
-  const { trace, refinementMessages } = args;
+  const { trace, extraMessages } = args;
 
   const simulations = new Map<string, RawSimulation>();
   let order = 0;
   if (trace) {
     order = collectSimulations(traceToUIMessages(trace), simulations, order);
   }
-  collectSimulations(refinementMessages ?? [], simulations, order);
+  collectSimulations(extraMessages ?? [], simulations, order);
 
   const scenarios = [...simulations.values()]
     .sort((left, right) => right.order - left.order)

@@ -12,15 +12,7 @@ import type {
   Stage6Data,
   StageMeta,
 } from "@nof1-causal-lab/api-types";
-import {
-  type ComponentType,
-  lazy,
-  memo,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useMemo,
-} from "react";
+import { type ComponentType, lazy, memo, type ReactNode, Suspense, useMemo } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
@@ -29,12 +21,10 @@ import {
   makeMockSimulate,
   synthesizeMockScenarios,
 } from "@/components/dag/interactive/dev-mock-scenario";
-import { useRefinement } from "@/lib/contexts/refinement-context";
-import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
+import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
 import type { StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import { resolveStageObservedStatus } from "@/lib/stage-runtime";
-import { Stage3FixAction } from "./stage-contents/stage-3-content";
 import { buildEdgePosteriors, buildStage6Scenarios } from "./stage-contents/stage-6-scenarios";
 import { StagePresentationShell } from "./stage-presentation-shell";
 
@@ -100,9 +90,6 @@ function StageSectionRouterInner({
   errorMessage,
   staleArtifactIds,
 }: StageSectionRouterProps) {
-  const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill, readOnly } =
-    useRefinement();
-  const invalidated = isInvalidated(stage.id);
   const effectiveStatus = resolveStageObservedStatus(status, stageRun);
   const isCompleted = effectiveStatus === "completed";
   const elapsedMs =
@@ -110,25 +97,6 @@ function StageSectionRouterInner({
 
   // Read context + trace from the stage data (once, after completion).
   const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
-  const pendingStagePatch =
-    refiningStageId === stage.id ? (pendingStagePatches[stage.id] ?? null) : null;
-  const projectedStageData = useMemo(
-    () =>
-      stageData && pendingStagePatch
-        ? ({ ...stageData, ...pendingStagePatch } as StageViewData)
-        : stageData,
-    [pendingStagePatch, stageData],
-  );
-
-  const handleFixMeasurements = useCallback(
-    (prompt: string) => {
-      setPrefill("stage-1b", prompt);
-      requestAnimationFrame(() => {
-        document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    },
-    [setPrefill],
-  );
 
   return (
     <StagePresentationShell
@@ -139,11 +107,6 @@ function StageSectionRouterInner({
       errorMessage={errorMessage}
       staleArtifactIds={staleArtifactIds}
       loadingHint={stage.loadingHint}
-      actions={
-        stage.id === "stage-3" && isCompleted && projectedStageData && !readOnly ? (
-          <Stage3FixAction data={projectedStageData as Stage3Data} onFix={handleFixMeasurements} />
-        ) : undefined
-      }
       runningContent={
         stage.id === "stage-2" && effectiveStatus === "running" ? (
           <Suspense fallback={null}>
@@ -155,16 +118,10 @@ function StageSectionRouterInner({
           </Suspense>
         ) : undefined
       }
-      invalidated={invalidated}
       panelContent={
-        projectedStageData?.llm_trace ? (
+        stageData?.llm_trace ? (
           <Suspense fallback={null}>
-            <LLMTracePanel
-              trace={projectedStageData.llm_trace}
-              workspaceId={workspaceId}
-              stageId={stage.id}
-              interactive={stage.interactive}
-            />
+            <LLMTracePanel trace={stageData.llm_trace} />
           </Suspense>
         ) : undefined
       }
@@ -172,7 +129,7 @@ function StageSectionRouterInner({
       {isCompleted && (
         <ErrorBoundary>
           <Suspense fallback={null}>
-            <StageContent stageId={stage.id} workspaceId={workspaceId} data={projectedStageData} />
+            <StageContent stageId={stage.id} workspaceId={workspaceId} data={stageData} />
           </Suspense>
         </ErrorBoundary>
       )}
@@ -220,7 +177,7 @@ function Stage5bConnectedContent({
 }
 
 function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage6Data }) {
-  const { refinementMessages, selectedScenarioKey, selectScenario, readOnly } = useRefinement();
+  const { selectedScenarioKey, selectScenario, readOnly } = useWorkspaceView();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
@@ -255,10 +212,10 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
   // graph, so the interactive DAG is visible on the stage-6 page until the
   // backend simulate tool joins the local loop. The trajectories are synthesized
   // client-side (not real inference output), so in production this is restricted
-  // to curated shared/demo workspaces (DEMO, GOLDEN, …) and never fabricates
-  // scenarios for real user analyses. Dev runs it everywhere for previewing.
-  const allowMockScenarios =
-    process.env.NODE_ENV !== "production" || isSharedWorkspaceId(workspaceId);
+  // to read-only (published/demo) workspaces, where live simulate is unavailable
+  // anyway — it never fabricates scenarios for a live user analysis. Dev runs it
+  // everywhere for previewing.
+  const allowMockScenarios = process.env.NODE_ENV !== "production" || readOnly;
   const mockScenarios = useMemo(
     () =>
       allowMockScenarios && outcomeName && graph.constructs.length > 0
@@ -276,12 +233,9 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
     () =>
       buildStage6Scenarios({
         trace: data.llm_trace,
-        refinementMessages: [
-          ...(refinementMessages["stage-6"] ?? []),
-          ...(mockScenarios ? buildDevMockMessages(mockScenarios) : []),
-        ],
+        extraMessages: mockScenarios ? buildDevMockMessages(mockScenarios) : [],
       }),
-    [data.llm_trace, refinementMessages, mockScenarios],
+    [data.llm_trace, mockScenarios],
   );
   const onSimulate = useMemo(
     () =>

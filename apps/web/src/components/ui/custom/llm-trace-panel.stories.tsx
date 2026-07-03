@@ -131,20 +131,3 @@ export const WithReasoning: Story = {
 export const WithToolCalls: Story = {
   args: { trace: traceWithToolCalls },
 };
-
-export const WithRefinementInput: Story = {
-  args: {
-    trace: minimalTrace,
-    canRefine: true,
-    input: "",
-  },
-};
-
-export const Loading: Story = {
-  args: {
-    trace: minimalTrace,
-    canRefine: true,
-    isLoading: true,
-    input: "Add a mediator between stress and cognition",
-  },
-};

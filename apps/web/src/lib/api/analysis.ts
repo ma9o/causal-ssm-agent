@@ -1,29 +1,15 @@
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
-import type { RefinementUIMessage } from "../utils/trace-to-core";
 
 export interface ReplayResponse {
   ok: true;
   workspaceId: string;
 }
 
-export interface RefineApplyResponse {
-  ok: true;
-  updatedFields: string[];
-  workspaceId?: string;
-}
-
 export interface ReplayStageOverrideRequest {
   workspaceId: string;
   stageId: StageId;
   stageData: Record<string, unknown>;
-}
-
-export interface ApplyRefinementRequest {
-  workspaceId: string;
-  stageId: StageId;
-  stagePatch?: Record<string, unknown>;
-  messages?: RefinementUIMessage[];
 }
 
 export interface AnalysisStageExecution {
@@ -116,15 +102,6 @@ export async function replayStageOverride(
   payload: ReplayStageOverrideRequest,
 ): Promise<ReplayResponse> {
   return apiFetch<ReplayResponse>("/api/replay", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function applyRefinement(
-  payload: ApplyRefinementRequest,
-): Promise<RefineApplyResponse> {
-  return apiFetch<RefineApplyResponse>("/api/refine/apply", {
     method: "POST",
     body: JSON.stringify(payload),
   });

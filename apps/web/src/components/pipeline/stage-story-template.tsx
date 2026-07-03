@@ -5,26 +5,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { LLMTrace, StageMeta } from "@nof1-causal-lab/api-types";
-import { type FormEvent, type ReactNode, useState } from "react";
-import { StagePresentationShellView } from "./stage-presentation-shell";
-
-function StoryTracePanel({ trace, interactive }: { trace: LLMTrace; interactive: boolean }) {
-  const [input, setInput] = useState("");
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-  }
-
-  return (
-    <LLMTracePanelView
-      trace={trace}
-      canRefine={interactive}
-      input={input}
-      onInputChange={setInput}
-      onSubmit={handleSubmit}
-    />
-  );
-}
+import type { ReactNode } from "react";
+import { StagePresentationShell } from "./stage-presentation-shell";
 
 export function StageStoryLayout({
   children,
@@ -49,10 +31,8 @@ export type StageStoryTemplateProps = {
   loadingHint?: string;
   actions?: ReactNode;
   runningContent?: ReactNode;
-  invalidated?: boolean;
   trace?: LLMTrace;
   panelContent?: ReactNode;
-  interactive?: boolean;
   defaultPanelOpen?: boolean;
   children?: ReactNode;
 };
@@ -66,15 +46,13 @@ export function StageStoryTemplate({
   loadingHint,
   actions,
   runningContent,
-  invalidated,
   trace,
   panelContent,
-  interactive = stage.interactive,
   defaultPanelOpen = false,
   children,
 }: StageStoryTemplateProps) {
   return (
-    <StagePresentationShellView
+    <StagePresentationShell
       stage={stage}
       status={status}
       context={context}
@@ -83,15 +61,10 @@ export function StageStoryTemplate({
       loadingHint={loadingHint}
       actions={actions}
       runningContent={runningContent}
-      invalidated={invalidated}
-      interactive={interactive}
       defaultPanelOpen={defaultPanelOpen}
-      panelContent={
-        panelContent ??
-        (trace ? <StoryTracePanel trace={trace} interactive={interactive} /> : undefined)
-      }
+      panelContent={panelContent ?? (trace ? <LLMTracePanelView trace={trace} /> : undefined)}
     >
       {children}
-    </StagePresentationShellView>
+    </StagePresentationShell>
   );
 }

@@ -43,7 +43,6 @@ export const Failed = createStageStatusStory(stage, "failed");
 
 function CompletedInShell({ scenarios }: { scenarios: ReturnType<typeof buildStage6Scenarios> }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(scenarios[0]?.key ?? null);
-  const [input, setInput] = useState("");
 
   return (
     <StageStoryTemplate
@@ -54,10 +53,6 @@ function CompletedInShell({ scenarios }: { scenarios: ReturnType<typeof buildSta
       panelContent={
         <LLMTracePanelView
           trace={materializedTrace}
-          canRefine
-          input={input}
-          onInputChange={setInput}
-          onSubmit={(event) => event.preventDefault()}
           selectedSimulationKey={selectedKey ?? undefined}
           onSelectSimulation={(key) => setSelectedKey(key)}
         />

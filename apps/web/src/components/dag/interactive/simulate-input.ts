@@ -18,7 +18,7 @@ export interface SimulateInput {
 
 /**
  * Runs a scenario and returns its result. The interactive DAG is agnostic to
- * how: Storybook injects a mock; prod injects a `POST /api/refine/dispatch`
+ * how: Storybook injects a mock; prod injects a `POST /api/tools/dispatch`
  * call (the non-LLM tool seam). Absent this, the DAG is a read-only viewer.
  */
 export type SimulateFn = (input: SimulateInput) => Promise<Stage6SimulationResult>;

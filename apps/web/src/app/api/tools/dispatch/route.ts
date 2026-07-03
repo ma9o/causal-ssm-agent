@@ -2,7 +2,7 @@ import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import { isRecord } from "@/lib/utils/type-guards";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 const TOOL_SERVER = getToolServerUrl();
 
@@ -32,12 +32,11 @@ async function readToolErrorMessage(response: Response): Promise<string> {
 }
 
 /**
- * POST /api/refine/dispatch
+ * POST /api/tools/dispatch
  *
- * Direct tool execution from a clicked suggestion chip. Bypasses the LLM —
- * the chip's payload IS the action. Result is returned as JSON; the client
- * is responsible for appending a synthetic dynamic-tool UI message so the
- * LLM sees the result on its next turn.
+ * Direct (no-LLM) stage-tool execution — e.g. the Stage 6 interactive DAG's
+ * `simulate`. Proxies to the tool server, which reads pinned artifact
+ * versions and hard-flags stale provenance.
  *
  * Body: { workspaceId, stageId, tool, input }
  */
@@ -48,15 +47,17 @@ export async function POST(req: Request) {
   }
   const { workspaceId, stageId, tool, input } = body;
 
-  if (typeof workspaceId !== "string" || !workspaceId.trim()) {
-    return NextResponse.json({ error: "Missing workspaceId" }, { status: 400 });
+  const safeWorkspaceId =
+    typeof workspaceId === "string" ? normalizeWorkspaceId(workspaceId) : null;
+  if (!safeWorkspaceId) {
+    return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
   const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
   if (!safeStageId || /[\\/]/.test(safeStageId)) {
     return NextResponse.json({ error: "Invalid stageId" }, { status: 400 });
   }
   if (!INTERACTIVE_STAGES.includes(safeStageId)) {
-    return NextResponse.json({ error: "Stage is not interactive" }, { status: 400 });
+    return NextResponse.json({ error: "Stage has no dispatchable tools" }, { status: 400 });
   }
   if (typeof tool !== "string" || !tool.trim()) {
     return NextResponse.json({ error: "Missing tool name" }, { status: 400 });
@@ -73,18 +74,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(req, workspaceId, {
-    requireMutable: true,
-  });
-  if (!workspaceAccess.ok) {
-    return workspaceAccess.response;
-  }
-
   const toolResponse = await fetch(`${TOOL_SERVER}/api/tools/${safeStageId}/${tool}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      workspace_id: workspaceAccess.workspaceId,
+      workspace_id: safeWorkspaceId,
       input,
     }),
   });

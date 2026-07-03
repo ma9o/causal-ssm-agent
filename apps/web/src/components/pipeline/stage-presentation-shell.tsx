@@ -4,11 +4,11 @@ import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageMeta } from "@nof1-causal-lab/api-types";
 import type { ReactNode } from "react";
 import { StageSection } from "./stage-section";
-import { StageWithTrace, StageWithTraceView } from "./stage-with-trace";
+import { StageWithTraceView } from "./stage-with-trace";
 
 type StagePresentationMeta = Pick<
   StageMeta,
-  "id" | "number" | "label" | "description" | "loadingHint" | "interactive"
+  "id" | "number" | "label" | "description" | "loadingHint"
 >;
 
 export type StagePresentationShellProps = {
@@ -20,10 +20,8 @@ export type StagePresentationShellProps = {
   loadingHint?: string;
   actions?: ReactNode;
   runningContent?: ReactNode;
-  invalidated?: boolean;
   staleArtifactIds?: string[];
   panelContent?: ReactNode;
-  interactive?: boolean;
   defaultPanelOpen?: boolean;
   children?: ReactNode;
 };
@@ -37,7 +35,6 @@ function renderStageSection({
   loadingHint,
   actions,
   runningContent,
-  invalidated,
   staleArtifactIds,
   children,
 }: StagePresentationShellProps) {
@@ -52,7 +49,6 @@ function renderStageSection({
       loadingHint={loadingHint ?? stage.loadingHint}
       actions={actions}
       runningContent={runningContent}
-      invalidated={invalidated}
       staleArtifactIds={staleArtifactIds}
     >
       {children}
@@ -64,8 +60,8 @@ function CenteredStageSection({ children }: { children: ReactNode }) {
   return <div className="mx-auto w-full max-w-[1600px]">{children}</div>;
 }
 
-export function StagePresentationShellView(props: StagePresentationShellProps) {
-  const { stage, panelContent, interactive = stage.interactive, defaultPanelOpen = false } = props;
+export function StagePresentationShell(props: StagePresentationShellProps) {
+  const { panelContent, defaultPanelOpen = false } = props;
   const section = renderStageSection(props);
 
   if (!panelContent) {
@@ -73,32 +69,8 @@ export function StagePresentationShellView(props: StagePresentationShellProps) {
   }
 
   return (
-    <StageWithTraceView
-      interactive={interactive}
-      defaultOpen={defaultPanelOpen}
-      panelContent={panelContent}
-    >
+    <StageWithTraceView defaultOpen={defaultPanelOpen} panelContent={panelContent}>
       {section}
     </StageWithTraceView>
-  );
-}
-
-export function StagePresentationShell(props: StagePresentationShellProps) {
-  const { stage, panelContent, interactive = stage.interactive, defaultPanelOpen = false } = props;
-  const section = renderStageSection(props);
-
-  if (!panelContent) {
-    return <CenteredStageSection>{section}</CenteredStageSection>;
-  }
-
-  return (
-    <StageWithTrace
-      stageId={stage.id}
-      interactive={interactive}
-      defaultOpen={defaultPanelOpen}
-      panelContent={panelContent}
-    >
-      {section}
-    </StageWithTrace>
   );
 }

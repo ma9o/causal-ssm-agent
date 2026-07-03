@@ -13,13 +13,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  isSuggestionsDataPart,
-  type SuggestionAction,
-  type SuggestionChip,
-} from "@/lib/utils/trace-to-core";
 
 const remarkPlugins = [remarkGfm];
 type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
@@ -55,17 +49,7 @@ function simulationHeadline(result: SimulationResult): string {
   return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.outcome}`;
 }
 
-const TextPart = memo(function TextPart({
-  text,
-  streaming = false,
-}: {
-  text: string;
-  streaming?: boolean;
-}) {
-  if (streaming) {
-    return <div className="whitespace-pre-wrap text-sm leading-6 text-foreground">{text}</div>;
-  }
-
+const TextPart = memo(function TextPart({ text }: { text: string }) {
   return (
     <div className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-strong:text-foreground prose-th:text-foreground prose-code:text-foreground prose-pre:bg-muted/50 prose-pre:text-foreground [&_pre]:text-xs [&_code]:text-xs [&_table]:text-xs [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm [&_pre]:my-1 [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto">
       <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
@@ -261,49 +245,15 @@ function UserMessage({ msg }: { msg: UIMessage }) {
   );
 }
 
-function SuggestionChips({
-  suggestions,
-  onSuggestionClick,
-}: {
-  suggestions: SuggestionChip[];
-  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
-}) {
-  if (suggestions.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {suggestions.map((chip, i) => (
-        <Button
-          key={`${chip.action.tool}-${i}`}
-          type="button"
-          variant="outline"
-          size="xs"
-          disabled={!onSuggestionClick}
-          onClick={() => onSuggestionClick?.(chip.action, chip)}
-        >
-          {chip.label}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
 function AssistantMessage({
   msg,
-  streaming = false,
-  onSuggestionClick,
   selectedSimulationKey,
   onSelectSimulation,
 }: {
   msg: UIMessage;
-  streaming?: boolean;
-  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
   selectedSimulationKey?: string;
   onSelectSimulation?: (key: string, result: SimulationResult) => void;
 }) {
-  const suggestions = msg.parts
-    .filter(isSuggestionsDataPart)
-    .flatMap((part) => part.data.suggestions);
-
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
       <div className="mb-1 flex items-center gap-1.5">
@@ -314,10 +264,9 @@ function AssistantMessage({
       </div>
       {msg.parts.map((part, i) => {
         const key = `${part.type}-${i}`;
-        if (isSuggestionsDataPart(part)) return null;
         switch (part.type) {
           case "text":
-            return <TextPart key={key} text={part.text} streaming={streaming} />;
+            return <TextPart key={key} text={part.text} />;
           case "reasoning":
             return <ReasoningPart key={key} text={part.text} idx={i} />;
           case "dynamic-tool": {
@@ -352,30 +301,22 @@ function AssistantMessage({
             ) : null;
         }
       })}
-      <SuggestionChips suggestions={suggestions} onSuggestionClick={onSuggestionClick} />
     </div>
   );
 }
 
 export const ChatMessages = memo(function ChatMessages({
   messages,
-  streaming = false,
-  onSuggestionClick,
   selectedSimulationKey,
   onSelectSimulation,
 }: {
   messages: UIMessage[];
-  streaming?: boolean;
-  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
   selectedSimulationKey?: string;
   onSelectSimulation?: (key: string, result: SimulationResult) => void;
 }) {
   return (
     <div className="flex flex-col gap-2">
-      {messages.map((msg, idx) => {
-        const isStreamingMessage =
-          streaming && idx === messages.length - 1 && msg.role === "assistant";
-
+      {messages.map((msg) => {
         switch (msg.role) {
           case "system":
             return <SystemMessage key={msg.id} msg={msg} />;
@@ -386,8 +327,6 @@ export const ChatMessages = memo(function ChatMessages({
               <AssistantMessage
                 key={msg.id}
                 msg={msg}
-                streaming={isStreamingMessage}
-                onSuggestionClick={onSuggestionClick}
                 selectedSimulationKey={selectedSimulationKey}
                 onSelectSimulation={onSelectSimulation}
               />

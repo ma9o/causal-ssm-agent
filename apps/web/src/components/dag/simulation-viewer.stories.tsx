@@ -23,7 +23,7 @@ import { SimulationViewer } from "./simulation-viewer";
  * Stage 6 simulation viewer driven by the ideal materialized artifact.
  *
  * Two layers (per the stage's design):
- *  - Generative — the chat (right) mints new `simulate` scenarios. Disabled read-only.
+ *  - Generative — direct `simulate` dispatch mints new scenarios. Disabled read-only.
  *  - Presentational — the viewer (left) shows a rail of scenarios (the no-intervention
  *    baseline first, then interventions), the LLM's blurb for the focused scenario,
  *    and the living DAG. Selection is shared: chat "View" ↔ rail.
@@ -37,7 +37,7 @@ import { SimulationViewer } from "./simulation-viewer";
 const mockScenarios = synthesizeMockScenarios(constructs, edges, indicators, outcomeName);
 const scenarios = buildStage6Scenarios({
   trace: materializedTrace,
-  refinementMessages: buildDevMockMessages(mockScenarios),
+  extraMessages: buildDevMockMessages(mockScenarios),
 });
 
 const graph = { constructs, edges, indicators, edgePosteriors };
@@ -45,7 +45,6 @@ const mockSimulate = makeMockSimulate(mockScenarios.baseline.result);
 
 function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(scenarios[0]?.key ?? null);
-  const [input, setInput] = useState("");
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)]">
@@ -60,10 +59,6 @@ function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
       <div className="flex h-[760px] min-h-0 flex-col rounded-lg border bg-muted/30 p-3">
         <LLMTracePanelView
           trace={materializedTrace}
-          canRefine={!readOnly}
-          input={input}
-          onInputChange={setInput}
-          onSubmit={(event) => event.preventDefault()}
           selectedSimulationKey={selectedKey ?? undefined}
           onSelectSimulation={(key) => setSelectedKey(key)}
         />

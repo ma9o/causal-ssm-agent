@@ -20,7 +20,6 @@ export function StageSection({
   errorMessage,
   loadingHint,
   runningContent,
-  invalidated = false,
   actions,
   staleArtifactIds,
 }: {
@@ -36,7 +35,6 @@ export function StageSection({
   errorMessage?: string;
   loadingHint?: string;
   runningContent?: ReactNode;
-  invalidated?: boolean;
   /** Optional actions rendered top-right of the card header. */
   actions?: ReactNode;
   /** Stale artifacts this stage produced (backend freshness report). */
@@ -53,15 +51,15 @@ export function StageSection({
     }
   }
 
-  const isCollapsible = status === "completed" && !invalidated;
+  const isCollapsible = status === "completed";
 
   return (
     <motion.section
       id={id}
       initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: invalidated ? 0.45 : 1, y: 0 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className={`scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6 ${invalidated ? "pointer-events-none border-dashed border-muted-foreground/30" : ""}`}
+      className="scroll-mt-28 rounded-lg border bg-card p-4 shadow-sm sm:p-6"
     >
       <div
         className={`flex items-start gap-3${isCollapsible ? " cursor-pointer" : ""}`}
@@ -88,12 +86,6 @@ export function StageSection({
             context={context}
             staleArtifactIds={staleArtifactIds}
           />
-          {invalidated && (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              <RotateCcw className="h-3 w-3" />
-              Needs re-run
-            </span>
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-2 pt-1">
           {actions}

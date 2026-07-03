@@ -97,8 +97,8 @@ describe("buildStage6Scenarios — interventions from a persisted trace", () => 
   });
 });
 
-describe("buildStage6Scenarios — trace ∪ refinement", () => {
-  it("dedupes by tool-call id with the live refinement copy winning and ranked newest", () => {
+describe("buildStage6Scenarios — trace ∪ extra messages", () => {
+  it("dedupes by tool-call id with the extra-message copy winning and ranked newest", () => {
     const edited: SimulateScenarioResult = {
       ...interventionResult,
       summary: { ...interventionResult.summary, mean: 0.99 },
@@ -106,7 +106,7 @@ describe("buildStage6Scenarios — trace ∪ refinement", () => {
 
     const scenarios = buildStage6Scenarios({
       trace: materializedTrace,
-      refinementMessages: [refinementSimMessage("sim-4", edited)],
+      extraMessages: [refinementSimMessage("sim-4", edited)],
     });
 
     // sim-4 is not duplicated…
