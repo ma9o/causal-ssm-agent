@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { StageOutcome } from "@nof1-causal-lab/api-types";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { withContainer } from "@/components/story-decorators";
 import { StageHeader } from "./stage-header";
@@ -12,10 +11,6 @@ const meta = {
     status: {
       control: "select",
       options: ["pending", "running", "completed", "failed"] satisfies StageRunStatus[],
-    },
-    outcome: {
-      control: "select",
-      options: ["success", "warn", "fail"] satisfies StageOutcome[],
     },
   },
 } satisfies Meta<typeof StageHeader>;
@@ -45,33 +40,12 @@ export const Running: Story = {
   },
 };
 
-export const CompletedSuccess: Story = {
+export const Completed: Story = {
   args: {
     number: "2",
     title: "Data Extraction",
     status: "completed",
-    outcome: "success",
     context: "Dispatches worker LLMs to extract indicator observations from raw activity data.",
-  },
-};
-
-export const CompletedWarn: Story = {
-  args: {
-    number: "3",
-    title: "Validation",
-    status: "completed",
-    outcome: "warn",
-    context: "Some indicators had low extraction coverage.",
-  },
-};
-
-export const CompletedFail: Story = {
-  args: {
-    number: "1b",
-    title: "Measurement & Nonparametric Identification",
-    status: "completed",
-    outcome: "fail",
-    context: "One or more treatment effects are not identifiable via do-calculus.",
   },
 };
 

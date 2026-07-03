@@ -13,15 +13,13 @@ import {
   listStage2Workers,
   parseStage2Event,
   summarizeStage2State,
-  type PrefectStage2EventRecord,
+  type Stage2EventRecord,
   type Stage2ReplayState,
   type Stage2WorkerRecord,
   type Stage2WorkerState,
 } from "@/lib/stage2-runtime";
-import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import Stage2Content from "./stage-2-content";
 import { Stage2RunningView } from "./stage-2-running-content";
-import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import { useEffect, useMemo, useState } from "react";
 import { stage2Data as data } from "@/components/__fixtures__/stage2-data";
@@ -80,153 +78,20 @@ function makeWorkers(
 
 const mockWorkers = makeWorkers(8, 3, 1, 4);
 
-/* ── Mock Prefect event replay for the large running story ── */
+/* ── Mock event replay for the large running story ── */
 
 const STAGE2_STORY_TOTAL_WORKERS = 1_000;
 const STAGE2_STORY_MAX_RUNNING = 72;
 const STAGE2_STORY_MAX_RPM = 450;
 const STAGE2_STORY_INTERVAL_MS = 700;
 const STAGE2_STORY_FAILED_WORKERS = 12;
-const STAGE2_STORY_LOG_FLOW_RUN_ID = "stage-2-story-flow-run";
 
 type RunningStage2StoryWorker = {
   workerId: number;
   readyFrame: number;
 };
 
-const STAGE2_STORY_LOG_MESSAGES = [
-  { level: 20, message: "Stage 2: time_col='timestamp', model_clock='1d'" },
-  { level: 20, message: "Stage 2: 4 computed + 10 semantic indicators" },
-  { level: 20, message: "Stage 2: computed 4 indicator(s) via Polars (80 rows)" },
-  { level: 20, message: "Stage 2: projected 38 to 12 columns (dropped 26)" },
-  {
-    level: 20,
-    message: "Stage 2: bucketed 20000 rows into 1000 support windows (window=1d, indicators=10)",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: 1000 semantic chunks of up to 1 windows each (max_concurrent_workers=72, max_rpm=450)",
-  },
-  { level: 20, message: "Stage 2: waiting for 1000 worker results (already complete=0/1000)" },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=0 windows=1 events=24] Starting extraction with 1 windows, 14 indicators using model google/gemini-3.1-flash-lite-preview-20260303 (timeout=300s)",
-  },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=0 windows=1 events=24] Prepared worker prompt with 1 windows, 14 indicators, 3482 text chars",
-  },
-  {
-    level: 20,
-    message: "[stage2 chunk=0 windows=1 events=24] Using worker tools: ['validate_extractions']",
-  },
-  { level: 20, message: "[stage2 chunk=0 windows=1 events=24] Calling extraction model" },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=11 windows=1 events=18] Starting extraction with 1 windows, 14 indicators using model google/gemini-3.1-flash-lite-preview-20260303 (timeout=300s)",
-  },
-  {
-    level: 20,
-    message: "[stage2 chunk=0 windows=1 events=24] Model call returned 0 characters",
-  },
-  {
-    level: 20,
-    message: "[stage2 chunk=0 windows=1 events=24] Validated 14 extractions into 14 output rows",
-  },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=0 windows=1 events=24] Finished in 2.8s with 14 extractions and 14 output rows",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 0 completed (progress=1/1000, batch=1/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=37 windows=1 events=21] Prepared worker prompt with 1 windows, 14 indicators, 3216 text chars",
-  },
-  { level: 20, message: "[stage2 chunk=37 windows=1 events=21] Calling extraction model" },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 11 completed (progress=12/1000, batch=12/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 20,
-    message:
-      "[stage2 chunk=83 windows=1 events=16] Starting extraction with 1 windows, 14 indicators using model google/gemini-3.1-flash-lite-preview-20260303 (timeout=300s)",
-  },
-  {
-    level: 30,
-    message:
-      "Stage 2: worker 83 failed (progress=84/1000, batch=84/1000, windows=1): Error code: 402",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 118 completed (progress=119/1000, batch=119/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 20,
-    message: "[stage2 chunk=244 windows=1 events=19] Model call returned 0 characters",
-  },
-  {
-    level: 20,
-    message: "[stage2 chunk=244 windows=1 events=19] Validated 14 extractions into 14 output rows",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 244 completed (progress=245/1000, batch=245/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 417 completed (progress=418/1000, batch=418/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 30,
-    message:
-      "Stage 2: worker 508 failed (progress=509/1000, batch=509/1000, windows=1): Error code: 402",
-  },
-  {
-    level: 20,
-    message:
-      "Stage 2: worker 731 completed (progress=732/1000, batch=732/1000, windows=1, extractions=14, output_rows=14)",
-  },
-  {
-    level: 20,
-    message: "Stage 2: waiting for 138 worker results (already complete=862/1000)",
-  },
-] satisfies Pick<PrefectLogEntry, "level" | "message">[];
-
-function createStage2StoryLogs(): PrefectLogEntry[] {
-  const baseTimeMs = Date.now() - STAGE2_STORY_LOG_MESSAGES.length * 750;
-  return STAGE2_STORY_LOG_MESSAGES.map((entry, index) => {
-    const timestamp = new Date(baseTimeMs + index * 750).toISOString();
-    return {
-      id: `stage-2-story-log-${index}`,
-      created: timestamp,
-      name: "prefect.flow_runs",
-      level: entry.level,
-      message: entry.message,
-      timestamp,
-      flow_run_id: STAGE2_STORY_LOG_FLOW_RUN_ID,
-      task_run_id: entry.message.startsWith("[stage2 chunk=") ? `extract-windows-${index}` : null,
-    };
-  });
-}
-
-const stage2StoryLogs = createStage2StoryLogs();
-
-function planEvent(occurred: string): PrefectStage2EventRecord {
+function planEvent(occurred: string): Stage2EventRecord {
   return {
     event: `${STAGE2_EVENT_PREFIX}plan`,
     occurred,
@@ -256,7 +121,7 @@ function workerEvent({
   occurred: string;
   state: Stage2WorkerState;
   workerId: number;
-}): PrefectStage2EventRecord {
+}): Stage2EventRecord {
   return {
     event: `${STAGE2_EVENT_PREFIX}worker`,
     occurred,
@@ -287,7 +152,7 @@ function snapshotEvent({
   pending: number;
   rpm: number;
   running: number;
-}): PrefectStage2EventRecord {
+}): Stage2EventRecord {
   return {
     event: `${STAGE2_EVENT_PREFIX}snapshot`,
     occurred,
@@ -304,7 +169,7 @@ function snapshotEvent({
   };
 }
 
-function applyRawStage2Event(state: Stage2ReplayState, record: PrefectStage2EventRecord) {
+function applyRawStage2Event(state: Stage2ReplayState, record: Stage2EventRecord) {
   const parsed = parseStage2Event(record);
   return parsed ? applyStage2Event(state, parsed) : state;
 }
@@ -364,7 +229,7 @@ function createStage2ReplayController() {
     return (workerId % 4) + 1;
   }
 
-  function startWorker(workerId: number): PrefectStage2EventRecord {
+  function startWorker(workerId: number): Stage2EventRecord {
     pending -= 1;
     running += 1;
     runningWorkers.push({
@@ -379,7 +244,7 @@ function createStage2ReplayController() {
     });
   }
 
-  function finishWorker(workerId: number): PrefectStage2EventRecord {
+  function finishWorker(workerId: number): Stage2EventRecord {
     running -= 1;
     const didFail = failedWorkerIds.has(workerId);
     const nWindows = workerWindowCount(workerId);
@@ -406,7 +271,7 @@ function createStage2ReplayController() {
     });
   }
 
-  function refill(events: PrefectStage2EventRecord[]) {
+  function refill(events: Stage2EventRecord[]) {
     while (
       runningWorkers.length < STAGE2_STORY_MAX_RUNNING &&
       nextWorkerId < STAGE2_STORY_TOTAL_WORKERS
@@ -424,7 +289,7 @@ function createStage2ReplayController() {
     );
   }
 
-  function completeEligibleWorkers(events: PrefectStage2EventRecord[]) {
+  function completeEligibleWorkers(events: Stage2EventRecord[]) {
     const eligibleWorkers = runningWorkers.filter((worker) => worker.readyFrame <= frame);
     const completionBudget = sampleCompletionBudget(eligibleWorkers.length);
     const workersToComplete = shuffledWorkers(eligibleWorkers).slice(0, completionBudget);
@@ -444,8 +309,8 @@ function createStage2ReplayController() {
     isFinished() {
       return completed + failed >= STAGE2_STORY_TOTAL_WORKERS;
     },
-    nextFrame(): PrefectStage2EventRecord[] {
-      const events: PrefectStage2EventRecord[] = [];
+    nextFrame(): Stage2EventRecord[] {
+      const events: Stage2EventRecord[] = [];
       if (frame === 0) {
         events.push(planEvent(nextOccurred()));
       }
@@ -535,27 +400,13 @@ export const RunningHighRpm = {
 export const Running1kWorkers = {
   name: "Running (1000 Workers)",
   render: () => (
-    <StageStoryTemplate
-      stage={stage}
-      status="running"
-      runningContent={<AnimatedStage2Running />}
-      logView={
-        <StoryStageLogView
-          storyId="stage-2-running-1k-workers"
-          status="running"
-          logs={stage2StoryLogs}
-          flowRunId={STAGE2_STORY_LOG_FLOW_RUN_ID}
-          bootstrapCount={5}
-          intervalMs={500}
-        />
-      }
-    />
+    <StageStoryTemplate stage={stage} status="running" runningContent={<AnimatedStage2Running />} />
   ),
   parameters: {
     docs: {
       description: {
         story:
-          "Replays raw Stage 2 Prefect plan, worker, and snapshot events through the production parser and reducer so the 1000-worker running view streams from the first frame.",
+          "Replays raw Stage 2 plan, worker, and snapshot events through the production parser and reducer so the 1000-worker running view streams from the first frame.",
       },
     },
   },
@@ -564,7 +415,6 @@ export const Running1kWorkers = {
 export const Completed = createCompletedStageStory({
   stage,
   args: { data, workspaceId },
-  outcome: data.outcome,
   elapsedMs: 45_200,
   renderContent: (args) => <Stage2Content {...args} />,
 });

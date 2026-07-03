@@ -2,7 +2,6 @@ import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageMeta } from "@nof1-causal-lab/api-types";
 import type { Decorator } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
-import { StoryStageLogView } from "./stage-story-log-stream";
 import {
   StageStoryLayout,
   StageStoryTemplate,
@@ -19,12 +18,6 @@ export const stageStoryDecorators: Decorator[] = [
   ),
 ];
 
-function getDefaultStoryLogView(stage: StageMeta, status: StageRunStatus): ReactNode | undefined {
-  if (status === "pending") return undefined;
-
-  return <StoryStageLogView storyId={`${stage.id}-${status}`} status={status} />;
-}
-
 type GeneratedStory<TArgs extends object = Record<string, never>> = {
   args?: TArgs;
   name?: string;
@@ -36,11 +29,8 @@ export function createStageStatusStory(
   status: StageRunStatus,
   shellProps: StoryShellProps = {},
 ): GeneratedStory {
-  const { logView = getDefaultStoryLogView(stage, status), ...restShellProps } = shellProps;
   return {
-    render: () => (
-      <StageStoryTemplate stage={stage} status={status} logView={logView} {...restShellProps} />
-    ),
+    render: () => <StageStoryTemplate stage={stage} status={status} {...shellProps} />,
   };
 }
 
@@ -60,22 +50,14 @@ export function createCompletedStageStory<TArgs extends object>({
   renderShellProps,
   ...shellProps
 }: CompletedStageStoryConfig<TArgs>): GeneratedStory<TArgs> {
-  const { logView = getDefaultStoryLogView(stage, "completed"), ...restShellProps } = shellProps;
   return {
     ...(name ? { name } : {}),
     args,
     render: (storyArgs: TArgs) => {
       const dynamicShellProps = renderShellProps?.(storyArgs) ?? {};
-      const resolvedLogView = dynamicShellProps.logView ?? logView;
 
       return (
-        <StageStoryTemplate
-          stage={stage}
-          status="completed"
-          logView={resolvedLogView}
-          {...restShellProps}
-          {...dynamicShellProps}
-        >
+        <StageStoryTemplate stage={stage} status="completed" {...shellProps} {...dynamicShellProps}>
           {renderContent(storyArgs)}
         </StageStoryTemplate>
       );

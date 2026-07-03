@@ -1,14 +1,12 @@
 "use client";
 
-import { getStage4ReplayState } from "@/lib/api/analysis";
 import {
-  EMPTY_STAGE4_REPLAY_STATE,
   getStage4StateQueryKey,
   type Stage4Graph,
+  type Stage4ReplayState,
   type Stage4Snapshot,
 } from "@/lib/stage4-runtime";
 import { useQuery } from "@tanstack/react-query";
-import type { StageRunStatus } from "./use-run-events";
 
 export type { Stage4Graph, Stage4Snapshot };
 export type {
@@ -26,26 +24,14 @@ export {
 } from "@/lib/stage4-runtime";
 
 /**
- * Stage 4 state-machine graph and live snapshot via WebSocket events.
- *
- * The static graph topology and live snapshot are populated by Prefect custom
- * events in use-run-events.ts and written into the React Query cache.
+ * Stage 4 state-machine graph and live snapshot, reduced from polled
+ * episode telemetry events into the React Query cache by use-run-events.
  */
-export function useStage4Graph(
-  workspaceId: string,
-  stageStatus: StageRunStatus,
-  rootFlowRunId: string | null,
-) {
-  const isActive = stageStatus === "running";
-
-  const { data } = useQuery({
-    queryKey: getStage4StateQueryKey(workspaceId, rootFlowRunId),
-    queryFn: () =>
-      rootFlowRunId
-        ? getStage4ReplayState(workspaceId, rootFlowRunId)
-        : Promise.resolve(EMPTY_STAGE4_REPLAY_STATE),
-    enabled: isActive && !!rootFlowRunId,
-    staleTime: Infinity,
+export function useStage4Graph(workspaceId: string) {
+  const { data } = useQuery<Stage4ReplayState>({
+    queryKey: getStage4StateQueryKey(workspaceId),
+    queryFn: () => undefined as never,
+    enabled: false,
   });
 
   return {

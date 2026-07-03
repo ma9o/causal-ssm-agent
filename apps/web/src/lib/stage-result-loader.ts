@@ -62,40 +62,12 @@ function normalizeNonFiniteJsonTokens(serialized: string): string {
   return normalized;
 }
 
-function isWrappedPrefectResultPayload(
-  value: unknown,
-): value is { metadata: unknown; result: string } {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  return "metadata" in value && "result" in value && typeof value.result === "string";
-}
-
 function parseStoredStagePayload(raw: string): unknown {
-  let parsed: unknown;
-
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
     try {
-      parsed = JSON.parse(normalizeNonFiniteJsonTokens(raw));
-    } catch (normalizeError) {
-      throw new Error(
-        `Failed to parse stage result JSON: ${normalizeError instanceof Error ? normalizeError.message : String(normalizeError)}`,
-      );
-    }
-  }
-
-  if (!isWrappedPrefectResultPayload(parsed)) {
-    return parsed;
-  }
-
-  try {
-    return JSON.parse(parsed.result);
-  } catch {
-    try {
-      return JSON.parse(normalizeNonFiniteJsonTokens(parsed.result));
+      return JSON.parse(normalizeNonFiniteJsonTokens(raw));
     } catch (normalizeError) {
       throw new Error(
         `Failed to parse stage result JSON: ${normalizeError instanceof Error ? normalizeError.message : String(normalizeError)}`,

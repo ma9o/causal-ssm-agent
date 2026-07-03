@@ -330,8 +330,6 @@ export const materializedTrace: LLMTrace = {
 
 /** The complete ideal materialized Stage 6 artifact (baselines + sims + summary). */
 export const materializedStage6Data: Stage6Data = {
-  outcome: "success",
-  fail_reason: null,
   llm_trace: materializedTrace,
   intervention_results: demo.intervention_results,
   saved_scenarios: demo.saved_scenarios ?? null,

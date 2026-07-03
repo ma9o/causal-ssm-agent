@@ -265,7 +265,6 @@ export async function deriveStage0Data(
   );
 
   return {
-    outcome: payload.outcome,
     llm_trace: payload.llm_trace ?? null,
     n_records: Number(metadata.num_rows),
     n_columns: columns.length,

@@ -4,7 +4,7 @@ import { withContainer } from "@/components/story-decorators";
 import { DataSummaryStats } from "./data-summary-stats";
 import fixture from "../../../../../../data/DEMO/run/stage-0.json";
 
-const data = fixture as Stage0Data;
+const data = fixture as unknown as Stage0Data;
 
 const meta = {
   title: "Pipeline/Stages/0 – Preprocess/DataSummaryStats",

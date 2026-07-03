@@ -28,7 +28,6 @@ export const Running = createStageStatusStory(stage, "running");
 export const Completed = createCompletedStageStory({
   stage,
   args: { data },
-  outcome: data.outcome,
   elapsedMs: 3_800,
   renderShellProps: (args) => ({
     actions: <Stage3FixAction data={args.data} onFix={() => undefined} />,

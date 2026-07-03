@@ -1,9 +1,7 @@
 "use client";
 
-import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { useStage2State } from "@/lib/hooks/use-stage2-state";
 import { cn } from "@/lib/utils";
-import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
 import type { Stage2WorkerRecord } from "@/lib/stage2-runtime";
 
@@ -117,20 +115,8 @@ export function Stage2RunningView({
   );
 }
 
-export default function Stage2RunningContent({
-  workspaceId,
-  stageStatus,
-  stageRun,
-}: {
-  workspaceId: string;
-  stageStatus: StageRunStatus;
-  stageRun?: AnalysisStageRun | null;
-}) {
-  const { workers, summary, rpm, maxRpm } = useStage2State(
-    workspaceId,
-    stageStatus,
-    stageRun?.ownerRootFlowRunId ?? null,
-  );
+export default function Stage2RunningContent({ workspaceId }: { workspaceId: string }) {
+  const { workers, summary, rpm, maxRpm } = useStage2State(workspaceId);
 
   return (
     <Stage2RunningView

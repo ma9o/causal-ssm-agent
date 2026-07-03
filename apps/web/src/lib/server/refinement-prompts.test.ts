@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { buildRefinementContextMessages } from "./refinement-prompts";
 
 const stage4Data = {
-  outcome: "success" as const,
   model_spec: {
     likelihoods: [
       {

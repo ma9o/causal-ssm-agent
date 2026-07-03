@@ -2,7 +2,6 @@
 
 import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
 import { getAnalysisManifest, getAnalysisManifestQueryKey } from "@/lib/api/analysis";
-import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@nof1-causal-lab/api-types";
@@ -10,22 +9,12 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useEffect, useMemo } from "react";
 
-export default function AnalysisPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ workspaceId: string }>;
-  searchParams: Promise<{ rootFlowRunId?: string | string[] }>;
-}) {
+export default function AnalysisPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
-  const rawBootstrapRootFlowRunId = use(searchParams).rootFlowRunId;
-  const bootstrapRootFlowRunId = Array.isArray(rawBootstrapRootFlowRunId)
-    ? (rawBootstrapRootFlowRunId[0] ?? null)
-    : (rawBootstrapRootFlowRunId ?? null);
   const progress = usePipelineStatus(workspaceId);
   const manifestQuery = useQuery({
-    queryKey: getAnalysisManifestQueryKey(workspaceId, bootstrapRootFlowRunId),
-    queryFn: () => getAnalysisManifest(workspaceId, bootstrapRootFlowRunId),
+    queryKey: getAnalysisManifestQueryKey(workspaceId),
+    queryFn: () => getAnalysisManifest(workspaceId),
     enabled: !!workspaceId,
     staleTime: Infinity,
     retry: false,
@@ -50,7 +39,7 @@ export default function AnalysisPage({
     return manifestQuery.error.message;
   }, [manifest, manifestQuery.error]);
 
-  useRunEvents(workspaceId, manifest?.rootFlowRunIds ?? [], manifest?.stages);
+  useRunEvents(workspaceId, manifest?.stages, { readOnly: manifest?.readOnly ?? false });
 
   useEffect(() => {
     if (!progress) {
@@ -60,11 +49,6 @@ export default function AnalysisPage({
 
     if (progress.isComplete) {
       document.title = "Analysis Complete | nof1-causal-lab";
-      return;
-    }
-
-    if (hasStoppedStage(progress)) {
-      document.title = "Analysis Stopped | nof1-causal-lab";
       return;
     }
 
@@ -102,7 +86,6 @@ export default function AnalysisPage({
       question={manifest?.question}
       stageRuns={manifest?.stages}
       progress={progress}
-      latestRootFlowRunId={manifest?.latestRootFlowRunId}
       readOnly={manifest?.readOnly ?? false}
     />
   );

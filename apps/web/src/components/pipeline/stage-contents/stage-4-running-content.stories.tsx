@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
-  type PrefectStage4EventRecord,
+  type Stage4EventRecord,
   type Stage4BlockLastState,
   type Stage4ReplayState,
   EMPTY_STAGE4_REPLAY_STATE,
@@ -13,7 +13,6 @@ import { STAGES } from "@nof1-causal-lab/api-types";
 import { Stage4RunningView } from "./stage-4-running-content";
 import { stageStoryDecorators } from "../stage-story-helpers";
 import { StageStoryTemplate } from "../stage-story-template";
-import { StoryStageLogView } from "../stage-story-log-stream";
 import { useEffect, useState } from "react";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
@@ -27,11 +26,11 @@ const meta = {
 export default meta;
 
 // ---------------------------------------------------------------------------
-// Mock Prefect event records — same wire format as production
+// Mock telemetry event records — same wire format as production
 // ---------------------------------------------------------------------------
 
-/** Build a raw Prefect event record matching what `emit_stage4_graph_event` emits. */
-function graphEvent(graph: Stage4Graph): PrefectStage4EventRecord {
+/** Build a raw event record matching what `emit_stage4_graph_event` emits. */
+function graphEvent(graph: Stage4Graph): Stage4EventRecord {
   return {
     event: `${STAGE4_EVENT_PREFIX}graph`,
     occurred: new Date().toISOString(),
@@ -39,8 +38,8 @@ function graphEvent(graph: Stage4Graph): PrefectStage4EventRecord {
   };
 }
 
-/** Build a raw Prefect event record matching what `emit_stage4_snapshot_event` emits. */
-function snapshotEvent(snapshot: Stage4Snapshot): PrefectStage4EventRecord {
+/** Build a raw event record matching what `emit_stage4_snapshot_event` emits. */
+function snapshotEvent(snapshot: Stage4Snapshot): Stage4EventRecord {
   return {
     event: `${STAGE4_EVENT_PREFIX}snapshot`,
     occurred: new Date().toISOString(),
@@ -48,8 +47,8 @@ function snapshotEvent(snapshot: Stage4Snapshot): PrefectStage4EventRecord {
   };
 }
 
-/** Build a raw Prefect event record matching what `emit_stage4_block_transition_event` emits. */
-function transitionEvent(transition: Stage4BlockLastState): PrefectStage4EventRecord {
+/** Build a raw event record matching what `emit_stage4_block_transition_event` emits. */
+function transitionEvent(transition: Stage4BlockLastState): Stage4EventRecord {
   return {
     event: `${STAGE4_EVENT_PREFIX}block_transition`,
     occurred: new Date().toISOString(),
@@ -265,7 +264,7 @@ const GRAPH: Stage4Graph = {
 };
 
 // ---------------------------------------------------------------------------
-// Snapshot timeline as raw Prefect events
+// Snapshot timeline as raw telemetry events
 // ---------------------------------------------------------------------------
 
 function base(): Record<string, string> {
@@ -340,7 +339,7 @@ const REPAIR_SCOPE_IDS = [
 ] as const;
 
 /** The event timeline — first event is the graph, rest are snapshots. */
-const EVENT_TIMELINE: PrefectStage4EventRecord[] = [
+const EVENT_TIMELINE: Stage4EventRecord[] = [
   graphEvent(GRAPH),
   snapshotEvent({
     cursor: { kind: "block", block_id: MODEL_BLOCK_IDS[0]! },
@@ -596,18 +595,13 @@ type Story = StoryObj<typeof meta>;
 export const StateMachineReplay: Story = {
   args: { graph: GRAPH, snapshot: EVENT_TIMELINE[1]?.payload as unknown as Stage4Snapshot },
   render: () => (
-    <StageStoryTemplate
-      stage={stage}
-      status="running"
-      runningContent={<AnimatedStage4 />}
-      logView={<StoryStageLogView storyId="stage-4-running-state-machine" status="running" />}
-    />
+    <StageStoryTemplate stage={stage} status="running" runningContent={<AnimatedStage4 />} />
   ),
   parameters: {
     docs: {
       description: {
         story:
-          "Replays a SMALLGOLDEN-scale Stage 4 graph through the real Prefect event parser and reducer, using the same frontier shape as the saved SMALLGOLDEN fixture rather than a toy model.",
+          "Replays a SMALLGOLDEN-scale Stage 4 graph through the real event parser and reducer, using the same frontier shape as the saved SMALLGOLDEN fixture rather than a toy model.",
       },
     },
   },

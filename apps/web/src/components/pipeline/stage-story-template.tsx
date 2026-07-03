@@ -4,7 +4,7 @@ import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { LLMTrace, StageMeta, StageOutcome } from "@nof1-causal-lab/api-types";
+import type { LLMTrace, StageMeta } from "@nof1-causal-lab/api-types";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { StagePresentationShellView } from "./stage-presentation-shell";
 
@@ -44,13 +44,12 @@ export type StageStoryTemplateProps = {
   stage: StageMeta;
   status: StageRunStatus;
   context?: string;
-  outcome?: StageOutcome;
+  errorMessage?: string;
   elapsedMs?: number;
   loadingHint?: string;
   actions?: ReactNode;
   runningContent?: ReactNode;
   invalidated?: boolean;
-  logView?: ReactNode;
   trace?: LLMTrace;
   panelContent?: ReactNode;
   interactive?: boolean;
@@ -62,13 +61,12 @@ export function StageStoryTemplate({
   stage,
   status,
   context,
-  outcome,
+  errorMessage,
   elapsedMs,
   loadingHint,
   actions,
   runningContent,
   invalidated,
-  logView,
   trace,
   panelContent,
   interactive = stage.interactive,
@@ -80,13 +78,12 @@ export function StageStoryTemplate({
       stage={stage}
       status={status}
       context={context}
-      outcome={outcome}
+      errorMessage={errorMessage}
       elapsedMs={elapsedMs}
       loadingHint={loadingHint}
       actions={actions}
       runningContent={runningContent}
       invalidated={invalidated}
-      logView={logView}
       interactive={interactive}
       defaultPanelOpen={defaultPanelOpen}
       panelContent={

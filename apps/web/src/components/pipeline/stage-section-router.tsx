@@ -11,9 +11,7 @@ import type {
   Stage5bData,
   Stage6Data,
   StageMeta,
-  StageOutcome,
 } from "@nof1-causal-lab/api-types";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   type ComponentType,
   lazy,
@@ -21,7 +19,6 @@ import {
   type ReactNode,
   Suspense,
   useCallback,
-  useEffect,
   useMemo,
 } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -34,13 +31,11 @@ import {
 } from "@/components/dag/interactive/dev-mock-scenario";
 import { useRefinement } from "@/lib/contexts/refinement-context";
 import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
-import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
+import type { StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
-import { useStageLogs } from "@/lib/hooks/use-stage-logs";
 import { resolveStageObservedStatus } from "@/lib/stage-runtime";
 import { Stage3FixAction } from "./stage-contents/stage-3-content";
 import { buildEdgePosteriors, buildStage6Scenarios } from "./stage-contents/stage-6-scenarios";
-import { StageLogView } from "./stage-log-viewer";
 import { StagePresentationShell } from "./stage-presentation-shell";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
@@ -76,7 +71,6 @@ type AnyStageData =
 type StageViewData = AnyStageData & {
   context?: string;
   llm_trace?: LLMTrace;
-  outcome?: StageOutcome;
 };
 
 type StageSectionRouterProps = {
@@ -85,17 +79,14 @@ type StageSectionRouterProps = {
   status: StageRunStatus;
   timing?: StageTiming;
   stageRun?: AnalysisStageRun;
+  errorMessage?: string;
 };
 
 function stageRunsEqual(previous?: AnalysisStageRun, next?: AnalysisStageRun): boolean {
   return (
-    previous?.ownerRootFlowRunId === next?.ownerRootFlowRunId &&
-    previous?.stageSubflowRunId === next?.stageSubflowRunId &&
     previous?.execution?.stateType === next?.execution?.stateType &&
     previous?.execution?.startTime === next?.execution?.startTime &&
-    previous?.execution?.endTime === next?.execution?.endTime &&
-    (previous?.initialLogFlowRunIds.join("|") ?? "") ===
-      (next?.initialLogFlowRunIds.join("|") ?? "")
+    previous?.execution?.endTime === next?.execution?.endTime
   );
 }
 
@@ -105,8 +96,8 @@ function StageSectionRouterInner({
   status,
   timing,
   stageRun,
+  errorMessage,
 }: StageSectionRouterProps) {
-  const queryClient = useQueryClient();
   const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill, readOnly } =
     useRefinement();
   const invalidated = isInvalidated(stage.id);
@@ -115,7 +106,7 @@ function StageSectionRouterInner({
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
-  // Read context + trace + outcome from the stage data (once, after completion).
+  // Read context + trace from the stage data (once, after completion).
   const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
   const pendingStagePatch =
     refiningStageId === stage.id ? (pendingStagePatches[stage.id] ?? null) : null;
@@ -126,39 +117,6 @@ function StageSectionRouterInner({
         : stageData,
     [pendingStagePatch, stageData],
   );
-
-  const outcome: StageOutcome = projectedStageData?.outcome ?? "success";
-
-  // Sync outcome into pipeline progress so the progress bar can reflect it
-  useEffect(() => {
-    if (outcome === "success") return;
-    queryClient.setQueryData<PipelineProgress>(["pipeline", workspaceId, "status"], (old) => {
-      if (!old) return old;
-      if (old.stageOutcomes[stage.id] === outcome) return old;
-      return {
-        ...old,
-        stageOutcomes: { ...old.stageOutcomes, [stage.id]: outcome },
-      };
-    });
-  }, [outcome, queryClient, workspaceId, stage.id]);
-
-  // Hook lives here (always mounted) so transition tracking works across
-  // running→completed without remounting.
-  const { logs, bootstrapStatus, connectionState } = useStageLogs(
-    workspaceId,
-    stage.id,
-    stageRun,
-    effectiveStatus,
-  );
-  const showLogViewer = effectiveStatus !== "pending";
-  const logView = showLogViewer ? (
-    <StageLogView
-      logs={logs}
-      status={effectiveStatus}
-      bootstrapStatus={bootstrapStatus}
-      connectionState={connectionState}
-    />
-  ) : undefined;
 
   const handleFixMeasurements = useCallback(
     (prompt: string) => {
@@ -176,7 +134,7 @@ function StageSectionRouterInner({
       status={effectiveStatus}
       elapsedMs={elapsedMs}
       context={stage.description}
-      outcome={outcome}
+      errorMessage={errorMessage}
       loadingHint={stage.loadingHint}
       actions={
         stage.id === "stage-3" && isCompleted && projectedStageData && !readOnly ? (
@@ -186,24 +144,15 @@ function StageSectionRouterInner({
       runningContent={
         stage.id === "stage-2" && effectiveStatus === "running" ? (
           <Suspense fallback={null}>
-            <Stage2RunningContent
-              workspaceId={workspaceId}
-              stageStatus={effectiveStatus}
-              stageRun={stageRun}
-            />
+            <Stage2RunningContent workspaceId={workspaceId} />
           </Suspense>
         ) : stage.id === "stage-4" && effectiveStatus === "running" ? (
           <Suspense fallback={null}>
-            <Stage4RunningContent
-              workspaceId={workspaceId}
-              stageStatus={effectiveStatus}
-              stageRun={stageRun}
-            />
+            <Stage4RunningContent workspaceId={workspaceId} />
           </Suspense>
         ) : undefined
       }
       invalidated={invalidated}
-      logView={logView}
       panelContent={
         projectedStageData?.llm_trace ? (
           <Suspense fallback={null}>
@@ -236,6 +185,7 @@ export const StageSectionRouter = memo(
     previous.status === next.status &&
     previous.timing?.startedAt === next.timing?.startedAt &&
     previous.timing?.completedAt === next.timing?.completedAt &&
+    previous.errorMessage === next.errorMessage &&
     stageRunsEqual(previous.stageRun, next.stageRun),
 );
 

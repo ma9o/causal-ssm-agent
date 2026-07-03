@@ -28,7 +28,7 @@ export interface Stage2Snapshot {
   llm_requests_last_60s: number;
 }
 
-export interface PrefectStage2EventRecord {
+export interface Stage2EventRecord {
   event?: string | null;
   occurred?: string | null;
   payload?: Record<string, unknown>;
@@ -59,11 +59,7 @@ export const EMPTY_STAGE2_REPLAY_STATE: Stage2ReplayState = {
   workers: {},
 };
 
-export function getStage2StateQueryKey(workspaceId: string, rootFlowRunId: string | null) {
-  return ["pipeline", workspaceId, "stage2-state", rootFlowRunId ?? "__none__"] as const;
-}
-
-export function getStage2StateQueryKeyPrefix(workspaceId: string) {
+export function getStage2StateQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "stage2-state"] as const;
 }
 
@@ -118,9 +114,7 @@ function mergeWorker(
   };
 }
 
-export function parseStage2Event(
-  event: PrefectStage2EventRecord | null | undefined,
-): Stage2Event | null {
+export function parseStage2Event(event: Stage2EventRecord | null | undefined): Stage2Event | null {
   if (!event?.event?.startsWith(STAGE2_EVENT_PREFIX)) {
     return null;
   }
@@ -227,7 +221,7 @@ export function applyStage2Event(
   };
 }
 
-export function reduceStage2Events(events: readonly PrefectStage2EventRecord[]): Stage2ReplayState {
+export function reduceStage2Events(events: readonly Stage2EventRecord[]): Stage2ReplayState {
   return events.reduce<Stage2ReplayState>((state, record) => {
     const event = parseStage2Event(record);
     return event ? applyStage2Event(state, event) : state;

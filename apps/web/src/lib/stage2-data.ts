@@ -118,7 +118,6 @@ export async function deriveStage2Data(
   const metadata = parquetMetadata(file) as ParquetMetadata;
 
   return {
-    outcome: payload.outcome,
     llm_trace: payload.llm_trace ?? null,
     workers: payload.workers ?? [],
     per_indicator_counts: await derivePerIndicatorCounts(file, metadata),

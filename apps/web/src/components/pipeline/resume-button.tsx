@@ -14,15 +14,7 @@ import { useCallback, useState } from "react";
  * Earlier stages trigger a replay from the next stage boundary.
  * Terminal Stage 6 persists the finalized interactive result in place.
  */
-export function ResumeButton({
-  workspaceId,
-  stageId,
-  rootFlowRunId,
-}: {
-  workspaceId: string;
-  stageId: string;
-  rootFlowRunId?: string | null;
-}) {
+export function ResumeButton({ workspaceId, stageId }: { workspaceId: string; stageId: string }) {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { clearPendingMaterialization, pendingStagePatches, refinementMessages } = useRefinement();
@@ -46,7 +38,6 @@ export function ResumeButton({
         stageId: normalizedStageId,
         stagePatch: pendingStagePatch,
         messages: pendingMessages,
-        ...(rootFlowRunId ? { rootFlowRunId } : {}),
       });
       if (result.ok) {
         clearPendingMaterialization(normalizedStageId);
@@ -55,14 +46,7 @@ export function ResumeButton({
           return;
         }
 
-        if (!result.rootFlowRunId) {
-          console.error("Resume failed: missing rootFlowRunId in replay response");
-          return;
-        }
-
-        window.location.href = `/analysis/${workspaceId}?${new URLSearchParams({
-          rootFlowRunId: result.rootFlowRunId,
-        }).toString()}`;
+        window.location.href = `/analysis/${workspaceId}`;
       }
     } catch (err) {
       console.error("Resume failed:", err);
@@ -73,7 +57,6 @@ export function ResumeButton({
   }, [
     workspaceId,
     stageId,
-    rootFlowRunId,
     pendingStagePatch,
     pendingMessages,
     clearPendingMaterialization,

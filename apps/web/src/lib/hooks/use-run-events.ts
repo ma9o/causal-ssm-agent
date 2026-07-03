@@ -1,88 +1,60 @@
 "use client";
 
 import {
-  getAnalysisManifestQueryKey,
-  type AnalysisManifest,
-  type AnalysisStageRuns,
+  getEpisodeProgress,
   type AnalysisStageExecution,
+  type AnalysisStageRuns,
+  type EpisodeEventRecord,
+  type EpisodeProgressPayload,
+  type EpisodeTransitionRecord,
 } from "@/lib/api/analysis";
-import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
-import { getPrefectEventsUrl } from "@/lib/runtime-urls";
 import {
   applyStage2Event,
   getStage2StateQueryKey,
-  getStage2StateQueryKeyPrefix,
   parseStage2Event,
   type Stage2ReplayState,
 } from "@/lib/stage2-runtime";
 import {
   applyStage4Event,
   getStage4StateQueryKey,
-  getStage4StateQueryKeyPrefix,
   parseStage4Event,
   type Stage4ReplayState,
 } from "@/lib/stage4-runtime";
-import {
-  patchStageRun,
-  normalizeLogFlowRunIds,
-  normalizeStageSubflowRunId,
-  STAGE_PROGRESS_EVENT_FILTER_PREFIX,
-  type StageProgressStatus,
-} from "@/lib/stage-runtime";
+import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { STAGES } from "@nof1-causal-lab/api-types";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
   applyStageUpdate,
-  hasStoppedStage,
   initialProgress,
-  mapPrefectTaskState,
+  mapExecutionStateType,
+  restartStageAttempt,
   type PipelineProgress,
   type StageRunStatus,
 } from "./pipeline-progress";
 import { getStageDataQueryKey } from "./use-stage-data";
-import { usePrefectSocketSubscription } from "./use-prefect-socket";
 
 export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
 
-const EVENT_LOOKBACK_MS = 60_000;
-const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
-const NOF1_CAUSAL_LAB_EVENT_PREFIX = "nof1-causal-lab.";
-
-interface PrefectEventSocketMessage {
-  type?: string;
-  event?: {
-    event?: string;
-    occurred?: string;
-    payload?: Record<string, unknown>;
-  };
-}
+const PROGRESS_POLL_INTERVAL_MS = 2_000;
 
 function getPipelineStatusQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "status"] as const;
 }
 
-export function buildPrefectEventFilterMessage(rootFlowRunId: string, now = new Date()) {
-  return {
-    type: "filter",
-    filter: {
-      // Pipeline emits custom events (stage progress + worker progress)
-      // on the root flow run resource.
-      event: { prefix: [NOF1_CAUSAL_LAB_EVENT_PREFIX] },
-      resource: {
-        id: [`prefect.flow-run.${rootFlowRunId}`],
-      },
-      // Prefect's websocket filter defaults `occurred.until` to "now".
-      // Without an explicit future upper bound, the socket only backfills
-      // historical events and drops all subsequent live task transitions.
-      occurred: {
-        since: new Date(now.getTime() - EVENT_LOOKBACK_MS).toISOString(),
-        until: new Date(now.getTime() + EVENT_LOOKAHEAD_MS).toISOString(),
-      },
-    },
-  };
+function getEpisodeProgressQueryKey(workspaceId: string) {
+  return ["episode", workspaceId, "progress"] as const;
+}
+
+/** Event cursors are `{time_ns:020d}-{uuid}.json` filenames — time-ordered by construction. */
+export function cursorTimestampMs(cursor: string): number | undefined {
+  const nanos = cursor.split("-", 1)[0];
+  if (!/^\d+$/.test(nanos)) {
+    return undefined;
+  }
+  return Math.floor(Number(nanos) / 1_000_000);
 }
 
 function isStageId(value: unknown): value is StageId {
@@ -97,42 +69,39 @@ export interface StageProgressEvent {
   stageId: StageId;
   status: StageProgressStatus;
   eventTime?: number;
-  occurred?: string;
-  outcome?: string;
   error?: { type: string; message: string };
-  stageSubflowRunId?: string;
-  logFlowRunIds?: string[];
 }
 
-export function parsePrefectStageProgressEvent(
-  event: PrefectEventSocketMessage["event"],
-): StageProgressEvent | null {
-  if (!event?.event?.startsWith(STAGE_PROGRESS_EVENT_FILTER_PREFIX)) {
+export function parseStageProgressEvent(record: EpisodeEventRecord): StageProgressEvent | null {
+  if (!record.event.startsWith(STAGE_PROGRESS_EVENT_FILTER_PREFIX)) {
     return null;
   }
 
-  const payload = event.payload;
+  const payload = record.payload;
   const stageId = payload?.stage_id;
   const status = payload?.status;
   if (!isStageId(stageId) || !isStageRunStatus(status)) {
     return null;
   }
 
-  const stageSubflowRunId = normalizeStageSubflowRunId(payload?.stage_subflow_run_id) ?? undefined;
-  const explicitLogFlowRunIds = normalizeLogFlowRunIds(payload?.log_flow_run_ids);
-
   return {
     stageId,
     status,
-    eventTime: event.occurred ? new Date(event.occurred).getTime() : undefined,
-    occurred: event.occurred,
-    outcome: typeof payload?.outcome === "string" ? payload.outcome : undefined,
+    eventTime: cursorTimestampMs(record.cursor),
     error:
       payload?.error && typeof payload.error === "object"
         ? (payload.error as { type: string; message: string })
         : undefined,
-    stageSubflowRunId,
-    logFlowRunIds: explicitLogFlowRunIds.length > 0 ? explicitLogFlowRunIds : undefined,
+  };
+}
+
+/** Adapt an episode event to the {event, occurred, payload} record the stage parsers consume. */
+function toRuntimeEventRecord(record: EpisodeEventRecord) {
+  const timestampMs = cursorTimestampMs(record.cursor);
+  return {
+    event: record.event,
+    occurred: timestampMs === undefined ? null : new Date(timestampMs).toISOString(),
+    payload: record.payload,
   };
 }
 
@@ -149,7 +118,7 @@ function applyHydratedExecutionToProgress(
   stageId: StageId,
   execution: AnalysisStageExecution,
 ): PipelineProgress {
-  const status = mapPrefectTaskState(execution.stateType);
+  const status = mapExecutionStateType(execution.stateType);
   if (!status) return progress;
 
   const startTime = execution.startTime ? new Date(execution.startTime).getTime() : undefined;
@@ -172,16 +141,6 @@ function applyHydratedExecutionToProgress(
     next = applyStageUpdate(next, stageId, "running", startTime);
   }
   return applyStageUpdate(next, stageId, "failed", endTime ?? startTime);
-}
-
-function isPipelineTerminal(
-  queryClient: ReturnType<typeof useQueryClient>,
-  workspaceId: string,
-): boolean {
-  const progress = queryClient.getQueryData<PipelineProgress>(
-    getPipelineStatusQueryKey(workspaceId),
-  );
-  return progress?.isComplete === true || hasStoppedStage(progress) || progress?.isFailed === true;
 }
 
 function mergeHydratedManifestProgress(
@@ -207,99 +166,135 @@ function mergeHydratedManifestProgress(
   return next;
 }
 
+function applyRaisedTransition(
+  progress: PipelineProgress | undefined,
+  transition: EpisodeTransitionRecord,
+): PipelineProgress | undefined {
+  if (transition.move.kind !== "run" || transition.status !== "raised") {
+    return progress;
+  }
+  const stageId = transition.move.stage_id;
+  if (!isStageId(stageId)) {
+    return progress;
+  }
+
+  const eventTime = Date.parse(transition.ts);
+  return applyStageUpdate(
+    progress,
+    stageId,
+    "failed",
+    Number.isFinite(eventTime) ? eventTime : undefined,
+    transition.error_message ?? transition.error_type ?? undefined,
+  );
+}
+
+function hasRunningStage(progress: PipelineProgress | undefined): boolean {
+  return !!progress && STAGES.some((stage) => progress.stages[stage.id] === "running");
+}
+
 export function useRunEvents(
   workspaceId: string | null,
-  rootFlowRunIds: string[],
   stageRuns?: AnalysisStageRuns,
+  { readOnly = false }: { readOnly?: boolean } = {},
 ) {
   const queryClient = useQueryClient();
-  const activeRootFlowRunId = getLatestRootFlowRunId(rootFlowRunIds);
-  const hydratedLineageKeyRef = useRef<string | null>(null);
+  const cursorRef = useRef<string | null>(null);
+  const lastSeqRef = useRef(0);
+  const hydratedWorkspaceRef = useRef<string | null>(null);
 
   const updateStage = useCallback(
-    (stageId: StageId, status: StageRunStatus, eventTime?: number, outcome?: string) => {
+    (stageId: StageId, status: StageRunStatus, eventTime?: number, errorMessage?: string) => {
       queryClient.setQueryData<PipelineProgress>(["pipeline", workspaceId, "status"], (old) =>
-        applyStageUpdate(old, stageId, status, eventTime, outcome),
+        applyStageUpdate(old, stageId, status, eventTime, errorMessage),
       );
     },
     [queryClient, workspaceId],
   );
 
-  const handlePrefectEventMessage = useCallback(
-    (message: PrefectEventSocketMessage, socket: { close: () => void }) => {
-      if (!workspaceId || !activeRootFlowRunId) {
+  const applyProgressPayload = useCallback(
+    (payload: EpisodeProgressPayload) => {
+      if (!workspaceId) {
         return;
       }
 
-      const stage4Event = parseStage4Event(message.event);
-      if (stage4Event) {
-        queryClient.setQueryData<Stage4ReplayState>(
-          getStage4StateQueryKey(workspaceId, activeRootFlowRunId),
-          (old) => applyStage4Event(old, stage4Event),
+      for (const record of payload.events) {
+        const runtimeRecord = toRuntimeEventRecord(record);
+
+        const stage4Event = parseStage4Event(runtimeRecord);
+        if (stage4Event) {
+          queryClient.setQueryData<Stage4ReplayState>(getStage4StateQueryKey(workspaceId), (old) =>
+            applyStage4Event(old, stage4Event),
+          );
+          continue;
+        }
+
+        const stage2Event = parseStage2Event(runtimeRecord);
+        if (stage2Event) {
+          queryClient.setQueryData<Stage2ReplayState>(getStage2StateQueryKey(workspaceId), (old) =>
+            applyStage2Event(old, stage2Event),
+          );
+          continue;
+        }
+
+        const stageEvent = parseStageProgressEvent(record);
+        if (!stageEvent) {
+          continue;
+        }
+
+        if (stageEvent.status === "running") {
+          // The event stream is totally ordered, so a running event after a
+          // terminal state is a genuine re-run (stale inputs recomputed).
+          queryClient.setQueryData<PipelineProgress>(
+            getPipelineStatusQueryKey(workspaceId),
+            (old) => restartStageAttempt(old, stageEvent.stageId, stageEvent.eventTime),
+          );
+          continue;
+        }
+
+        updateStage(
+          stageEvent.stageId,
+          stageEvent.status,
+          stageEvent.eventTime,
+          stageEvent.error?.message,
         );
-        return;
+        if (stageEvent.status === "completed") {
+          invalidateStageData(queryClient, workspaceId, stageEvent.stageId);
+        }
+      }
+      if (payload.events.length > 0) {
+        cursorRef.current = payload.events[payload.events.length - 1].cursor;
       }
 
-      const stage2Event = parseStage2Event(message.event);
-      if (stage2Event) {
-        queryClient.setQueryData<Stage2ReplayState>(
-          getStage2StateQueryKey(workspaceId, activeRootFlowRunId),
-          (old) => applyStage2Event(old, stage2Event),
+      for (const transition of payload.transitions) {
+        if (transition.seq <= lastSeqRef.current) {
+          continue;
+        }
+        queryClient.setQueryData<PipelineProgress>(
+          getPipelineStatusQueryKey(workspaceId),
+          (old) => applyRaisedTransition(old, transition) ?? old,
         );
-        return;
-      }
-
-      const stageEvent = parsePrefectStageProgressEvent(message.event);
-      if (!stageEvent) {
-        return;
-      }
-
-      queryClient.setQueriesData<AnalysisManifest>(
-        { queryKey: getAnalysisManifestQueryKey(workspaceId) },
-        (old) =>
-          old
-            ? {
-                ...old,
-                stages: {
-                  ...old.stages,
-                  [stageEvent.stageId]: patchStageRun(
-                    old.stages[stageEvent.stageId],
-                    activeRootFlowRunId,
-                    stageEvent,
-                  ),
-                },
-              }
-            : old,
-      );
-      updateStage(stageEvent.stageId, stageEvent.status, stageEvent.eventTime, stageEvent.outcome);
-      if (stageEvent.status === "completed") {
-        invalidateStageData(queryClient, workspaceId, stageEvent.stageId);
-      }
-
-      if (isPipelineTerminal(queryClient, workspaceId)) {
-        socket.close();
+        lastSeqRef.current = Math.max(lastSeqRef.current, transition.seq);
       }
     },
-    [activeRootFlowRunId, queryClient, updateStage, workspaceId],
+    [queryClient, updateStage, workspaceId],
   );
 
+  // Reset the reduced caches when the workspace changes.
   useEffect(() => {
-    if (!workspaceId) return;
-    const normalizedRootFlowRunIds = dedupeRootFlowRunIds(rootFlowRunIds);
-    const lineageKey = `${workspaceId}:${normalizedRootFlowRunIds.join("|")}`;
-
-    if (hydratedLineageKeyRef.current === lineageKey) {
+    if (!workspaceId || hydratedWorkspaceRef.current === workspaceId) {
       return;
     }
-    hydratedLineageKeyRef.current = lineageKey;
+    hydratedWorkspaceRef.current = workspaceId;
+    cursorRef.current = null;
+    lastSeqRef.current = 0;
 
-    // Initialize progress, then hydrate from Prefect to catch up on
-    // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
-    queryClient.removeQueries({ queryKey: getStage2StateQueryKeyPrefix(workspaceId) });
-    queryClient.removeQueries({ queryKey: getStage4StateQueryKeyPrefix(workspaceId) });
-  }, [queryClient, rootFlowRunIds, workspaceId]);
+    queryClient.removeQueries({ queryKey: getStage2StateQueryKey(workspaceId) });
+    queryClient.removeQueries({ queryKey: getStage4StateQueryKey(workspaceId) });
+  }, [queryClient, workspaceId]);
 
+  // Hydrate completed stages from the manifest (covers shared workspaces,
+  // which have persisted artifacts but no episode journal or event stream).
   useEffect(() => {
     if (!workspaceId || !stageRuns) return;
 
@@ -324,13 +319,28 @@ export function useRunEvents(
         cleanup();
       };
     }
-  }, [activeRootFlowRunId, queryClient, updateStage, workspaceId]);
+  }, [queryClient, updateStage, workspaceId]);
 
-  usePrefectSocketSubscription<PrefectEventSocketMessage>({
-    enabled: !isMockMode() && !!workspaceId && !!activeRootFlowRunId,
-    subscriptionKey: activeRootFlowRunId ?? "",
-    getSocketUrl: () => getPrefectEventsUrl(window.location.origin),
-    buildFilterMessage: () => buildPrefectEventFilterMessage(activeRootFlowRunId as string),
-    onMessage: handlePrefectEventMessage,
+  useQuery({
+    queryKey: getEpisodeProgressQueryKey(workspaceId ?? "__none__"),
+    queryFn: async () => {
+      const payload = await getEpisodeProgress(workspaceId as string, cursorRef.current);
+      applyProgressPayload(payload);
+      return payload;
+    },
+    enabled: !isMockMode() && !!workspaceId && !readOnly,
+    refetchInterval: (query) => {
+      const payload = query.state.data;
+      if (!payload) {
+        return PROGRESS_POLL_INTERVAL_MS;
+      }
+      const progress = workspaceId
+        ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
+        : undefined;
+      return payload.autoRunning || hasRunningStage(progress) ? PROGRESS_POLL_INTERVAL_MS : false;
+    },
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
   });
 }

@@ -22,13 +22,11 @@ function FeedContent({
   stageRuns,
   question,
   progress,
-  latestRootFlowRunId,
 }: {
   workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress;
-  latestRootFlowRunId?: string | null;
 }) {
   const { refiningStageId, settled } = useRefinement();
 
@@ -52,6 +50,7 @@ function FeedContent({
               stageRun={stageRuns?.[stage.id]}
               status={progress.stages[stage.id]}
               timing={progress.timings[stage.id]}
+              errorMessage={progress.stageErrors[stage.id]}
             />
           </LazyStageMount>
         ))}
@@ -61,11 +60,7 @@ function FeedContent({
           </div>
         )}
         {refiningStageId && settled && (
-          <ResumeButton
-            workspaceId={workspaceId}
-            stageId={refiningStageId}
-            rootFlowRunId={latestRootFlowRunId}
-          />
+          <ResumeButton workspaceId={workspaceId} stageId={refiningStageId} />
         )}
       </div>
       <InvalidationWarningModal />
@@ -80,14 +75,12 @@ export function AnalysisFeed({
   stageRuns,
   question,
   progress,
-  latestRootFlowRunId,
   readOnly = false,
 }: {
   workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress | undefined;
-  latestRootFlowRunId?: string | null;
   readOnly?: boolean;
 }) {
   if (!progress) {
@@ -115,7 +108,6 @@ export function AnalysisFeed({
         stageRuns={stageRuns}
         question={question}
         progress={progress}
-        latestRootFlowRunId={latestRootFlowRunId}
       />
     </RefinementProvider>
   );

@@ -12,7 +12,7 @@ import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import prettyBytes from "pretty-bytes";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -21,7 +21,6 @@ export default function LandingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const auth = useAuth();
-  const launchIdRef = useRef<string | null>(null);
   const accessibleWorkspacesQuery = useQuery({
     queryKey: getAccessibleWorkspacesQueryKey(auth.access?.authScope ?? "pending"),
     queryFn: getAccessibleWorkspaces,
@@ -36,10 +35,6 @@ export default function LandingPage() {
       router.push(`/analysis/${getMockFixture()}`);
     }
   }, [router]);
-
-  useEffect(() => {
-    launchIdRef.current = null;
-  }, [question, file]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -84,19 +79,16 @@ export default function LandingPage() {
 
       const workspaceId = generateAnonymousWorkspaceId();
       await uploadFile(file, workspaceId);
-      const launchId = launchIdRef.current ?? crypto.randomUUID();
-      launchIdRef.current = launchId;
 
-      const { rootFlowRunId } = await apiFetch<{ rootFlowRunId: string }>("/api/runs", {
+      await apiFetch<{ workspaceId: string }>("/api/runs", {
         method: "POST",
         body: JSON.stringify({
           workspaceId,
-          launchId,
           query: question,
         }),
       });
 
-      router.push(`/analysis/${workspaceId}?${new URLSearchParams({ rootFlowRunId }).toString()}`);
+      router.push(`/analysis/${workspaceId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);

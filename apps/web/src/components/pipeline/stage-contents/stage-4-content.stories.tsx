@@ -28,7 +28,6 @@ export { StateMachineReplay as Running } from "./stage-4-running-content.stories
 export const Completed = createCompletedStageStory({
   stage,
   args: { data: stage4Data, indicators },
-  outcome: stage4Data.outcome,
   elapsedMs: 15_600,
   trace: stage4Data.llm_trace ?? undefined,
   renderContent: (args) => <Stage4Content {...args} />,
@@ -37,7 +36,6 @@ export const Completed = createCompletedStageStory({
 export const OpenPanel = createCompletedStageStory({
   stage,
   args: { data: stage4Data, indicators },
-  outcome: stage4Data.outcome,
   elapsedMs: 15_600,
   trace: stage4Data.llm_trace ?? undefined,
   defaultPanelOpen: true,

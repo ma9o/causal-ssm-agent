@@ -2,7 +2,7 @@ import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { STAGE_IDS } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
 import { isStorageNotFoundError, readData } from "@/lib/storage";
-import { getToolServerUrl } from "@/lib/runtime-urls";
+import { proposeMove } from "@/lib/server/episode-runs";
 import { isRecord } from "@/lib/utils/type-guards";
 import {
   mergePersistedTrace,
@@ -11,18 +11,17 @@ import {
 } from "@/lib/utils/trace-to-core";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
-const TOOL_SERVER = getToolServerUrl();
-
 /**
  * POST /api/refine/apply
  *
  * Materializes the client-held refinement payload. Earlier stages trigger
- * replay from the next stage boundary; the terminal stage persists in place.
+ * replay (write move + auto-run); the terminal stage writes the merged
+ * result in place as a human-provenance artifact version.
  *
- * Body: { workspaceId, stageId, stagePatch?, messages?, rootFlowRunId? }
+ * Body: { workspaceId, stageId, stagePatch?, messages? }
  */
 export async function POST(request: Request) {
-  const { workspaceId, stageId, rootFlowRunId, stagePatch, messages } = await request.json();
+  const { workspaceId, stageId, stagePatch, messages } = await request.json();
 
   if (!workspaceId || !stageId) {
     return NextResponse.json({ error: "Missing workspaceId or stageId" }, { status: 400 });
@@ -57,12 +56,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const {
-    llm_trace: existingTrace,
-    outcome: _outcome,
-    _live: _liveField,
-    ...originalDomain
-  } = currentStageData;
+  const { llm_trace: existingTrace, _live: _liveField, ...originalDomain } = currentStageData;
   const refinementSummary = summarizeRefinementMessages(refinementMessages);
   const mergedStagePatch = {
     ...refinementSummary.stagePatch,
@@ -87,18 +81,16 @@ export async function POST(request: Request) {
 
   if (isTerminalStage) {
     try {
-      const persistRes = await fetch(`${TOOL_SERVER}/api/stages/${safeStageId}/persist-web-patch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspace_id: safeWorkspaceId,
-          patch: materializedPatch,
-        }),
-      });
-
-      if (!persistRes.ok) {
-        const error = await persistRes.text();
-        return NextResponse.json({ error: `Persist failed: ${error}` }, { status: 502 });
+      const outcome = await proposeMove(
+        safeWorkspaceId,
+        { kind: "write", artifact_id: "baseline_ranking", provenance: "human" },
+        { ...originalDomain, llm_trace: existingTrace, ...materializedPatch },
+      );
+      if (outcome.status !== "applied") {
+        return NextResponse.json(
+          { error: `Persist failed: ${outcome.error_message ?? outcome.reason ?? outcome.status}` },
+          { status: 502 },
+        );
       }
 
       return NextResponse.json({
@@ -114,6 +106,7 @@ export async function POST(request: Request) {
       );
     }
   }
+
   const merged = { ...originalDomain, ...materializedPatch };
 
   try {
@@ -133,7 +126,6 @@ export async function POST(request: Request) {
         workspaceId: safeWorkspaceId,
         stageId: safeStageId,
         stageData: merged,
-        ...(typeof rootFlowRunId === "string" ? { rootFlowRunId } : {}),
       }),
     });
 

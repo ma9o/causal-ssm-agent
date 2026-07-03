@@ -1,32 +1,25 @@
 "use client";
 
-import { getStage2ReplayState } from "@/lib/api/analysis";
 import {
   EMPTY_STAGE2_REPLAY_STATE,
   getStage2RequestsPerMinute,
   getStage2StateQueryKey,
   listStage2Workers,
   summarizeStage2State,
+  type Stage2ReplayState,
 } from "@/lib/stage2-runtime";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { StageRunStatus } from "./use-run-events";
 
-export function useStage2State(
-  workspaceId: string,
-  stageStatus: StageRunStatus,
-  rootFlowRunId: string | null,
-) {
-  const isActive = stageStatus === "running";
-
-  const { data } = useQuery({
-    queryKey: getStage2StateQueryKey(workspaceId, rootFlowRunId),
-    queryFn: () =>
-      rootFlowRunId
-        ? getStage2ReplayState(workspaceId, rootFlowRunId)
-        : Promise.resolve(EMPTY_STAGE2_REPLAY_STATE),
-    enabled: isActive && !!rootFlowRunId,
-    staleTime: Infinity,
+/**
+ * Stage 2 worker fan-out state, reduced from polled episode telemetry
+ * events into the React Query cache by use-run-events.
+ */
+export function useStage2State(workspaceId: string) {
+  const { data } = useQuery<Stage2ReplayState>({
+    queryKey: getStage2StateQueryKey(workspaceId),
+    queryFn: () => undefined as never,
+    enabled: false,
   });
 
   return useMemo(() => {

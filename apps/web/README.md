@@ -12,20 +12,9 @@ In this repo's shared dev workflow, the web dev server is often already running 
 
 Server-side routes default to local pipeline services:
 
-- `PREFECT_API_URL=http://localhost:4200/api`
 - `TOOL_SERVER_URL=http://localhost:8100`
 
-Browser-side Prefect websockets can be overridden with:
-
-- `NEXT_PUBLIC_PREFECT_EVENTS_URL`
-- `NEXT_PUBLIC_PREFECT_LOGS_URL`
-
-Live Prefect log streaming also requires the server-side Prefect settings:
-
-- `PREFECT_SERVER_LOGS_STREAM_OUT_ENABLED=true`
-- `PREFECT_SERVER_LOGS_STREAM_PUBLISHING_ENABLED=true`
-
-The web app bootstraps logs once via REST and then expects live log delivery to come from Prefect's `logs/out` WebSocket. There is no polling fallback.
+All pipeline interaction goes through the tool server's episode facade (`/api/episodes/...`): runs are moves against the episode state machine, and progress is polled from the episode journal and telemetry event stream.
 
 OpenRouter web access uses these server-side env vars:
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageMeta, StageOutcome } from "@nof1-causal-lab/api-types";
+import type { StageMeta } from "@nof1-causal-lab/api-types";
 import type { ReactNode } from "react";
 import { StageSection } from "./stage-section";
 import { StageWithTrace, StageWithTraceView } from "./stage-with-trace";
@@ -15,13 +15,12 @@ export type StagePresentationShellProps = {
   stage: StagePresentationMeta;
   status: StageRunStatus;
   context?: string;
-  outcome?: StageOutcome;
+  errorMessage?: string;
   elapsedMs?: number;
   loadingHint?: string;
   actions?: ReactNode;
   runningContent?: ReactNode;
   invalidated?: boolean;
-  logView?: ReactNode;
   panelContent?: ReactNode;
   interactive?: boolean;
   defaultPanelOpen?: boolean;
@@ -32,13 +31,12 @@ function renderStageSection({
   stage,
   status,
   context,
-  outcome,
+  errorMessage,
   elapsedMs,
   loadingHint,
   actions,
   runningContent,
   invalidated,
-  logView,
   children,
 }: StagePresentationShellProps) {
   return (
@@ -47,13 +45,12 @@ function renderStageSection({
       title={stage.label}
       status={status}
       context={context ?? stage.description}
-      outcome={outcome}
+      errorMessage={errorMessage}
       elapsedMs={elapsedMs}
       loadingHint={loadingHint ?? stage.loadingHint}
       actions={actions}
       runningContent={runningContent}
       invalidated={invalidated}
-      logView={logView}
     >
       {children}
     </StageSection>

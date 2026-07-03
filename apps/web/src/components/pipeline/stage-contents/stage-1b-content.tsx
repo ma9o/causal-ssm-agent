@@ -54,67 +54,36 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
 
   return (
     <div className="space-y-4">
-      {nonIdEntries.length > 0 &&
-        (data.outcome === "fail" ? (
-          <Alert variant="destructive" className="border-2">
-            <AlertTriangle className="h-5 w-5 mt-0.5" />
-            <AlertTitle className="text-base font-semibold">
-              Non Identifiable Treatments Detected
-            </AlertTitle>
-            <AlertDescription className="mt-2 space-y-2">
-              <p>
-                {nonIdEntries.length} treatment(s) were found to be non-identifiable. If possible,
-                address the blocking confounders (marked with red badges below) to achieve
-                identifiability.
-              </p>
-              <div className="space-y-1.5">
-                {nonIdEntries.map(([name, status]) => (
-                  <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
-                    <span className="font-medium">{name}</span>
-                    <span className="text-destructive/70">&larr;</span>
-                    {status?.confounders.map((c) => (
-                      <Badge key={c} variant="destructive" className="text-xs">
-                        {c}
-                      </Badge>
-                    ))}
-                    {status?.notes && (
-                      <span className="text-muted-foreground text-xs">({status.notes})</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </AlertDescription>
-          </Alert>
-        ) : (
-          <Alert variant="warning" className="border-2">
-            <AlertTriangle className="h-5 w-5 mt-0.5" />
-            <AlertTitle className="text-base font-semibold">
-              Some Treatment Effects Were Excluded
-            </AlertTitle>
-            <AlertDescription className="mt-2 space-y-2">
-              <p>
-                {nonIdEntries.length} treatment(s) remain non-identifiable and will be excluded from
-                downstream intervention analysis. Identifiable treatments still remain.
-              </p>
-              <div className="space-y-1.5">
-                {nonIdEntries.map(([name, status]) => (
-                  <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
-                    <span className="font-medium">{name}</span>
-                    <span className="text-warning/70">&larr;</span>
-                    {status?.confounders.map((c) => (
-                      <Badge key={c} variant="warning" className="text-xs">
-                        {c}
-                      </Badge>
-                    ))}
-                    {status?.notes && (
-                      <span className="text-muted-foreground text-xs">({status.notes})</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </AlertDescription>
-          </Alert>
-        ))}
+      {nonIdEntries.length > 0 && (
+        <Alert variant="warning" className="border-2">
+          <AlertTriangle className="h-5 w-5 mt-0.5" />
+          <AlertTitle className="text-base font-semibold">
+            Some Treatment Effects Were Excluded
+          </AlertTitle>
+          <AlertDescription className="mt-2 space-y-2">
+            <p>
+              {nonIdEntries.length} treatment(s) remain non-identifiable and will be excluded from
+              downstream intervention analysis. Identifiable treatments still remain.
+            </p>
+            <div className="space-y-1.5">
+              {nonIdEntries.map(([name, status]) => (
+                <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="font-medium">{name}</span>
+                  <span className="text-warning/70">&larr;</span>
+                  {status?.confounders.map((c) => (
+                    <Badge key={c} variant="warning" className="text-xs">
+                      {c}
+                    </Badge>
+                  ))}
+                  {status?.notes && (
+                    <span className="text-muted-foreground text-xs">({status.notes})</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
       <StructureDag
         constructs={spec.latent.constructs}
         edges={spec.latent.edges}

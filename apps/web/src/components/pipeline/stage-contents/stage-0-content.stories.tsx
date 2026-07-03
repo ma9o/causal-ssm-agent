@@ -10,7 +10,7 @@ import Stage0Content from "./stage-0-content";
 import fixture from "../../../../../../data/DEMO/run/stage-0.json";
 
 const stage = STAGES.find((s) => s.id === "stage-0")!;
-const data = fixture as Stage0Data;
+const data = fixture as unknown as Stage0Data;
 const workspaceId = "demo-user";
 
 const meta = {
@@ -28,7 +28,6 @@ export const Running = createStageStatusStory(stage, "running");
 export const Completed = createCompletedStageStory({
   stage,
   args: { data, workspaceId },
-  outcome: data.outcome,
   elapsedMs: 4_320,
   trace: data.llm_trace ?? undefined,
   renderContent: (args) => <Stage0Content {...args} />,
@@ -37,7 +36,6 @@ export const Completed = createCompletedStageStory({
 export const OpenPanel = createCompletedStageStory({
   stage,
   args: { data, workspaceId },
-  outcome: data.outcome,
   elapsedMs: 4_320,
   trace: data.llm_trace ?? undefined,
   defaultPanelOpen: true,

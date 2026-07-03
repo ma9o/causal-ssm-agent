@@ -1,85 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { buildPrefectEventFilterMessage, parsePrefectStageProgressEvent } from "./use-run-events";
+import { cursorTimestampMs, parseStageProgressEvent } from "./use-run-events";
 
-describe("buildPrefectEventFilterMessage", () => {
-  it("subscribes to the run's custom stage events across a future time window", () => {
-    const now = new Date("2026-03-10T08:06:15.000Z");
+describe("cursorTimestampMs", () => {
+  it("parses the nanosecond prefix of an event cursor", () => {
+    const cursor = "01750000000000000000-abcd1234.json";
+    expect(cursorTimestampMs(cursor)).toBe(Math.floor(1_750_000_000_000_000_000 / 1_000_000));
+  });
 
-    expect(buildPrefectEventFilterMessage("run-123", now)).toEqual({
-      type: "filter",
-      filter: {
-        event: { prefix: ["nof1-causal-lab."] },
-        resource: {
-          id: ["prefect.flow-run.run-123"],
-        },
-        occurred: {
-          since: "2026-03-10T08:05:15.000Z",
-          until: "2027-03-10T08:06:15.000Z",
-        },
-      },
-    });
+  it("returns undefined for malformed cursors", () => {
+    expect(cursorTimestampMs("not-a-cursor.json")).toBeUndefined();
   });
 });
 
-describe("parsePrefectStageProgressEvent", () => {
-  it("extracts a valid stage update from a custom Prefect event", () => {
-    expect(
-      parsePrefectStageProgressEvent({
-        event: "nof1-causal-lab.pipeline-stage.completed",
-        occurred: "2026-03-10T08:06:15.000Z",
-        payload: {
-          stage_id: "stage-2",
-          status: "completed",
-        },
-      }),
-    ).toEqual({
-      stageId: "stage-2",
-      status: "completed",
-      eventTime: new Date("2026-03-10T08:06:15.000Z").getTime(),
-      occurred: "2026-03-10T08:06:15.000Z",
-    });
-  });
+describe("parseStageProgressEvent", () => {
+  const cursor = "01750000000000000000-abcd1234.json";
 
-  it("captures nested stage runtime metadata from the event payload", () => {
-    expect(
-      parsePrefectStageProgressEvent({
-        event: "nof1-causal-lab.pipeline-stage.running",
-        occurred: "2026-03-10T08:06:15.000Z",
-        payload: {
-          stage_id: "stage-4",
-          status: "running",
-          stage_subflow_run_id: "subflow-123",
-          log_flow_run_ids: ["subflow-123"],
-        },
-      }),
-    ).toEqual({
-      stageId: "stage-4",
+  it("parses running events", () => {
+    const event = parseStageProgressEvent({
+      event: "nof1-causal-lab.pipeline-stage.running",
+      payload: { stage_id: "stage-1a", status: "running" },
+      cursor,
+    });
+
+    expect(event).toEqual({
+      stageId: "stage-1a",
       status: "running",
-      eventTime: new Date("2026-03-10T08:06:15.000Z").getTime(),
-      occurred: "2026-03-10T08:06:15.000Z",
-      stageSubflowRunId: "subflow-123",
-      logFlowRunIds: ["subflow-123"],
+      eventTime: cursorTimestampMs(cursor),
+      error: undefined,
     });
   });
 
-  it("ignores events with an invalid prefix or payload", () => {
+  it("parses failed events with error detail", () => {
+    const event = parseStageProgressEvent({
+      event: "nof1-causal-lab.pipeline-stage.failed",
+      payload: {
+        stage_id: "stage-2",
+        status: "failed",
+        error: { type: "RuntimeError", message: "boom" },
+      },
+      cursor,
+    });
+
+    expect(event?.status).toBe("failed");
+    expect(event?.error).toEqual({ type: "RuntimeError", message: "boom" });
+  });
+
+  it("ignores non-stage-progress events", () => {
     expect(
-      parsePrefectStageProgressEvent({
-        event: "prefect.task-run.Completed",
-        payload: {
-          stage_id: "stage-2",
-          status: "completed",
-        },
+      parseStageProgressEvent({
+        event: "nof1-causal-lab.stage2.worker",
+        payload: { stage_id: "stage-2", type: "worker", worker_id: 1, state: "running" },
+        cursor,
       }),
     ).toBeNull();
+  });
 
+  it("ignores malformed payloads", () => {
     expect(
-      parsePrefectStageProgressEvent({
-        event: "nof1-causal-lab.pipeline-stage.completed",
-        payload: {
-          stage_id: "not-a-stage",
-          status: "completed",
-        },
+      parseStageProgressEvent({
+        event: "nof1-causal-lab.pipeline-stage.running",
+        payload: { stage_id: "not-a-stage", status: "running" },
+        cursor,
       }),
     ).toBeNull();
   });

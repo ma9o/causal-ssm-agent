@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MoveOutcome } from "@/lib/server/episode-runs";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi
@@ -9,8 +10,8 @@ vi.mock("@/lib/workspace-access", () => ({
     })),
 }));
 
-vi.mock("@/lib/runtime-urls", () => ({
-  getToolServerUrl: vi.fn(() => "http://tools.example"),
+vi.mock("@/lib/server/episode-runs", () => ({
+  proposeMove: vi.fn(),
 }));
 
 vi.mock("@/lib/storage", async (importOriginal) => {
@@ -21,9 +22,24 @@ vi.mock("@/lib/storage", async (importOriginal) => {
   };
 });
 
+import { proposeMove } from "@/lib/server/episode-runs";
 import { readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { POST } from "./route";
+
+function appliedOutcome(): MoveOutcome {
+  return {
+    seq: 12,
+    status: "applied",
+    reason: null,
+    error_type: null,
+    error_message: null,
+    diagnostics: {},
+    produced: [],
+    retracted: [],
+    state: { current: {} },
+  };
+}
 
 describe("POST /api/refine/apply", () => {
   afterEach(() => {
@@ -31,7 +47,7 @@ describe("POST /api/refine/apply", () => {
     vi.clearAllMocks();
   });
 
-  it("persists terminal Stage 6 results from the client-held patch and messages", async () => {
+  it("persists terminal Stage 6 results as a human write move", async () => {
     vi.mocked(readData).mockResolvedValueOnce(
       JSON.stringify({
         intervention_results: [{ treatment: "Stress", effect_size: -0.4, identifiable: true }],
@@ -43,13 +59,7 @@ describe("POST /api/refine/apply", () => {
         },
       }),
     );
-
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
 
     const response = await POST(
       new Request("http://localhost/api/refine/apply", {
@@ -98,18 +108,12 @@ describe("POST /api/refine/apply", () => {
       ok: true,
       updatedFields: ["saved_scenarios", "final_summary", "llm_trace"],
     });
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "http://tools.example/api/stages/stage-6/persist-web-patch",
-      expect.objectContaining({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    const [, init] = fetchSpy.mock.calls[0] ?? [];
-    expect(JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}"))).toEqual({
-      workspace_id: "user-123",
-      patch: {
+    expect(proposeMove).toHaveBeenCalledTimes(1);
+    expect(proposeMove).toHaveBeenCalledWith(
+      "user-123",
+      { kind: "write", artifact_id: "baseline_ranking", provenance: "human" },
+      {
+        intervention_results: [{ treatment: "Stress", effect_size: -0.4, identifiable: true }],
         saved_scenarios: [{ label: "High adherence", query: "rung2" }],
         final_summary: "Statin adherence remains the dominant lever.",
         llm_trace: {
@@ -130,9 +134,37 @@ describe("POST /api/refine/apply", () => {
           ],
         },
       },
-    });
+    );
     expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123", {
       requireMutable: true,
+    });
+  });
+
+  it("surfaces failed terminal writes as 502", async () => {
+    vi.mocked(readData).mockResolvedValueOnce(JSON.stringify({ intervention_results: [] }));
+    vi.mocked(proposeMove).mockResolvedValue({
+      ...appliedOutcome(),
+      status: "raised",
+      error_type: "SchemaValidationError",
+      error_message: "baseline_ranking payload failed validation",
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/refine/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-6",
+          stagePatch: { final_summary: "Updated." },
+          messages: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Persist failed: baseline_ranking payload failed validation",
     });
   });
 
@@ -140,7 +172,6 @@ describe("POST /api/refine/apply", () => {
     vi.mocked(readData).mockResolvedValueOnce(
       JSON.stringify({
         latent_model: { constructs: [{ name: "Old" }], edges: [] },
-        outcome: "success",
         llm_trace: {
           model: "openrouter/anthropic/claude-sonnet-4",
           total_time_seconds: 7,
@@ -154,9 +185,7 @@ describe("POST /api/refine/apply", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          resumeFrom: "stage-1b",
-          rootFlowRunId: "replay-1",
-          sessionPersisted: true,
+          workspaceId: "user-123",
         }),
         {
           status: 200,
@@ -172,7 +201,6 @@ describe("POST /api/refine/apply", () => {
         body: JSON.stringify({
           workspaceId: "user-123",
           stageId: "stage-1a",
-          rootFlowRunId: "root-123",
           stagePatch: {},
           messages: [
             {
@@ -205,9 +233,7 @@ describe("POST /api/refine/apply", () => {
     await expect(response.json()).resolves.toEqual({
       ok: true,
       updatedFields: ["latent_model", "llm_trace"],
-      resumeFrom: "stage-1b",
-      rootFlowRunId: "replay-1",
-      sessionPersisted: true,
+      workspaceId: "user-123",
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [, init] = fetchSpy.mock.calls[0] ?? [];
@@ -224,7 +250,6 @@ describe("POST /api/refine/apply", () => {
     expect(body).toMatchObject({
       workspaceId: "user-123",
       stageId: "stage-1a",
-      rootFlowRunId: "root-123",
       stageData: {
         latent_model: { constructs: [], edges: [] },
         llm_trace: {
@@ -239,28 +264,21 @@ describe("POST /api/refine/apply", () => {
         },
       },
     });
+    expect(body).not.toHaveProperty("rootFlowRunId");
   });
 
   it("forwards the workspace access cookie to the replay route", async () => {
     vi.mocked(readData).mockResolvedValueOnce(
       JSON.stringify({
         causal_spec: { measurement: { indicators: [] } },
-        outcome: "success",
       }),
     );
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          ok: true,
-          resumeFrom: "stage-2",
-          rootFlowRunId: "replay-cookie-1",
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
+      new Response(JSON.stringify({ ok: true, workspaceId: "user-123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const response = await POST(

@@ -5,11 +5,8 @@ vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn(),
 }));
 
-vi.mock("@/lib/server/prefect-runs", () => ({
-  findCausalInferenceDeploymentId: vi.fn(),
-  findFlowRunIdByIdempotencyKey: vi.fn(),
-  launchWorkspaceRootFlowRun: vi.fn(),
-  PrefectRunError: class PrefectRunError extends Error {
+vi.mock("@/lib/server/episode-runs", () => ({
+  EpisodeRunError: class EpisodeRunError extends Error {
     status: number;
 
     constructor(status: number, message: string) {
@@ -17,37 +14,46 @@ vi.mock("@/lib/server/prefect-runs", () => ({
       this.status = status;
     }
   },
+  resolveAutoRunExecOptions: vi.fn(),
+  startAutoRun: vi.fn(),
+  startEpisode: vi.fn(),
 }));
 
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import {
-  findCausalInferenceDeploymentId,
-  findFlowRunIdByIdempotencyKey,
-  launchWorkspaceRootFlowRun,
-  PrefectRunError,
-} from "@/lib/server/prefect-runs";
+  EpisodeRunError,
+  resolveAutoRunExecOptions,
+  startAutoRun,
+  startEpisode,
+} from "@/lib/server/episode-runs";
 import { POST } from "./route";
+
+function grantAccess(workspaceId = "USER123") {
+  vi.mocked(requireWorkspaceAccess).mockResolvedValue({
+    ok: true,
+    workspaceId,
+    creationPending: false,
+    readOnly: false,
+  });
+}
 
 describe("POST /api/runs", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it("requires a launchId so initial launches can be idempotent", async () => {
+  it("requires a query", async () => {
     const response = await POST(
       new Request("http://localhost/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          query: "Why?",
-        }),
+        body: JSON.stringify({ workspaceId: "USER123" }),
       }),
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "launchId is required",
+      error: "query is required",
     });
   });
 
@@ -61,11 +67,7 @@ describe("POST /api/runs", () => {
       new Request("http://localhost/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
+        body: JSON.stringify({ workspaceId: "USER123", query: "Why?" }),
       }),
     );
 
@@ -73,17 +75,16 @@ describe("POST /api/runs", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Workspace access denied",
     });
-    expect(findCausalInferenceDeploymentId).not.toHaveBeenCalled();
+    expect(startEpisode).not.toHaveBeenCalled();
   });
 
-  it("returns 502 when the deployment cannot be found", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
+  it("writes the question and starts the auto-run driver", async () => {
+    grantAccess();
+    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
+      openrouter_access_mode: "local",
     });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue(null);
+    vi.mocked(startEpisode).mockResolvedValue({} as never);
+    vi.mocked(startAutoRun).mockResolvedValue();
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
@@ -91,144 +92,54 @@ describe("POST /api/runs", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({
-      error: "causal-inference deployment not found",
-    });
-  });
-
-  it("returns the existing root flow run when the same launchId is retried", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
-    });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
-    vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue("run-existing");
-
-    const response = await POST(
-      new Request("http://localhost/api/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      rootFlowRunId: "run-existing",
-    });
-    expect(launchWorkspaceRootFlowRun).not.toHaveBeenCalled();
-  });
-
-  it("returns 409 when another run is already active for the workspace", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
-    });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
-    vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
-    vi.mocked(launchWorkspaceRootFlowRun).mockResolvedValue({
-      status: "busy",
-      message: "A run is already active for this workspace.",
-      rootFlowRunId: "run-active",
-    });
-
-    const response = await POST(
-      new Request("http://localhost/api/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "A run is already active for this workspace.",
-      rootFlowRunId: "run-active",
-    });
-  });
-
-  it("launches a new workspace root flow run with the normalized route parameters", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
-    });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
-    vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
-    vi.mocked(launchWorkspaceRootFlowRun).mockResolvedValue({
-      status: "created",
-      rootFlowRunId: "run-456",
-    });
-
-    const response = await POST(
-      new Request("http://localhost/api/runs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: " launch-123 ",
           query: " Why is sleep worse after travel? ",
         }),
       }),
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      rootFlowRunId: "run-456",
-    });
-    expect(launchWorkspaceRootFlowRun).toHaveBeenCalledWith({
-      deploymentId: "dep-123",
-      idempotencyKey: "launch:USER123:launch-123",
-      parameters: {
-        workspace_id: "USER123",
-        query: "Why is sleep worse after travel?",
-      },
-      workspaceId: "USER123",
+    await expect(response.json()).resolves.toEqual({ workspaceId: "USER123" });
+    expect(startEpisode).toHaveBeenCalledWith("USER123", "Why is sleep worse after travel?");
+    expect(startAutoRun).toHaveBeenCalledWith("USER123", {
+      openrouter_access_mode: "local",
     });
   });
 
-  it("maps Prefect access failures to their HTTP status", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
+  it("returns 409 when an auto-run is already active for the workspace", async () => {
+    grantAccess();
+    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
+      openrouter_access_mode: "local",
     });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
-    vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
-    vi.mocked(launchWorkspaceRootFlowRun).mockRejectedValue(
-      new PrefectRunError(402, "Anonymous credits exhausted. Sign in with OpenRouter to continue."),
+    vi.mocked(startEpisode).mockResolvedValue({} as never);
+    vi.mocked(startAutoRun).mockRejectedValue(
+      new EpisodeRunError(409, "auto-run already active for USER123"),
     );
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
+        body: JSON.stringify({ workspaceId: "USER123", query: "Why?" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "A run is already active for this workspace.",
+    });
+  });
+
+  it("maps access resolution failures to their HTTP status", async () => {
+    grantAccess();
+    vi.mocked(resolveAutoRunExecOptions).mockRejectedValue(
+      new EpisodeRunError(402, "Anonymous credits exhausted. Sign in with OpenRouter to continue."),
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId: "USER123", query: "Why?" }),
       }),
     );
 
@@ -236,28 +147,21 @@ describe("POST /api/runs", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Anonymous credits exhausted. Sign in with OpenRouter to continue.",
     });
+    expect(startEpisode).not.toHaveBeenCalled();
   });
 
   it("returns 502 on unexpected launch failures", async () => {
-    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
-      ok: true,
-      workspaceId: "USER123",
-      creationPending: false,
-      readOnly: false,
+    grantAccess();
+    vi.mocked(resolveAutoRunExecOptions).mockResolvedValue({
+      openrouter_access_mode: "local",
     });
-    vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
-    vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
-    vi.mocked(launchWorkspaceRootFlowRun).mockRejectedValue(new Error("boom"));
+    vi.mocked(startEpisode).mockRejectedValue(new Error("boom"));
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId: "USER123",
-          launchId: "launch-123",
-          query: "Why?",
-        }),
+        body: JSON.stringify({ workspaceId: "USER123", query: "Why?" }),
       }),
     );
 

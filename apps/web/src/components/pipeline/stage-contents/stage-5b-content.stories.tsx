@@ -30,7 +30,6 @@ export const CompletedMAP = createCompletedStageStory({
   name: "Completed (MAP)",
   stage,
   args: { data, workspaceId: "demo-user" },
-  outcome: data.outcome,
   elapsedMs: 124_500,
   renderContent: (args) => <Stage5bContent {...args} />,
 });
@@ -39,7 +38,6 @@ export const CompletedAuxKalmanMCMC = createCompletedStageStory({
   name: "Completed (Auxiliary Kalman MCMC)",
   stage,
   args: { data: auxKalmanMCMCData, workspaceId: "demo-user" },
-  outcome: auxKalmanMCMCData.outcome,
   elapsedMs: 342_000,
   renderContent: (args) => <Stage5bContent {...args} />,
 });

@@ -6,7 +6,6 @@ import { buildFixPrompt, getFixPromptData, Stage3FixAction } from "./stage-3-con
 
 function makeStage3Data(overrides: Partial<Stage3Data> = {}): Stage3Data {
   return {
-    outcome: "warn",
     is_valid: false,
     dataset_issues: [],
     indicators: {},

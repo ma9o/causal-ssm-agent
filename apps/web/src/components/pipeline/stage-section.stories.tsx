@@ -1,31 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { StageOutcome } from "@nof1-causal-lab/api-types";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { withContainer } from "@/components/story-decorators";
 import { StageSection } from "./stage-section";
-import { StoryStageLogView } from "./stage-story-log-stream";
-
-// ---------------------------------------------------------------------------
-// Mock log data
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Helper: streaming log view that adds logs one by one
-// ---------------------------------------------------------------------------
-
-function StreamingLogView({ intervalMs = 600 }: { intervalMs?: number }) {
-  return (
-    <StoryStageLogView storyId="stage-section-running" status="running" intervalMs={intervalMs} />
-  );
-}
-
-function CompletedLogView() {
-  return <StoryStageLogView storyId="stage-section-completed" status="completed" />;
-}
-
-// ---------------------------------------------------------------------------
-// Stories
-// ---------------------------------------------------------------------------
 
 const meta = {
   title: "Pipeline/StageSection",
@@ -42,10 +18,6 @@ const meta = {
       control: "select",
       options: ["pending", "running", "completed", "failed"] satisfies StageRunStatus[],
     },
-    outcome: {
-      control: "select",
-      options: ["success", "warn", "fail"] satisfies StageOutcome[],
-    },
   },
 } satisfies Meta<typeof StageSection>;
 
@@ -57,7 +29,6 @@ export const Playground: Story = {
     number: "0",
     title: "Preprocess",
     status: "completed",
-    outcome: "success",
     context: "Parses raw data files and prepares them for downstream analysis.",
     elapsedMs: 4_320,
     children: (
@@ -68,32 +39,24 @@ export const Playground: Story = {
   },
 };
 
-/** Running stage — logs stream inline in the card body. */
-export const RunningWithStreamingLogs: Story = {
+/** Running stage — loading hint plus skeleton placeholders. */
+export const Running: Story = {
   args: {
     number: "1a",
     title: "Causal Specification",
     status: "running",
     context: "Generating causal specification from user question.",
     loadingHint: "Querying the LLM for causal structure…",
-    logView: <StreamingLogView />,
   },
 };
 
-/** Completed stage — logs are behind a collapsible toggle. */
-export const CompletedWithCollapsibleLogs: Story = {
+/** Failed stage — the raised error detail stays visible. */
+export const FailedWithError: Story = {
   args: {
     number: "1a",
     title: "Causal Specification",
-    status: "completed",
-    outcome: "success",
+    status: "failed",
     context: "Generates the causal specification from the user question.",
-    elapsedMs: 12_500,
-    logView: <CompletedLogView />,
-    children: (
-      <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Completed stage content would appear here.
-      </div>
-    ),
+    errorMessage: "SchemaValidationError: constructs payload failed validation",
   },
 };

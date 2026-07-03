@@ -2,7 +2,6 @@ import type { Stage3Data } from "@nof1-causal-lab/api-types";
 
 export function normalizeStage3Data(value: unknown): Stage3Data {
   const stage3 = value as {
-    outcome?: Stage3Data["outcome"];
     is_valid?: boolean;
     indicators?: Stage3Data["indicators"];
     dataset_issues?: Stage3Data["dataset_issues"];
@@ -34,7 +33,6 @@ export function normalizeStage3Data(value: unknown): Stage3Data {
   const profiles = stage3.validation_report?.per_indicator_health ?? [];
 
   return {
-    outcome: stage3.outcome ?? "success",
     is_valid: stage3.validation_report?.is_valid ?? stage3.is_valid ?? true,
     dataset_issues: stage3.dataset_issues ?? [],
     indicators: Object.fromEntries(

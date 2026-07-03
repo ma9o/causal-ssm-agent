@@ -1,10 +1,8 @@
 "use client";
 
-import type { AnalysisStageRun } from "@/lib/api/analysis";
 import type { Stage4BlockNodeData, Stage4BlockStatus } from "@/components/dag/stage4-block-node";
 import { Stage4BlockNode } from "@/components/dag/stage4-block-node";
 import { Stage4SectionEdge } from "@/components/dag/stage4-section-edge";
-import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import {
   STAGE4_DONE_NODE_ID,
   STAGE4_LOCK_NODE_ID,
@@ -467,20 +465,8 @@ export function Stage4RunningView({
   );
 }
 
-export default function Stage4RunningContent({
-  workspaceId,
-  stageStatus,
-  stageRun,
-}: {
-  workspaceId: string;
-  stageStatus: StageRunStatus;
-  stageRun?: AnalysisStageRun | null;
-}) {
-  const { graph, snapshot, lastBlockStateById } = useStage4Graph(
-    workspaceId,
-    stageStatus,
-    stageRun?.ownerRootFlowRunId ?? null,
-  );
+export default function Stage4RunningContent({ workspaceId }: { workspaceId: string }) {
+  const { graph, snapshot, lastBlockStateById } = useStage4Graph(workspaceId);
   return (
     <Stage4RunningView graph={graph} snapshot={snapshot} lastBlockStateById={lastBlockStateById} />
   );

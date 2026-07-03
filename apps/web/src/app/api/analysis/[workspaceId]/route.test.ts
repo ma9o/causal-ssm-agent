@@ -22,8 +22,6 @@ const manifest = {
   workspaceId: "DEMO",
   createdAt: "2026-05-07T00:00:00.000Z",
   question: "Did escitalopram help?",
-  rootFlowRunIds: [],
-  latestRootFlowRunId: null,
   stages: {},
 } as unknown as AnalysisManifest;
 
@@ -43,20 +41,6 @@ describe("GET /api/analysis/[workspaceId]", () => {
     expect(response.headers.get("Cache-Control")).toBe(SHARED_WORKSPACE_CACHE_CONTROL);
   });
 
-  it("keeps shared bootstrap manifests uncached", async () => {
-    vi.mocked(buildAnalysisManifest).mockResolvedValue(manifest);
-
-    const response = await GET(
-      new Request("http://localhost/api/analysis/DEMO?rootFlowRunId=run-123"),
-      {
-        params: Promise.resolve({ workspaceId: "DEMO" }),
-      },
-    );
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBeNull();
-  });
-
   it("keeps non-shared workspace manifests uncached", async () => {
     vi.mocked(buildAnalysisManifest).mockResolvedValue({
       ...manifest,
@@ -69,5 +53,15 @@ describe("GET /api/analysis/[workspaceId]", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBeNull();
+  });
+
+  it("returns 404 when the manifest cannot be built", async () => {
+    vi.mocked(buildAnalysisManifest).mockResolvedValue(null);
+
+    const response = await GET(new Request("http://localhost/api/analysis/user-123"), {
+      params: Promise.resolve({ workspaceId: "user-123" }),
+    });
+
+    expect(response.status).toBe(404);
   });
 });

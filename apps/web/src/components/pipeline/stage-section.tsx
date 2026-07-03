@@ -2,7 +2,6 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageOutcome } from "@nof1-causal-lab/api-types";
 import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";
@@ -18,12 +17,11 @@ export function StageSection({
   children,
   defaultCollapsed = false,
   elapsedMs,
-  outcome = "success",
+  errorMessage,
   loadingHint,
   runningContent,
   invalidated = false,
   actions,
-  logView,
 }: {
   id?: string;
   number: string;
@@ -33,14 +31,13 @@ export function StageSection({
   children?: ReactNode;
   defaultCollapsed?: boolean;
   elapsedMs?: number;
-  outcome?: StageOutcome;
+  /** Failure detail shown when the stage run raised. */
+  errorMessage?: string;
   loadingHint?: string;
   runningContent?: ReactNode;
   invalidated?: boolean;
   /** Optional actions rendered top-right of the card header. */
   actions?: ReactNode;
-  /** Log view element — placed inline during running, collapsible at the bottom otherwise. */
-  logView?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -53,8 +50,7 @@ export function StageSection({
     }
   }
 
-  // Failed-outcome stages should not be collapsible — the failure must remain visible
-  const isCollapsible = status === "completed" && outcome !== "fail" && !invalidated;
+  const isCollapsible = status === "completed" && !invalidated;
 
   return (
     <motion.section
@@ -82,13 +78,7 @@ export function StageSection({
         }
       >
         <div className="flex-1 min-w-0">
-          <StageHeader
-            number={number}
-            title={title}
-            status={status}
-            outcome={outcome}
-            context={context}
-          />
+          <StageHeader number={number} title={title} status={status} context={context} />
           {invalidated && (
             <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
               <RotateCcw className="h-3 w-3" />
@@ -119,21 +109,12 @@ export function StageSection({
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
-          {runningContent ? (
-            <>
-              {runningContent}
-              {logView}
-            </>
-          ) : (
+          {runningContent ?? (
             <>
               {loadingHint && <p className="text-sm text-muted-foreground">{loadingHint}</p>}
-              {logView ?? (
-                <>
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-32 w-full" />
-                </>
-              )}
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-32 w-full" />
             </>
           )}
         </motion.div>
@@ -159,12 +140,11 @@ export function StageSection({
           <div className="text-sm">
             <p className="font-medium text-destructive">Stage failed</p>
             <p className="mt-0.5 text-muted-foreground">
-              Check pipeline logs for details. This may be a transient error.
+              {errorMessage ?? "This may be a transient error."}
             </p>
           </div>
         </motion.div>
       )}
-      {status !== "running" && status !== "pending" && logView}
     </motion.section>
   );
 }

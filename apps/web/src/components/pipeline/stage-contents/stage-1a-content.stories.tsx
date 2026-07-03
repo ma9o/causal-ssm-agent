@@ -27,7 +27,6 @@ export const Running = createStageStatusStory(stage, "running");
 export const Completed = createCompletedStageStory({
   stage,
   args: { data },
-  outcome: data.outcome,
   elapsedMs: 12_450,
   trace: data.llm_trace ?? undefined,
   renderContent: (args) => <Stage1aContent {...args} />,
@@ -36,7 +35,6 @@ export const Completed = createCompletedStageStory({
 export const OpenPanel = createCompletedStageStory({
   stage,
   args: { data },
-  outcome: data.outcome,
   elapsedMs: 12_450,
   trace: data.llm_trace ?? undefined,
   defaultPanelOpen: true,

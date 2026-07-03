@@ -33,8 +33,6 @@ type NoAccess = {
 };
 
 export type ResolvedOpenRouterAccess = UserAccess | LocalAccess | AnonymousAccess | NoAccess;
-export type RunnableOpenRouterAccess = Exclude<ResolvedOpenRouterAccess, NoAccess>;
-export type RunnableOpenRouterAccessMode = RunnableOpenRouterAccess["mode"];
 
 let creditsCache: CreditsCacheEntry | null = null;
 

@@ -68,7 +68,7 @@ export interface Stage4BlockLastState {
   scope_kind?: string;
 }
 
-export interface PrefectStage4EventRecord {
+export interface Stage4EventRecord {
   event?: string | null;
   occurred?: string | null;
   payload?: Record<string, unknown>;
@@ -91,17 +91,11 @@ export const EMPTY_STAGE4_REPLAY_STATE: Stage4ReplayState = {
   lastBlockStateById: {},
 };
 
-export function getStage4StateQueryKey(workspaceId: string, rootFlowRunId: string | null) {
-  return ["pipeline", workspaceId, "stage4-state", rootFlowRunId ?? "__none__"] as const;
-}
-
-export function getStage4StateQueryKeyPrefix(workspaceId: string) {
+export function getStage4StateQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "stage4-state"] as const;
 }
 
-export function parseStage4Event(
-  event: PrefectStage4EventRecord | null | undefined,
-): Stage4Event | null {
+export function parseStage4Event(event: Stage4EventRecord | null | undefined): Stage4Event | null {
   if (!event?.event?.startsWith(STAGE4_EVENT_PREFIX)) return null;
   const payload = event.payload;
   if (!payload) return null;
@@ -194,7 +188,7 @@ export function applyStage4Event(
   };
 }
 
-export function reduceStage4Events(events: readonly PrefectStage4EventRecord[]): Stage4ReplayState {
+export function reduceStage4Events(events: readonly Stage4EventRecord[]): Stage4ReplayState {
   return events.reduce<Stage4ReplayState>((state, record) => {
     const event = parseStage4Event(record);
     return event ? applyStage4Event(state, event) : state;

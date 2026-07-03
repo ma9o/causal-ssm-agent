@@ -1,140 +1,91 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyRefinement,
   getAnalysisManifest,
-  getStage2ReplayState,
-  getStage4ReplayState,
+  getEpisodeProgress,
   replayStageOverride,
 } from "./analysis";
 
-describe("analysis api helpers", () => {
-  const originalFetch = globalThis.fetch;
+const originalFetch = globalThis.fetch;
 
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
+function mockFetchJson(data: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(data),
+    json: async () => data,
+  } as unknown as Response);
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  return fetchMock;
+}
 
+describe("analysis api client", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
-  it("fetches the analysis manifest without a root flow id", async () => {
-    const payload = {
+  it("fetches the analysis manifest", async () => {
+    const fetchMock = mockFetchJson({ workspaceId: "user-1" });
+
+    await getAnalysisManifest("user-1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/analysis/user-1", expect.anything());
+  });
+
+  it("fetches episode progress without a cursor", async () => {
+    const fetchMock = mockFetchJson({ events: [], transitions: [] });
+
+    await getEpisodeProgress("user-1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/analysis/user-1/progress", expect.anything());
+  });
+
+  it("fetches episode progress after a cursor", async () => {
+    const fetchMock = mockFetchJson({ events: [], transitions: [] });
+
+    await getEpisodeProgress("user-1", "00000000000000000123-abc.json");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/analysis/user-1/progress?after=00000000000000000123-abc.json",
+      expect.anything(),
+    );
+  });
+
+  it("posts stage overrides to the replay route", async () => {
+    const fetchMock = mockFetchJson({ ok: true, workspaceId: "user-1" });
+
+    await replayStageOverride({
       workspaceId: "user-1",
-      rootFlowRunIds: [],
-      latestRootFlowRunId: null,
-      stages: {},
-      createdAt: "2026-01-01T00:00:00Z",
-    };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(payload),
-    } as Response);
-
-    const result = await getAnalysisManifest("user-1");
-
-    expect(result).toEqual(payload);
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/analysis/user-1",
-      expect.objectContaining({
-        headers: expect.objectContaining({ "Content-Type": "application/json" }),
-      }),
-    );
-  });
-
-  it("fetches the Stage 4 replay state for a specific root flow run", async () => {
-    const payload = { sections: {}, blockStatuses: {} };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(payload),
-    } as Response);
-
-    await getStage4ReplayState("user-1", "root-123");
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/analysis/user-1/stage4-state?rootFlowRunId=root-123",
-      expect.any(Object),
-    );
-  });
-
-  it("fetches the Stage 2 replay state for a specific root flow run", async () => {
-    const payload = { plan: null, snapshot: null, workers: {} };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(payload),
-    } as Response);
-
-    await getStage2ReplayState("user-1", "root-456");
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/analysis/user-1/stage2-state?rootFlowRunId=root-456",
-      expect.any(Object),
-    );
-  });
-
-  it("posts a replay stage override to the replay api", async () => {
-    const payload = { ok: true, resumeFrom: "stage-2", rootFlowRunId: "replay-1" };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(payload),
-    } as Response);
-
-    const result = await replayStageOverride({
-      workspaceId: "user-1",
-      stageId: "stage-1b",
-      stageData: { causal_spec: { measurement: { indicators: [] } } },
-      rootFlowRunId: "root-123",
+      stageId: "stage-1a",
+      stageData: { latent_model: {} },
     });
 
-    expect(result).toEqual(payload);
-    expect(fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/replay",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
           workspaceId: "user-1",
-          stageId: "stage-1b",
-          stageData: { causal_spec: { measurement: { indicators: [] } } },
-          rootFlowRunId: "root-123",
+          stageId: "stage-1a",
+          stageData: { latent_model: {} },
         }),
       }),
     );
   });
 
-  it("posts a materialized refinement to the refine apply api", async () => {
-    const payload = {
-      ok: true,
-      updatedFields: ["latent_model"],
-      resumeFrom: "stage-1b",
-      rootFlowRunId: "replay-2",
-    };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(payload),
-    } as Response);
+  it("posts refinements to the apply route", async () => {
+    const fetchMock = mockFetchJson({ ok: true, updatedFields: [] });
 
-    const result = await applyRefinement({
+    await applyRefinement({
       workspaceId: "user-1",
-      stageId: "stage-1a",
-      stagePatch: { latent_model: { constructs: [], edges: [] } },
-      messages: [],
-      rootFlowRunId: "root-456",
+      stageId: "stage-6",
+      stagePatch: { final_summary: "Updated." },
     });
 
-    expect(result).toEqual(payload);
-    expect(fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/refine/apply",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          workspaceId: "user-1",
-          stageId: "stage-1a",
-          stagePatch: { latent_model: { constructs: [], edges: [] } },
-          messages: [],
-          rootFlowRunId: "root-456",
-        }),
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
   });
 });
