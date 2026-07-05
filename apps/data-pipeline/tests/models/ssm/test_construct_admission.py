@@ -118,6 +118,16 @@ def test_build_construct_order_is_topological():
     assert order.index("X") < order.index("Y") < order.index("Z")
 
 
+def test_build_construct_order_admits_lagged_feedback_cycles():
+    """Lagged feedback loops sort as a unit: cycle members adjacent, parents first."""
+    spec = _make_causal_spec_dict()
+    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
+    spec["latent"]["edges"].append(dict(feedback))
+    spec["estimation"]["edges"].append(dict(feedback))
+    order = build_construct_order(spec)
+    assert order == ["X", "Y", "Z"]
+
+
 def test_restrict_causal_spec_to_subset():
     restricted = restrict_causal_spec(_make_causal_spec_dict(), {"X", "Y"})
     names = {c["name"] for c in restricted["latent"]["constructs"]}

@@ -123,11 +123,15 @@ class AdmissionReport:
 
 
 def build_construct_order(causal_spec: dict) -> list[str]:
-    """Topological construct order (parents before children) along the causal DAG.
+    """Construct order (parents before children) along the causal arrows.
 
     Ties (independent roots) break by the causal_spec construct order for
     determinism. Time-invariant confounders, being edge sources, naturally sort
-    first.
+    first. Lagged feedback loops are legal latent structure (the latent-model
+    validator only forbids *contemporaneous* cycles), so the sort runs on the
+    condensation: members of a feedback cycle are admitted back-to-back in
+    causal_spec order, and restrict_causal_spec defers the closing edge until
+    the whole cycle is admitted.
     """
     constructs = [c["name"] for c in get_constructs(causal_spec)]
     order_index = {name: i for i, name in enumerate(constructs)}
@@ -138,7 +142,15 @@ def build_construct_order(causal_spec: dict) -> list[str]:
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause in order_index and effect in order_index:
             graph.add_edge(cause, effect)
-    return list(nx.lexicographical_topological_sort(graph, key=order_index.get))
+    condensation = nx.condensation(graph)
+    scc_index = {
+        node: min(order_index[member] for member in data["members"])
+        for node, data in condensation.nodes(data=True)
+    }
+    order: list[str] = []
+    for node in nx.lexicographical_topological_sort(condensation, key=scc_index.get):
+        order.extend(sorted(condensation.nodes[node]["members"], key=order_index.get))
+    return order
 
 
 def restrict_causal_spec(causal_spec: dict, keep: set[str]) -> dict:
