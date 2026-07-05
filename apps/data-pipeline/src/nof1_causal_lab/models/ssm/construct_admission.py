@@ -426,3 +426,36 @@ def _resimulate_edge_off(
         spec, samples, t_grid, transition_inputs=None, seed=seed
     )
     return latents
+
+
+# --------------------------------------------------------------------------- #
+# Batch driver
+# --------------------------------------------------------------------------- #
+
+
+def run_construct_build(
+    causal_spec: dict,
+    contributions: Mapping[str, ConstructContribution],
+    design: DesignInfo,
+    accepted: Mapping[str, Mapping[str, str]] | None = None,
+) -> tuple[AdmissionState, list[AdmissionReport]]:
+    """Admit every construct in topological order; stop at the first non-admit.
+
+    Returns the accumulated :class:`AdmissionState` and the per-construct reports.
+    A construct that is BLOCKED (hard failure) or NEEDS DECISION (unaccepted soft
+    failure) halts the build — the caller revises its contribution (or accepts the
+    consequence via ``accepted``) and re-runs. The final ``AdmissionState`` yields
+    the ModelSpec + priors to compile once every construct is admitted.
+    """
+    accepted = accepted or {}
+    order = build_construct_order(causal_spec)
+    state = AdmissionState()
+    reports: list[AdmissionReport] = []
+    for name in order:
+        state, report = admit_construct(
+            state, contributions[name], causal_spec, design, accepted.get(name)
+        )
+        reports.append(report)
+        if not report.admitted:
+            break
+    return state, reports

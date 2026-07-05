@@ -21,6 +21,7 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     admit_construct,
     build_construct_order,
     restrict_causal_spec,
+    run_construct_build,
 )
 from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
 
@@ -164,23 +165,39 @@ def test_admit_child_runs_edge_check_via_edge_off_resim():
 
 
 @pytest.mark.slow
-def test_full_chain_admits_all_and_final_spec_compiles():
-    causal_spec = _make_causal_spec_dict()
-    design = _design()
-    state = AdmissionState()
-    for contrib in (
-        _contrib_X(),
-        _contrib_child("Y", "y1", "X"),
-        _contrib_child("Z", "z1", "Y"),
-    ):
-        state, report = admit_construct(state, contrib, causal_spec, design, accepted=_ALL_SOFT)
-        assert report.admitted, f"{contrib.name} not admitted: {report.outcome}"
-    assert state.names == ("X", "Y", "Z")
-    # The accumulated ModelSpec compiles as the full 3-latent model.
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model_spec
+def test_full_chain_builds_and_compiles_to_ssm_artifact():
+    import polars as pl
 
-    spec, _reg, _b, _d, _lag = compile_ssm_inputs_from_model_spec(
-        state.model_spec(), dict(state.priors), causal_spec=causal_spec
+    from nof1_causal_lab.models.ssm.compile.artifact import (
+        build_model_from_compiled_artifact,
+        compile_ssm_artifact,
     )
-    assert spec.n_latent == 3
-    assert list(spec.latent_names) == ["X", "Y", "Z"]
+
+    causal_spec = _make_causal_spec_dict()
+    contributions = {
+        "X": _contrib_X(),
+        "Y": _contrib_child("Y", "y1", "X"),
+        "Z": _contrib_child("Z", "z1", "Y"),
+    }
+    accepted = dict.fromkeys(contributions, _ALL_SOFT)
+    state, reports = run_construct_build(causal_spec, contributions, _design(), accepted)
+    assert [r.name for r in reports] == ["X", "Y", "Z"]
+    assert all(r.admitted for r in reports)
+    assert state.names == ("X", "Y", "Z")
+
+    # The accumulated ModelSpec + priors compile to the real compiled_ssm artifact
+    # the stage produces, and build a live, fittable 3-latent model.
+    compiled = compile_ssm_artifact(state.model_spec(), dict(state.priors), causal_spec=causal_spec)
+    assert "spec" in compiled
+    assert "schema_version" in compiled
+    wide = pl.DataFrame(
+        {
+            "time": list(range(10)),
+            "x1": [0.1] * 10,
+            "x2": [0.2] * 10,
+            "y1": [0.3] * 10,
+            "z1": [0.4] * 10,
+        }
+    )
+    model = build_model_from_compiled_artifact(compiled, wide)
+    assert model.spec.n_latent == 3
