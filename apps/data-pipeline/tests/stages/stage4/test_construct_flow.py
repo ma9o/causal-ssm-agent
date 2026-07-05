@@ -9,7 +9,6 @@ out-of-order submission guard.
 from __future__ import annotations
 
 import polars as pl
-import pytest
 
 from nof1_causal_lab.artifacts import (
     DistributionFamily,
@@ -20,7 +19,7 @@ from nof1_causal_lab.artifacts import (
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
     SUBMIT_CONSTRUCT_SCHEMA,
     ConstructBuildState,
-    _role_constraint_for,
+    ParamCatalog,
     construct_parents,
     contribution_from_payload,
     render_admission_feedback,
@@ -37,34 +36,40 @@ def _normal(mu: float, sigma: float) -> dict:
     return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
 
 
-def test_role_constraint_inference_covers_canonical_prefixes():
-    assert _role_constraint_for("rho_X") == (
-        ParameterRole.AR_COEFFICIENT,
-        ParameterConstraint.UNIT_INTERVAL,
-    )
-    assert _role_constraint_for("sigma_X") == (
-        ParameterRole.RESIDUAL_SD,
-        ParameterConstraint.POSITIVE,
-    )
-    assert _role_constraint_for("obs_sd_x1") == (
-        ParameterRole.MEASUREMENT_ERROR_SD,
-        ParameterConstraint.POSITIVE,
-    )
-    assert _role_constraint_for("lambda_x2_X") == (
+def test_param_catalog_reflects_compiler_free_params():
+    catalog = ParamCatalog.from_causal_spec(_make_causal_spec_dict())
+    # X has two indicators → both measurement-noise + the free loading are authorable.
+    assert "obs_sd_x1" in catalog.by_construct["X"]
+    assert "lambda_x2_X" in catalog.by_construct["X"]
+    assert catalog.role_for("lambda_x2_X") == (
         ParameterRole.LOADING,
         ParameterConstraint.POSITIVE,
     )
-    assert _role_constraint_for("beta_X_Y") == (
-        ParameterRole.FIXED_EFFECT,
-        ParameterConstraint.NONE,
+    # Single-indicator Y: its measurement noise is NOT a free parameter (absorbed
+    # into process noise); authoring obs_sd_y1 must be rejected, but the edge is free.
+    y_allowed = catalog.allowed_for("Y", ["X"])
+    assert "obs_sd_y1" not in y_allowed
+    assert "beta_X_Y" in y_allowed
+    assert catalog.role_for("beta_X_Y") == (ParameterRole.FIXED_EFFECT, ParameterConstraint.NONE)
+    # Structural extensions (self-limiting quartic, Hill edge) are always offerable.
+    assert "self_limit_Y" in y_allowed
+    assert "hill_emax_X_Y" in y_allowed
+    assert catalog.role_for("self_limit_Y")[0] == ParameterRole.DYNAMICS_PARAMETER_POSITIVE
+
+
+def test_submit_construct_rejects_non_free_parameter():
+    state = ConstructBuildState(
+        causal_spec=_make_causal_spec_dict(),
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
     )
-    assert _role_constraint_for("hill_emax_X_Y")[1] == ParameterConstraint.POSITIVE
-    assert _role_constraint_for("self_limit_Y")[0] == ParameterRole.DYNAMICS_PARAMETER_POSITIVE
-
-
-def test_role_constraint_rejects_unknown_prefix():
-    with pytest.raises(ValueError, match="canonical prefix"):
-        _role_constraint_for("garbage_name")
+    feedback = state.submit_construct(
+        construct="X",
+        indicators=[{"variable": "x1", "family": "gaussian", "link": "identity"}],
+        priors={"obs_sd_bogus": _normal(0.0, 1.0)},
+    )
+    assert "not free" in feedback
+    assert state.current_construct == "X"  # not admitted
 
 
 def test_construct_parents_reads_the_dag():
@@ -85,7 +90,7 @@ def test_contribution_from_payload_linear_edge():
             "beta_X_Y": _normal(0.3, 0.1),
         },
     }
-    contrib = contribution_from_payload(spec, payload)
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_spec(spec))
     assert contrib.name == "Y"
     assert [lik.variable for lik in contrib.likelihoods] == ["y1"]
     assert contrib.likelihoods[0].distribution == DistributionFamily.GAUSSIAN
@@ -108,7 +113,7 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
             "hill_n_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 2.0}},
         },
     }
-    contrib = contribution_from_payload(spec, payload)
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_spec(spec))
     assert contrib.edge_parents == ("X",)
     assert contrib.hill_parents == ("X",)
     self_limit = next(p for p in contrib.parameters if p.name == "self_limit_Y")

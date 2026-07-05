@@ -54,34 +54,72 @@ if TYPE_CHECKING:
 _MAX_ATTEMPTS_PER_CONSTRUCT = 4
 
 # --------------------------------------------------------------------------- #
-# Canonical parameter-name → (role, constraint) inference
+# Compiler-authoritative parameter catalog
 # --------------------------------------------------------------------------- #
 
-# Longest-prefix-first: the LLM authors priors by canonical site name and the
-# ModelSpec parameter role/constraint follow deterministically from the prefix.
-_ROLE_CONSTRAINT_BY_PREFIX: tuple[tuple[str, tuple[ParameterRole, ParameterConstraint]], ...] = (
-    ("obs_sd_", (ParameterRole.MEASUREMENT_ERROR_SD, ParameterConstraint.POSITIVE)),
-    ("hill_emax_", (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)),
-    ("hill_ec50_", (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)),
-    ("hill_n_", (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)),
-    ("self_limit_", (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)),
-    ("setpoint_", (ParameterRole.DYNAMICS_PARAMETER, ParameterConstraint.NONE)),
-    ("lambda_", (ParameterRole.LOADING, ParameterConstraint.POSITIVE)),
-    ("beta_", (ParameterRole.FIXED_EFFECT, ParameterConstraint.NONE)),
-    ("rho_", (ParameterRole.AR_COEFFICIENT, ParameterConstraint.UNIT_INTERVAL)),
-    ("sigma_", (ParameterRole.RESIDUAL_SD, ParameterConstraint.POSITIVE)),
-    ("cint_", (ParameterRole.STATE_INTERCEPT, ParameterConstraint.NONE)),
-)
+# Structural extensions the base (deterministic) skeleton does not enumerate — a
+# self-limiting quartic well and Hill (saturating) edge terms. Both are positive
+# dynamics parameters; they are admitted per construct on demand.
+_STRUCTURAL_ROLE = (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)
 
 
-def _role_constraint_for(name: str) -> tuple[ParameterRole, ParameterConstraint]:
-    for prefix, role_constraint in _ROLE_CONSTRAINT_BY_PREFIX:
-        if name.startswith(prefix):
-            return role_constraint
-    raise ValueError(
-        f"unrecognized Stage 4 parameter name '{name}': it must use a canonical prefix "
-        f"({', '.join(p for p, _ in _ROLE_CONSTRAINT_BY_PREFIX)})"
-    )
+@dataclass(frozen=True)
+class ParamCatalog:
+    """Compiler-authoritative parameter inventory from the deterministic skeleton.
+
+    Identifiability decisions (e.g. a single-indicator construct has no free
+    measurement-noise term) live in the compiler, so the free-parameter set —
+    with each parameter's role, constraint, and owning construct — is read from
+    ``derive_deterministic_spec`` rather than inferred from name prefixes.
+    """
+
+    roles: Mapping[str, tuple[ParameterRole, ParameterConstraint]]
+    by_construct: Mapping[str, tuple[str, ...]]
+    global_params: frozenset[str]
+
+    @classmethod
+    def from_causal_spec(cls, causal_spec: dict) -> ParamCatalog:
+        from .stage4_skeleton import derive_deterministic_spec
+
+        skeleton = derive_deterministic_spec(causal_spec)
+        roles: dict[str, tuple[ParameterRole, ParameterConstraint]] = {}
+        by_construct: dict[str, list[str]] = {}
+        global_params: set[str] = set()
+        for param in (*skeleton.parameters, *skeleton.loading_params):
+            name = param["name"]
+            roles[name] = (ParameterRole(param["role"]), ParameterConstraint(param["constraint"]))
+            owner = param.get("construct")
+            if owner is not None:
+                by_construct.setdefault(owner, []).append(name)
+            else:
+                global_params.add(name)
+        return cls(
+            roles=roles,
+            by_construct={c: tuple(v) for c, v in by_construct.items()},
+            global_params=frozenset(global_params),
+        )
+
+    def structural_names(self, construct: str, parents: Sequence[str]) -> set[str]:
+        names = {f"self_limit_{construct}"}
+        for parent in parents:
+            names.update(
+                {
+                    f"hill_emax_{parent}_{construct}",
+                    f"hill_ec50_{parent}_{construct}",
+                    f"hill_n_{parent}_{construct}",
+                }
+            )
+        return names
+
+    def allowed_for(self, construct: str, parents: Sequence[str]) -> set[str]:
+        return (
+            set(self.by_construct.get(construct, ()))
+            | self.structural_names(construct, parents)
+            | set(self.global_params)
+        )
+
+    def role_for(self, name: str) -> tuple[ParameterRole, ParameterConstraint]:
+        return self.roles.get(name, _STRUCTURAL_ROLE)
 
 
 def construct_parents(causal_spec: dict, construct: str) -> list[str]:
@@ -101,7 +139,7 @@ def construct_parents(causal_spec: dict, construct: str) -> list[str]:
 
 
 def contribution_from_payload(
-    causal_spec: dict, payload: Mapping[str, Any]
+    causal_spec: dict, payload: Mapping[str, Any], catalog: ParamCatalog
 ) -> ConstructContribution:
     """Parse a ``submit_construct`` payload into a canonical construct contribution.
 
@@ -109,7 +147,8 @@ def contribution_from_payload(
     prior declares a linear edge from parent ``p``; a ``hill_emax_<p>_<c>`` prior
     declares a saturating (Hill) edge. The self-limiting quartic is implied by a
     ``self_limit_<c>`` prior. Parents come from the causal DAG, so the compound
-    name is split unambiguously.
+    name is split unambiguously. Roles/constraints come from the compiler-
+    authoritative ``catalog`` (skeleton), not from the parameter name.
     """
     name = str(payload["construct"])
     likelihoods = tuple(
@@ -125,8 +164,8 @@ def contribution_from_payload(
     parameters = tuple(
         ParameterSpec(
             name=pn,
-            role=_role_constraint_for(pn)[0],
-            constraint=_role_constraint_for(pn)[1],
+            role=catalog.role_for(pn)[0],
+            constraint=catalog.role_for(pn)[1],
             description=f"authored prior for {pn}",
         )
         for pn in priors
@@ -244,12 +283,17 @@ class ConstructBuildState:
     order: list[str]
     n_draws: int = 200
     seed: int = 0
+    catalog: ParamCatalog | None = None
     admission: AdmissionState = field(default_factory=AdmissionState)
     cursor: int = 0
     search_queries: dict[str, str] = field(default_factory=dict)
     search_cache: dict[str, str] = field(default_factory=dict)
     last_report: AdmissionReport | None = None
     submission_made: bool = False
+
+    def __post_init__(self) -> None:
+        if self.catalog is None:
+            self.catalog = ParamCatalog.from_causal_spec(self.causal_spec)
 
     @property
     def current_construct(self) -> str | None:
@@ -272,8 +316,18 @@ class ConstructBuildState:
                 f"Out-of-order submission: the active construct is `{expected}`, not "
                 f"`{construct}`. Submit `{expected}` first."
             )
+        assert self.catalog is not None  # set in __post_init__
+        parents = construct_parents(self.causal_spec, construct)
+        allowed = self.catalog.allowed_for(construct, parents)
+        unknown = [name for name in priors if name not in allowed]
+        if unknown:
+            return (
+                f"These parameters are not free for `{construct}` and cannot take a prior: "
+                f"{', '.join(sorted(unknown))}. Author priors only for: "
+                f"{', '.join(sorted(allowed))}."
+            )
         payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
-        contribution = contribution_from_payload(self.causal_spec, payload)
+        contribution = contribution_from_payload(self.causal_spec, payload, self.catalog)
         design = build_design_info(
             self.admission,
             contribution,

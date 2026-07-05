@@ -45,24 +45,10 @@ def _indicators_for(causal_spec: dict, construct: str) -> list[dict]:
     return [i for i in get_indicators(causal_spec) if i.get("construct_name") == construct]
 
 
-def _canonical_parameter_names(
-    causal_spec: dict,
-    state: ConstructBuildState,
-    construct: str,
-    indicators: list[dict],
-    reference_var: str | None,
-) -> list[str]:
-    """The canonical parameter names this construct is expected to author priors for."""
-    names = [f"rho_{construct}", f"sigma_{construct}"]
-    for ind in indicators:
-        var = ind["name"]
-        names.append(f"obs_sd_{var}")
-        if var != reference_var:
-            names.append(f"lambda_{var}_{construct}")
-    for parent in construct_parents(causal_spec, construct):
-        if parent in state.admission.names:
-            names.append(f"beta_{parent}_{construct}")
-    return names
+def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> list[str]:
+    """The compiler-authoritative free parameters this construct may author priors for."""
+    assert state.catalog is not None  # set in ConstructBuildState.__post_init__
+    return sorted(state.catalog.by_construct.get(construct, ()))
 
 
 def build_construct_messages(
@@ -90,9 +76,7 @@ def build_construct_messages(
     admitted_parents = [
         p for p in construct_parents(causal_spec, construct) if p in state.admission.names
     ]
-    param_names = _canonical_parameter_names(
-        causal_spec, state, construct, indicators, reference_var
-    )
+    param_names = _canonical_parameter_names(state, construct)
 
     lines: list[str] = [
         f"# Research question\n\n{question}",

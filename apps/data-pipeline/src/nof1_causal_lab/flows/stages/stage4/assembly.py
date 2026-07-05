@@ -605,8 +605,15 @@ def materialize_stage4_result(
     llm_trace: dict[str, Any] | None = None,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
+    skip_ppc: bool = False,
 ) -> dict[str, Any]:
-    """Build the full grounded stage-4 result from authored inputs."""
+    """Build the full grounded stage-4 result from authored inputs.
+
+    ``skip_ppc`` bypasses the prior-predictive validation in ``validate_assembly``.
+    The gradual construct-admission flow sets it: every construct was already
+    gated by the exact reachability battery as it was admitted, so re-running the
+    superseded prior-predictive battery over the whole model only duplicates work.
+    """
     from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
     validation = validation or validate_assembly(
@@ -615,6 +622,7 @@ def materialize_stage4_result(
         data_for_model,
         indicator_audits,
         causal_spec,
+        skip_ppc=skip_ppc,
     )
     normalized_model_spec = validation.normalized_model_spec or model_spec
     validation_result = build_validation_payload(validation, normalized_model_spec)
