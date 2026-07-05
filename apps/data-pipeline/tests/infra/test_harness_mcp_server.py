@@ -65,6 +65,38 @@ def _make_failing_tool() -> Tool:
 
 
 class TestMCPServer:
+    def test_initialize_post_hits_exact_url_without_redirect(self):
+        """codex's MCP client POSTs initialize to the configured URL verbatim
+        and treats a 307 (Starlette Mount slash-redirect) as a failed
+        handshake; the SDK client used elsewhere follows redirects and would
+        mask a regression."""
+        import httpx
+
+        init = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "probe", "version": "0"},
+            },
+        }
+
+        async def scenario():
+            async with (
+                serve_tools_http([_make_echo_tool()]) as url,
+                httpx.AsyncClient(follow_redirects=False) as client,
+            ):
+                return await client.post(
+                    url,
+                    json=init,
+                    headers={"Accept": "application/json, text/event-stream"},
+                )
+
+        response = _run(scenario())
+        assert response.status_code == 200
+
     def test_lists_registered_tools(self):
         async def scenario():
             async with serve_tools_http([_make_echo_tool()]) as url, _client(url) as session:

@@ -35,8 +35,6 @@ import mcp.types as mcp_types
 import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from starlette.applications import Starlette
-from starlette.routing import Mount
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -129,13 +127,16 @@ async def serve_tools_http(
         json_response=False,
     )
 
+    # Raw ASGI app, no router: a Starlette Mount("/mcp") answers POST /mcp
+    # with a 307 to /mcp/, and codex's MCP client treats any non-2xx
+    # initialize response as a failed handshake ("connection closed").
+    # The server exists for exactly one client on an ephemeral port, so
+    # every path dispatches straight to the session manager.
     async def _mcp_asgi(scope, receive, send) -> None:
         await session_manager.handle_request(scope, receive, send)
 
-    app = Starlette(routes=[Mount("/mcp", app=_mcp_asgi)])
-
     config = uvicorn.Config(
-        app,
+        _mcp_asgi,
         host=host,
         port=resolved_port,
         log_level="warning",
