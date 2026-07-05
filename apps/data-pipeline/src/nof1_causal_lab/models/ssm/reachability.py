@@ -1,9 +1,10 @@
 """Prior-predictive reachability battery for gradual construct admission.
 
-This is the production port of the checks validated in
-``notebooks/gradual_build_tools.py`` (which keeps the from-scratch pedagogical
-copy). The battery is scoped to **reachability + one design-observability
-screen** — the recognized remit of prior-predictive checking. Practical
+This is the single, authoritative implementation of the checks (the from-scratch
+notebook prototype that seeded it has been retired; the blind case-study
+walkthroughs under ``notebooks/`` now drive *this* module directly). The battery
+is scoped to **reachability + one design-observability screen** — the recognized
+remit of prior-predictive checking. Practical
 identifiability verdicts (is a parameter prior-dominated / estimable from
 ``n_obs`` points) are deliberately NOT here: those belong post-fit (posterior
 contraction, power-scaling).
