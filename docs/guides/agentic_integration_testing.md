@@ -14,15 +14,37 @@
 bun run integration:start
 ```
 
-Starts the Temporal dev server on port `7233` (ephemeral state, binary
-auto-downloaded on first use), the episode worker (task queue
-`nof1-episodes`), the tool server with the episode facade on port
-`8100`, and the web app on port `3000`. The script owns all child
-processes via process groups and **stays in the foreground** — wait for
-the `Stack ready` banner before proceeding.
+Starts the stack under [process-compose](https://github.com/F1bonacc1/process-compose)
+supervision (`brew install f1bonacc1/tap/process-compose`; config:
+[`process-compose.yaml`](../../process-compose.yaml)): the Temporal dev
+server on port `7233` (ephemeral state, binary auto-downloaded on first
+use), the episode worker (task queue `nof1-episodes`), the tool server
+with the episode facade on port `8100`, and the web app on port `3000`.
+Startup order is health-gated (`depends_on` + readiness probes) and
+crashed processes restart automatically. The script **stays in the
+foreground** — wait until `curl -s http://localhost:8100/api/capabilities`
+answers before proceeding (pass `-t=false` to disable the TUI when
+redirecting output to a file).
 
 To tear down the stack, kill the script (`Ctrl+C`, or `kill <pid>` if
 backgrounded). All child processes are cleaned up automatically.
+
+The process-compose API is pinned to port `8181` for targeted operations
+against the running stack:
+
+```bash
+process-compose --port 8181 process list
+process-compose --port 8181 process restart worker
+```
+
+The worker caches `apps/data-pipeline/config.yaml` at first read
+(`lru_cache`), so after editing pipeline config, restart the `worker`
+process — no need to bounce the whole stack. Note the Temporal dev
+server keeps workflow state **in memory**: restarting the `temporal`
+process (or the stack) orphans in-flight episode workflows whose
+journals live on disk — start such episodes over in a fresh workspace
+(or wipe the workspace's `store/` + `episode/` dirs) rather than
+resuming them.
 
 ## Workspace Layout
 

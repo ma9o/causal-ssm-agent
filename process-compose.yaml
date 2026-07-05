@@ -1,0 +1,87 @@
+version: "0.5"
+
+# Local integration-test stack (docs/guides/agentic_integration_testing.md).
+# Launched by scripts/start_agentic_integration_stack.sh, which sources .env
+# into the environment first — every process below inherits it.
+#
+# Targeted operations against the running stack (API pinned to port 8181 by
+# the wrapper script):
+#   process-compose --port 8181 process restart worker
+#   process-compose --port 8181 process list
+#
+# The worker caches config.yaml (lru_cache) — after editing pipeline config,
+# restart the worker, not the whole stack.
+
+processes:
+  temporal:
+    working_dir: apps/data-pipeline
+    command: uv run python scripts/temporal_dev_server.py --port 7233
+    readiness_probe:
+      exec:
+        command: lsof -nP -iTCP:7233 -sTCP:LISTEN
+      initial_delay_seconds: 2
+      period_seconds: 1
+      failure_threshold: 90 # first boot downloads the Temporal dev-server binary
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+    log_location: .local/agentic-integration-stack/logs/temporal.log
+
+  worker:
+    working_dir: apps/data-pipeline
+    command: uv run python -m nof1_causal_lab.machine.temporal.worker
+    environment:
+      - TEMPORAL_ADDRESS=localhost:7233
+    depends_on:
+      temporal:
+        condition: process_healthy
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+    log_location: .local/agentic-integration-stack/logs/worker.log
+
+  tool-server:
+    working_dir: apps/data-pipeline
+    command: uv run uvicorn nof1_causal_lab.tool_server:app --port 8100
+    environment:
+      - TEMPORAL_ADDRESS=localhost:7233
+    depends_on:
+      temporal:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        scheme: http
+        path: /api/tools/docs
+        port: 8100
+      initial_delay_seconds: 2
+      period_seconds: 1
+      failure_threshold: 90
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+    log_location: .local/agentic-integration-stack/logs/tool-server.log
+
+  web:
+    working_dir: apps/web
+    command: bun run dev --port 3000
+    depends_on:
+      tool-server:
+        condition: process_healthy
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        scheme: http
+        path: /
+        port: 3000
+      initial_delay_seconds: 2
+      period_seconds: 1
+      failure_threshold: 90
+    availability:
+      restart: on_failure
+      max_restarts: 3
+      backoff_seconds: 2
+    log_location: .local/agentic-integration-stack/logs/web.log
