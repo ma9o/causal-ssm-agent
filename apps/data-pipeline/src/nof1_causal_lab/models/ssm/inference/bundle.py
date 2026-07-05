@@ -2,8 +2,8 @@
 
 :func:`build_particle_runtime_bundle` discretizes the continuous-time SDE at the
 observation times and assembles the prior, observation, and trajectory log-prob
-closures (and their gradients) that ``marginal_particle_gibbs`` and
-``particle_marginal_mh`` consume. Only point measurements are supported; models
+closures (and their gradients) that ``marginal_particle_gibbs`` consumes. Only
+point measurements are supported; models
 with interval-summary observations are rejected here and handled by the Laplace
 backend instead.
 """
@@ -92,7 +92,7 @@ def build_particle_runtime_bundle(
     ]
     if observation_support is not None and observation_support.requires_interval_summary_handling:
         raise ValueError(
-            "Particle inference (marginal_particle_gibbs / particle_marginal_mh) does not "
+            "Particle inference (marginal_particle_gibbs) does not "
             "support interval-summary observations; only point measurements are supported."
         )
     cache_key = (

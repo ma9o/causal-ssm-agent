@@ -49,9 +49,9 @@ relocating them into ``TYPE_CHECKING``. For jitted code the checks fire at trace
 time, so they are effectively free shape assertions on the numerical core.
 """
 
-from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray, Shaped
+from jaxtyping import Array, Bool, Float, Int, Shaped
 
 FloatScalar = Float[Array, ""]
 """A floating-point scalar (rank-0 array)."""
 
-__all__ = ["Array", "Bool", "Float", "FloatScalar", "Int", "PRNGKeyArray", "Shaped"]
+__all__ = ["Array", "Bool", "Float", "FloatScalar", "Int", "Shaped"]

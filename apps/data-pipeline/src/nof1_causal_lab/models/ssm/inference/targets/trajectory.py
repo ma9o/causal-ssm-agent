@@ -37,18 +37,6 @@ class EulerMaruyamaTarget:
     def predictive_latent_init(self, context) -> jnp.ndarray:
         return euler_maruyama.predictive_latent_init(self.vector_field, context)
 
-    def sample_initial(
-        self,
-        key: jnp.ndarray,
-        context,
-        *,
-        sample_shape: tuple[int, ...],
-    ) -> jnp.ndarray:
-        mean, cov = self.initial_moments(context)
-        chol = jnp.linalg.cholesky(cov)
-        eps = random.normal(key, (*sample_shape, mean.shape[-1]), dtype=mean.dtype)
-        return mean + eps @ chol.T
-
     def sample_transition(
         self,
         key: jnp.ndarray,

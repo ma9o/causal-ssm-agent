@@ -83,16 +83,7 @@ def fit(
         )
 
         return fit_marginal_particle_gibbs(model, observations, times, reparam=reparam, **kwargs)
-    if method == "particle_marginal_mh":
-        from nof1_causal_lab.models.ssm.inference.methods.particle_marginal_mh import (
-            fit_particle_marginal_mh,
-        )
-
-        return fit_particle_marginal_mh(model, observations, times, reparam=reparam, **kwargs)
-    raise ValueError(
-        "Unknown inference method: "
-        f"{method!r}. Use 'marginal_particle_gibbs' or 'particle_marginal_mh'."
-    )
+    raise ValueError(f"Unknown inference method: {method!r}. Use 'marginal_particle_gibbs'.")
 
 
 def prior_predictive(

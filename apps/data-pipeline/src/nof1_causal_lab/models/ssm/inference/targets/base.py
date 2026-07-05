@@ -84,14 +84,6 @@ class TrajectoryTarget(Protocol):
 
     def predictive_latent_init(self, context) -> jnp.ndarray: ...
 
-    def sample_initial(
-        self,
-        key: jnp.ndarray,
-        context,
-        *,
-        sample_shape: tuple[int, ...],
-    ) -> jnp.ndarray: ...
-
     def sample_transition(
         self,
         key: jnp.ndarray,

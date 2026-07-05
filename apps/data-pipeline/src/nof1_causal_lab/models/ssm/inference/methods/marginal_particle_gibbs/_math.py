@@ -10,65 +10,19 @@
 
 import jax
 import jax.numpy as jnp
-import jax.random as random
 import jax.scipy.linalg as jla
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.bundle import (
     AUX_JITTER,
 )
-from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar, Int, PRNGKeyArray
+from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar, Int
 
 
 def _normalize_log_probs(
     logits: Float[Array, "*shape"], *, axis: int = -1
 ) -> Float[Array, "*shape"]:
     return logits - jax.scipy.special.logsumexp(logits, axis=axis, keepdims=True)
-
-
-def _particle_ess_from_log_weights(
-    log_weights: Float[Array, "*batch P"],
-) -> Float[Array, "*batch"]:
-    probabilities = jnp.exp(log_weights)
-    return 1.0 / jnp.sum(probabilities * probabilities, axis=-1)
-
-
-def _log_weight_range(log_weights: Float[Array, "*batch P"]) -> Float[Array, "*batch"]:
-    return jnp.max(log_weights, axis=-1) - jnp.min(log_weights, axis=-1)
-
-
-def _log_weight_variance(log_weights: Float[Array, "*batch P"]) -> Float[Array, "*batch"]:
-    return jnp.var(log_weights, axis=-1)
-
-
-def _categorical_entropy_from_log_probs(
-    log_probs: Float[Array, "*batch N"],
-) -> Float[Array, "*batch"]:
-    probabilities = jnp.exp(log_probs)
-    return -jnp.sum(probabilities * log_probs, axis=-1)
-
-
-def _categorical_max_prob_from_log_probs(
-    log_probs: Float[Array, "*batch N"],
-) -> Float[Array, "*batch"]:
-    return jnp.max(jnp.exp(log_probs), axis=-1)
-
-
-def _categorical_rows(key: PRNGKeyArray, logits: Float[Array, "R C"]) -> Int[Array, " R"]:
-    keys = random.split(key, int(logits.shape[0]))
-    return jax.vmap(lambda row_key, row_logits: random.categorical(row_key, row_logits))(
-        keys,
-        logits,
-    ).astype(jnp.int32)
-
-
-def _sample_gaussian_from_chol(
-    key: PRNGKeyArray,
-    mean: Float[Array, "*batch D"],
-    chol: Float[Array, "*batch D D"],
-) -> Float[Array, "*batch D"]:
-    eps = random.normal(key, mean.shape, dtype=mean.dtype)
-    return mean + jnp.einsum("...ij,...j->...i", chol, eps)
 
 
 def _cholesky_batch(covariances: Float[Array, "K D D"]) -> Float[Array, "K D D"]:
