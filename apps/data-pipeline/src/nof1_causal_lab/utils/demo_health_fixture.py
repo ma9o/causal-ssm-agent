@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -17,10 +15,8 @@ EXPECTED_STAGE2_COLUMNS = ["indicator", "value", "anchor_time"]
 
 @dataclass(frozen=True)
 class DemoHealthFixture:
-    """Tracked DEMO fixture inputs."""
+    """Tracked DEMO fixture inputs (current versions in the artifact store)."""
 
-    fixture_dir: Path
-    run_dir: Path
     question: str
     stage0: pl.DataFrame
     column_descriptions: dict[str, str]
@@ -82,21 +78,6 @@ class DemoHealthComparison:
         return "\n".join(lines)
 
 
-def _find_fixture_dir() -> Path:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        candidate = parent / "data" / FIXTURE_USER_ID
-        if candidate.exists():
-            return candidate
-    return Path.cwd() / "data" / FIXTURE_USER_ID
-
-
-def _load_expected_table(fixture_dir: Path) -> pl.DataFrame:
-    return pl.read_parquet(fixture_dir / "run" / "stage2-model-data.parquet").select(
-        EXPECTED_STAGE2_COLUMNS
-    )
-
-
 def _column_descriptions_from_stage0_payload(stage0_payload: dict[str, Any]) -> dict[str, str]:
     descriptions = stage0_payload.get("column_descriptions", [])
     if not isinstance(descriptions, list):
@@ -109,19 +90,29 @@ def _column_descriptions_from_stage0_payload(stage0_payload: dict[str, Any]) -> 
 
 
 def load_demo_health_fixture() -> DemoHealthFixture:
-    """Load the tracked DEMO fixture inputs."""
+    """Load the tracked DEMO fixture from its artifact store."""
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
 
-    fixture_dir = _find_fixture_dir()
-    run_dir = fixture_dir / "run"
-    stage0_payload = json.loads((run_dir / "stage-0.json").read_text())
-    expected_model = _load_expected_table(fixture_dir)
+    store = ArtifactStore(FIXTURE_USER_ID)
+    state = EpisodeJournal(FIXTURE_USER_ID).latest_state()
+
+    def _version(artifact_id: str) -> int:
+        info = state.get(artifact_id)
+        if info is None:
+            raise FileNotFoundError(
+                f"No current '{artifact_id}' artifact for workspace '{FIXTURE_USER_ID}'"
+            )
+        return info.version
+
+    raw_version = _version("raw_data")
+    profile = store.read_json_file("raw_data", raw_version, "profile.json")
     return DemoHealthFixture(
-        fixture_dir=fixture_dir,
-        run_dir=run_dir,
-        question=(fixture_dir / "query.txt").read_text().strip(),
-        stage0=pl.read_parquet(run_dir / "stage0-raw-input.parquet"),
-        column_descriptions=_column_descriptions_from_stage0_payload(stage0_payload),
-        expected_model=expected_model,
+        question=store.read_json_file("question", _version("question"), "question.json")["text"],
+        stage0=store.read_parquet_file("raw_data", raw_version, "raw.parquet"),
+        column_descriptions=_column_descriptions_from_stage0_payload(profile),
+        expected_model=store.read_parquet_file(
+            "model_data", _version("model_data"), "model_data.parquet"
+        ).select(EXPECTED_STAGE2_COLUMNS),
     )
 
 

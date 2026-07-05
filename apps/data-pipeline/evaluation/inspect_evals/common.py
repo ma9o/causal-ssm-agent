@@ -33,7 +33,7 @@ def load_eval_config() -> dict:
 
 
 EVAL_CONFIG = load_eval_config()
-DEFAULT_EVAL_WORKSPACE_ID = str(EVAL_CONFIG.get("default_workspace_id", "GOLDEN"))
+DEFAULT_EVAL_WORKSPACE_ID = str(EVAL_CONFIG.get("default_workspace_id", "DEMO"))
 
 
 @dataclass(frozen=True)
@@ -405,71 +405,74 @@ def sample_evenly[T](items: list[T], n: int, seed: int | None = None) -> list[T]
     return sampled
 
 
+def _workspace_store(workspace_id: str) -> tuple[Any, Any]:
+    """Artifact store plus current episode state for an eval workspace."""
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+
+    return ArtifactStore(workspace_id), EpisodeJournal(workspace_id).latest_state()
+
+
+def _current_version(state: Any, workspace_id: str, artifact_id: str) -> int:
+    info = state.get(artifact_id)
+    if info is None:
+        raise FileNotFoundError(
+            f"No current '{artifact_id}' artifact for workspace '{workspace_id}'"
+        )
+    return info.version
+
+
 def load_workspace_question(workspace_id: str | None = None) -> str:
-    """Load the materialized query for an eval workspace."""
-    from nof1_causal_lab.utils import storage
-    from nof1_causal_lab.utils.data import DATA_URI
-
+    """Load the current question artifact for an eval workspace."""
     resolved = resolve_eval_workspace_id(workspace_id)
-    query_path = storage.join(DATA_URI, resolved, "query.txt")
-    if not storage.exists(query_path):
-        raise FileNotFoundError(f"No query.txt found for workspace '{resolved}'")
-    return storage.read_text(query_path).strip()
-
-
-def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -> Any:
-    """Restore a persisted stage contract for an eval workspace."""
-    from nof1_causal_lab.flows.stage_registry import load_stage_state
-
-    resolved = resolve_eval_workspace_id(workspace_id)
-    return load_stage_state(resolved, stage_id)
+    store, state = _workspace_store(resolved)
+    version = _current_version(state, resolved, "question")
+    return store.read_json_file("question", version, "question.json")["text"]
 
 
 def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, Any]:
-    """Load the exact Stage 1b inputs from a persisted workspace run."""
+    """Load the exact Stage 1b inputs from a workspace's artifact store."""
     from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
-    from nof1_causal_lab.flows.run_store import (
-        STAGE0_PARQUET_FILENAMES,
-        find_run_artifact,
-        load_parquet,
-    )
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)
-    stage0 = load_workspace_stage_state("stage-0", resolved)
-    stage1a = load_workspace_stage_state("stage-1a", resolved)
+    store, state = _workspace_store(resolved)
 
-    raw_df_path = find_run_artifact(resolved, STAGE0_PARQUET_FILENAMES)
-    raw_df = load_parquet(raw_df_path)
-    column_descriptions = {c.name: c.description for c in stage0.column_descriptions}
+    raw_version = _current_version(state, resolved, "raw_data")
+    profile = store.read_json_file("raw_data", raw_version, "profile.json")
+    raw_df = store.read_parquet_file("raw_data", raw_version, "raw.parquet")
+    constructs = store.read_json_file(
+        "constructs", _current_version(state, resolved, "constructs"), "constructs.json"
+    )
+
+    column_descriptions = {
+        column["name"]: column["description"] for column in profile.get("column_descriptions", [])
+    }
     dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
 
     return {
         "workspace_id": resolved,
         "question": question,
-        "latent_model": stage1a.latent_model.model_dump(),
+        "latent_model": constructs["latent_model"],
         "chunks": [dataset_schema],
         "dataset_summary": f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
     }
 
 
 def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, Any]:
-    """Load the exact Stage 2 semantic-worker inputs from a persisted workspace run."""
-    from nof1_causal_lab.flows.run_store import (
-        STAGE0_PARQUET_FILENAMES,
-        find_run_artifact,
-        load_parquet,
-    )
-    from nof1_causal_lab.flows.stages.stage2_extract import _prepare_semantic_chunks
+    """Load the exact Stage 2 semantic-worker inputs from a workspace's artifact store."""
+    from nof1_causal_lab.flows.stages.stage2.planning import prepare_semantic_chunks
     from nof1_causal_lab.utils.config import get_config
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)
-    stage1b = load_workspace_stage_state("stage-1b", resolved)
+    store, state = _workspace_store(resolved)
 
-    raw_df_path = find_run_artifact(resolved, STAGE0_PARQUET_FILENAMES)
-    raw_df = load_parquet(raw_df_path)
-    causal_spec = stage1b.causal_spec.model_dump()
+    raw_df = store.read_parquet_file(
+        "raw_data", _current_version(state, resolved, "raw_data"), "raw.parquet"
+    )
+    causal_spec = store.read_json_file(
+        "causal_spec", _current_version(state, resolved, "causal_spec"), "causal_spec.json"
+    )["causal_spec"]
     semantic_inds = [
         indicator
         for indicator in causal_spec.get("measurement", {}).get("indicators", [])
@@ -481,7 +484,7 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     time_col = "timestamp"
     stage2_workers = get_config().stage2_workers
     model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
-    chunk_texts, chunk_window_starts, chunk_contexts = _prepare_semantic_chunks(
+    chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
         raw_df=raw_df,
         semantic_inds=semantic_inds,
         causal_spec=causal_spec,
