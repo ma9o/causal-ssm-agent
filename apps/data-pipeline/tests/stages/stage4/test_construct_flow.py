@@ -1,0 +1,218 @@
+"""Unit tests for the gradual construct-admission Stage 4 flow (data-free pieces).
+
+The full loop over real ``data_for_model`` (prior-predictive reachability on live
+data) is exercised as a Commit-6 integration regression; here we pin the pure
+payload → contribution mapping, feedback rendering, prompt assembly, and the
+out-of-order submission guard.
+"""
+
+from __future__ import annotations
+
+import polars as pl
+import pytest
+
+from nof1_causal_lab.artifacts import (
+    DistributionFamily,
+    LinkFunction,
+    ParameterConstraint,
+    ParameterRole,
+)
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
+    SUBMIT_CONSTRUCT_SCHEMA,
+    ConstructBuildState,
+    _role_constraint_for,
+    construct_parents,
+    contribution_from_payload,
+    render_admission_feedback,
+)
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_prompt import (
+    build_construct_messages,
+)
+from nof1_causal_lab.models.ssm.construct_admission import AdmissionReport, AdmissionState
+from nof1_causal_lab.models.ssm.reachability import CheckResult
+from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
+
+
+def _normal(mu: float, sigma: float) -> dict:
+    return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
+
+
+def test_role_constraint_inference_covers_canonical_prefixes():
+    assert _role_constraint_for("rho_X") == (
+        ParameterRole.AR_COEFFICIENT,
+        ParameterConstraint.UNIT_INTERVAL,
+    )
+    assert _role_constraint_for("sigma_X") == (
+        ParameterRole.RESIDUAL_SD,
+        ParameterConstraint.POSITIVE,
+    )
+    assert _role_constraint_for("obs_sd_x1") == (
+        ParameterRole.MEASUREMENT_ERROR_SD,
+        ParameterConstraint.POSITIVE,
+    )
+    assert _role_constraint_for("lambda_x2_X") == (
+        ParameterRole.LOADING,
+        ParameterConstraint.POSITIVE,
+    )
+    assert _role_constraint_for("beta_X_Y") == (
+        ParameterRole.FIXED_EFFECT,
+        ParameterConstraint.NONE,
+    )
+    assert _role_constraint_for("hill_emax_X_Y")[1] == ParameterConstraint.POSITIVE
+    assert _role_constraint_for("self_limit_Y")[0] == ParameterRole.DYNAMICS_PARAMETER_POSITIVE
+
+
+def test_role_constraint_rejects_unknown_prefix():
+    with pytest.raises(ValueError, match="canonical prefix"):
+        _role_constraint_for("garbage_name")
+
+
+def test_construct_parents_reads_the_dag():
+    spec = _make_causal_spec_dict()
+    assert construct_parents(spec, "Y") == ["X"]
+    assert construct_parents(spec, "Z") == ["Y"]
+    assert construct_parents(spec, "X") == []
+
+
+def test_contribution_from_payload_linear_edge():
+    spec = _make_causal_spec_dict()
+    payload = {
+        "construct": "Y",
+        "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        "priors": {
+            "rho_Y": _normal(0.6, 0.1),
+            "sigma_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
+            "beta_X_Y": _normal(0.3, 0.1),
+        },
+    }
+    contrib = contribution_from_payload(spec, payload)
+    assert contrib.name == "Y"
+    assert [lik.variable for lik in contrib.likelihoods] == ["y1"]
+    assert contrib.likelihoods[0].distribution == DistributionFamily.GAUSSIAN
+    assert contrib.likelihoods[0].link == LinkFunction.IDENTITY
+    assert {p.name for p in contrib.parameters} == {"rho_Y", "sigma_Y", "beta_X_Y"}
+    assert contrib.edge_parents == ("X",)
+    assert contrib.hill_parents == ()
+
+
+def test_contribution_from_payload_hill_edge_and_self_limit():
+    spec = _make_causal_spec_dict()
+    payload = {
+        "construct": "Y",
+        "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        "priors": {
+            "rho_Y": _normal(0.6, 0.1),
+            "self_limit_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
+            "hill_emax_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+            "hill_ec50_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+            "hill_n_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 2.0}},
+        },
+    }
+    contrib = contribution_from_payload(spec, payload)
+    assert contrib.edge_parents == ("X",)
+    assert contrib.hill_parents == ("X",)
+    self_limit = next(p for p in contrib.parameters if p.name == "self_limit_Y")
+    assert self_limit.role == ParameterRole.DYNAMICS_PARAMETER_POSITIVE
+
+
+def test_submit_construct_rejects_out_of_order():
+    state = ConstructBuildState(
+        causal_spec=_make_causal_spec_dict(),
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
+    # Active construct is X; submitting Y is rejected before any compilation.
+    feedback = state.submit_construct(
+        construct="Y",
+        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        priors={"rho_Y": _normal(0.6, 0.1)},
+    )
+    assert "Out-of-order" in feedback
+    assert state.current_construct == "X"  # unchanged
+    assert state.submission_made is True
+
+
+def test_render_admission_feedback_lists_failed_checks():
+    report = AdmissionReport(
+        name="Y",
+        results=(
+            CheckResult("C1a finiteness", "Y", "0%", "0%", True, "ok"),
+            CheckResult("C3 resolvability", "Y", "0.05 d", "[0.3, 2.5]", False, "too fast"),
+        ),
+        outcome="NEEDS DECISION: C3 resolvability",
+        annotations=(),
+        admitted=False,
+    )
+    text = render_admission_feedback(report)
+    assert "NEEDS DECISION" in text
+    assert "C3 resolvability" in text
+    assert "[FAIL]" in text
+    assert "[PASS]" in text
+
+
+def test_build_construct_messages_surfaces_params_and_feedback():
+    spec = _make_causal_spec_dict()
+    state = ConstructBuildState(
+        causal_spec=spec,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+        admission=AdmissionState(names=("X",)),
+        cursor=1,  # active construct is Y, with X already admitted
+    )
+    system, user = build_construct_messages(
+        state=state,
+        construct="Y",
+        question="Does X drive Y?",
+        causal_spec=spec,
+        indicator_audits={},
+    )
+    assert "continuous-time latent state-space model" in system
+    assert "Active construct: `Y`" in user
+    assert "`rho_Y`" in user  # own-dynamics param offered
+    assert "`beta_X_Y`" in user  # parent edge param offered
+    assert "Does X drive Y?" in user
+
+    # On a re-attempt, the last failing report for this construct is injected.
+    state.last_report = AdmissionReport(
+        name="Y",
+        results=(CheckResult("C2 latent scale", "Y", "8.0", "[0.3, 3]", False, "too wide"),),
+        outcome="NEEDS DECISION: C2 latent scale",
+        annotations=(),
+        admitted=False,
+    )
+    _system2, user2 = build_construct_messages(
+        state=state,
+        construct="Y",
+        question="Does X drive Y?",
+        causal_spec=spec,
+        indicator_audits={},
+    )
+    assert "Latest reachability feedback" in user2
+    assert "C2 latent scale" in user2
+
+
+def test_submit_construct_schema_is_well_formed():
+    props = SUBMIT_CONSTRUCT_SCHEMA["properties"]
+    assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {"construct", "indicators", "priors"}
+    assert SUBMIT_CONSTRUCT_SCHEMA["additionalProperties"] is False
+    family_enum = props["indicators"]["items"]["properties"]["family"]["enum"]
+    assert "gaussian" in family_enum
+    assert "beta" in family_enum
+
+
+def test_public_entrypoints_are_exposed():
+    # The build loop + design derivation are wired into the stage flow in Commit 5;
+    # here we pin their public surface and that the tool builds with the right name.
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
+        build_design_info,
+        make_submit_construct_tool,
+        run_stage4_construct_build,
+    )
+
+    assert callable(run_stage4_construct_build)
+    assert callable(build_design_info)
+    state = ConstructBuildState(
+        causal_spec=_make_causal_spec_dict(), data_for_model=pl.DataFrame(), order=["X"]
+    )
+    tool = make_submit_construct_tool(state)
+    assert tool.name == "submit_construct"

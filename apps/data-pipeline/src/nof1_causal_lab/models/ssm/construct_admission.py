@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import networkx as nx
@@ -245,15 +245,56 @@ def _signal_from_linear_predictor(link: LinkFunction, lp: np.ndarray) -> np.ndar
 
 @dataclass(frozen=True)
 class DesignInfo:
-    """Sampling design + data needed by the checks, bound once per build."""
+    """Sampling design + observed data needed by the checks, bound once per build.
+
+    Real longitudinal data is irregular and per-indicator, so observations are
+    indexed per indicator: ``obs_index_by_indicator`` maps each indicator to the
+    ``t_grid`` indices where it was actually observed, and ``values_by_indicator``
+    holds the aligned observed values. ``observation_support`` and
+    ``transition_inputs`` are threaded to the exact prior-predictive sampler and the
+    edge-off re-simulation when present (real data); synthetic tests leave them
+    ``None`` and share a single index across indicators.
+    """
 
     t_grid: jnp.ndarray
-    obs_idx: np.ndarray
+    obs_index_by_indicator: Mapping[str, np.ndarray]
+    values_by_indicator: Mapping[str, np.ndarray]
     cadence: float
     span: float
-    data: Mapping[str, np.ndarray]
     n_draws: int = 200
     seed: int = 0
+    observation_support: Any = None
+    transition_inputs: Any = None
+
+    @property
+    def pooled_obs_index(self) -> np.ndarray:
+        """Sorted union of every indicator's observation indices.
+
+        Used by the latent-at-observation checks (edge overwhelm, saturation) that
+        are indicator-agnostic — they read the latent path where any data exists.
+        """
+        if not self.obs_index_by_indicator:
+            return np.arange(int(np.asarray(self.t_grid).shape[0]))
+        return np.unique(
+            np.concatenate([np.asarray(v) for v in self.obs_index_by_indicator.values()])
+        )
+
+
+def trial_admission_state(
+    state: AdmissionState, contribution: ConstructContribution
+) -> AdmissionState:
+    """The cumulative state that *would* result from admitting ``contribution``.
+
+    Used both to run the battery (:func:`admit_construct`) and to derive the
+    design (grid + observed data) against the same partial model.
+    """
+    return AdmissionState(
+        names=(*state.names, contribution.name),
+        likelihoods=(*state.likelihoods, *contribution.likelihoods),
+        parameters=(*state.parameters, *contribution.parameters),
+        priors={**dict(state.priors), **dict(contribution.priors)},
+        annotations=state.annotations,
+    )
 
 
 def admit_construct(
@@ -264,29 +305,30 @@ def admit_construct(
     accepted: Mapping[str, str] | None = None,
 ) -> tuple[AdmissionState, AdmissionReport]:
     """Attempt to admit one construct; run the battery on the cumulative model."""
-    trial = AdmissionState(
-        names=(*state.names, contribution.name),
-        likelihoods=(*state.likelihoods, *contribution.likelihoods),
-        parameters=(*state.parameters, *contribution.parameters),
-        priors={**dict(state.priors), **dict(contribution.priors)},
-        annotations=state.annotations,
-    )
+    trial = trial_admission_state(state, contribution)
     spec, registry = _compile_partial(trial, causal_spec)
     bundle = build_prior_runtime_bundle(spec, registry)
     pred = sample_prior_predictive_from_runtime(
-        spec, bundle, design.t_grid, num_samples=design.n_draws, seed=design.seed
+        spec,
+        bundle,
+        design.t_grid,
+        observation_support=design.observation_support,
+        transition_inputs=design.transition_inputs,
+        num_samples=design.n_draws,
+        seed=design.seed,
     )
 
     latent_names, manifest_names, manifest_links = _spec_names(spec)
     d = latent_names.index(contribution.name)
     x = np.asarray(pred["latents"][:, :, d])
-    dt = float(design.t_grid[1] - design.t_grid[0])
+    dt = float(np.median(np.diff(np.asarray(design.t_grid))))
+    pooled = design.pooled_obs_index
 
     results: list[CheckResult] = list(check_confinement(contribution.name, x, dt))
 
     # C2 scale anchor + C5 coverage come from the construct's indicator(s).
     anchor, anchor_src, anchor_detail = _scale_anchor(
-        manifest_names, manifest_links, contribution, design.data
+        manifest_names, manifest_links, contribution, design.values_by_indicator
     )
     results.append(check_scale(contribution.name, x, anchor, anchor_src, anchor_detail))
 
@@ -301,11 +343,11 @@ def admit_construct(
     # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
     if contribution.edge_parents:
         edge_sites = _incoming_edge_sites(spec, contribution, latent_names, d)
-        x_off = _resimulate_edge_off(spec, pred, design.t_grid, edge_sites, design.seed)[:, :, d]
+        x_off = _resimulate_edge_off(
+            spec, pred, design.t_grid, edge_sites, design.seed, design.transition_inputs
+        )[:, :, d]
         results.extend(
-            check_edge_share(
-                contribution.name, x[:, design.obs_idx], np.asarray(x_off)[:, design.obs_idx]
-            )
+            check_edge_share(contribution.name, x[:, pooled], np.asarray(x_off)[:, pooled])
         )
 
     # C4c Hill saturation (per saturating parent).
@@ -314,7 +356,7 @@ def admit_construct(
         ec50_comp = _hill_ec50_index(spec, p_idx, d)
         ec50_site = f"vf_{ec50_comp}_EC50"
         if ec50_comp is not None and ec50_site in pred:
-            parent_vals = np.asarray(pred["latents"][:, design.obs_idx, p_idx])
+            parent_vals = np.asarray(pred["latents"][:, pooled, p_idx])
             results.append(
                 check_saturation(
                     f"{parent}->{contribution.name}",
@@ -323,13 +365,17 @@ def admit_construct(
                 )
             )
 
-    # C5a/C5b/C5c coverage per indicator of this construct.
+    # C5a/C5b/C5c coverage per indicator of this construct (per-indicator obs grid).
     for lik in contribution.likelihoods:
-        m = manifest_names.index(lik.variable)
-        lp = np.asarray(pred["linear_predictors"][:, design.obs_idx, m])
-        pp_y = np.asarray(pred["observations"][:, design.obs_idx, m])
+        var = lik.variable
+        m = manifest_names.index(var)
+        oi = np.asarray(design.obs_index_by_indicator[var])
+        lp = np.asarray(pred["linear_predictors"][:, oi, m])
+        pp_y = np.asarray(pred["observations"][:, oi, m])
         signal = _signal_from_linear_predictor(manifest_links[m], lp)
-        results.extend(check_coverage(lik.variable, pp_y, signal, design.data[lik.variable]))
+        results.extend(
+            check_coverage(var, pp_y, signal, np.asarray(design.values_by_indicator[var]))
+        )
 
     outcome, annotations = stage_outcome(results, dict(accepted or {}))
     admitted = outcome.startswith("ADMITTED")
@@ -407,12 +453,14 @@ def _resimulate_edge_off(
     t_grid: jnp.ndarray,
     edge_sites: list[str],
     seed: int,
+    transition_inputs: Any = None,
 ) -> jnp.ndarray:
     """Re-simulate the latents with the given edge sites zeroed, all else fixed.
 
     Reuses the exact param draws (and Brownian path via ``seed``) from ``pred`` so
     the only difference from the edge-on trajectory is the zeroed edge — the
-    same-noise contrast :func:`reachability.check_edge_share` expects.
+    same-noise contrast :func:`reachability.check_edge_share` expects. The design's
+    ``transition_inputs`` are held identical to the edge-on run.
     """
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         _simulate_vector_field_predictive_latents,
@@ -423,7 +471,7 @@ def _resimulate_edge_off(
         if site in samples:
             samples[site] = jnp.zeros_like(jnp.asarray(samples[site]))
     latents, _linear_predictors = _simulate_vector_field_predictive_latents(
-        spec, samples, t_grid, transition_inputs=None, seed=seed
+        spec, samples, t_grid, transition_inputs=transition_inputs, seed=seed
     )
     return latents
 

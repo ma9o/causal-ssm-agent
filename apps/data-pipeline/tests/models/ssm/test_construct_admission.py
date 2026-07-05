@@ -98,16 +98,16 @@ def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribut
 
 def _design(seed: int = 0) -> DesignInfo:
     t_grid = jnp.linspace(0.0, 10.0, 201)
-    obs_idx = np.arange(1, 201, 2)  # 100 observations
+    obs_idx = np.arange(1, 201, 2)  # 100 observations, shared across indicators here
     obs_times = np.asarray(t_grid)[obs_idx]
     rng = np.random.default_rng(0)
-    data = {v: rng.normal(0.0, 0.9, obs_idx.size) for v in ("x1", "x2", "y1", "z1")}
+    indicators = ("x1", "x2", "y1", "z1")
     return DesignInfo(
         t_grid=t_grid,
-        obs_idx=obs_idx,
+        obs_index_by_indicator=dict.fromkeys(indicators, obs_idx),
+        values_by_indicator={v: rng.normal(0.0, 0.9, obs_idx.size) for v in indicators},
         cadence=float(np.median(np.diff(obs_times))),
         span=float(np.ptp(obs_times)),
-        data=data,
         n_draws=64,
         seed=seed,
     )
