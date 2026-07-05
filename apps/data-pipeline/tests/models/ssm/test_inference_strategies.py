@@ -1633,43 +1633,6 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert latent_paths.shape == (1, num_samples, 3, 1)
 
 
-def test_particle_marginal_mh_bootstrap_filter_uses_declared_euler_target():
-    from nof1_causal_lab.models.ssm.inference.methods.particle_marginal_mh.particle_filter import (
-        estimate_bootstrap_log_likelihood,
-    )
-
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    bundle = build_particle_runtime_bundle(
-        model,
-        observations,
-        times,
-        scheme="euler_maruyama",
-        trace_key=random.PRNGKey(0),
-        reparam=None,
-    )
-    # The Euler-Maruyama scheme discretizes from the vector field on the fly, so
-    # the context carries no local-linear transitions at all -- there is nothing
-    # to fall back on, which is the strongest form of "the bootstrap uses EM".
-    context = bundle["latent_context_runtime_fn"](bundle["flat_example"], times)
-    assert context.Ad is None
-    assert context.Qd is None
-    assert context.cd is None
-
-    log_likelihood, diagnostics = estimate_bootstrap_log_likelihood(
-        random.PRNGKey(1),
-        bundle["flat_example"],
-        bundle=bundle,
-        num_particles=4,
-        return_particle_diagnostics=True,
-    )
-
-    assert bundle["trajectory_target"].kind == "euler_maruyama"
-    assert bool(jnp.isfinite(log_likelihood))
-    assert bool(jnp.isfinite(diagnostics["pf_ess_by_t"]).all())
-
-
 @pytest.mark.parametrize(
     ("parameter_proposal", "expected_kernel", "expected_target"),
     [
@@ -1695,8 +1658,7 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
         seed=23,
         n_particles=3,
         n_parameter_particles=2,
-        latent_block_size=2,
-        latent_smoother="plain",
+        latent_smoother="dsmc",
         param_step_size=0.001,
         parameter_proposal=parameter_proposal,
         init_method="random",
@@ -1716,57 +1678,17 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
     assert diag["parameter_proposal"] == parameter_proposal
     assert diag["adaptation_scheme"] == "simple"
     assert diag["param_target_accept"] == pytest.approx(expected_target)
-    assert diag["latent_kernel"] == "blocked_posterior_mixture_backward_csmc"
-    assert diag["latent_smoother"] == "plain"
+    assert diag["latent_kernel"] == "conditional_desequentialized_smc"
+    assert diag["latent_smoother"] == "dsmc"
     assert diag["latent_transition_kind"] == "euler_maruyama"
-    assert diag["latent_smoother_algorithm"] == "blocked_posterior_mixture_backward_csmc"
-    assert diag["latent_smoother_family"] == "posterior_mixture_csmc"
-    assert diag["latent_smoother_selection"] == "blocked_backward_sampling"
-    assert diag["latent_smoother_parallel"] is False
-    assert diag["latent_backward_sampling"] is True
-    assert diag["latent_block_size"] == 2
+    assert diag["latent_smoother_algorithm"] == "conditional_desequentialized_smc"
+    assert diag["latent_smoother_family"] == "posterior_mixture_dsmc"
+    assert diag["latent_smoother_selection"] == "tree_stitch_combination"
+    assert diag["latent_smoother_parallel"] is True
+    assert diag["latent_backward_sampling"] is False
     assert diag["latent_delta"] == 0.2
     assert diag["amala_kappa"] == 0.75
     assert diag["amala_grad_clip"] == float("inf")
-
-
-def test_marginal_particle_gibbs_dsmc_amala_plus_uses_euler_scheme():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=1,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_block_size=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="amala_plus",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["dsmc_leaf_proposal"] == "amala_plus"
-    assert diag["latent_transition_kind"] == "euler_maruyama"
 
 
 def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
@@ -1785,7 +1707,6 @@ def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
         seed=43,
         n_particles=3,
         n_parameter_particles=2,
-        latent_block_size=2,
         latent_smoother="dsmc",
         dsmc_leaf_proposal="amala_exact",
         param_step_size=0.001,
@@ -1806,6 +1727,163 @@ def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
     assert diag["latent_smoother"] == "dsmc"
     assert diag["dsmc_leaf_proposal"] == "amala_exact"
     assert diag["latent_transition_kind"] == "euler_maruyama"
+
+
+def test_marginal_particle_gibbs_dsmc_paid_mix_smoke():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=1,
+        num_chains=1,
+        seed=43,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="paid_mix",
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=1,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_smoother"] == "dsmc"
+    assert diag["dsmc_leaf_proposal"] == "paid_mix"
+    assert diag["latent_transition_kind"] == "euler_maruyama"
+    assert 0.0 <= diag["latent_frozen_fraction"] <= 1.0
+
+
+def test_marginal_particle_gibbs_dsmc_coordinate_block_smoke():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=1,
+        num_chains=1,
+        seed=43,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="amala_exact",
+        latent_block_coords=1,
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=1,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_block_coords"] == 1
+    assert 0.0 <= diag["latent_frozen_fraction"] <= 1.0
+
+
+def test_marginal_particle_gibbs_sign_flip_moves_smoke():
+    spec = _make_aux_kalman_mcmc_smoke_spec(
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=1,
+            n_cols=1,
+            free_support=np.ones((1, 1), dtype=bool),
+            template=jnp.array([[1.0]], dtype=jnp.float32),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
+        )
+    )
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=2,
+        num_chains=1,
+        seed=43,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="amala_exact",
+        latent_sign_flip_moves=True,
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=2,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_sign_flip_moves"] is True
+    assert 0.0 <= diag["sign_flip_accept_rate"] <= 1.0
+
+
+def test_marginal_particle_gibbs_paid_mix_requires_pilot_moments():
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
+        build_marginal_particle_gibbs_kernel,
+    )
+    from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
+
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+    bundle = build_particle_runtime_bundle(
+        model,
+        observations,
+        times,
+        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
+        trace_key=jax.random.PRNGKey(0),
+        reparam=None,
+    )
+    with pytest.raises(ValueError, match="requires pilot"):
+        build_marginal_particle_gibbs_kernel(
+            bundle,
+            num_particles=3,
+            num_parameter_particles=2,
+            param_step_size=0.001,
+            latent_smoother="dsmc",
+            dsmc_leaf_proposal="paid_mix",
+        )
 
 
 def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
@@ -1836,7 +1914,6 @@ def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
             seed=43,
             n_particles=3,
             n_parameter_particles=2,
-            latent_block_size=2,
             latent_smoother="dsmc",
             dsmc_leaf_proposal="amala_exact",
             param_step_size=0.001,
@@ -1864,7 +1941,6 @@ def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
         "seed": 43,
         "n_particles": 3,
         "n_parameter_particles": 2,
-        "latent_block_size": 2,
         "latent_smoother": "dsmc",
         "dsmc_leaf_proposal": "amala_exact",
         "param_step_size": 0.001,
@@ -1967,7 +2043,6 @@ def test_marginal_particle_gibbs_dual_averaging_adaptation_scheme_runs():
         seed=23,
         n_particles=3,
         n_parameter_particles=2,
-        latent_block_size=2,
         param_step_size=0.001,
         parameter_proposal="random_walk",
         adaptation_scheme="dual_averaging",

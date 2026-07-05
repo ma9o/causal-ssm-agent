@@ -58,7 +58,6 @@ def fit_marginal_particle_gibbs(
     seed: int = 0,
     n_particles: int = 64,
     n_parameter_particles: int = 2,
-    latent_block_size: int = 256,
     latent_smoother: str = "dsmc",
     parameter_proposal: str = "pseudo_langevin",
     amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
@@ -73,6 +72,12 @@ def fit_marginal_particle_gibbs(
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
     dsmc_leaf_proposal: str = "amala_exact",
+    latent_block_coords: int | None = None,
+    paid_mix_z_weight: float = 0.85,
+    paid_mix_pilot_weight: float = 0.10,
+    paid_mix_pilot_var_scale: float = 0.25,
+    paid_mix_wide_mult: float = 4.0,
+    latent_sign_flip_moves: bool = False,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
     param_step_size: float = 0.02,
@@ -202,6 +207,56 @@ def fit_marginal_particle_gibbs(
     parameter_preconditioner_chol = warmup_result.preconditioner_chol
     logger.info("phase 2/4: parameter warmup ready in %.1fs", _phase_elapsed(phase_t0))
 
+    pilot_means = pilot_vars = pilot_wide_vars = None
+    if dsmc_leaf_proposal == "paid_mix":
+        # The paid mixture leaf needs FIXED per-time pilot moments. The IEKS smoothed
+        # paths at the warmup init positions provide them: means from the cross-chain
+        # average, a per-coordinate scale from the paths' temporal spread plus the
+        # cross-chain disagreement. These are proposal-side quantities of a fixed
+        # (chain-independent) mixture component, so approximation cannot bias the
+        # sampler — only the exactly-computed mixture density enters the weights —
+        # and the init-only linearization policy is satisfied by construction.
+        from nof1_causal_lab.models.ssm.inference.warmup.latent_init import (
+            compute_ieks_latent_paths,
+        )
+
+        pilot_positions = (
+            init_positions
+            if init_positions is not None
+            # Random init leaves positions to the runner; anchor the pilot at the
+            # prior center instead (any fixed position yields a valid fixed proposal).
+            else jnp.broadcast_to(
+                bundle["flat_example"],
+                (num_chains, int(bundle["flat_example"].shape[0])),
+            )
+        )
+        ieks_paths = compute_ieks_latent_paths(
+            model,
+            observations,
+            times,
+            positions=pilot_positions,
+            trace_key=trace_key,
+            reparam=reparam,
+            n_ieks_iters=n_ieks_iters,
+        )
+        if initial_latent_trajectories is None:
+            initial_latent_trajectories = ieks_paths
+        pilot_means = jnp.mean(ieks_paths, axis=0)
+        temporal_var = jnp.var(pilot_means, axis=0)
+        cross_chain_var = jnp.var(ieks_paths, axis=0)
+        var_floor = 1e-6 * (1.0 + temporal_var)
+        core_var = temporal_var[None, :] + cross_chain_var + var_floor[None, :]
+        pilot_vars = paid_mix_pilot_var_scale * core_var
+        pilot_wide_vars = paid_mix_wide_mult * core_var
+
+    sign_flip_spec = None
+    if latent_sign_flip_moves:
+        from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.flip import (
+            build_sign_flip_spec,
+        )
+
+        sign_flip_spec = build_sign_flip_spec(model, bundle)
+
     phase_t0 = time.monotonic()
     logger.info("phase 3/4: building marginalized Particle Gibbs joint kernel...")
     kernel = build_marginal_particle_gibbs_kernel(
@@ -213,7 +268,6 @@ def fit_marginal_particle_gibbs(
         min_scale=param_step_size_min,
         max_scale=param_step_size_max,
         parameter_preconditioner_chol=parameter_preconditioner_chol,
-        latent_block_size=latent_block_size,
         parameter_proposal=parameter_proposal,
         latent_smoother=latent_smoother,
         latent_delta=latent_delta,
@@ -229,6 +283,13 @@ def fit_marginal_particle_gibbs(
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
         dsmc_leaf_proposal=dsmc_leaf_proposal,
+        latent_block_coords=latent_block_coords,
+        paid_mix_z_weight=paid_mix_z_weight,
+        paid_mix_pilot_weight=paid_mix_pilot_weight,
+        pilot_means=pilot_means,
+        pilot_vars=pilot_vars,
+        pilot_wide_vars=pilot_wide_vars,
+        sign_flip_spec=sign_flip_spec,
         diagnostic_metrics_all=diagnostic_metrics_all,
         diagnostic_metrics=diagnostic_metrics,
     )
@@ -300,7 +361,6 @@ def fit_marginal_particle_gibbs(
         "num_chains": int(num_chains),
         "n_particles": int(n_particles),
         "n_parameter_particles": int(n_parameter_particles),
-        "latent_block_size": int(latent_block_size),
         "parameter_proposal": parameter_proposal,
         "latent_backward_sampling": bool(kernel.latent_smoother.backward_sampling),
         "amala_delta_init": float(amala_delta_init),
@@ -328,6 +388,18 @@ def fit_marginal_particle_gibbs(
         "diagnostic_summary_phase": diagnostic_summary_phase,
         "parameter_accept_rate": float(jnp.mean(summary_extra_fields["parameter_accept_prob"])),
         "latent_update_fraction": float(jnp.mean(summary_extra_fields["latent_accept_prob"])),
+        "latent_frozen_fraction": float(jnp.mean(summary_extra_fields["latent_frozen_frac"])),
+        "latent_block_coords": kernel.latent_block_coords,
+        "latent_sign_flip_moves": bool(latent_sign_flip_moves),
+        **(
+            {
+                "sign_flip_accept_rate": float(
+                    jnp.mean(summary_extra_fields["sign_flip_accept_prob"])
+                )
+            }
+            if "sign_flip_accept_prob" in summary_extra_fields
+            else {}
+        ),
         "initial_param_step_size": jax.device_get(run_result["initial_param_step_size"]).tolist(),
         "final_param_step_size": jax.device_get(run_result["final_param_step_size"]).tolist(),
         "initial_latent_delta": jax.device_get(run_result["initial_latent_delta"]).tolist(),
@@ -355,32 +427,6 @@ def fit_marginal_particle_gibbs(
     if "selected_particle_unique_count" in summary_extra_fields:
         kernel_diagnostics["selected_particle_unique_count_mean"] = float(
             jnp.mean(summary_extra_fields["selected_particle_unique_count"])
-        )
-    if "forward_particle_ess_by_t" in summary_extra_fields:
-        kernel_diagnostics["forward_particle_ess_min"] = float(
-            jnp.min(summary_extra_fields["forward_particle_ess_by_t"])
-        )
-        kernel_diagnostics["forward_particle_ess_mean"] = float(
-            jnp.mean(summary_extra_fields["forward_particle_ess_by_t"])
-        )
-        kernel_diagnostics["forward_log_weight_range_max"] = float(
-            jnp.max(summary_extra_fields["forward_log_weight_range_by_t"])
-        )
-        kernel_diagnostics["forward_log_weight_variance_mean"] = float(
-            jnp.mean(summary_extra_fields["forward_log_weight_variance_by_t"])
-        )
-    if "backward_selection_ess_by_t" in summary_extra_fields:
-        kernel_diagnostics["backward_selection_ess_min"] = float(
-            jnp.min(summary_extra_fields["backward_selection_ess_by_t"])
-        )
-        kernel_diagnostics["backward_selection_ess_mean"] = float(
-            jnp.mean(summary_extra_fields["backward_selection_ess_by_t"])
-        )
-        kernel_diagnostics["backward_selection_entropy_mean"] = float(
-            jnp.mean(summary_extra_fields["backward_selection_entropy_by_t"])
-        )
-        kernel_diagnostics["backward_selection_max_prob_mean"] = float(
-            jnp.mean(summary_extra_fields["backward_selection_max_prob_by_t"])
         )
     if kernel.adapt_amala_delta:
         kernel_diagnostics["amala_grad_norm_mean"] = float(

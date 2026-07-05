@@ -55,9 +55,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
     build_smoother_context,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
-    _DSMC_LEAF_PROPOSAL_AMALA,
-    _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-    _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+    _DSMC_LEAF_PROPOSAL_PAID_MIX,
     _DSMC_LEAF_PROPOSALS,
     _LATENT_SMOOTHER_DSMC,
     MPGibbsLatentSmoother,
@@ -98,12 +96,10 @@ _DEFAULT_AMALA_GRAD_CLIP = float("inf")
 _DEFAULT_PARAM_TARGET_ACCEPT = 0.35
 
 
-def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother, dsmc_leaf_proposal: str) -> bool:
-    return latent_smoother.name == _LATENT_SMOOTHER_DSMC and dsmc_leaf_proposal in {
-        _DSMC_LEAF_PROPOSAL_AMALA,
-        _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
-        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-    }
+def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother) -> bool:
+    # Every dsmc leaf is z-anchored on the reference with scale delta/2, so the
+    # per-time delta adaptation always applies.
+    return latent_smoother.name == _LATENT_SMOOTHER_DSMC
 
 
 @dataclass(frozen=True)
@@ -118,7 +114,6 @@ class MarginalParticleGibbsKernel:
     min_scale: float
     max_scale: float
     preconditioned: bool
-    latent_block_size: int
     latent_smoother: MPGibbsLatentSmoother
     latent_delta: float
     amala_delta_init: float
@@ -134,6 +129,7 @@ class MarginalParticleGibbsKernel:
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str
+    latent_block_coords: int | None
     diagnostic_metrics: frozenset[str]
 
 
@@ -147,7 +143,6 @@ def build_marginal_particle_gibbs_kernel(
     min_scale: float = _DEFAULT_MIN_SCALE,
     max_scale: float = _DEFAULT_MAX_SCALE,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
-    latent_block_size: int = 256,
     parameter_proposal: str = "pseudo_langevin",
     latent_smoother: str = _LATENT_SMOOTHER_DSMC,
     latent_delta: float = 0.2,
@@ -163,6 +158,13 @@ def build_marginal_particle_gibbs_kernel(
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
     dsmc_leaf_proposal: str = "amala_exact",
+    latent_block_coords: int | None = None,
+    paid_mix_z_weight: float = 0.85,
+    paid_mix_pilot_weight: float = 0.10,
+    pilot_means: jnp.ndarray | None = None,
+    pilot_vars: jnp.ndarray | None = None,
+    pilot_wide_vars: jnp.ndarray | None = None,
+    sign_flip_spec: Any | None = None,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
 ) -> MarginalParticleGibbsKernel:
@@ -173,7 +175,6 @@ def build_marginal_particle_gibbs_kernel(
         diagnostic_metrics=diagnostic_metrics,
     )
     diagnostic_flags = build_mpgibbs_diagnostic_flags(
-        latent_smoother=latent_smoother_spec.name,
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
     if num_particles < 2:
@@ -184,10 +185,6 @@ def build_marginal_particle_gibbs_kernel(
         raise ValueError(
             "marginal_particle_gibbs min_scale must be <= max_scale; "
             f"got {min_scale} > {max_scale}."
-        )
-    if latent_block_size < 1:
-        raise ValueError(
-            f"marginal_particle_gibbs latent_block_size must be positive; got {latent_block_size}."
         )
     if parameter_proposal not in ("random_walk", "pseudo_langevin"):
         raise ValueError(
@@ -242,6 +239,27 @@ def build_marginal_particle_gibbs_kernel(
             "marginal_particle_gibbs dsmc_leaf_proposal must be one of "
             f"{allowed}; got {dsmc_leaf_proposal!r}."
         )
+    if latent_block_coords is not None and latent_block_coords < 1:
+        raise ValueError(
+            "marginal_particle_gibbs latent_block_coords must be a positive coordinate "
+            f"count or None (all coordinates); got {latent_block_coords}."
+        )
+    if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PAID_MIX:
+        if not (0.0 < paid_mix_z_weight < 1.0) or not (0.0 < paid_mix_pilot_weight < 1.0):
+            raise ValueError(
+                "marginal_particle_gibbs paid_mix weights must lie in (0, 1); got "
+                f"z={paid_mix_z_weight}, pilot={paid_mix_pilot_weight}."
+            )
+        if paid_mix_z_weight + paid_mix_pilot_weight >= 1.0:
+            raise ValueError(
+                "marginal_particle_gibbs paid_mix weights must leave a positive wide-tail "
+                f"share; got z + pilot = {paid_mix_z_weight + paid_mix_pilot_weight}."
+            )
+        if pilot_means is None or pilot_vars is None or pilot_wide_vars is None:
+            raise ValueError(
+                "marginal_particle_gibbs dsmc_leaf_proposal='paid_mix' requires pilot "
+                "moments (pilot_means, pilot_vars, pilot_wide_vars) from the IEKS warmup."
+            )
     use_gradient_drift = parameter_proposal == "pseudo_langevin"
     if target_accept is None:
         target_accept = _DEFAULT_PARAM_TARGET_ACCEPT
@@ -351,11 +369,16 @@ def build_marginal_particle_gibbs_kernel(
         runtime_times=runtime_times,
         num_particles=num_particles,
         num_parameter_particles=num_parameter_particles,
-        latent_block_size=latent_block_size,
         latent_delta=latent_delta,
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
         dsmc_leaf_proposal=dsmc_leaf_proposal,
+        latent_block_coords=latent_block_coords,
+        paid_mix_z_weight=paid_mix_z_weight,
+        paid_mix_pilot_weight=paid_mix_pilot_weight,
+        pilot_means=pilot_means,
+        pilot_vars=pilot_vars,
+        pilot_wide_vars=pilot_wide_vars,
         transition_initial_log_prob_fn=bundle["transition_initial_log_prob_from_context_fn"],
         transition_log_prob_fn=bundle["transition_log_prob_from_context_fn"],
         transition_log_probs_for_pairs_fn=bundle["transition_log_probs_for_pairs_from_context_fn"],
@@ -365,7 +388,10 @@ def build_marginal_particle_gibbs_kernel(
     )
 
     def _step_fn(state: TrajectoryMCMCState, key: jnp.ndarray):
-        param_key, block_key, label_key = random.split(key, 3)
+        if sign_flip_spec is not None:
+            param_key, block_key, label_key, flip_choice_key, flip_accept_key = random.split(key, 5)
+        else:
+            param_key, block_key, label_key = random.split(key, 3)
         x_ref = state.latent_trajectory
         traj_dtype = state.trajectory_log_prob.dtype
         complete_dtype = state.complete_log_posterior.dtype
@@ -416,16 +442,76 @@ def build_marginal_particle_gibbs_kernel(
             )
             next_complete = jnp.asarray(log_prior_unc_fn(next_position), dtype=complete_dtype)
             next_complete = next_complete + next_traj_lp.astype(complete_dtype)
+
+            if sign_flip_spec is not None:
+                # Joint (latent coordinate, loading column) sign-flip MH move composed
+                # after the smoother sweep: the flip is a state-independent involution,
+                # so the acceptance is the exact joint posterior ratio — which prices
+                # the sign-asymmetric loading prior and any drift coupling. This is
+                # the escape route between the factor-sign mirror basins that the
+                # alternating conditionals cannot cross on their own.
+                n_flippable = int(sign_flip_spec.coords.shape[0])
+                flip_idx = random.randint(flip_choice_key, (), 0, n_flippable)
+                flip_coord = sign_flip_spec.coords[flip_idx]
+                position_mask = sign_flip_spec.masks[flip_idx]
+                flipped_position = jnp.where(position_mask, -next_position, next_position)
+                latent_dim = int(latent_path.shape[1])
+                coord_sign = jnp.where(
+                    jnp.arange(latent_dim, dtype=jnp.int32) == flip_coord,
+                    -jnp.ones((latent_dim,), dtype=latent_path.dtype),
+                    jnp.ones((latent_dim,), dtype=latent_path.dtype),
+                )
+                flipped_latent = latent_path * coord_sign[None, :]
+                flipped_context = latent_context_runtime_fn(flipped_position, runtime_times)
+                flipped_complete, flipped_traj_lp = bundle[
+                    "complete_log_posterior_from_context_runtime_fn"
+                ](
+                    flipped_position,
+                    flipped_context,
+                    flipped_latent,
+                    runtime_observations,
+                )
+                flip_delta = flipped_complete.astype(complete_dtype) - next_complete
+                flip_accepted = (
+                    jnp.log(random.uniform(flip_accept_key, dtype=flip_delta.dtype)) < flip_delta
+                )
+                next_position = jnp.where(flip_accepted, flipped_position, next_position)
+                latent_path = jnp.where(flip_accepted, flipped_latent, latent_path)
+                next_traj_lp = jnp.where(
+                    flip_accepted,
+                    jnp.asarray(flipped_traj_lp, dtype=traj_dtype),
+                    next_traj_lp,
+                )
+                next_complete = jnp.where(
+                    flip_accepted, flipped_complete.astype(complete_dtype), next_complete
+                )
+                next_context = jax.tree_util.tree_map(
+                    lambda flipped, kept: jnp.where(flip_accepted, flipped, kept),
+                    flipped_context,
+                    next_context,
+                )
+
             latent_move = latent_path - x_ref
             latent_move_rms_per_t = jnp.sqrt(jnp.mean(latent_move * latent_move, axis=-1))
             latent_move_rms = jnp.sqrt(jnp.mean(latent_move * latent_move))
             latent_move_max_abs = jnp.max(jnp.abs(latent_move))
             parameter_accepted = (selected_label != 0).astype(state.position.dtype)
             latent_updated = (origin_path != 0).astype(state.position.dtype)
+            # Per-(t, d) exact-equality freeze indicator. A completely stuck chain has
+            # zero autocovariance at every lag and therefore reports PERFECT ESS under
+            # initial-positive-sequence estimators — this counter is the direct gauge
+            # standard diagnostics structurally cannot provide. With coordinate-block
+            # proposals it also resolves per-coordinate freezing that the per-t
+            # `latent_accepted` trace cannot see.
+            latent_frozen = (latent_path == x_ref).astype(state.position.dtype)
+            latent_frozen_frac = jnp.mean(latent_frozen)
+            latent_frozen_frac_by_d = jnp.mean(latent_frozen, axis=0)
 
             step_info = {
                 "parameter_accepted": parameter_accepted,
                 "latent_accepted": latent_updated,
+                "latent_frozen_frac": latent_frozen_frac,
+                "latent_frozen_frac_by_d": latent_frozen_frac_by_d,
                 "selected_label": selected_label.astype(jnp.float32),
                 "final_particle": origin_path[-1].astype(jnp.float32),
                 "latent_move_rms": latent_move_rms,
@@ -435,6 +521,9 @@ def build_marginal_particle_gibbs_kernel(
                 "amala_grad_norm_mean": amala_grad_norm_mean.astype(jnp.float32),
                 "amala_grad_norm_max": amala_grad_norm_max.astype(jnp.float32),
             }
+            if sign_flip_spec is not None:
+                step_info["sign_flip_accepted"] = flip_accepted.astype(state.position.dtype)
+                step_info["sign_flip_delta"] = flip_delta.astype(jnp.float32)
             if diagnostic_flags.parameter_movement:
                 parameter_jump = next_position - state.position
                 step_info["parameter_jump_rms"] = jnp.sqrt(
@@ -453,34 +542,6 @@ def build_marginal_particle_gibbs_kernel(
                         "selected_particle_unique_count": (
                             selected_particle_unique_count.astype(jnp.float32)
                         ),
-                    }
-                )
-            if diagnostic_flags.particle_filter:
-                step_info.update(
-                    {
-                        "forward_particle_ess_by_t": smoother_result.diagnostics[
-                            "forward_particle_ess_by_t"
-                        ].astype(jnp.float32),
-                        "forward_log_weight_range_by_t": smoother_result.diagnostics[
-                            "forward_log_weight_range_by_t"
-                        ].astype(jnp.float32),
-                        "forward_log_weight_variance_by_t": smoother_result.diagnostics[
-                            "forward_log_weight_variance_by_t"
-                        ].astype(jnp.float32),
-                    }
-                )
-            if diagnostic_flags.backward_selection:
-                step_info.update(
-                    {
-                        "backward_selection_ess_by_t": smoother_result.diagnostics[
-                            "backward_selection_ess_by_t"
-                        ].astype(jnp.float32),
-                        "backward_selection_entropy_by_t": smoother_result.diagnostics[
-                            "backward_selection_entropy_by_t"
-                        ].astype(jnp.float32),
-                        "backward_selection_max_prob_by_t": smoother_result.diagnostics[
-                            "backward_selection_max_prob_by_t"
-                        ].astype(jnp.float32),
                     }
                 )
 
@@ -504,7 +565,6 @@ def build_marginal_particle_gibbs_kernel(
         min_scale=min_scale,
         max_scale=max_scale,
         preconditioned=parameter_preconditioner_chol is not None,
-        latent_block_size=latent_block_size,
         latent_smoother=latent_smoother_spec,
         latent_delta=latent_delta,
         amala_delta_init=amala_delta_init,
@@ -516,10 +576,11 @@ def build_marginal_particle_gibbs_kernel(
         amala_adaptation_rho=amala_adaptation_rho,
         amala_adaptation_rho_min=amala_adaptation_rho_min,
         amala_adaptation_gamma=amala_adaptation_gamma,
-        adapt_amala_delta=_uses_amala_delta(latent_smoother_spec, dsmc_leaf_proposal),
+        adapt_amala_delta=_uses_amala_delta(latent_smoother_spec),
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
         dsmc_leaf_proposal=dsmc_leaf_proposal,
+        latent_block_coords=latent_block_coords,
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
 
@@ -742,7 +803,6 @@ def run_marginal_particle_gibbs(
     )
     need_public_latent = compute_latent_posterior_summary or retain_latent_paths
     diagnostic_flags = build_mpgibbs_diagnostic_flags(
-        latent_smoother=kernel.latent_smoother.name,
         diagnostic_metrics=kernel.diagnostic_metrics,
     )
     public_latent_fn = bundle["public_latent_trajectory_runtime_fn"]
@@ -770,14 +830,11 @@ def run_marginal_particle_gibbs(
     latent_move_rms_history: list[jnp.ndarray] = []
     latent_move_max_abs_history: list[jnp.ndarray] = []
     latent_move_rms_per_t_history: list[jnp.ndarray] = []
+    latent_frozen_frac_history: list[jnp.ndarray] = []
+    latent_frozen_frac_by_d_history: list[jnp.ndarray] = []
+    sign_flip_accept_history: list[jnp.ndarray] = []
     parameter_jump_rms_history: list[jnp.ndarray] = []
     final_label_log_probs_history: list[jnp.ndarray] = []
-    forward_particle_ess_history: list[jnp.ndarray] = []
-    forward_log_weight_range_history: list[jnp.ndarray] = []
-    forward_log_weight_variance_history: list[jnp.ndarray] = []
-    backward_selection_ess_history: list[jnp.ndarray] = []
-    backward_selection_entropy_history: list[jnp.ndarray] = []
-    backward_selection_max_prob_history: list[jnp.ndarray] = []
     amala_grad_norm_mean_history: list[jnp.ndarray] = []
     amala_grad_norm_max_history: list[jnp.ndarray] = []
 
@@ -790,7 +847,7 @@ def run_marginal_particle_gibbs(
         f"n_parameter_particles={kernel.num_parameter_particles} "
         f"latent_smoother={kernel.latent_smoother.name} "
         f"dsmc_leaf_proposal={kernel.dsmc_leaf_proposal} "
-        f"latent_block_size={kernel.latent_block_size} progress_every={progress_every}",
+        f"latent_block_coords={kernel.latent_block_coords} progress_every={progress_every}",
         flush=True,
     )
 
@@ -875,6 +932,10 @@ def run_marginal_particle_gibbs(
             latent_move_rms_history.append(step_info["latent_move_rms"])
             latent_move_max_abs_history.append(step_info["latent_move_max_abs"])
             latent_move_rms_per_t_history.append(step_info["latent_move_rms_per_t"])
+            latent_frozen_frac_history.append(step_info["latent_frozen_frac"])
+            latent_frozen_frac_by_d_history.append(step_info["latent_frozen_frac_by_d"])
+            if "sign_flip_accepted" in step_info:
+                sign_flip_accept_history.append(step_info["sign_flip_accepted"])
             final_label_log_probs_history.append(step_info["final_label_log_probs"])
             amala_grad_norm_mean_history.append(step_info["amala_grad_norm_mean"])
             amala_grad_norm_max_history.append(step_info["amala_grad_norm_max"])
@@ -886,20 +947,6 @@ def run_marginal_particle_gibbs(
                 )
             if diagnostic_flags.parameter_movement:
                 parameter_jump_rms_history.append(step_info["parameter_jump_rms"])
-            if diagnostic_flags.particle_filter:
-                forward_particle_ess_history.append(step_info["forward_particle_ess_by_t"])
-                forward_log_weight_range_history.append(step_info["forward_log_weight_range_by_t"])
-                forward_log_weight_variance_history.append(
-                    step_info["forward_log_weight_variance_by_t"]
-                )
-            if diagnostic_flags.backward_selection:
-                backward_selection_ess_history.append(step_info["backward_selection_ess_by_t"])
-                backward_selection_entropy_history.append(
-                    step_info["backward_selection_entropy_by_t"]
-                )
-                backward_selection_max_prob_history.append(
-                    step_info["backward_selection_max_prob_by_t"]
-                )
 
             if need_public_latent:
                 public_latent = _sample_public_latent_batch(
@@ -1078,6 +1125,22 @@ def run_marginal_particle_gibbs(
             ),
             dtype=states.latent_trajectory.dtype,
         ),
+        "latent_frozen_frac": _stack_sample_history(
+            latent_frozen_frac_history,
+            num_chains=num_chains,
+            trailing_shape=(),
+            dtype=chain_init_positions.dtype,
+        ),
+        "latent_frozen_frac_by_d": _stack_sample_history(
+            latent_frozen_frac_by_d_history,
+            num_chains=num_chains,
+            trailing_shape=(
+                tuple(latent_frozen_frac_by_d_history[0].shape[1:])
+                if latent_frozen_frac_by_d_history
+                else (int(states.latent_trajectory.shape[1]),)
+            ),
+            dtype=states.latent_trajectory.dtype,
+        ),
         "final_label_log_probs": _stack_sample_history(
             final_label_log_probs_history,
             num_chains=num_chains,
@@ -1101,6 +1164,13 @@ def run_marginal_particle_gibbs(
             dtype=chain_init_positions.dtype,
         ),
     }
+    if sign_flip_accept_history:
+        all_chain_extra_fields["sign_flip_accept_prob"] = _stack_sample_history(
+            sign_flip_accept_history,
+            num_chains=num_chains,
+            trailing_shape=(),
+            dtype=chain_init_positions.dtype,
+        )
     if diagnostic_flags.particle_identity:
         all_chain_extra_fields.update(
             {
@@ -1130,52 +1200,6 @@ def run_marginal_particle_gibbs(
             num_chains=num_chains,
             trailing_shape=(),
             dtype=chain_init_positions.dtype,
-        )
-    if diagnostic_flags.particle_filter:
-        all_chain_extra_fields.update(
-            {
-                "forward_particle_ess_by_t": _stack_sample_history(
-                    forward_particle_ess_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(forward_particle_ess_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-                "forward_log_weight_range_by_t": _stack_sample_history(
-                    forward_log_weight_range_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(forward_log_weight_range_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-                "forward_log_weight_variance_by_t": _stack_sample_history(
-                    forward_log_weight_variance_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(forward_log_weight_variance_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-            }
-        )
-    if diagnostic_flags.backward_selection:
-        all_chain_extra_fields.update(
-            {
-                "backward_selection_ess_by_t": _stack_sample_history(
-                    backward_selection_ess_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(backward_selection_ess_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-                "backward_selection_entropy_by_t": _stack_sample_history(
-                    backward_selection_entropy_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(backward_selection_entropy_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-                "backward_selection_max_prob_by_t": _stack_sample_history(
-                    backward_selection_max_prob_history,
-                    num_chains=num_chains,
-                    trailing_shape=tuple(backward_selection_max_prob_history[0].shape[1:]),
-                    dtype=chain_init_positions.dtype,
-                ),
-            }
         )
     chain_extra_fields = {
         name: values[:, num_warmup:] for name, values in all_chain_extra_fields.items()

@@ -4,8 +4,8 @@
 #   docs/papers/desequentialized-smc.pdf — Corenflos, Chopin & Särkkä (2022),
 #     arXiv:2202.02264: de-Sequentialized Monte Carlo. The smoothing distribution
 #     is built by a divide-and-conquer binary tree over time (Prop. 2.2 stitching,
-#     eq. 10-11), instead of the sequential forward filter + backward sampling used
-#     by plain_csmc. We implement the conditional formulation c-dSMC (Section 3,
+#     eq. 10-11), instead of a sequential forward filter + backward sampling.
+#     We implement the conditional formulation c-dSMC (Section 3,
 #     Algorithm 4): the reference trajectory is preserved through every block
 #     combination, making this a valid parallel-in-time conditional-SMC Particle
 #     Gibbs kernel. No backward-sampling step is needed — the balanced tree resamples
@@ -15,11 +15,11 @@
 #     seam weights and trajectory evidence are marginalized over the parameter labels
 #     exactly as in the sibling smoothers (logsumexp over the parameter axis).
 #
-# Leaf proposals are the per-parameter prior-predictive marginals (a Gaussian mixture
-# weighted by the parameter posterior), assembled here from the existing discrete
-# dynamics in the context. This deliberately avoids the parallel-in-time Gaussian
-# approximation of Algorithm 5 (Section 4.1): independent proposals only, no extra
-# context machinery.
+# Leaf proposals are gradient-informed auxiliary ("amala_exact") proposals — or the
+# paid mixture ("paid_mix") that wraps the same z-anchored component together with a
+# fixed IEKS-pilot component and a wide tail in one paid density. Both are exactly
+# corrected: the auxiliary pseudo-observation potential restores invariance for the
+# reference-dependent component, and the mixture density is subtracted in full.
 #
 # Implementation notes (math-preserving):
 #   * The tree is evaluated level-by-level — the time axis is padded to a power of two
@@ -45,9 +45,7 @@ import jax.numpy as jnp
 import jax.random as random
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
-    _DSMC_LEAF_PROPOSAL_AMALA,
-    _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-    _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+    _DSMC_LEAF_PROPOSAL_PAID_MIX,
     MPGibbsLatentSmootherResult,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
@@ -75,12 +73,31 @@ def smooth(ctx, key, x_ref):
     traj_dtype = ctx.traj_dtype
     latent_dim = int(init_means.shape[-1])
     dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
-    is_exact = dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_AMALA_EXACT
+    # Both leaves (amala_exact, paid_mix) draw the auxiliary trajectory z and pay its
+    # pseudo-observation potential; paid_mix additionally mixes in the fixed pilot
+    # and wide components (whose reference-independence needs no payment).
+    is_paid_mix = dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PAID_MIX
     amala_delta = jnp.asarray(ctx.amala_delta, dtype=latent_dtype)
     proposal_var_by_t = jnp.asarray(0.5, dtype=latent_dtype) * amala_delta
     proposal_scale_by_t = jnp.sqrt(proposal_var_by_t)
     proposal_kappa = jnp.asarray(ctx.amala_kappa, dtype=latent_dtype)
     grad_clip = jnp.asarray(ctx.amala_grad_clip, dtype=latent_dtype)
+
+    # Coordinate-block restriction: propose only `latent_block_coords` randomly
+    # chosen coordinates this sweep (the same block at every time step — a whole-path
+    # coordinate-conditional update); all other coordinates are copied from the
+    # reference into every particle. The seams still evaluate the full transition
+    # density, so cross-coordinate coupling is priced exactly and the sweep is
+    # conditional SMC on the coordinate-block conditional of the same target.
+    block_coords = ctx.latent_block_coords
+    if block_coords is not None and block_coords < latent_dim:
+        mask_key = random.fold_in(key, 1)
+        chosen_coords = random.permutation(mask_key, latent_dim)[:block_coords]
+        coord_mask = jnp.zeros((latent_dim,), dtype=bool).at[chosen_coords].set(True)
+        proposed_dim = int(block_coords)
+    else:
+        coord_mask = None
+        proposed_dim = latent_dim
 
     def _per_param_gaussian_log_probs(values, means, chols, logdets):
         per_param = jax.vmap(
@@ -96,8 +113,22 @@ def smooth(ctx, key, x_ref):
         proposal_var_t: jnp.ndarray,
     ) -> jnp.ndarray:
         diff = values - mean
-        quadratic = jnp.sum(diff * diff, axis=-1) / proposal_var_t
-        return -0.5 * (latent_dim * jnp.log(2.0 * jnp.pi * proposal_var_t) + quadratic)
+        squared = diff * diff
+        if coord_mask is not None:
+            squared = jnp.where(coord_mask, squared, jnp.zeros_like(squared))
+        quadratic = jnp.sum(squared, axis=-1) / proposal_var_t
+        return -0.5 * (proposed_dim * jnp.log(2.0 * jnp.pi * proposal_var_t) + quadratic)
+
+    def _log_diagonal_density(
+        values: jnp.ndarray,
+        mean_t: jnp.ndarray,
+        var_t: jnp.ndarray,
+    ) -> jnp.ndarray:
+        diff = values - mean_t
+        per_coord = -0.5 * (jnp.log(2.0 * jnp.pi * var_t) + diff * diff / var_t)
+        if coord_mask is not None:
+            per_coord = jnp.where(coord_mask, per_coord, jnp.zeros_like(per_coord))
+        return jnp.sum(per_coord, axis=-1)
 
     def _clip_gradient(grad: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         norm = jnp.linalg.norm(grad)
@@ -125,25 +156,33 @@ def smooth(ctx, key, x_ref):
     _transition_current_value_grad_by_param = ctx.transition_current_value_grad_by_param
     _transition_next_value_grad_by_param = ctx.transition_next_value_grad_by_param
 
-    use_future = dsmc_leaf_proposal in (
-        _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
-        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
+    # Linearisation points for the gradient leaf: draw an auxiliary trajectory
+    # z ~ N(x_ref, (delta/2) I) and linearise there; the matching N(z_t; x_t,
+    # (delta/2) I) pseudo-observation potential is added to the leaf weight in
+    # _leaf, recovering the exact gradient-informed cSMC proposal of section
+    # 3.3.1 in docs/papers/auxiliary-kalman-samplers.pdf. Centring on x_ref
+    # directly (the historical amala/amala_plus variants) is reference-dependent
+    # without an auxiliary correction and does not leave the target invariant.
+    aux_key = random.fold_in(key, 0)
+    lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
+        aux_key, x_ref.shape, dtype=latent_dtype
     )
-    # Linearisation points for the gradient leaf. amala/amala_plus centre the
-    # proposal on the reference path itself: a reference-dependent proposal with no
-    # auxiliary correction, which does not leave the marginal target invariant
-    # (biased). amala_exact instead draws an auxiliary trajectory z ~ N(x_ref,
-    # (delta/2) I) and linearises there; the matching N(z_t; x_t, (delta/2) I)
-    # pseudo-observation potential is added to the leaf weight in _leaf, recovering
-    # the exact gradient-informed cSMC proposal of section 3.3.1 in
-    # docs/papers/auxiliary-kalman-samplers.pdf.
-    if is_exact:
-        aux_key = random.fold_in(key, 0)
-        lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
-            aux_key, x_ref.shape, dtype=latent_dtype
+
+    if is_paid_mix:
+        pilot_means = ctx.pilot_means
+        pilot_vars = ctx.pilot_vars
+        pilot_wide_vars = ctx.pilot_wide_vars
+        pilot_scales = jnp.sqrt(pilot_vars)
+        pilot_wide_scales = jnp.sqrt(pilot_wide_vars)
+        mix_weights = jnp.asarray(
+            [
+                ctx.paid_mix_z_weight,
+                ctx.paid_mix_pilot_weight,
+                1.0 - ctx.paid_mix_z_weight - ctx.paid_mix_pilot_weight,
+            ],
+            dtype=latent_dtype,
         )
-    else:
-        lin_pts = x_ref
+        mix_log_weights = jnp.log(mix_weights)
 
     def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray):
         particle_t = lin_pts[time_idx]
@@ -166,20 +205,19 @@ def smooth(ctx, key, x_ref):
             init_prior_grad + obs_grad,
             transition_grad + obs_grad,
         )
-        if use_future:
-            next_idx = jnp.minimum(time_idx + 1, num_steps - 1)
-            future_lp, future_grad = _transition_next_value_grad_by_param(
-                particle_t,
-                lin_pts[next_idx],
-                next_idx,
-            )
-            has_future = time_idx < (num_steps - 1)
-            logits = jnp.where(has_future, logits + future_lp, logits)
-            component_grad = jnp.where(
-                has_future,
-                component_grad + future_grad,
-                component_grad,
-            )
+        next_idx = jnp.minimum(time_idx + 1, num_steps - 1)
+        future_lp, future_grad = _transition_next_value_grad_by_param(
+            particle_t,
+            lin_pts[next_idx],
+            next_idx,
+        )
+        has_future = time_idx < (num_steps - 1)
+        logits = jnp.where(has_future, logits + future_lp, logits)
+        component_grad = jnp.where(
+            has_future,
+            component_grad + future_grad,
+            component_grad,
+        )
         label_log_probs = _normalize_log_probs(logits)
         label_probs = jnp.exp(label_log_probs).astype(latent_dtype)
         grad = jnp.einsum("p,pd->d", label_probs, component_grad)
@@ -193,12 +231,29 @@ def smooth(ctx, key, x_ref):
 
     def _leaf(time_idx, leaf_key):
         component_key, sample_key = random.split(leaf_key, 2)
-        del component_key
-        free_particles = proposal_centers[time_idx] + proposal_scale_by_t[time_idx] * random.normal(
+        noise = random.normal(
             sample_key,
             (num_free_particles, latent_dim),
             dtype=latent_dtype,
         )
+        z_component = proposal_centers[time_idx] + proposal_scale_by_t[time_idx] * noise
+        if is_paid_mix:
+            component = random.categorical(
+                component_key, mix_log_weights, shape=(num_free_particles,)
+            )
+            pilot_component = pilot_means[time_idx] + pilot_scales[time_idx] * noise
+            wide_component = pilot_means[time_idx] + pilot_wide_scales[time_idx] * noise
+            free_particles = jnp.where(
+                (component == 0)[:, None],
+                z_component,
+                jnp.where((component == 1)[:, None], pilot_component, wide_component),
+            )
+        else:
+            free_particles = z_component
+        if coord_mask is not None:
+            free_particles = jnp.where(
+                coord_mask[None, :], free_particles, x_ref[time_idx][None, :]
+            )
         particles = jnp.concatenate([x_ref[time_idx][None, :], free_particles], axis=0)
         obs_lp = _observation_log_probs_by_param(
             contexts,
@@ -207,24 +262,39 @@ def smooth(ctx, key, x_ref):
             runtime_observations,
             obs_increment_fn,
         )
-        proposal_lp = _log_isotropic_density(
+        z_proposal_lp = _log_isotropic_density(
             particles,
             proposal_centers[time_idx],
             proposal_var_by_t[time_idx],
         )
+        if is_paid_mix:
+            pilot_lp = _log_diagonal_density(particles, pilot_means[time_idx], pilot_vars[time_idx])
+            wide_lp = _log_diagonal_density(
+                particles, pilot_means[time_idx], pilot_wide_vars[time_idx]
+            )
+            proposal_lp = jax.scipy.special.logsumexp(
+                jnp.stack(
+                    [
+                        mix_log_weights[0] + z_proposal_lp,
+                        mix_log_weights[1] + pilot_lp,
+                        mix_log_weights[2] + wide_lp,
+                    ]
+                ),
+                axis=0,
+            )
+        else:
+            proposal_lp = z_proposal_lp
         init_prior_lp = _per_param_gaussian_log_probs(
             particles, init_means, init_chols, init_logdets
         )
-        tail_psi = obs_lp - proposal_lp[:, None]
-        if is_exact:
-            # Pseudo-observation potential N(z_t; x_t, (delta/2) I) of the auxiliary
-            # extended target (label-independent, so it factors through the parameter
-            # logsumexp). With the q(x_t | z_t) proposal density already subtracted
-            # above, this is the exact target/proposal leaf weight.
-            aux_lp = _log_isotropic_density(
-                particles, lin_pts[time_idx], proposal_var_by_t[time_idx]
-            )
-            tail_psi = tail_psi + aux_lp[:, None]
+        # Pseudo-observation potential N(z_t; x_t, (delta/2) I) of the auxiliary
+        # extended target (label-independent, so it factors through the parameter
+        # logsumexp). With the q(x_t | z_t) proposal density already subtracted
+        # above, this is the exact target/proposal leaf weight; the pilot/wide
+        # mixture components are reference-independent so the same payment covers
+        # paid_mix.
+        aux_lp = _log_isotropic_density(particles, lin_pts[time_idx], proposal_var_by_t[time_idx])
+        tail_psi = obs_lp - proposal_lp[:, None] + aux_lp[:, None]
         initial_psi = init_prior_lp + tail_psi
         psi = jnp.where(time_idx == 0, initial_psi, tail_psi).astype(traj_dtype)
         evidence = jax.scipy.special.logsumexp(logpi[None, :] + psi, axis=1)
@@ -366,17 +436,10 @@ def smooth(ctx, key, x_ref):
 
     latent_path = latent_path.astype(latent_dtype)
     final_label_log_probs = trajectory_label_log_probs(latent_path)
-    if dsmc_leaf_proposal in {
-        _DSMC_LEAF_PROPOSAL_AMALA,
-        _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
-        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-    }:
-        diagnostics = {
-            "amala_grad_norm_mean": jnp.mean(proposal_grad_norms).astype(traj_dtype),
-            "amala_grad_norm_max": jnp.max(proposal_grad_norms).astype(traj_dtype),
-        }
-    else:
-        diagnostics = {}
+    diagnostics = {
+        "amala_grad_norm_mean": jnp.mean(proposal_grad_norms).astype(traj_dtype),
+        "amala_grad_norm_max": jnp.max(proposal_grad_norms).astype(traj_dtype),
+    }
     return MPGibbsLatentSmootherResult(
         latent_path=latent_path,
         final_label_log_probs=final_label_log_probs,

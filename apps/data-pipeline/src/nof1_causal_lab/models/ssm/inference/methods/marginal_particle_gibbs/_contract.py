@@ -15,20 +15,19 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.shapes import Array, Float
 
-_LATENT_SMOOTHER_PLAIN = "plain"
 _LATENT_SMOOTHER_DSMC = "dsmc"
-_DSMC_LEAF_PROPOSAL_AMALA = "amala"
-_DSMC_LEAF_PROPOSAL_AMALA_PLUS = "amala_plus"
 _DSMC_LEAF_PROPOSAL_AMALA_EXACT = "amala_exact"
+# Paid mixture leaf: the amala_exact z-anchored component plus a FIXED pilot
+# component (IEKS warmup moments) and a wide tail, all inside one paid proposal
+# density. Any component that is useless on a given fit costs only its share of
+# proposal mass — never correctness — so the mixture strictly generalizes
+# amala_exact (its z-component alone).
+_DSMC_LEAF_PROPOSAL_PAID_MIX = "paid_mix"
 _DSMC_LEAF_PROPOSALS = (
-    _DSMC_LEAF_PROPOSAL_AMALA,
-    _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
     _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
+    _DSMC_LEAF_PROPOSAL_PAID_MIX,
 )
-_LATENT_SMOOTHERS = (
-    _LATENT_SMOOTHER_PLAIN,
-    _LATENT_SMOOTHER_DSMC,
-)
+_LATENT_SMOOTHERS = (_LATENT_SMOOTHER_DSMC,)
 
 
 @dataclass(frozen=True)
@@ -53,15 +52,6 @@ class MPGibbsLatentSmootherResult(NamedTuple):
 
 
 def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
-    if name == _LATENT_SMOOTHER_PLAIN:
-        return MPGibbsLatentSmoother(
-            name=name,
-            algorithm="blocked_posterior_mixture_backward_csmc",
-            family="posterior_mixture_csmc",
-            selection="blocked_backward_sampling",
-            parallel=False,
-            backward_sampling=True,
-        )
     if name == _LATENT_SMOOTHER_DSMC:
         return MPGibbsLatentSmoother(
             name=name,
@@ -91,11 +81,23 @@ class MPGibbsStatic:
     runtime_times: Any
     num_particles: int
     num_parameter_particles: int
-    latent_block_size: int
     latent_delta: float
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str
+    # Number of latent coordinates proposed per sweep (None = all). Restricting the
+    # per-sweep update to a random coordinate block sidesteps the joint-coherence
+    # weight degeneracy of full-state proposals at higher latent dimension; the tree
+    # seams still pay the full transition density, so this is exactly the
+    # coordinate-conditional cSMC on the same target.
+    latent_block_coords: int | None
+    # paid_mix leaf: mixture weights (wide weight = 1 - z - pilot) and the FIXED
+    # per-time pilot moments derived from the IEKS warmup paths.
+    paid_mix_z_weight: float
+    paid_mix_pilot_weight: float
+    pilot_means: Any
+    pilot_vars: Any
+    pilot_wide_vars: Any
     transition_initial_log_prob_fn: Any
     transition_log_prob_fn: Any
     transition_log_probs_for_pairs_fn: Any
@@ -123,8 +125,6 @@ class SmootherContext:
     num_steps: int
     num_free_particles: int
     num_parameter_particles: int
-    block_size: int
-    num_blocks: int
     latent_dtype: Any
     traj_dtype: Any
     complete_dtype: Any
@@ -137,6 +137,12 @@ class SmootherContext:
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str
+    latent_block_coords: int | None
+    paid_mix_z_weight: float
+    paid_mix_pilot_weight: float
+    pilot_means: Any
+    pilot_vars: Any
+    pilot_wide_vars: Any
     diagnostic_metrics: frozenset[str]
     initial_value_grad_by_param: Callable
     transition_current_value_grad_by_param: Callable

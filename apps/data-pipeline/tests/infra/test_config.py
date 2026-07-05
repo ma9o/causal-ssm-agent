@@ -39,7 +39,6 @@ class TestToSamplerConfig:
         assert result["method"] == "marginal_particle_gibbs"
         assert result["n_particles"] == 64
         assert result["n_parameter_particles"] == 2
-        assert result["latent_block_size"] == 256
         assert result["latent_smoother"] == "dsmc"
         assert result["dsmc_leaf_proposal"] == "amala_exact"
         assert result["latent_delta"] == 0.2
@@ -76,7 +75,6 @@ class TestToSamplerConfig:
             marginal_particle_gibbs=MarginalParticleGibbsConfig(
                 n_particles=17,
                 n_parameter_particles=3,
-                latent_block_size=5,
                 latent_smoother="dsmc",
                 latent_delta=0.31,
                 amala_kappa=0.25,
@@ -99,7 +97,6 @@ class TestToSamplerConfig:
         assert result["method"] == "marginal_particle_gibbs"
         assert result["n_particles"] == 17
         assert result["n_parameter_particles"] == 3
-        assert result["latent_block_size"] == 5
         assert result["latent_smoother"] == "dsmc"
         assert result["latent_delta"] == 0.31
         assert result["amala_kappa"] == 0.25
@@ -212,7 +209,6 @@ FULL_CONFIG = textwrap.dedent("""\
       marginal_particle_gibbs:
         n_particles: 24
         n_parameter_particles: 3
-        latent_block_size: 6
         latent_smoother: dsmc
         latent_delta: 0.29
         amala_kappa: 0.2
@@ -291,7 +287,6 @@ class TestLoadConfig:
         assert cfg.inference.map.n_ieks_iters == 10
         assert cfg.inference.marginal_particle_gibbs.n_particles == 24
         assert cfg.inference.marginal_particle_gibbs.n_parameter_particles == 3
-        assert cfg.inference.marginal_particle_gibbs.latent_block_size == 6
         assert cfg.inference.marginal_particle_gibbs.latent_smoother == "dsmc"
         assert cfg.inference.marginal_particle_gibbs.latent_delta == 0.29
         assert cfg.inference.marginal_particle_gibbs.amala_kappa == 0.2

@@ -52,8 +52,6 @@ def build_smoother_context(
     traj_dtype = state.trajectory_log_prob.dtype
     complete_dtype = state.complete_log_posterior.dtype
     num_steps = int(x_ref.shape[0])
-    block_size = min(int(static.latent_block_size), num_steps)
-    num_blocks = (num_steps + block_size - 1) // block_size
     num_free_particles = static.num_particles - 1
 
     with jax.named_scope("build_contexts"):
@@ -344,8 +342,6 @@ def build_smoother_context(
         num_steps=num_steps,
         num_free_particles=num_free_particles,
         num_parameter_particles=num_parameter_particles,
-        block_size=block_size,
-        num_blocks=num_blocks,
         latent_dtype=latent_dtype,
         traj_dtype=traj_dtype,
         complete_dtype=complete_dtype,
@@ -358,6 +354,24 @@ def build_smoother_context(
         amala_kappa=static.amala_kappa,
         amala_grad_clip=static.amala_grad_clip,
         dsmc_leaf_proposal=static.dsmc_leaf_proposal,
+        latent_block_coords=static.latent_block_coords,
+        paid_mix_z_weight=static.paid_mix_z_weight,
+        paid_mix_pilot_weight=static.paid_mix_pilot_weight,
+        pilot_means=(
+            None
+            if static.pilot_means is None
+            else jnp.asarray(static.pilot_means, dtype=latent_dtype)
+        ),
+        pilot_vars=(
+            None
+            if static.pilot_vars is None
+            else jnp.asarray(static.pilot_vars, dtype=latent_dtype)
+        ),
+        pilot_wide_vars=(
+            None
+            if static.pilot_wide_vars is None
+            else jnp.asarray(static.pilot_wide_vars, dtype=latent_dtype)
+        ),
         diagnostic_metrics=static.diagnostic_metrics,
         initial_value_grad_by_param=_initial_value_grad_by_param,
         transition_current_value_grad_by_param=_transition_current_value_grad_by_param,

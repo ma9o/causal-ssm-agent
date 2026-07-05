@@ -97,8 +97,11 @@ inference:
   marginal_particle_gibbs:
     n_particles: 64
     n_parameter_particles: 2
-    latent_block_size: 256
-    latent_smoother: plain
+    # The indexed production method: parallel-in-time c-dSMC tree smoother with the
+    # paid mixture leaf (amala_exact z-component + fixed IEKS-pilot component + wide
+    # tail). Benchmarked in notebooks/inference_and_causal_walkthroughs.py §15-§16.
+    latent_smoother: dsmc
+    dsmc_leaf_proposal: paid_mix
     latent_delta: 0.2
     parameter_proposal: pseudo_langevin
     param_step_size: 0.02

@@ -199,8 +199,7 @@ class MarginalParticleGibbsConfig:
 
     n_particles: int = 64
     n_parameter_particles: int = 2
-    latent_block_size: int = 256
-    latent_smoother: Literal["plain", "dsmc"] = "dsmc"
+    latent_smoother: Literal["dsmc"] = "dsmc"
     latent_delta: float = 0.2
     parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
     amala_delta_init: float = 1e-2
@@ -214,9 +213,24 @@ class MarginalParticleGibbsConfig:
     amala_adaptation_gamma: float = -0.5
     amala_kappa: float = 0.75
     amala_grad_clip: float = math.inf
-    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus", "amala_exact"] = (
-        "amala_exact"
-    )
+    dsmc_leaf_proposal: Literal["amala_exact", "paid_mix"] = "amala_exact"
+    # Coordinate-block proposals: number of latent coordinates proposed per sweep
+    # (None = all). Blocks of 2-4 sidestep the joint-coherence weight degeneracy of
+    # full-state proposals at higher latent dimension.
+    latent_block_coords: int | None = None
+    # paid_mix leaf mixture: z-anchored (amala_exact core) + fixed IEKS-pilot
+    # component + wide tail (weight = 1 - z - pilot). Pilot variances are
+    # pilot_var_scale x the IEKS paths' per-coordinate spread; the wide tail is
+    # wide_mult x the same spread.
+    paid_mix_z_weight: float = 0.85
+    paid_mix_pilot_weight: float = 0.10
+    paid_mix_pilot_var_scale: float = 0.25
+    paid_mix_wide_mult: float = 4.0
+    # Joint (latent coordinate, loading column) sign-flip MH move composed after the
+    # smoother sweep — the escape route between factor-sign mirror basins that
+    # alternating conditionals cannot cross. Requires unconstrained (identity
+    # transform) free loadings.
+    latent_sign_flip_moves: bool = False
     diagnostic_metrics_all: bool = False
     diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02
