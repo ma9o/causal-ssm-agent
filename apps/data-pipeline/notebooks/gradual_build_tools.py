@@ -797,11 +797,3 @@ def render_report(title, results, art):
             _figs.append(mo.as_html(_fn(_r.evidence)))
             _seen.add(id(_fn))
     return mo.vstack([_md, *_figs])
-
-
-def fan(ax, t, xs, color, label=None):
-    _qs = np.percentile(np.asarray(xs), [5, 25, 50, 75, 95], axis=0)
-    ax.fill_between(t, _qs[0], _qs[4], color=color, alpha=0.15, lw=0)
-    ax.fill_between(t, _qs[1], _qs[3], color=color, alpha=0.3, lw=0)
-    ax.plot(t, _qs[2], color=color, lw=1.5, label=label)
-    ax.spines[["top", "right"]].set_visible(False)
