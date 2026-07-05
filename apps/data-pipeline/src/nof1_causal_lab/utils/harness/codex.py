@@ -482,6 +482,24 @@ def _link_codex_auth(codex_home: Path) -> None:
     (codex_home / "auth.json").write_bytes(user_auth.read_bytes())
 
 
+def _persist_codex_auth(codex_home: Path) -> None:
+    """Write a rotated ``auth.json`` back to ``~/.codex``.
+
+    Subscription refresh tokens rotate on use: after codex refreshes
+    in-session, the scratch copy is the only holder of the live refresh
+    token. Discarding it with the scratch dir strands the whole token
+    family — the next session copies the consumed token and dies with
+    "refresh token was already used", forcing an interactive re-login.
+    """
+    scratch_auth = codex_home / "auth.json"
+    user_auth = Path("~/.codex/auth.json").expanduser()
+    if not scratch_auth.exists() or not user_auth.exists():
+        return
+    rotated = scratch_auth.read_bytes()
+    if rotated != user_auth.read_bytes():
+        user_auth.write_bytes(rotated)
+
+
 @asynccontextmanager
 async def open_codex_harness_session(
     *,
@@ -533,3 +551,4 @@ async def open_codex_harness_session(
                 yield session
             finally:
                 await session.aclose()
+                _persist_codex_auth(codex_home)
