@@ -57,8 +57,8 @@ from nof1_causal_lab.models.ssm.reachability import (
     stage_outcome,
 )
 from nof1_causal_lab.utils.causal_spec import (
-    get_constructs,
     get_estimation_edges,
+    get_estimation_state_order,
 )
 
 if TYPE_CHECKING:
@@ -125,15 +125,20 @@ class AdmissionReport:
 def build_construct_order(causal_spec: dict) -> list[str]:
     """Construct order (parents before children) along the causal arrows.
 
-    Ties (independent roots) break by the causal_spec construct order for
+    The universe is the estimation projection's ``state_order`` — constructs
+    stage-1b marginalized, anchored, or dropped out of estimation carry no
+    state, so there is nothing to admit for them (restricting the spec to one
+    would fail compilation with an empty state_order).
+
+    Ties (independent roots) break by the state_order position for
     determinism. Time-invariant confounders, being edge sources, naturally sort
     first. Lagged feedback loops are legal latent structure (the latent-model
     validator only forbids *contemporaneous* cycles), so the sort runs on the
     condensation: members of a feedback cycle are admitted back-to-back in
-    causal_spec order, and restrict_causal_spec defers the closing edge until
+    state_order, and restrict_causal_spec defers the closing edge until
     the whole cycle is admitted.
     """
-    constructs = [c["name"] for c in get_constructs(causal_spec)]
+    constructs = get_estimation_state_order(causal_spec)
     order_index = {name: i for i, name in enumerate(constructs)}
     graph = nx.DiGraph()
     graph.add_nodes_from(constructs)

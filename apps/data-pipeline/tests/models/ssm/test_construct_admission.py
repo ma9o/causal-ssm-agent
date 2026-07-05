@@ -118,6 +118,22 @@ def test_build_construct_order_is_topological():
     assert order.index("X") < order.index("Y") < order.index("Z")
 
 
+def test_build_construct_order_covers_only_estimation_states():
+    """Constructs marginalized/anchored/dropped out of the estimation
+    projection carry no state — nothing to admit for them."""
+    spec = _make_causal_spec_dict()
+    spec["latent"]["constructs"].append(
+        {
+            "name": "M",
+            "description": "Marginalized confounder",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        }
+    )
+    order = build_construct_order(spec)
+    assert order == ["X", "Y", "Z"]
+
+
 def test_build_construct_order_admits_lagged_feedback_cycles():
     """Lagged feedback loops sort as a unit: cycle members adjacent, parents first."""
     spec = _make_causal_spec_dict()
