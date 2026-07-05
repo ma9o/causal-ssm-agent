@@ -19,7 +19,6 @@ from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
     SemanticBinding,
     SiteDescriptor,
-    SiteKind,
     site_size,
 )
 
@@ -49,13 +48,6 @@ class SemanticBindingRegistry:
 
     def get(self, parameter: str) -> SemanticBinding | None:
         return self.by_parameter.get(parameter)
-
-    def by_site_kind(self, site_kind: SiteKind) -> dict[str, SemanticBinding]:
-        return {
-            binding.parameter_name: binding
-            for binding in self.bindings
-            if binding.site_kind == site_kind
-        }
 
 
 def empty_prior_bindings() -> SemanticBindingRegistry:

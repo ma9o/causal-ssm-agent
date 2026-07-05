@@ -122,25 +122,6 @@ def render_dynamic_prior_scale_guidance() -> str:
     )
 
 
-def render_lagged_beta_authored_interval_guidance() -> str:
-    """Render the shared Stage 4 guidance for lagged beta priors."""
-    return "\n".join(
-        [
-            "- Author `params` on the interval you actually mean.",
-            "- If you omit `reference_interval_days`, the system assumes `params` "
-            "are already expressed on the model interval shown in the fixed-effect "
-            "prior card.",
-            "- If the literature estimate comes from a different study interval, set "
-            "`reference_interval_days` to that interval and keep `params` on that "
-            "authored interval scale. The compiler will rescale it before CT compilation.",
-            "- Do not manually pre-convert lagged `beta_*` priors into continuous-time "
-            "or one-step drift units.",
-            "- If `Feedback Loop` is `yes`, use a more conservative interval-scale "
-            "effect than a cross-sectional or multi-day association would suggest.",
-        ]
-    )
-
-
 # ---------------------------------------------------------------------------
 # Parameter role catalog — authoritative source for docs codegen and the
 # EXPECTED_CONSTRAINT_FOR_ROLE dict in artifacts/model_spec.py.

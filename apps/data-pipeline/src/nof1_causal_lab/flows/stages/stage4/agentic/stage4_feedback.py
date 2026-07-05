@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
     from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
@@ -58,33 +56,6 @@ class Stage4GroundingResult:
     def feedback(self) -> str:
         """Return the model-facing validator feedback string."""
         return self.validation_packet.model_feedback
-
-
-@dataclass(frozen=True)
-class Stage4ScopeSnapshot:
-    """Typed prompt-visible context for one active Stage 4 block."""
-
-    block_id: str
-    block_kind: str
-    block_label: str
-    block_instructions: str
-    frontier_status: str
-    model_topology: dict[str, Any]
-    distribution_cards: list[dict[str, Any]]
-    loading_params: list[dict[str, Any]]
-    construct_scale_cards: list[dict[str, Any]]
-    prior_cards: list[dict[str, Any]]
-    coupled_prior_cards: list[dict[str, Any]]
-    accepted_model_spec: dict[str, Any] | None
-    accepted_authored_priors: dict[str, dict[str, Any]]
-    centerable_construct_names: tuple[str, ...]
-    baseline_factor_names: tuple[str, ...]
-    submission_example: str
-    include_prior_source_guidance: bool
-    latest_validation: Stage4ValidationPacket
-    editable_parameter_names: tuple[str, ...] = field(default_factory=tuple)
-    visible_parameter_names: tuple[str, ...] = field(default_factory=tuple)
-    coupled_parameter_names: tuple[str, ...] = field(default_factory=tuple)
 
 
 def make_stage4_validation_packet(
@@ -158,95 +129,6 @@ def make_stage4_grounding_result(
             retain_for_next_prompt=retain_for_next_prompt,
             capture_stage_output=capture_stage_output,
         ),
-    )
-
-
-def default_stage4_validation_packet() -> Stage4ValidationPacket:
-    """Return the initial idle validator state for a fresh scope."""
-    return make_stage4_validation_packet(
-        status="idle",
-        feedback="No validator feedback yet. Submit the active block only.",
-        retain_for_next_prompt=True,
-        capture_stage_output=False,
-    )
-
-
-def render_stage4_validation_feedback(packet: Stage4ValidationPacket | None) -> str:
-    """Render model-facing feedback from a typed validation packet."""
-    if packet is None:
-        packet = default_stage4_validation_packet()
-    return packet.model_feedback
-
-
-def should_store_stage4_validation_packet(packet: Stage4ValidationPacket | None) -> bool:
-    """Whether a validation packet should remain in runtime for the next prompt."""
-    return packet is not None and packet.retain_for_next_prompt
-
-
-def build_validation_packet_for_block(
-    *,
-    block_id: str | None,
-    status: Stage4ValidationStatus,
-    feedback: str,
-    validation: AssemblyValidation | None = None,
-    changed_parameters: tuple[str, ...] = (),
-    state_retained: bool = False,
-    retain_for_next_prompt: bool = True,
-    capture_stage_output: bool = False,
-) -> Stage4ValidationPacket:
-    """Build a typed validation packet scoped to one Stage 4 block."""
-    return make_stage4_validation_packet(
-        status=status,
-        feedback=feedback,
-        validation=validation,
-        active_scope_id=block_id,
-        changed_parameters=changed_parameters,
-        state_retained=state_retained,
-        retain_for_next_prompt=retain_for_next_prompt,
-        capture_stage_output=capture_stage_output,
-    )
-
-
-def scope_stage4_validation_packet(
-    packet: Stage4ValidationPacket,
-    *,
-    active_scope_id: str | None,
-    focus_parameters: Iterable[str],
-) -> Stage4ValidationPacket:
-    """Return a prompt-local view of one validation packet.
-
-    Reducer callers use this to narrow the packet stored for the next prompt
-    without changing the underlying validation object or the scope-free
-    grounding path. Failing parameters inside ``focus_parameters`` remain
-    primary failures; failing parameters outside the active scope are demoted
-    into coupling context for the next prompt.
-    """
-    focus = {name for name in focus_parameters if isinstance(name, str)}
-    if not focus:
-        return replace(packet, active_scope_id=active_scope_id)
-
-    scoped_failing = tuple(name for name in packet.failing_parameters if name in focus)
-    scoped_coupled = tuple(
-        name
-        for name in dict.fromkeys(
-            (
-                *packet.coupled_parameters,
-                *(name for name in packet.failing_parameters if name not in focus),
-            )
-        )
-        if name not in focus
-    )
-    return replace(
-        packet,
-        summary=_validation_summary(
-            packet.status,
-            failing_parameters=scoped_failing,
-            coupled_parameters=scoped_coupled,
-            global_failure_sites=packet.global_failure_sites,
-        ),
-        active_scope_id=active_scope_id,
-        failing_parameters=scoped_failing,
-        coupled_parameters=scoped_coupled,
     )
 
 

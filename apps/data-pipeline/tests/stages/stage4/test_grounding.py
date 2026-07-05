@@ -5,13 +5,13 @@ This file owns the direct grounding call paths:
 """
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
 )
-from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
 from nof1_causal_lab.flows.stages.stage4.assembly import format_prior_proposal_errors
 from nof1_causal_lab.flows.stages.stage4.grounding import (
     should_capture_stage4_output,
@@ -640,8 +640,8 @@ class TestStage4SearchTool:
             stub_search_literature,
         )
 
-        state = Stage4Runtime()
-        tool = make_search_tool(state.interaction)
+        state = SimpleNamespace(search_queries={}, search_cache={})
+        tool = make_search_tool(state)
 
         first = asyncio.run(
             tool(
@@ -658,10 +658,10 @@ class TestStage4SearchTool:
 
         assert first == second == "RESULT for stress sleep effect size meta-analysis"
         assert calls == ["stress sleep effect size meta-analysis"]
-        assert state.interaction.search_cache == {
+        assert state.search_cache == {
             "stress sleep effect size meta-analysis": "RESULT for stress sleep effect size meta-analysis"
         }
-        assert state.interaction.search_queries == {
+        assert state.search_queries == {
             "beta_stress_sleep": "stress sleep effect size meta-analysis",
             "beta_sleep_stress": "stress sleep effect size meta-analysis",
         }

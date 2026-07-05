@@ -1,52 +1,31 @@
-"""Single-source Stage 4 tool registry.
+"""Single-source Stage 4 public tool registry.
 
-This module centralizes Stage 4 tool metadata across:
-- public refinement-tool contracts exposed through the tool server,
-- public refinement-tool execution handlers, and
-- reducer-owned agentic tool construction plus block-level permissions.
+Centralizes the Stage 4 *public* refinement-tool surface exposed through the tool
+server: contract metadata (:func:`build_stage4_public_tool_contracts`) and the
+execution handlers. Each public submission is validated by ``stage4_grounding``
+against the persisted Stage 4 state; the batch construct-admission flow owns
+incremental admission and does not go through this registry.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.run_store import load_parquet
-from nof1_causal_lab.flows.stages.stage4.tools import (
-    make_search_tool,
-    make_submit_indicator_choice_tool,
-    make_submit_model_configuration_tool,
-    make_submit_model_review_tool,
-    make_submit_prior_block_tool,
-)
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.data import runs_dir
 
 if TYPE_CHECKING:
     from nof1_causal_lab.flows.stage_contracts import ToolContract
-    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_session import Stage4Session
 
 
-Stage4SessionToolFactory = Callable[["Stage4Session", "Stage4SessionToolConfig"], Any]
 Stage4PublicToolImpl = Callable[[dict[str, Any], dict[str, Any]], Any]
-
-_COMMON_AGENTIC_PRIOR_BLOCK_KINDS = frozenset(
-    {
-        "measurement_prior",
-        "observation_prior",
-        "dynamics_prior",
-        "effect_prior",
-        "correlation_prior",
-    }
-)
-_ALL_AGENTIC_PRIOR_BLOCK_KINDS = frozenset(
-    {*_COMMON_AGENTIC_PRIOR_BLOCK_KINDS, "global_prior_review"}
-)
 
 
 class SearchLiteratureInput(BaseModel):
@@ -75,29 +54,14 @@ class SubmitPriorsInput(BaseModel):
 
 
 @dataclass(frozen=True)
-class Stage4SessionToolConfig:
-    """Runtime config for reducer-owned Stage 4 tool construction."""
-
-    question: str
-    enable_literature: bool
-    enable_paraphrasing: bool
-    n_paraphrases: int
-    paraphrase_session_factory: Any  # StageSessionFactory, optional
-    max_tool_turns: int
-
-
-@dataclass(frozen=True)
 class Stage4ToolSpec:
-    """Single-source metadata for one Stage 4 tool."""
+    """Single-source metadata for one public Stage 4 tool."""
 
     name: str
     description: str
     input_schema: type[BaseModel] | None = None
     output_schema: type[BaseModel] | None = None
     public_impl: Stage4PublicToolImpl | None = None
-    session_factory: Stage4SessionToolFactory | None = None
-    session_enabled: Callable[[Stage4SessionToolConfig], bool] = field(default=lambda _config: True)
-    allowed_block_kinds: frozenset[str] = field(default_factory=frozenset)
 
 
 def _parse_json_arg(args: dict[str, Any], param_name: str) -> tuple[Any | None, str | None]:
@@ -198,75 +162,12 @@ execute_public_submit_priors = partial(
 )
 
 
-def _session_tool_factory(factory: Callable[[Stage4Session], Any]) -> Stage4SessionToolFactory:
-    """Adapt a session-only Stage 4 tool builder to the shared config signature."""
-    return lambda session, _config: factory(session)
-
-
-def _make_elicit_prior_gmm_session_tool(
-    _session: Stage4Session,
-    config: Stage4SessionToolConfig,
-) -> Any:
-    from nof1_causal_lab.flows.stages.stage4.tools import make_elicit_prior_gmm_tool
-
-    return make_elicit_prior_gmm_tool(
-        question=config.question,
-        paraphrase_session_factory=config.paraphrase_session_factory,
-        n_paraphrases=config.n_paraphrases,
-    )
-
-
-def _config_flag(name: str) -> Callable[[Stage4SessionToolConfig], bool]:
-    """Return a predicate that reads one boolean flag from the session config."""
-    return lambda config: bool(getattr(config, name))
-
-
 STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
-    Stage4ToolSpec(
-        name="submit_indicator_choice",
-        description="Submit one distribution/link choice for the active Stage 4 indicator block.",
-        session_factory=_session_tool_factory(make_submit_indicator_choice_tool),
-        allowed_block_kinds=frozenset({"indicator_decision"}),
-    ),
-    Stage4ToolSpec(
-        name="submit_model_configuration",
-        description=(
-            "Submit the global initialization, observation-intercept, and "
-            "equilibrium-forcing decision."
-        ),
-        session_factory=_session_tool_factory(make_submit_model_configuration_tool),
-        allowed_block_kinds=frozenset({"model_configuration"}),
-    ),
-    Stage4ToolSpec(
-        name="submit_model_review",
-        description="Submit the active Stage 4 model-review decision.",
-        session_factory=_session_tool_factory(make_submit_model_review_tool),
-        allowed_block_kinds=frozenset({"global_review"}),
-    ),
-    Stage4ToolSpec(
-        name="submit_prior_block",
-        description="Submit prior proposals for the active Stage 4 prior block only.",
-        session_factory=_session_tool_factory(make_submit_prior_block_tool),
-        allowed_block_kinds=_ALL_AGENTIC_PRIOR_BLOCK_KINDS,
-    ),
     Stage4ToolSpec(
         name="search_literature",
         description="Search for empirical literature about effect sizes for model parameters.",
         input_schema=SearchLiteratureInput,
         public_impl=execute_public_search_literature,
-        session_factory=_session_tool_factory(make_search_tool),
-        session_enabled=_config_flag("enable_literature"),
-        allowed_block_kinds=frozenset({"effect_prior"}),
-    ),
-    Stage4ToolSpec(
-        name="elicit_prior_gmm",
-        description=(
-            "Run robust paraphrased prior elicitation with GMM aggregation "
-            "for a single parameter. Returns an aggregated prior estimate."
-        ),
-        session_factory=_make_elicit_prior_gmm_session_tool,
-        session_enabled=_config_flag("enable_paraphrasing"),
-        allowed_block_kinds=_COMMON_AGENTIC_PRIOR_BLOCK_KINDS,
     ),
     Stage4ToolSpec(
         name="submit_model_spec",
@@ -297,39 +198,3 @@ def build_stage4_public_tool_contracts() -> list[ToolContract]:
         for spec in STAGE4_TOOL_SPECS
         if spec.input_schema is not None
     ]
-
-
-def build_stage4_session_tool_map(
-    session: Stage4Session,
-    *,
-    question: str,
-    enable_literature: bool,
-    enable_paraphrasing: bool,
-    n_paraphrases: int,
-    paraphrase_session_factory: Any,
-    max_tool_turns: int,
-) -> dict[str, Any]:
-    """Build the reducer-owned Stage 4 session tool map from the shared registry."""
-    config = Stage4SessionToolConfig(
-        question=question,
-        enable_literature=enable_literature,
-        enable_paraphrasing=enable_paraphrasing,
-        n_paraphrases=n_paraphrases,
-        paraphrase_session_factory=paraphrase_session_factory,
-        max_tool_turns=max_tool_turns,
-    )
-    tool_map: dict[str, Any] = {}
-    for spec in STAGE4_TOOL_SPECS:
-        if spec.session_factory is None or not spec.session_enabled(config):
-            continue
-        tool_map[spec.name] = spec.session_factory(session, config)
-    return tool_map
-
-
-def allowed_stage4_tool_names(block_kind: str) -> tuple[str, ...]:
-    """Return the declared reducer-owned tools allowed for one Stage 4 block kind."""
-    return tuple(
-        spec.name
-        for spec in STAGE4_TOOL_SPECS
-        if spec.session_factory is not None and block_kind in spec.allowed_block_kinds
-    )

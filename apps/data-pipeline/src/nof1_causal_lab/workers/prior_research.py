@@ -8,30 +8,17 @@ Each worker researches a single parameter using:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
 import httpx
 import numpy as np
-from pydantic import ValidationError
 
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ParameterSpec
-    from nof1_causal_lab.utils.agent_session import StageSessionFactory
-    from nof1_causal_lab.utils.openrouter_client import Tool
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.utils.llm import (
-    make_validation_tool,
-)
-from nof1_causal_lab.workers.prompts.prior_research import (
-    SYSTEM as PRIOR_RESEARCH_SYSTEM,
-)
-from nof1_causal_lab.workers.prompts.prior_research import (
-    generate_paraphrased_prompts,
-)
 from nof1_causal_lab.workers.schemas_prior import (
     AggregatedPrior,
     PriorProposal,
@@ -39,27 +26,6 @@ from nof1_causal_lab.workers.schemas_prior import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _make_prior_tool() -> tuple[Tool, dict]:
-    """Create a validation tool for prior proposals using PriorProposal schema."""
-
-    def _validate(data: dict) -> tuple[object, list[str]]:
-        try:
-            validated = PriorProposal.model_validate(data)
-            return validated.model_dump(), []
-        except ValidationError as e:
-            return None, [str(e)]
-
-    return make_validation_tool(
-        name="validate_prior_proposal",
-        description="Validate prior distribution proposal JSON.",
-        param_name="prior_json",
-        param_description="The JSON string containing the prior proposal.",
-        validator=_validate,
-        capture_key="prior",
-        capture_result=True,
-    )
 
 
 async def search_parameter_literature(
@@ -119,116 +85,6 @@ async def search_parameter_literature(
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Exa search failed; continuing without search results: %s", exc)
         return []
-
-
-async def run_gmm_elicitation(
-    parameter_name: str,
-    parameter_role: str,
-    parameter_constraint: str,
-    context: str,
-    question: str,
-    session_factory: StageSessionFactory,
-    n_paraphrases: int = 10,
-) -> str:
-    """Run paraphrased prior elicitation and return GMM-aggregated result.
-
-    Used as the implementation behind the ``elicit_prior_gmm`` tool in the
-    agentic Stage 4 flow. Each paraphrase opens its own session so the
-    parallel tasks don't share a conversation.
-
-    Returns:
-        Formatted string with the aggregated prior for the LLM to use.
-    """
-    prompts = generate_paraphrased_prompts(
-        parameter_name=parameter_name,
-        parameter_role=parameter_role,
-        parameter_constraint=parameter_constraint,
-        parameter_description=context,
-        question=question,
-        literature_context="",
-        n_paraphrases=n_paraphrases,
-    )
-
-    tasks = [
-        _elicit_single_paraphrase(i, prompt, session_factory) for i, prompt in enumerate(prompts)
-    ]
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    samples: list[RawPriorSample] = []
-    for idx, res in enumerate(raw_results):
-        if isinstance(res, BaseException):
-            logger.warning(
-                "Paraphrase %d crashed during elicitation: %s: %s",
-                idx,
-                type(res).__name__,
-                res,
-            )
-            continue
-        if res is not None:
-            samples.append(res)
-    if not samples:
-        return (
-            f"GMM elicitation failed for {parameter_name}: "
-            "all paraphrase prompts returned errors. Use domain reasoning."
-        )
-
-    aggregated = aggregate_prior_samples(samples)
-
-    lines = [
-        f"GMM-aggregated prior for '{parameter_name}' "
-        f"(from {aggregated.n_samples} prompts, method={aggregated.method}):",
-        f"  Pooled: Normal(mu={aggregated.mu:.4f}, sigma={aggregated.sigma:.4f})",
-    ]
-    if aggregated.mixture_weights and len(aggregated.mixture_weights) > 1:
-        for k, (w, m, s) in enumerate(
-            zip(
-                aggregated.mixture_weights,
-                aggregated.mixture_means or [],
-                aggregated.mixture_stds or [],
-                strict=True,
-            )
-        ):
-            lines.append(f"  Component {k + 1} (w={w:.2f}): Normal(mu={m:.4f}, sigma={s:.4f})")
-
-    return "\n".join(lines)
-
-
-async def _elicit_single_paraphrase(
-    paraphrase_id: int,
-    prompt: str,
-    session_factory: StageSessionFactory,
-) -> RawPriorSample | None:
-    """Elicit a prior from a single paraphrased prompt via its own session."""
-    try:
-        tool, capture = _make_prior_tool()
-        async with session_factory.open(
-            system_prompt=PRIOR_RESEARCH_SYSTEM,
-            tools=[tool],
-            log_label=f"paraphrase-{paraphrase_id}",
-        ) as session:
-            turn_result = await session.turn(prompt)
-
-        prior_data = capture.get("prior")
-        if prior_data is None:
-            raise RuntimeError(
-                f"paraphrase {paraphrase_id} did not capture a validated prior via "
-                f"validate_prior_proposal (terminal_tool={turn_result.terminal_tool_name!r})"
-            )
-
-        params = prior_data["params"]
-        return RawPriorSample(
-            paraphrase_id=paraphrase_id,
-            mu=params["mu"],
-            sigma=params["sigma"],
-            reasoning=prior_data.get("reasoning", ""),
-        )
-    except (ValueError, KeyError, TypeError, RuntimeError) as exc:
-        logger.warning(
-            "Failed to parse prior elicitation response for paraphrase %d: %s",
-            paraphrase_id,
-            exc,
-        )
-        return None
 
 
 def aggregate_prior_samples(

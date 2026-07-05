@@ -793,37 +793,6 @@ def matrix_log_diagnostic_drift(
     return np.real(log_transition) / interval_days
 
 
-def logm_diagnostic_mean_drift(
-    prior_registry: PriorRegistry,
-    ssm_spec: SSMSpec,
-    *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
-) -> np.ndarray | None:
-    """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
-    drift = _assemble_mean_drift_from_component_priors(prior_registry, ssm_spec)
-    if drift is None:
-        return None
-
-    intervals = sorted(
-        {float(interval) for interval in (edge_lag_days or {}).values() if float(interval) > 0}
-    )
-    if not intervals:
-        offdiag = drift.copy()
-        np.fill_diagonal(offdiag, 0.0)
-        if np.any(np.abs(offdiag) >= NUMERICAL_EPSILON):
-            raise ValueError(
-                "Matrix-log CT dynamics diagnostics require edge lag metadata for "
-                "linear dynamics priors."
-            )
-        return drift
-    if len(intervals) > 1:
-        raise ValueError(
-            "Matrix-log CT dynamics diagnostics require one structural lag interval; "
-            f"got {intervals}."
-        )
-    return matrix_log_diagnostic_drift(drift, interval_days=intervals[0])
-
-
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
     role_by_name: dict[str, ParameterRole] = {}
     spec_obj: ModelSpec | None = None
