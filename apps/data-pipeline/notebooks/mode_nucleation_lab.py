@@ -41,7 +41,7 @@ def intro(mo):
     # Mode nucleation: segment flips for high-D multimodal smoothing
 
     **The open cell.** The D-loop study
-    ([inference_and_causal_walkthroughs](inference_and_causal_walkthroughs.py) §16)
+    ([sampler_audit](sampler_audit.py) §16)
     ended on one regime nothing survives: state dimension `D ≥ 16` with far-separated
     posterior modes. On the Kitagawa-D benchmark (independent Kitagawa coordinates,
     `y = x²/20` per coordinate, so the smoothing posterior is sign-ambiguous in every
