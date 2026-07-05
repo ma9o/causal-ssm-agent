@@ -1401,3 +1401,140 @@ class TestTraceVerification:
 
         # Deterministic lambda should be 4x3
         assert trace["lambda"]["value"].shape == (4, 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Gradual-build surface: self-limiting quartic + Hill (saturating) edges
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _lik_gaussian(var: str):
+    from nof1_causal_lab.artifacts import DistributionFamily, LikelihoodSpec, LinkFunction
+
+    return LikelihoodSpec(
+        variable=var,
+        distribution=DistributionFamily.GAUSSIAN,
+        link=LinkFunction.IDENTITY,
+        reasoning="test",
+    )
+
+
+class TestGradualBuildComponents:
+    """Quartic self-limitation and Hill edges materialize from the ModelSpec."""
+
+    def test_quartic_freed_only_for_self_limiting_construct(self):
+        from nof1_causal_lab.artifacts import (
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
+        from nof1_causal_lab.models.ssm.dynamics.spec import NodePotentialSpec
+
+        model_spec = ModelSpec(
+            likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
+            parameters=[
+                ParameterSpec(
+                    name="self_limit_Y",
+                    role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Y self-limits (crowding)",
+                ),
+            ],
+        )
+        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+
+        wells = {
+            c.target: c for c in spec.dynamics_spec.components if isinstance(c, NodePotentialSpec)
+        }
+        # Y (index 1) is self-limiting → quartic freed; X, Z stay pinned at 0.
+        assert wells[1].fixed_quartic is None
+        assert wells[0].fixed_quartic == 0.0
+        assert wells[2].fixed_quartic == 0.0
+
+    def test_hill_edge_emitted_for_saturating_edge(self):
+        from nof1_causal_lab.artifacts import (
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
+        from nof1_causal_lab.models.ssm.dynamics.spec import HillEdgeSpec, LinearEdgeSpec
+
+        def _hill_param(name: str) -> ParameterSpec:
+            return ParameterSpec(
+                name=name,
+                role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
+                constraint=ParameterConstraint.POSITIVE,
+                description="hill",
+            )
+
+        model_spec = ModelSpec(
+            likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
+            parameters=[
+                _hill_param("hill_emax_X_Y"),
+                _hill_param("hill_ec50_X_Y"),
+                _hill_param("hill_n_X_Y"),
+            ],
+        )
+        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+
+        edges = [
+            c
+            for c in spec.dynamics_spec.components
+            if isinstance(c, (HillEdgeSpec, LinearEdgeSpec))
+        ]
+        # X→Y (0→1) is saturating → Hill; Y→Z (1→2) stays linear.
+        hill = [e for e in edges if isinstance(e, HillEdgeSpec)]
+        linear = [e for e in edges if isinstance(e, LinearEdgeSpec)]
+        assert [(e.source, e.target) for e in hill] == [(0, 1)]
+        assert (1, 2) in [(e.source, e.target) for e in linear]
+        assert (0, 1) not in [(e.source, e.target) for e in linear]
+
+    def test_freed_quartic_and_hill_sites_sample_finite(self):
+        """The freed quartic + Hill edge sample through the real model with defaults."""
+        import jax.numpy as jnp
+        import jax.random as random
+        import numpyro.handlers as handlers
+
+        from nof1_causal_lab.artifacts import (
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
+
+        model_spec = ModelSpec(
+            likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
+            parameters=[
+                ParameterSpec(
+                    name="self_limit_Y",
+                    role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Y self-limits",
+                ),
+                ParameterSpec(
+                    name="hill_emax_X_Y",
+                    role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="hill emax",
+                ),
+            ],
+        )
+        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+        model = SSMModel(spec)
+
+        trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
+            observations=jnp.zeros((8, 4)),
+            times=jnp.arange(8, dtype=jnp.float32),
+            likelihood_backend=model.make_likelihood_backend(),
+        )
+        quartic_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_quartic")]
+        emax_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_Emax")]
+        assert len(quartic_sites) == 1  # only Y
+        assert len(emax_sites) == 1  # only X→Y
+        for name in quartic_sites + emax_sites:
+            assert bool(jnp.all(jnp.isfinite(trace[name]["value"])))

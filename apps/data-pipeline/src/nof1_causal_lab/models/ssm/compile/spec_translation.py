@@ -18,6 +18,7 @@ from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
+    HillEdgeSpec,
     LinearEdgeSpec,
     NodePotentialSpec,
     StateInterceptSpec,
@@ -464,6 +465,34 @@ def _build_role_index_lookup(
     return mask
 
 
+def _hill_edge_targets(
+    model_spec: ModelSpec,
+    latent_names: list[str],
+) -> set[tuple[int, int]]:
+    """Structural edges the author gave a saturating (Hill) form.
+
+    An edge is Hill when the ModelSpec carries a ``hill_emax_<cause>_<effect>``
+    parameter; its EC50 and Hill-coefficient parameters share the same
+    ``hill_ec50_``/``hill_n_`` naming. Returns ``(cause_idx, effect_idx)`` pairs.
+    """
+    latent_name_set = set(latent_names)
+    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
+    targets: set[tuple[int, int]] = set()
+    for parameter in model_spec.parameters:
+        if not parameter.name.startswith("hill_emax_"):
+            continue
+        parsed = split_compound_name(
+            parameter.name.removeprefix("hill_emax_"),
+            latent_name_set,
+            latent_name_set,
+        )
+        if parsed is None:
+            continue
+        cause_name, effect_name = parsed
+        targets.add((name_to_idx[cause_name], name_to_idx[effect_name]))
+    return targets
+
+
 def _build_manifest_centered_flags(
     model_spec: ModelSpec,
     manifest_cols: list[str],
@@ -783,7 +812,17 @@ def translate_spec(
     # folding the former StateDecay (stiffness = relaxation rate) and the
     # set-point role of StateIntercept (center = well minimum). The center is
     # free only when a state intercept was requested (equilibrium forcing);
-    # otherwise the well is pinned at 0 (relaxation toward 0, as before).
+    # otherwise the well is pinned at 0 (relaxation toward 0, as before). The
+    # cubic self-limitation (quartic) is freed only for constructs the author
+    # flagged self-limiting (a ``self_limit_<latent>`` parameter); otherwise it
+    # stays pinned at 0 (pure linear relaxation).
+    self_limit_support = _build_role_index_lookup(
+        model_spec,
+        role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
+        prefix="self_limit_",
+        names=latent_names,
+    )
+    hill_edge_targets = _hill_edge_targets(model_spec, latent_names)
     dynamics_components = []
     for latent_idx in range(n_latent):
         has_well = bool(decay_support[latent_idx])
@@ -794,20 +833,22 @@ def translate_spec(
                     target=latent_idx,
                     fixed_center=None if has_setpoint else 0.0,
                     fixed_stiffness=None,
-                    fixed_quartic=0.0,
+                    fixed_quartic=None if bool(self_limit_support[latent_idx]) else 0.0,
                 )
             )
         elif has_setpoint:
             # Intercept without relaxation is a constant forcing term (a ramp),
             # not a set-point — keep it as an explicit StateIntercept.
             dynamics_components.append(StateInterceptSpec(target=latent_idx))
+    # Each structural edge is materialized as a linear weight unless the author
+    # flagged it saturating (Hill parameters present), in which case it becomes a
+    # Hill dose-response component. Exactly one component per structural edge.
     for effect_idx, cause_idx in zip(*np.where(linear_edge_support), strict=False):
-        dynamics_components.append(
-            LinearEdgeSpec(
-                source=int(cause_idx),
-                target=int(effect_idx),
-            )
-        )
+        source, target = int(cause_idx), int(effect_idx)
+        if (source, target) in hill_edge_targets:
+            dynamics_components.append(HillEdgeSpec(source=source, target=target))
+        else:
+            dynamics_components.append(LinearEdgeSpec(source=source, target=target))
 
     spec = SSMSpec(
         n_latent=n_latent,
