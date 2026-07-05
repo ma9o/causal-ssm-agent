@@ -30,7 +30,7 @@ stage0_ingestion:
   max_tool_turns: 40
   llm:
     harness: none
-    model: openrouter/xiaomi/mimo-v2-pro
+    model: openrouter/xiaomi/mimo-v2.5-pro
 
 # Stage 1: Structure Proposal (Orchestrator)
 stage1_structure_proposal:
@@ -80,7 +80,7 @@ stage4_prior_elicitation:
 stage6_commentary:
   llm:
     harness: none
-    model: openrouter/xiaomi/mimo-v2-pro
+    model: openrouter/xiaomi/mimo-v2.5-pro
 
 # --- Inference -------------------------------------------------------------
 inference:
