@@ -9,7 +9,7 @@
 | `evals/multi_model/eval_demo_health_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `DEMO` fixture |
 
 Worker-facing evaluations load persisted workspace artifacts, not ad hoc preprocessed
-text files. The default workspace is `GOLDEN` from `evals/config.yaml`, and you
+text files. The default workspace is `DEMO` from `evals/config.yaml`, and you
 can override it with `workspace_id`.
 
 ## Run all models in parallel
@@ -18,9 +18,9 @@ can override it with `workspace_id`.
 # Stage 1a orchestrator eval (default) — runs configured models concurrently
 uv run python evals/scripts/run_parallel_evals.py
 
-# Stage 2 worker eval against the default GOLDEN workspace
+# Stage 2 worker eval against the default DEMO workspace
 uv run python evals/scripts/run_parallel_evals.py --eval worker
-uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id SMALLGOLDEN
+uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id MYWORKSPACE
 
 # Run specific models using aliases
 uv run python evals/scripts/run_parallel_evals.py --models claude gemini gpt
@@ -54,14 +54,15 @@ uv run inspect eval evals/multi_model/eval_demo_health_orchestrator.py \
 uv run inspect view
 ```
 
-Worker and measurement evaluations require `-T workspace_id=GOLDEN` (or `SMALLGOLDEN`).
+Worker and measurement evaluations default to `workspace_id=DEMO` (override with `-T workspace_id=...`).
 Multi-model evaluations (`eval3_*`, `eval_demo_health_*`) don't take `--model`; they configure models internally.
 
 ## Tracked Fixture Workspaces
 
 Evaluations and manual prompt-sampling tools read the same persisted workspace artifacts
-that the pipeline uses. By default they load `data/GOLDEN/`, but you can point
-them at any workspace with compatible `query.txt` and `run/stage-*.json` outputs.
+that the pipeline uses. By default they load `data/DEMO/`, but you can point
+them at any workspace whose artifact store (`store/`) and episode journal were
+produced by the machine.
 For the full workspace directory layout, see [Agentic Integration Testing](agentic_integration_testing.md#workspace-layout).
 
 ## Log directories

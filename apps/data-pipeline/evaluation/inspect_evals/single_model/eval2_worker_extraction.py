@@ -9,7 +9,7 @@ a different model configuration.
 Usage:
     inspect eval evals/single_model/eval2_worker_extraction.py --model google/vertex/gemini-3-flash-preview
     inspect eval evals/single_model/eval2_worker_extraction.py --model openrouter/anthropic/claude-haiku-4.5
-    inspect eval evals/single_model/eval2_worker_extraction.py -T workspace_id=SMALLGOLDEN
+    inspect eval evals/single_model/eval2_worker_extraction.py -T workspace_id=DEMO
 """
 
 import sys

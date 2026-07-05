@@ -57,7 +57,7 @@ function transitionEvent(transition: Stage4BlockLastState): Stage4EventRecord {
 }
 
 // ---------------------------------------------------------------------------
-// Static graph topology — scaled to the SMALLGOLDEN fixture
+// Static graph topology — scaled to a small real-workspace Stage 4 run
 // ---------------------------------------------------------------------------
 
 function titleize(value: string): string {
@@ -75,7 +75,7 @@ function chain(ids: string[], kind: "forward" | "phase_advance" | "repair_transi
   }));
 }
 
-const SMALLGOLDEN_INDICATORS = [
+const DEMO_SCALE_INDICATORS = [
   "daily_search_count",
   "evening_search_count",
   "late_night_search_flag",
@@ -102,7 +102,7 @@ const SMALLGOLDEN_INDICATORS = [
   "outdoor_time_minutes",
 ] as const;
 
-const SMALLGOLDEN_DYNAMICS = [
+const DEMO_SCALE_DYNAMICS = [
   "screen_time",
   "sleep_quality",
   "pre_sleep_arousal",
@@ -116,7 +116,7 @@ const SMALLGOLDEN_DYNAMICS = [
   "sleep_hygiene",
 ] as const;
 
-const SMALLGOLDEN_EFFECT_TARGETS = [
+const DEMO_SCALE_EFFECT_TARGETS = [
   "screen_time",
   "daily_stress",
   "physical_activity",
@@ -130,7 +130,7 @@ const SMALLGOLDEN_EFFECT_TARGETS = [
   "daytime_fatigue",
 ] as const;
 
-const SMALLGOLDEN_CORRELATIONS = [
+const DEMO_SCALE_CORRELATIONS = [
   "cor0_alcohol_consumption_caffeine_consumption",
   "cor0_alcohol_consumption_screen_time",
   "cor0_alcohol_consumption_sleep_hygiene",
@@ -150,7 +150,7 @@ const SMALLGOLDEN_CORRELATIONS = [
 
 function correlationLabel(name: string): string {
   const body = name.replace(/^cor0_/, "");
-  const constructs = [...SMALLGOLDEN_DYNAMICS].sort((left, right) => right.length - left.length);
+  const constructs = [...DEMO_SCALE_DYNAMICS].sort((left, right) => right.length - left.length);
   for (const right of constructs) {
     const suffix = `_${right}`;
     if (body.endsWith(suffix)) {
@@ -162,15 +162,15 @@ function correlationLabel(name: string): string {
 }
 
 const MODEL_BLOCK_IDS = [
-  ...SMALLGOLDEN_INDICATORS.map((name) => `indicator:${name}`),
+  ...DEMO_SCALE_INDICATORS.map((name) => `indicator:${name}`),
   "loading:screen_time",
 ];
 
 const PRIOR_BLOCK_IDS = [
   "measurement:screen_time",
-  ...SMALLGOLDEN_DYNAMICS.map((name) => `dynamics:${name}`),
-  ...SMALLGOLDEN_EFFECT_TARGETS.map((name) => `effects:${name}`),
-  ...SMALLGOLDEN_CORRELATIONS.map((name) => `correlation:${name}`),
+  ...DEMO_SCALE_DYNAMICS.map((name) => `dynamics:${name}`),
+  ...DEMO_SCALE_EFFECT_TARGETS.map((name) => `effects:${name}`),
+  ...DEMO_SCALE_CORRELATIONS.map((name) => `correlation:${name}`),
 ];
 
 const ALL_ACCEPTABLE_BLOCK_IDS = [
@@ -184,7 +184,7 @@ const LAST_PRIOR_BLOCK_ID = PRIOR_BLOCK_IDS[PRIOR_BLOCK_IDS.length - 1]!;
 
 const GRAPH: Stage4Graph = {
   nodes: [
-    ...SMALLGOLDEN_INDICATORS.map((name) => ({
+    ...DEMO_SCALE_INDICATORS.map((name) => ({
       id: `indicator:${name}`,
       kind: "indicator_decision",
       label: titleize(name),
@@ -209,19 +209,19 @@ const GRAPH: Stage4Graph = {
       label: "Screen Time",
       phase: "prior_blocks",
     },
-    ...SMALLGOLDEN_DYNAMICS.map((name) => ({
+    ...DEMO_SCALE_DYNAMICS.map((name) => ({
       id: `dynamics:${name}`,
       kind: "dynamics_prior",
       label: titleize(name),
       phase: "prior_blocks",
     })),
-    ...SMALLGOLDEN_EFFECT_TARGETS.map((name) => ({
+    ...DEMO_SCALE_EFFECT_TARGETS.map((name) => ({
       id: `effects:${name}`,
       kind: "effect_prior",
       label: titleize(name),
       phase: "prior_blocks",
     })),
-    ...SMALLGOLDEN_CORRELATIONS.map((name) => ({
+    ...DEMO_SCALE_CORRELATIONS.map((name) => ({
       id: `correlation:${name}`,
       kind: "correlation_prior",
       label: correlationLabel(name),
@@ -309,26 +309,26 @@ const LATE_MODEL_ACCEPTED = MODEL_BLOCK_IDS.slice(0, 13);
 const EARLY_DYNAMICS_ACCEPTED = [
   ...MODEL_REVIEW_IDS,
   "measurement:screen_time",
-  ...SMALLGOLDEN_DYNAMICS.slice(0, 5).map((name) => `dynamics:${name}`),
+  ...DEMO_SCALE_DYNAMICS.slice(0, 5).map((name) => `dynamics:${name}`),
 ];
 const MID_PRIOR_ACCEPTED = [
   ...MODEL_REVIEW_IDS,
   "measurement:screen_time",
-  ...SMALLGOLDEN_DYNAMICS.map((name) => `dynamics:${name}`),
-  ...SMALLGOLDEN_EFFECT_TARGETS.slice(0, 4).map((name) => `effects:${name}`),
+  ...DEMO_SCALE_DYNAMICS.map((name) => `dynamics:${name}`),
+  ...DEMO_SCALE_EFFECT_TARGETS.slice(0, 4).map((name) => `effects:${name}`),
 ];
 const EARLY_CORRELATION_ACCEPTED = [
   ...MODEL_REVIEW_IDS,
   ...PRIOR_BLOCK_IDS.slice(
     0,
-    1 + SMALLGOLDEN_DYNAMICS.length + SMALLGOLDEN_EFFECT_TARGETS.length + 6,
+    1 + DEMO_SCALE_DYNAMICS.length + DEMO_SCALE_EFFECT_TARGETS.length + 6,
   ),
 ];
 const LATE_CORRELATION_ACCEPTED = [
   ...MODEL_REVIEW_IDS,
   ...PRIOR_BLOCK_IDS.slice(
     0,
-    1 + SMALLGOLDEN_DYNAMICS.length + SMALLGOLDEN_EFFECT_TARGETS.length + 14,
+    1 + DEMO_SCALE_DYNAMICS.length + DEMO_SCALE_EFFECT_TARGETS.length + 14,
   ),
 ];
 const ALL_PRIOR_ACCEPTED = [...MODEL_REVIEW_IDS, ...PRIOR_BLOCK_IDS];
@@ -601,7 +601,7 @@ export const StateMachineReplay: Story = {
     docs: {
       description: {
         story:
-          "Replays a SMALLGOLDEN-scale Stage 4 graph through the real event parser and reducer, using the same frontier shape as the saved SMALLGOLDEN fixture rather than a toy model.",
+          "Replays a small real-workspace-scale Stage 4 graph through the real event parser and reducer, using the same frontier shape as a saved small-workspace fixture rather than a toy model.",
       },
     },
   },

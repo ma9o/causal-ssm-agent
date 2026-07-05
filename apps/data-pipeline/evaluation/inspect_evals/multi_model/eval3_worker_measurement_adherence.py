@@ -9,7 +9,7 @@ worker outputs, just with different model configurations.
 
 Usage:
     inspect eval evals/multi_model/eval3_worker_measurement_adherence.py --model openrouter/anthropic/claude-sonnet-4
-    inspect eval evals/multi_model/eval3_worker_measurement_adherence.py -T workspace_id=SMALLGOLDEN
+    inspect eval evals/multi_model/eval3_worker_measurement_adherence.py -T workspace_id=DEMO
 """
 
 import sys

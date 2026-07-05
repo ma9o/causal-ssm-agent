@@ -684,7 +684,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--workspace-id",
         required=True,
-        help="Workspace ID under data/ (e.g. DEMO, GOLDEN, SMALLGOLDEN)",
+        help="Workspace ID under data/ (e.g. DEMO)",
     )
     parser.add_argument(
         "--up-to",

@@ -4,7 +4,7 @@
 Usage:
     uv run python evals/scripts/sample_data_chunks.py
     uv run python evals/scripts/sample_data_chunks.py -n 3
-    uv run python evals/scripts/sample_data_chunks.py --workspace-id SMALLGOLDEN
+    uv run python evals/scripts/sample_data_chunks.py --workspace-id DEMO
     uv run python evals/scripts/sample_data_chunks.py --prompt
 """
 

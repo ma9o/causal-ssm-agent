@@ -10,7 +10,7 @@ Uses the same core logic as production (``run_stage1b``), driven through a real
 
 Usage:
     inspect eval evals/single_model/eval1b_measurement_model.py \
-        -T model=openrouter/anthropic/claude-sonnet-4 -T workspace_id=SMALLGOLDEN
+        -T model=openrouter/anthropic/claude-sonnet-4 -T workspace_id=DEMO
 """
 
 import sys

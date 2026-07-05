@@ -1,7 +1,7 @@
 /**
  * Ideal materialized Stage 6 artifact for development & stories.
  *
- * Real persisted Stage 6 traces in the seed workspaces (DEMO, SMALLGOLDEN) carry
+ * Real persisted Stage 6 traces in the seed workspace (DEMO) carry
  * only the baseline ranking commentary — no `simulate` tool calls — so there is
  * no representative data for developing the simulation viewer. This fixture fills
  * that gap: it composes the REAL DEMO baselines (`intervention_results`),

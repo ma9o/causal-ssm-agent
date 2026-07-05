@@ -6,10 +6,10 @@ Usage:
     uv run python evals/scripts/run_parallel_evals.py
     uv run python evals/scripts/run_parallel_evals.py --models claude gemini
 
-    # Worker eval (defaults to workspace_id=GOLDEN)
+    # Worker eval (defaults to the eval config workspace)
     uv run python evals/scripts/run_parallel_evals.py --eval worker
     uv run python evals/scripts/run_parallel_evals.py --eval worker --models gemini haiku
-    uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id SMALLGOLDEN
+    uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id DEMO
 
     # Worker options
     uv run python evals/scripts/run_parallel_evals.py --eval worker -n 10 --seed 123
@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
         "--workspace-id",
-        help="Workspace for worker eval inputs (default: GOLDEN via eval config)",
+        help="Workspace for worker eval inputs (default: DEMO via eval config)",
     )
     parser.add_argument(
         "-q",
@@ -182,7 +182,7 @@ def main():
     print(f"Running {args.eval} eval for {len(models)} models...", file=sys.stderr)
     if args.eval == "worker":
         print(f"Config: n_chunks={args.n_chunks}, seed={args.seed}", file=sys.stderr)
-        workspace_label = args.workspace_id or CONFIG.get("default_workspace_id", "GOLDEN")
+        workspace_label = args.workspace_id or CONFIG.get("default_workspace_id", "DEMO")
         print(f"Workspace: {workspace_label}", file=sys.stderr)
     elif args.question:
         print(f"Questions: {args.question}", file=sys.stderr)

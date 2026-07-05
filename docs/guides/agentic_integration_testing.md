@@ -55,9 +55,7 @@ data/
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
 │   ├── episode/           # Transition journal, state read model, telemetry events
 │   └── run/               # Web-facing stage JSON projection
-├── DEMO/                  # Tracked mock fixture workspace and stage 0-2 golden fixture
-├── GOLDEN/                # Default tracked workspace for evals and manual sampling
-└── SMALLGOLDEN/           # Smaller tracked workspace for quicker eval iteration
+└── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
 ## Step-by-Step Flow
@@ -70,7 +68,7 @@ QUESTION="How does screen time affect sleep?"
 
 curl -s -X POST http://localhost:3000/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
-  -F "file=@data/GOLDEN/input/MyActivity.json"
+  -F "file=@data/DEMO/input/dsar_bundle.zip"
 
 curl -s -X POST http://localhost:3000/api/runs \
   -H 'Content-Type: application/json' \
