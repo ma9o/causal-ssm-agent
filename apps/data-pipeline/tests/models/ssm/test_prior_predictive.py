@@ -1003,3 +1003,44 @@ class TestCompiledPriorPredictiveRuntime:
         assert bool(samples["observations_mask"].all())
         assert bool(jnp.isfinite(samples["t0_cov"]).all())
         assert bool((min_eigs > -1e-6).all())
+
+
+class TestPredictiveSdeStepPolicy:
+    """The prior-predictive SDE step must resolve the fastest sampled relaxation
+    rate so explicit integration stays stable over long records (a fast construct
+    across a long span at the coarse ``span/200`` step diverges and trips the
+    log-link overflow guard)."""
+
+    def test_fast_decay_refines_step_below_span_over_200(self):
+        from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+            _SDE_CFL_SAFETY,
+            _predictive_sde_config,
+        )
+
+        span = 60.0
+        rate = 6.7  # τ ≈ 0.15 d node — span/200 = 0.3 gives a·Δt ≈ 2 (unstable)
+        cfg = _predictive_sde_config({"vf_0_decay": jnp.asarray(rate)}, span)
+        assert cfg.sde_dt is not None
+        assert cfg.sde_dt < span / 200.0
+        # CFL margin: a·Δt stays at the safety fraction.
+        assert cfg.sde_dt == pytest.approx(_SDE_CFL_SAFETY / rate, rel=1e-6)
+
+    def test_slow_decay_keeps_base_step(self):
+        from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+            _predictive_sde_config,
+        )
+
+        span = 120.0
+        # τ ≈ 3.3 d — already stable at span/200; must not be refined (nor coarsened).
+        cfg = _predictive_sde_config({"vf_0_decay": jnp.asarray(0.3)}, span)
+        assert cfg.sde_dt == pytest.approx(span / 200.0, rel=1e-6)
+
+    def test_pathological_rate_capped_by_max_steps(self):
+        from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+            _SDE_MAX_STEPS,
+            _predictive_sde_config,
+        )
+
+        span = 120.0
+        cfg = _predictive_sde_config({"vf_0_decay": jnp.asarray(500.0)}, span)
+        assert span / cfg.sde_dt <= _SDE_MAX_STEPS + 1

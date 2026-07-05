@@ -23,7 +23,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 )
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.runtime import pack_vector_field_params_from_samples
-from nof1_causal_lab.models.ssm.dynamics.simulator import simulate
+from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
 )
@@ -158,6 +158,37 @@ def _linear_predictors_from_latents(
     return jax.vmap(lambda eta_t: lambda_mat @ eta_t + manifest_means)(latent_trajectory)
 
 
+# Explicit (Heun) SDE integration of a linear relaxation ``dy = -a·y dt + …`` is
+# stable only for ``a·Δt ≲ 2``; past that the step map amplifies and the path
+# diverges. The default step ``span/200`` is far too coarse for a fast construct
+# over a long record (e.g. a τ ≈ 0.15 d node across 60 d ⇒ ``a·Δt ≈ 2``), and a
+# tail draw with even faster decay blows the trajectory up to ``inf`` — which then
+# trips the log-link overflow guard and aborts the whole prior predictive. The DAG
+# drift is triangular, so its Jacobian's spectral radius is bounded by the largest
+# diagonal relaxation rate (the sampled ``*_decay`` sites; NodePotential reuses the
+# decay site for its stiffness). Cap the SDE step at a CFL-safe fraction of the
+# fastest relaxation time per draw. This only ever *refines* the step (finer ⇒
+# smaller discretization error, the exact-engine's one controllable error term),
+# never coarsens it.
+_SDE_CFL_SAFETY = 0.25
+_SDE_MAX_STEPS = 16384
+
+
+def _predictive_sde_config(draw: dict[str, jnp.ndarray], span: float) -> SimulationConfig:
+    base_dt = span / 200.0 if span > 0.0 else None
+    if base_dt is None:
+        return SimulationConfig()
+    decay_rates = [
+        float(jnp.max(jnp.abs(value))) for name, value in draw.items() if name.endswith("_decay")
+    ]
+    max_rate = max(decay_rates) if decay_rates else 0.0
+    sde_dt = base_dt if max_rate <= 0.0 else min(base_dt, _SDE_CFL_SAFETY / max_rate)
+    # Keep the step count within the solver budget for pathologically fast draws.
+    if span / sde_dt > _SDE_MAX_STEPS:
+        sde_dt = span / _SDE_MAX_STEPS
+    return SimulationConfig(sde_dt=sde_dt, max_steps=_SDE_MAX_STEPS + 16)
+
+
 def _simulate_vector_field_predictive_latents(
     spec: SSMSpec,
     samples: dict[str, jnp.ndarray],
@@ -172,6 +203,8 @@ def _simulate_vector_field_predictive_latents(
     draw_keys = random.split(random.PRNGKey(seed), n_draws)
     latents = []
     linear_predictors = []
+
+    span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
 
     for draw_idx in range(n_draws):
         key_init, key_latent = random.split(draw_keys[draw_idx])
@@ -203,6 +236,7 @@ def _simulate_vector_field_predictive_latents(
                 Intervention.none(),
                 eta0,
                 times,
+                config=_predictive_sde_config(draw, span),
                 key=key_latent,
                 diffusion_cov=diffusion_chol @ diffusion_chol.T,
             )
