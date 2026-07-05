@@ -1100,7 +1100,11 @@ def compile_priors(
                 mu_ar = float(normalized.get("mu", 0.5))
                 if not 0.0 < mu_ar < 1.0:
                     param_errors.append(
-                        f"AR prior '{param_name}' must have DT persistence mean in (0, 1), got {mu_ar:.3g}"
+                        f"AR prior '{param_name}' location `mu` must lie strictly inside "
+                        f"(0, 1), got {mu_ar:.3g}. `mu` anchors the CT decay via "
+                        f"-ln(mu)/dt (mu=0 is degenerate), so author it as the DT "
+                        f"persistence you expect after one model-clock interval "
+                        f"(e.g. 0.2-0.9) — not as a lower bound of the distribution."
                     )
                 if param_errors:
                     errors.extend(param_errors)
