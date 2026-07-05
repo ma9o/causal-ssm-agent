@@ -136,7 +136,7 @@ def check_scale(
     _diag: tuple[str, ...] = ()
     if not _ok:
         _side = "above" if _med > _hi else "below"
-        _factor = _med / _hi if _med > _hi else _lo / max(_med, 1e-9)
+        _factor = _med / max(_hi, 1e-9) if _med > _hi else _lo / max(_med, 1e-9)
         _diag = (
             f"prior-predictive stationary sd: median {_med:.2f} (5–95% "
             f"{_q05:.2f}–{_q95:.2f}) vs band [{_lo:.2f}, {_hi:.2f}] — {_factor:.1f}× "

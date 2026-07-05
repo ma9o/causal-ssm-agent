@@ -160,7 +160,16 @@ def contribution_from_payload(
         )
         for ind in payload.get("indicators", ())
     )
-    priors = {str(k): dict(v) for k, v in dict(payload.get("priors", {})).items()}
+    raw_priors = payload.get("priors", {})
+    if not isinstance(raw_priors, dict) or not all(
+        isinstance(v, dict) for v in raw_priors.values()
+    ):
+        raise ValueError(
+            "`priors` must be an object mapping parameter names to distribution objects, "
+            'e.g. {"lambda_x": {"distribution": "Normal", "params": {"mu": 0, "sigma": 1}}} '
+            "— got a non-object prior value."
+        )
+    priors = {str(k): dict(v) for k, v in raw_priors.items()}
     parameters = tuple(
         ParameterSpec(
             name=pn,
