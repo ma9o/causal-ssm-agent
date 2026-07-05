@@ -38,14 +38,14 @@ def intro(mo):
     If the candidate is faithful, the truth lands uniformly — calibrated. The *way* it
     departs from uniform names the cost, and sweeping a single regime knob shows exactly when
     "linear is fine" holds and when it shatters. It is the cheap pre-flight for an
-    approximation; support code is in `cost_of_linearization_lab.py`.
+    approximation; support code is in `cost_of_linearization_support.py`.
     """)
     return
 
 
 @app.cell
 def imports_lab():
-    import cost_of_linearization_lab as lab
+    import cost_of_linearization_support as lab
 
     return (lab,)
 

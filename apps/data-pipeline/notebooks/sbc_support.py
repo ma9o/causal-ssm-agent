@@ -38,8 +38,15 @@ from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
-from continuous_time_lab import C_CONT, C_DISC, C_OBS, C_PROBE, C_SET, C_TRUTH
 from plotly.subplots import make_subplots
+
+# ── Colour conventions (inlined from the retired continuous-time lab) ──────────
+C_CONT = "#2563eb"
+C_DISC = "#dc2626"
+C_OBS = "#6b7280"
+C_PROBE = "#ea580c"
+C_SET = "#059669"
+C_TRUTH = "#111827"
 
 # ── The toy model ──────────────────────────────────────────────────────────────
 MU0 = 0.0  # prior mean

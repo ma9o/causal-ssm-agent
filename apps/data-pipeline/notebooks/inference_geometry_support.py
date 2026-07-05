@@ -1,9 +1,9 @@
 """Support code for the inference-geometry walkthrough notebook.
 
-This is the companion to ``confounder_marginalization_walkthrough.py``. That
-notebook asks *where the confounder goes* when you marginalize it; this one asks
-*why marginalizing helps the sampler*, and answers it with two pictures of
-likelihood geometry:
+This began as the companion to the (retired) confounder-marginalization
+walkthrough. That notebook asked *where the confounder goes* when you marginalize
+it; this one asks *why marginalizing helps the sampler*, and answers it with two
+pictures of likelihood geometry:
 
 1. **The funnel** — the explicit-latent parameterization (loading ``lambda`` times
    latent scale ``tau``) has a redundant direction: only the product ``lambda*tau``
@@ -18,28 +18,37 @@ likelihood geometry:
    whichever constraint ("knife") cuts across the ridge — the graph itself (``c = 0``
    off-path) or an observable anchor on the latent (on-path).
 
-We reuse the simulators and palette from ``confounder_lab`` so every number matches
-the companion notebook; only the geometry helpers and their plots are new.
+The ground-truth simulator and palette are inlined from the retired
+``confounder_lab`` module, so every number still matches what that notebook
+reported; only the geometry helpers and their plots are new.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
-from confounder_lab import (
-    A_UX,
-    B_UY,
-    BETA_TRUE,
-    C_CLASS,
-    C_ID,
-    C_NAIVE,
-    C_OBS,
-    C_TRUTH,
-    SX,
-    SY,
-    simulate_confounded,
-)
 from plotly.subplots import make_subplots
+
+# ── Ground truth of the confounded triangle (U -> X, U -> Y, X -> Y) ──────────
+A_UX = 0.9  # confounder -> cause loading
+B_UY = 1.2  # confounder -> outcome loading
+BETA_TRUE = 0.5  # the causal slope the naive regression misses
+SX = 0.7  # cause residual sd
+SY = 0.6  # outcome residual sd
+
+# ── Palette (inlined from the retired confounder_lab) ─────────────────────────
+C_CLASS = "#4c78a8"
+C_ID = "#54a24b"
+C_NAIVE = "#e45756"
+C_OBS = "#9aa0a6"
+C_TRUTH = "#111827"
+
+
+def simulate_confounded(rng: np.random.Generator, *, n: int = 8000) -> dict[str, np.ndarray]:
+    u = rng.standard_normal(n)
+    x = A_UX * u + SX * rng.standard_normal(n)
+    y = BETA_TRUE * x + B_UY * u + SY * rng.standard_normal(n)
+    return {"U": u, "X": x, "Y": y}
 
 
 def _layout(fig: go.Figure, title: str, height: int = 420, width: int = 820) -> go.Figure:

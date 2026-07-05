@@ -47,7 +47,7 @@ def intro(mo):
        ridge is exposed for inspection.
 
     Support code (simulators reused from `confounder_lab`, the likelihood surfaces, all
-    plotting) lives in `inference_geometry_lab.py`; the ideas are inline.
+    plotting) lives in `inference_geometry_support.py`; the ideas are inline.
     """)
     return
 
@@ -55,7 +55,7 @@ def intro(mo):
 @app.cell
 def imports_lab():
     import confounder_lab as clab
-    import inference_geometry_lab as lab
+    import inference_geometry_support as lab
     import numpy as np
 
     return clab, lab, np

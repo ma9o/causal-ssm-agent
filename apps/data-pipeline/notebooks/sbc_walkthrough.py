@@ -40,14 +40,14 @@ def intro(mo):
     To learn to read those shapes we need a sampler we can make correct *and* deliberately
     break, on demand. So we pick a toy whose posterior is known in closed form — then we
     play the exact sampler (uniform ranks, guaranteed) and four broken ones, and watch each
-    failure sign its name. Support code lives in `sbc_lab.py`.
+    failure sign its name. Support code lives in `sbc_support.py`.
     """)
     return
 
 
 @app.cell
 def imports_lab():
-    import sbc_lab as lab
+    import sbc_support as lab
 
     return (lab,)
 
