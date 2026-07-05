@@ -116,31 +116,6 @@ async def _run_stage_cpu(
     return result.model_dump(mode="json")
 
 
-@app.function(
-    timeout=10800,
-    cpu=8,
-    memory=32768,
-    image=gpu_image,
-    gpu=GPU_A100_80GB,
-    secrets=[secrets],
-)
-def _warm_stage4_compile_cache(
-    workspace_id: str,
-    model_spec: dict,
-    causal_spec: dict | None,
-    topology_fingerprint: str,
-) -> dict:
-    """Warm the topology-matched JAX compile cache on Modal A100 and persist it."""
-    from nof1_causal_lab.flows.stage4_compile_cache import warm_stage4_compile_cache_artifact
-
-    return warm_stage4_compile_cache_artifact(
-        workspace_id=workspace_id,
-        model_spec=model_spec,
-        causal_spec=causal_spec,
-        topology_fingerprint=topology_fingerprint,
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Runner callables (bound by machine.runners)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -165,20 +140,3 @@ async def run_stage_on_modal(
         options.model_dump(mode="json"),
     )
     return TransitionEffects.model_validate(raw)
-
-
-def spawn_stage4_model_compile_warmup(
-    *,
-    workspace_id: str,
-    model_spec: dict,
-    causal_spec: dict | None,
-    topology_fingerprint: str,
-) -> str:
-    """Spawn the Stage 4 compile-cache warmup job and return its FunctionCall id."""
-    function_call = _warm_stage4_compile_cache.spawn(
-        workspace_id,
-        model_spec,
-        causal_spec,
-        topology_fingerprint,
-    )
-    return str(function_call.object_id)

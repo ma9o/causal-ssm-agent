@@ -62,8 +62,6 @@ stage2_workers:
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
   max_tool_turns: 200
-  state_machine_enabled: false
-  megaprompt_max_outer_turns: 12
   literature_search:
     enabled: true
   paraphrasing:

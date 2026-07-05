@@ -162,16 +162,6 @@ class Stage4Config:
     max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
     paraphrasing: ParaphrasingConfig = field(default_factory=ParaphrasingConfig)
-    state_machine_enabled: bool = True
-    """When ``True`` (default), Stage 4 runs the frontier-reduced state machine,
-    prompting the LLM one block at a time. When ``False``, Stage 4 runs a single
-    "megaprompt" agent session that exposes the same submit tools all at once
-    and lets the model submit decisions and priors in any order; the same
-    validation checks (schema, compile, prior-predictive) apply."""
-    megaprompt_max_outer_turns: int = 8
-    """Maximum outer agent turns allowed when running in megaprompt mode. Each
-    outer turn gives the model one opportunity to call tools; the loop stops
-    earlier once the accepted state passes full validation."""
 
 
 @dataclass(frozen=True)
@@ -428,8 +418,6 @@ def load_config() -> PipelineConfig:
         paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
         if paraphrasing_raw
         else ParaphrasingConfig(),
-        state_machine_enabled=stage4_raw.get("state_machine_enabled", True),
-        megaprompt_max_outer_turns=stage4_raw.get("megaprompt_max_outer_turns", 8),
     )
 
     stage6_raw = raw.get("stage6_commentary", {}) or {}

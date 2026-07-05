@@ -18,27 +18,20 @@ on their payload, not on a current active block.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from .stage4_cards import (
-    build_construct_scale_cards,
-    build_distribution_cards,
-    build_model_topology,
-    build_prior_cards,
-)
 from .stage4_core import (
     apply_prior_subset,
     lock_model_spec,
     validate_and_store_indicator_choice,
     validate_and_store_model_configuration,
 )
-from .stage4_orchestrator import build_stage4_plan
-from .stage4_skeleton import derive_deterministic_spec
 from .stage4_state import Stage4AcceptedArtifacts, Stage4DraftModel
-from .stage4_types import Stage4Deps, Stage4Result
+
+if TYPE_CHECKING:
+    from .stage4_types import Stage4Deps
 
 MEGAPROMPT_CHECKPOINT_VERSION = 1
 
@@ -49,9 +42,6 @@ logger.setLevel(logging.INFO)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
-
-    import polars as pl
 
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
@@ -525,249 +515,3 @@ def _make_megaprompt_tools(
             )
         )
     return tools
-
-
-async def run_stage4_megaprompt(
-    causal_spec: dict,
-    question: str,
-    data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict[str, Any]],
-    session_factory: StageSessionFactory,
-    *,
-    paraphrase_session_factory: StageSessionFactory | None = None,
-    enable_literature: bool = True,
-    enable_paraphrasing: bool = False,
-    n_paraphrases: int = 10,
-    max_tool_turns: int = 40,
-    max_outer_turns: int = 8,
-    checkpoint_path: Path | None = None,
-) -> Stage4Result:
-    """Run the Stage 4 flow with a single megaprompt agent session.
-
-    The action space matches :func:`run_stage4` — same submit tools, same
-    per-submission validation — but the harness exposes every tool at once
-    and lets the model choose the order. The loop stops as soon as the
-    accumulated state satisfies the same "valid model_spec + priors"
-    predicate the state-machine mode uses.
-
-    ``checkpoint_path`` is an optional JSON file the adapter overwrites
-    after every accepted submit-tool call. A run interrupted mid-session
-    resumes by reading the same file on next invocation; an unreadable
-    or incompatible file is ignored with a warning and the run starts
-    fresh.
-    """
-    del max_tool_turns  # inherited from StageSessionFactory initialization
-    from nof1_causal_lab.flows.stages.stage4.grounding import stage4_grounding
-
-    from .prompts.megaprompt import (
-        build_stage4_megaprompt_system_prompt,
-        build_stage4_megaprompt_user_prompt,
-    )
-
-    skeleton = derive_deterministic_spec(causal_spec)
-    plan = build_stage4_plan(causal_spec, skeleton)
-    model_topology = build_model_topology(causal_spec)
-    distribution_cards = build_distribution_cards(causal_spec, indicator_audits, skeleton)
-    construct_scale_cards = build_construct_scale_cards(causal_spec, indicator_audits, skeleton)
-    prior_cards = build_prior_cards(causal_spec, skeleton)
-
-    ambiguous_variables = tuple(str(item["variable"]) for item in skeleton.ambiguous_indicators)
-    plan_block_by_variable = {
-        block.variable_names[0]: block
-        for block in plan.model_blocks
-        if block.kind == "indicator_decision" and block.variable_names
-    }
-    parameter_inventory = _parameter_inventory_from_skeleton(skeleton)
-
-    configuration_block = next(
-        (block for block in plan.model_blocks if block.kind == "model_configuration"),
-        None,
-    )
-    centerable_construct_names: tuple[str, ...] = ()
-    baseline_factor_names: tuple[str, ...] = ()
-    if configuration_block is not None:
-        centerable_construct_names = tuple(
-            configuration_block.payload.get("centerable_construct_names") or ()
-        )
-        baseline_factor_names = tuple(
-            configuration_block.payload.get("baseline_factor_names") or ()
-        )
-
-    deps = Stage4Deps(
-        skeleton=skeleton,
-        causal_spec=causal_spec,
-        data_for_model=data_for_model,
-        indicator_audits=indicator_audits,
-        grounding_fn=stage4_grounding,
-    )
-    state = Stage4MegapromptState()
-    resumed_from_checkpoint = False
-    if checkpoint_path is not None and checkpoint_path.exists():
-        try:
-            state = deserialize_stage4_megaprompt_state(json.loads(checkpoint_path.read_text()))
-            resumed_from_checkpoint = True
-            logger.info(
-                "stage-4:megaprompt resumed from %s (tool_call_count=%d, authored_priors=%d)",
-                checkpoint_path,
-                state.tool_call_count,
-                len(state.accepted.authored_priors),
-            )
-        except Exception as exc:  # noqa: BLE001 — corrupt/stale checkpoint must not block the run
-            logger.warning(
-                "stage-4:megaprompt checkpoint at %s is unreadable (%s: %s) — starting fresh",
-                checkpoint_path,
-                type(exc).__name__,
-                exc,
-            )
-
-    def _write_checkpoint(snapshot: Stage4MegapromptState) -> None:
-        if checkpoint_path is None:
-            return
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        checkpoint_path.write_text(
-            json.dumps(serialize_stage4_megaprompt_state(snapshot), indent=2, default=str)
-        )
-
-    # Recompute validation from the retained inputs on resume. The
-    # checkpoint persists only inputs (model_spec + priors + decisions);
-    # ``validation`` is a derived artifact. Computing it here from scratch
-    # guarantees it reflects the current validator rules rather than
-    # whatever was true when the checkpoint was written.
-    if state.accepted.model_spec is not None and state.accepted.authored_priors:
-        required_prior_names_local = _required_prior_names_from_spec(state.accepted.model_spec)
-        if all(name in state.accepted.authored_priors for name in required_prior_names_local):
-            from nof1_causal_lab.flows.stages.stage4.assembly import (
-                format_validation_feedback,
-                validate_assembly,
-            )
-
-            logger.info("stage-4:megaprompt recomputing validation on resume from retained inputs")
-            state.accepted.validation = validate_assembly(
-                state.accepted.model_spec,
-                state.accepted.authored_priors,
-                data_for_model,
-                indicator_audits,
-                causal_spec,
-            )
-            # Overwrite last_feedback with a fresh rendering of the
-            # recomputed validation. The checkpointed last_feedback may
-            # be an old ``ACCEPTED …`` message from the submit-tool call
-            # that wrote the checkpoint, which would mislead the agent
-            # into thinking the stage is complete when the recompute
-            # actually found a problem.
-            state.last_feedback = format_validation_feedback(
-                state.accepted.validation,
-                state.accepted.authored_priors,
-            )
-            _write_checkpoint(state)
-            if state.is_done():
-                logger.info("stage-4:megaprompt resume is already valid — skipping agent session")
-                return Stage4Result(
-                    model_spec=state.accepted.model_spec,
-                    authored_priors=state.accepted.authored_priors,
-                    search_queries=dict(state.search_queries),
-                    validation=state.accepted.validation,
-                )
-            logger.info(
-                "stage-4:megaprompt resume validation is not valid — handing to "
-                "agent session\nrecomputed feedback:\n%s",
-                state.last_feedback,
-            )
-
-    system_prompt = build_stage4_megaprompt_system_prompt(
-        enable_literature=enable_literature,
-        enable_paraphrasing=enable_paraphrasing,
-    )
-    tools = _make_megaprompt_tools(
-        state,
-        deps=deps,
-        plan_block_by_variable=plan_block_by_variable,
-        ambiguous_variables=ambiguous_variables,
-        parameter_inventory=parameter_inventory,
-        enable_literature=enable_literature,
-        enable_paraphrasing=enable_paraphrasing,
-        question=question,
-        paraphrase_session_factory=paraphrase_session_factory or session_factory,
-        n_paraphrases=n_paraphrases,
-        save_checkpoint=_write_checkpoint if checkpoint_path is not None else None,
-    )
-
-    async with session_factory.open(
-        system_prompt=system_prompt,
-        tools=tools,
-        log_label="stage-4:megaprompt",
-    ) as agent_session:
-        for _outer_turn in range(max(1, max_outer_turns)):
-            required_prior_names = (
-                _required_prior_names_from_spec(state.accepted.model_spec)
-                if state.accepted.model_spec is not None
-                else parameter_inventory
-            )
-            optional_prior_names = _optional_prior_names_from_spec(state.accepted.model_spec)
-            user_prompt = build_stage4_megaprompt_user_prompt(
-                question=question,
-                model_topology=model_topology,
-                distribution_cards=distribution_cards,
-                loading_params=skeleton.loading_params,
-                construct_scale_cards=construct_scale_cards,
-                prior_cards=prior_cards,
-                ambiguous_indicators=skeleton.ambiguous_indicators,
-                distribution_choices=state.draft_model.distribution_choices,
-                initialization_policy=state.draft_model.initialization_policy,
-                observation_intercept_policy=state.draft_model.observation_intercept_policy,
-                equilibrium_forcing=state.draft_model.equilibrium_forcing,
-                centerable_construct_names=centerable_construct_names,
-                baseline_factor_names=baseline_factor_names,
-                required_prior_names=required_prior_names,
-                optional_prior_names=optional_prior_names,
-                authored_priors=state.accepted.authored_priors,
-                accepted_model_spec=state.accepted.model_spec,
-                model_spec_locked=state.accepted.model_spec is not None,
-                latest_feedback=state.last_feedback,
-                resumed_from_checkpoint=resumed_from_checkpoint,
-                include_accepted_state_sections=_outer_turn == 0,
-                include_prior_source_guidance=enable_literature,
-            )
-            calls_before = state.tool_call_count
-            turn_result = await agent_session.turn(user_prompt)
-            tool_calls = list(getattr(turn_result, "tool_calls_fired", ()) or ())
-            completion = (getattr(turn_result, "completion", "") or "").strip()
-            logger.info(
-                "stage-4:megaprompt turn %d: tool_calls=%d (fired=%s) completion_preview=%r",
-                _outer_turn + 1,
-                state.tool_call_count - calls_before,
-                tool_calls,
-                completion[:400],
-            )
-            if state.is_done():
-                break
-            if state.tool_call_count == calls_before:
-                # The model made no tool calls this turn; there is no point
-                # in re-prompting with the same state. Fall through and raise
-                # below so the caller sees a deterministic failure instead of
-                # a silent infinite loop.
-                break
-
-    if not state.is_done():
-        missing = [
-            name
-            for name in _required_prior_names_from_spec(state.accepted.model_spec)
-            if name not in state.accepted.authored_priors
-        ]
-        raise ValueError(
-            "Stage 4 megaprompt flow did not produce a valid model_spec + priors "
-            f"(model_spec_locked={state.accepted.model_spec is not None!r}, "
-            f"tool_call_count={state.tool_call_count!r}, "
-            f"missing_priors={len(missing)!r}, "
-            f"last_feedback={state.last_feedback!r})"
-        )
-
-    validation = state.accepted.validation
-    assert state.accepted.model_spec is not None
-    assert validation is not None
-    return Stage4Result(
-        model_spec=state.accepted.model_spec,
-        authored_priors=state.accepted.authored_priors,
-        search_queries=dict(state.search_queries),
-        validation=validation,
-    )

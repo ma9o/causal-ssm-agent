@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -186,22 +185,3 @@ def write_text(path: str, content: str) -> None:
 
 def read_json(path: str) -> Any:
     return json.loads(read_text(path))
-
-
-def remove(path: str, *, recursive: bool = False) -> None:
-    """Remove a file or directory path if it exists."""
-    if is_remote():
-        if get_fs().exists(path):
-            get_fs().rm(path, recursive=recursive)
-        return
-
-    target = Path(path)
-    if not target.exists():
-        return
-    if target.is_dir():
-        if not recursive:
-            target.rmdir()
-            return
-        shutil.rmtree(target)
-        return
-    target.unlink()

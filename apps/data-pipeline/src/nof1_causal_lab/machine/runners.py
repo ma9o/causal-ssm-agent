@@ -295,8 +295,6 @@ async def _run_stage4(
         data_for_model=data_for_model,
         indicator_audits=validation_report.get("indicators", {}),
         enable_literature=lit_enabled,
-        workspace_id=workspace_id,
-        root_run_id=workspace_id,
     )
 
     compiled_ssm = result.pop("_compiled_ssm", None)

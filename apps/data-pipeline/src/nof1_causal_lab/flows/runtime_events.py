@@ -22,7 +22,6 @@ from nof1_causal_lab.utils import storage
 
 STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"
 STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2"
-STAGE4_EVENT_PREFIX = "nof1-causal-lab.stage4"
 
 
 def events_dir(workspace_id: str) -> str:
@@ -126,44 +125,13 @@ def emit_stage2_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -
     )
 
 
-def emit_stage4_graph_event(workspace_id: str, *, graph: dict[str, Any]) -> None:
-    """Emit the static Stage 4 graph topology."""
-    emit_event(
-        workspace_id,
-        f"{STAGE4_EVENT_PREFIX}.graph",
-        {"stage_id": "stage-4", "type": "graph", **graph},
-    )
-
-
-def emit_stage4_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -> None:
-    """Emit a Stage 4 runtime state snapshot."""
-    emit_event(
-        workspace_id,
-        f"{STAGE4_EVENT_PREFIX}.snapshot",
-        {"stage_id": "stage-4", "type": "snapshot", **snapshot},
-    )
-
-
-def emit_stage4_block_transition_event(workspace_id: str, *, transition: dict[str, Any]) -> None:
-    """Emit one Stage 4 dot-level transition event for replayable UI history."""
-    emit_event(
-        workspace_id,
-        f"{STAGE4_EVENT_PREFIX}.block_transition",
-        {"stage_id": "stage-4", "type": "block_transition", **transition},
-    )
-
-
 __all__ = [
     "STAGE2_EVENT_PREFIX",
-    "STAGE4_EVENT_PREFIX",
     "STAGE_PROGRESS_EVENT_PREFIX",
     "emit_event",
     "emit_stage2_plan_event",
     "emit_stage2_snapshot_event",
     "emit_stage2_worker_event",
-    "emit_stage4_block_transition_event",
-    "emit_stage4_graph_event",
-    "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
     "events_dir",
     "read_events",
