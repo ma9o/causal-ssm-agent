@@ -1,0 +1,281 @@
+{
+  "seed": 71413092,
+  "dt": 0.01,
+  "domain": "Single small mesotrophic freshwater lake; one monitored station; summer stratification season.",
+  "generative_form": "dx_i = -(a_i(x_i-c_i)+q_i(x_i-c_i)^3)dt + sum_j f_ij(x_j) dt + sigma_i dW_i ; f_ij linear (w*x_j) or tanh (w*tanh(x_j)).",
+  "node_names_topological": [
+    "CatchmentLoading",
+    "WaterTemperature",
+    "Nitrate",
+    "Turbidity",
+    "CDOM",
+    "Phytoplankton",
+    "DissolvedOxygen",
+    "pH",
+    "Zooplankton"
+  ],
+  "unobserved_node": {
+    "name": "CatchmentLoading",
+    "index": 0
+  },
+  "nodes": {
+    "CatchmentLoading": {
+      "a": 0.5,
+      "relaxation_time_days": 2.0,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 1.0,
+      "stationary_sd": 1.0028634674640087,
+      "stationary_mean_freerun": 0.07210543153333979,
+      "definition": "Latent intensity of external material loading delivered to the lake from its watershed, driven by rainfall/runoff pulses. Bundles the washed-in nutrients, suspended sediment and terrestrial dissolved organic matter that arrive together after storms. No direct sensor."
+    },
+    "WaterTemperature": {
+      "a": 0.833,
+      "relaxation_time_days": 1.2004801920768309,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 1.29,
+      "stationary_sd": 0.9896001282521151,
+      "stationary_mean_freerun": 0.030574992695939038,
+      "definition": "Surface mixed-layer water temperature. Responds quickly to weather and insolation; sets metabolic and solubility rates for the rest of the system."
+    },
+    "Nitrate": {
+      "a": 0.25,
+      "relaxation_time_days": 4.0,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 0.55,
+      "stationary_sd": 1.4211394297064512,
+      "stationary_mean_freerun": 0.02950755635874799,
+      "definition": "Dissolved nitrate-nitrogen concentration in surface water, the main bioavailable nitrogen pool fueling algal growth."
+    },
+    "Turbidity": {
+      "a": 2.5,
+      "relaxation_time_days": 0.4,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 2.05,
+      "stationary_sd": 0.9565172304523906,
+      "stationary_mean_freerun": 0.03102717405240971,
+      "definition": "Optical cloudiness of the water from suspended inorganic particles (clay/silt). Rises fast with runoff and settles fast once inputs stop."
+    },
+    "CDOM": {
+      "a": 0.1667,
+      "relaxation_time_days": 5.99880023995201,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 0.55,
+      "stationary_sd": 1.8981866204956044,
+      "stationary_mean_freerun": 0.17970601139745743,
+      "definition": "Colored (chromophoric) dissolved organic matter -- the 'tea-stained' humic material leached from the catchment. Absorbs light and drifts slowly."
+    },
+    "Phytoplankton": {
+      "a": 0.4,
+      "relaxation_time_days": 2.5,
+      "c": 0.0,
+      "q": 0.3,
+      "sigma": 0.8,
+      "stationary_sd": 0.8343830682437929,
+      "stationary_mean_freerun": -0.03987456892592607,
+      "definition": "Standing algal biomass (phytoplankton) in the surface layer. Grows on nitrogen, warmth and light; self-limits at bloom densities."
+    },
+    "DissolvedOxygen": {
+      "a": 1.25,
+      "relaxation_time_days": 0.8,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 1.35,
+      "stationary_sd": 0.9414011272894823,
+      "stationary_mean_freerun": -0.020220789437822306,
+      "definition": "Dissolved-oxygen saturation of the surface water, set by the balance of photosynthetic production, temperature-dependent solubility and respiration."
+    },
+    "pH": {
+      "a": 1.0,
+      "relaxation_time_days": 1.0,
+      "c": 0.0,
+      "q": 0.0,
+      "sigma": 1.41,
+      "stationary_sd": 1.0368562278855764,
+      "stationary_mean_freerun": 0.009837912611693077,
+      "definition": "Acidity/alkalinity of the surface water. Rises as photosynthesis draws down dissolved CO2 during productive periods."
+    },
+    "Zooplankton": {
+      "a": 0.1429,
+      "relaxation_time_days": 6.997900629811057,
+      "c": 0.0,
+      "q": 0.4,
+      "sigma": 0.52,
+      "stationary_sd": 0.8013206821985235,
+      "stationary_mean_freerun": -0.026192948936418214,
+      "definition": "Abundance of grazing crustacean zooplankton (Daphnia-type). Tracks algal food and temperature with a slow, generational lag and a carrying-capacity ceiling."
+    }
+  },
+  "edges": [
+    {
+      "parent": "CatchmentLoading",
+      "child": "Nitrate",
+      "weight": 0.5,
+      "form": "linear"
+    },
+    {
+      "parent": "CatchmentLoading",
+      "child": "Turbidity",
+      "weight": 0.7,
+      "form": "linear"
+    },
+    {
+      "parent": "CatchmentLoading",
+      "child": "CDOM",
+      "weight": 0.55,
+      "form": "linear"
+    },
+    {
+      "parent": "WaterTemperature",
+      "child": "Nitrate",
+      "weight": -0.25,
+      "form": "linear"
+    },
+    {
+      "parent": "Nitrate",
+      "child": "Phytoplankton",
+      "weight": 0.45,
+      "form": "linear"
+    },
+    {
+      "parent": "WaterTemperature",
+      "child": "Phytoplankton",
+      "weight": 0.35,
+      "form": "linear"
+    },
+    {
+      "parent": "Turbidity",
+      "child": "Phytoplankton",
+      "weight": -0.5,
+      "form": "tanh"
+    },
+    {
+      "parent": "CDOM",
+      "child": "Phytoplankton",
+      "weight": -0.3,
+      "form": "linear"
+    },
+    {
+      "parent": "Phytoplankton",
+      "child": "DissolvedOxygen",
+      "weight": 0.6,
+      "form": "linear"
+    },
+    {
+      "parent": "WaterTemperature",
+      "child": "DissolvedOxygen",
+      "weight": -0.4,
+      "form": "linear"
+    },
+    {
+      "parent": "Phytoplankton",
+      "child": "pH",
+      "weight": 0.55,
+      "form": "linear"
+    },
+    {
+      "parent": "Phytoplankton",
+      "child": "Zooplankton",
+      "weight": 0.7,
+      "form": "tanh"
+    },
+    {
+      "parent": "WaterTemperature",
+      "child": "Zooplankton",
+      "weight": 0.3,
+      "form": "linear"
+    }
+  ],
+  "emissions": [
+    {
+      "indicator": "water_temp_C",
+      "construct": "WaterTemperature",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 2.0,
+      "intercept_b": 22.0,
+      "noise_sigma_e": 0.15
+    },
+    {
+      "indicator": "nitrate_mgL",
+      "construct": "Nitrate",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 0.11,
+      "intercept_b": 0.55,
+      "noise_sigma_e": 0.015
+    },
+    {
+      "indicator": "turbidity_NTU",
+      "construct": "Turbidity",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 4.2,
+      "intercept_b": 14.0,
+      "noise_sigma_e": 0.5
+    },
+    {
+      "indicator": "fdom_QSU",
+      "construct": "CDOM",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 6.0,
+      "intercept_b": 26.0,
+      "noise_sigma_e": 0.6
+    },
+    {
+      "indicator": "chl_a_ugL",
+      "construct": "Phytoplankton",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 5.5,
+      "intercept_b": 16.0,
+      "noise_sigma_e": 0.8
+    },
+    {
+      "indicator": "do_sat_pct",
+      "construct": "DissolvedOxygen",
+      "response": "bounded 0-100 index",
+      "family": "gaussian",
+      "link": "sigmoid100",
+      "loading_lambda": 0.35,
+      "intercept_b": 1.3,
+      "noise_sigma_e": 1.8
+    },
+    {
+      "indicator": "ph",
+      "construct": "pH",
+      "response": "continuous",
+      "family": "gaussian",
+      "link": "identity",
+      "loading_lambda": 0.28,
+      "intercept_b": 7.9,
+      "noise_sigma_e": 0.03
+    },
+    {
+      "indicator": "zoop_count",
+      "construct": "Zooplankton",
+      "response": "count",
+      "family": "poisson",
+      "link": "exp",
+      "loading_lambda": 0.5,
+      "intercept_b": 3.7
+    }
+  ],
+  "observation_design": {
+    "span_days": 60.9634,
+    "n_observations": 100,
+    "burn_in_days": 40.0,
+    "note": "Irregular Gamma-spaced visit times; all indicators logged at each visit."
+  },
+  "stationary_sd_note": "stationary_sd / stationary_mean_freerun estimated empirically from a 4000-day free run (dt=0.01) after 200-day burn-in, sampled every 10th step, on the full coupled system."
+}

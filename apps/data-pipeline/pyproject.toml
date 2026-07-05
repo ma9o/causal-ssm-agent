@@ -84,6 +84,8 @@ target-version = "py312"
 line-length = 100
 src = ["src", "tests", "evaluation"]
 fix = true
+# notebooks/data holds study fixtures and their data generators, not source code
+extend-exclude = ["notebooks/data"]
 
 [tool.ruff.lint]
 select = [
@@ -153,6 +155,8 @@ skip-magic-trailing-comma = false
 
 [tool.vulture]
 paths = ["src", "tests", "evaluation", "scripts", "notebooks"]
+# notebooks/data holds study fixtures and their data generators, not source code
+exclude = ["*notebooks/data*"]
 min_confidence = 60
 sort_by_size = true
 ignore_decorators = [
