@@ -124,7 +124,12 @@ async def serve_tools_http(
     session_manager = StreamableHTTPSessionManager(
         app=server,
         stateless=True,
-        json_response=False,
+        # Plain application/json responses, not SSE frames: codex's rmcp
+        # client intermittently dies decoding the SSE-framed initialize
+        # response ("worker quit with fatal: SSE error ... when process
+        # initialize response"), which leaves the session toolless. Every
+        # tool here is strict request/response, so SSE buys nothing.
+        json_response=True,
     )
 
     # Raw ASGI app, no router: a Starlette Mount("/mcp") answers POST /mcp
