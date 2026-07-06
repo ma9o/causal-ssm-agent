@@ -124,6 +124,15 @@ def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
         )
 
 
+# One compiled program shared by every prior draw: array leaves (params,
+# state, key, per-draw CFL step size inside SimulationConfig) are traced,
+# structure is static. The bare exact-engine ``simulate`` builds fresh
+# closures per call, which — combined with per-draw host-float step sizes —
+# used to retrace AND recompile XLA once per draw (~0.8s × n_draws per
+# submit_construct).
+_simulate_jit = eqx.filter_jit(simulate)
+
+
 def _prepare_vector_field_for_draw(
     base_vector_field,
     *,
@@ -178,14 +187,20 @@ def _predictive_sde_config(draw: dict[str, jnp.ndarray], span: float) -> Simulat
     base_dt = span / 200.0 if span > 0.0 else None
     if base_dt is None:
         return SimulationConfig()
-    decay_rates = [
-        float(jnp.max(jnp.abs(value))) for name, value in draw.items() if name.endswith("_decay")
+    # Traced (not host) arithmetic: the per-draw step size stays a jnp scalar
+    # so every draw reuses ONE compiled program — a host float here bakes into
+    # the XLA graph as a constant and forces a retrace + recompile per draw.
+    decay_maxes = [
+        jnp.max(jnp.abs(value)) for name, value in draw.items() if name.endswith("_decay")
     ]
-    max_rate = max(decay_rates) if decay_rates else 0.0
-    sde_dt = base_dt if max_rate <= 0.0 else min(base_dt, _SDE_CFL_SAFETY / max_rate)
+    if decay_maxes:
+        max_rate = jnp.stack(decay_maxes).max()
+        capped = jnp.minimum(base_dt, _SDE_CFL_SAFETY / jnp.maximum(max_rate, 1e-30))
+        sde_dt = jnp.where(max_rate > 0.0, capped, base_dt)
+    else:
+        sde_dt = jnp.asarray(base_dt)
     # Keep the step count within the solver budget for pathologically fast draws.
-    if span / sde_dt > _SDE_MAX_STEPS:
-        sde_dt = span / _SDE_MAX_STEPS
+    sde_dt = jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
     return SimulationConfig(sde_dt=sde_dt, max_steps=_SDE_MAX_STEPS + 16)
 
 
@@ -205,6 +220,7 @@ def _simulate_vector_field_predictive_latents(
     linear_predictors = []
 
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
+    intervention = Intervention.none()
 
     for draw_idx in range(n_draws):
         key_init, key_latent = random.split(draw_keys[draw_idx])
@@ -230,10 +246,10 @@ def _simulate_vector_field_predictive_latents(
                 times=times,
                 transition_inputs=transition_inputs,
             )
-            latent_trajectory = simulate(
+            latent_trajectory = _simulate_jit(
                 vector_field,
                 vf_params,
-                Intervention.none(),
+                intervention,
                 eta0,
                 times,
                 config=_predictive_sde_config(draw, span),

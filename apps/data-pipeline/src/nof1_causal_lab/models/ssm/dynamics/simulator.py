@@ -14,10 +14,10 @@ intervention initial-condition handoff, nothing else. Estimands
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import diffrax as dfx
+import equinox as eqx
 import jax.numpy as jnp
 
 from .vector_field import VectorFieldArgs
@@ -29,12 +29,17 @@ if TYPE_CHECKING:
     from .vector_field import VectorField
 
 
-@dataclass(frozen=True)
-class SimulationConfig:
+class SimulationConfig(eqx.Module):
+    """Solver configuration. An ``eqx.Module`` (pytree) rather than a plain
+    dataclass so a *traced* ``sde_dt`` array can flow through ``filter_jit``
+    as a leaf: per-draw CFL-capped step sizes then reuse one compiled
+    program instead of baking each value in as a constant (one XLA compile
+    per prior draw)."""
+
     rtol: float = 1e-4
     atol: float = 1e-6
     max_steps: int = 4096
-    sde_dt: float | None = None
+    sde_dt: float | Array | None = None
     """Constant step size for the SDE solver. ``None`` → ``(t1 - t0) / 200``."""
     sde_brownian_tol: float = 1e-3
     """Tolerance for ``VirtualBrownianTree``; smaller = finer Brownian path."""
