@@ -21,7 +21,8 @@ llm:
   # harness: codex  (spawns `codex exec`)
   codex:
     bin: codex
-    reasoning_effort: high  # low | medium | high | xhigh | max
+    reasoning_effort: xhigh  # low | medium | high | xhigh | max
+    service_tier: fast
 
 # --- Stages ----------------------------------------------------------------
 
@@ -29,8 +30,8 @@ llm:
 stage0_ingestion:
   max_tool_turns: 40
   llm:
-    harness: none
-    model: openrouter/xiaomi/mimo-v2.5-pro
+    harness: codex
+    model: gpt-5.5
 
 # Stage 1: Structure Proposal (Orchestrator)
 stage1_structure_proposal:
@@ -39,8 +40,8 @@ stage1_structure_proposal:
   stage1a_max_tool_turns: 40
   stage1b_max_tool_turns: 40
   llm:
-    harness: none
-    model: openrouter/openai/gpt-5.4
+    harness: codex
+    model: gpt-5.5
 
 # Stage 2: Support-Window Extraction (Workers)
 # Stage 2 fans out across thousands of workers; harness cold-start per worker
@@ -70,8 +71,7 @@ stage4_prior_elicitation:
     gmm_model: null          # optional; null = inherit stage's llm.model
   llm:
     harness: codex
-    model: gpt-5.4
-    reasoning_effort: xhigh
+    model: gpt-5.5
     timeout: 3600           # 60-min per-turn ceiling for xhigh reasoning on the megaprompt
 
 # Stages 5a/5b: Inference — no LLM (NumPyro SSM)
@@ -79,8 +79,8 @@ stage4_prior_elicitation:
 # Stage 6: Narrative Commentary
 stage6_commentary:
   llm:
-    harness: none
-    model: openrouter/xiaomi/mimo-v2.5-pro
+    harness: codex
+    model: gpt-5.5
 
 # --- Inference -------------------------------------------------------------
 inference:
