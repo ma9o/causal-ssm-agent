@@ -53,9 +53,7 @@ def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> li
     """The compiler-authoritative free parameters this construct may author priors for."""
     assert state.catalog is not None  # set in ConstructBuildState.__post_init__
     names = set(state.catalog.by_construct.get(construct, ()))
-    names |= deferred_closing_edge_params(
-        state.causal_spec, construct, set(state.admission.names)
-    )
+    names |= deferred_closing_edge_params(state.causal_spec, construct, set(state.admission.names))
     return sorted(names)
 
 
