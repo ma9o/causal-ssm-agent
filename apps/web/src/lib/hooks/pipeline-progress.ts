@@ -100,14 +100,22 @@ export function applyStageUpdate(
   const current = prev ?? initialProgress();
   const previousStatus = current.stages[stageId];
 
+  // A lower-priority signal never clobbers a higher one: a stale pending/running
+  // must not undo a terminal state (genuine re-runs arrive via restartStageAttempt).
   if (STAGE_STATUS_PRIORITY[status] < STAGE_STATUS_PRIORITY[previousStatus]) {
     return current;
   }
+  // completed and failed are equal-priority terminal states; the latest one wins
+  // so a stage that failed then succeeded (or vice versa) shows its most recent
+  // outcome. Only ignore a terminal signal that predates the recorded one.
   if (
     STAGE_STATUS_PRIORITY[status] === STAGE_STATUS_PRIORITY[previousStatus] &&
     previousStatus !== status
   ) {
-    return current;
+    const prevCompletedAt = current.timings[stageId]?.completedAt;
+    if (eventTime !== undefined && prevCompletedAt !== undefined && eventTime < prevCompletedAt) {
+      return current;
+    }
   }
 
   const stages = { ...current.stages, [stageId]: status };

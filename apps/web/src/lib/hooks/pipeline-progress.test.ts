@@ -100,4 +100,26 @@ describe("applyStageUpdate", () => {
 
     expect(progress?.isComplete).toBe(true);
   });
+
+  it("flips a failed stage to completed when a later attempt succeeds (latest wins)", () => {
+    let progress = applyStageUpdate(undefined, "stage-1a", "failed", 2_000, "boom");
+    progress = applyStageUpdate(progress, "stage-1a", "completed", 5_000);
+
+    expect(progress.stages["stage-1a"]).toBe("completed");
+  });
+
+  it("flips a completed stage to failed on a later failure", () => {
+    let progress = applyStageUpdate(undefined, "stage-1a", "completed", 2_000);
+    progress = applyStageUpdate(progress, "stage-1a", "failed", 5_000, "regressed");
+
+    expect(progress.stages["stage-1a"]).toBe("failed");
+    expect(progress.stageErrors["stage-1a"]).toBe("regressed");
+  });
+
+  it("ignores a stale terminal signal that predates the recorded outcome", () => {
+    let progress = applyStageUpdate(undefined, "stage-1a", "failed", 5_000, "boom");
+    progress = applyStageUpdate(progress, "stage-1a", "completed", 3_000);
+
+    expect(progress.stages["stage-1a"]).toBe("failed");
+  });
 });

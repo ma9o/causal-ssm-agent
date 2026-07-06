@@ -111,26 +111,39 @@ function invalidateStageData(
   queryClient.invalidateQueries({ queryKey: getStageDataQueryKey(workspaceId, stageId) });
 }
 
-function applyRaisedTransition(
+/**
+ * The durable journal is authoritative for a stage's terminal state: an applied
+ * run transition means it completed, a raised one means it failed. Telemetry
+ * `completed` events also drive completion, but they are ephemeral — the
+ * transition keeps the display correct even when the event log has been pruned.
+ */
+function applyRunTransition(
   progress: PipelineProgress | undefined,
   transition: EpisodeTransitionRecord,
 ): PipelineProgress | undefined {
-  if (transition.move.kind !== "run" || transition.status !== "raised") {
+  if (transition.move.kind !== "run") {
     return progress;
   }
   const stageId = transition.move.stage_id;
   if (!isStageId(stageId)) {
     return progress;
   }
-
   const eventTime = Date.parse(transition.ts);
-  return applyStageUpdate(
-    progress,
-    stageId,
-    "failed",
-    Number.isFinite(eventTime) ? eventTime : undefined,
-    transition.error_message ?? transition.error_type ?? undefined,
-  );
+  const ts = Number.isFinite(eventTime) ? eventTime : undefined;
+
+  if (transition.status === "applied") {
+    return applyStageUpdate(progress, stageId, "completed", ts);
+  }
+  if (transition.status === "raised") {
+    return applyStageUpdate(
+      progress,
+      stageId,
+      "failed",
+      ts,
+      transition.error_message ?? transition.error_type ?? undefined,
+    );
+  }
+  return progress; // rejected attempts never executed — leave status untouched
 }
 
 function hasRunningStage(progress: PipelineProgress | undefined): boolean {
@@ -212,7 +225,7 @@ export function useRunEvents(workspaceId: string | null) {
         }
         queryClient.setQueryData<PipelineProgress>(
           getPipelineStatusQueryKey(workspaceId),
-          (old) => applyRaisedTransition(old, transition) ?? old,
+          (old) => applyRunTransition(old, transition) ?? old,
         );
         lastSeqRef.current = Math.max(lastSeqRef.current, transition.seq);
       }
