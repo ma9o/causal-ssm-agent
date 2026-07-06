@@ -50,6 +50,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         first_bad_time_index: int,
         max_linear_predictor: float,
         overflow_threshold: float,
+        n_nonfinite: int = 0,
     ) -> None:
         self.bad_manifest_names = bad_manifest_names
         self.manifest_indices = manifest_indices
@@ -58,13 +59,24 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         self.first_bad_time_index = first_bad_time_index
         self.max_linear_predictor = max_linear_predictor
         self.overflow_threshold = overflow_threshold
+        self.n_nonfinite = n_nonfinite
         manifest_summary = ", ".join(bad_manifest_names) if bad_manifest_names else "unknown"
+        if n_nonfinite:
+            cause = (
+                f"linear predictor contains {n_nonfinite} non-finite (NaN/Inf) values for "
+                f"{manifest_summary} — the latent simulation diverged under these priors "
+                "(rein in feedback edge gains, diffusion, or persistence), "
+                f"max finite eta={max_linear_predictor:.2f}"
+            )
+        else:
+            cause = (
+                f"linear predictor exceeded the finite exp range for {manifest_summary} "
+                f"(max eta={max_linear_predictor:.2f}, threshold={overflow_threshold:.2f}"
+            )
         super().__init__(
             "Predictive log-link mean overflow before observation sampling: "
-            f"linear predictor exceeded the finite exp range for {manifest_summary} "
-            f"(max eta={max_linear_predictor:.2f}, threshold={overflow_threshold:.2f}, "
-            f"first bad time index={first_bad_time_index}; "
-            f"{len(failing_draw_indices)} of {n_draws} prior draws overflow — "
+            f"{cause}, first bad time index={first_bad_time_index}; "
+            f"{len(failing_draw_indices)} of {n_draws} prior draws affected — "
             "a small fraction means heavy tails (tighten sigma/upper bounds); "
             "most draws means the central mass is wrong (lower the loading/edge-gain "
             "or intercept location feeding this log link)."
@@ -199,6 +211,7 @@ def _raise_if_log_link_mean_overflow(
         first_bad_time_index=first_bad_time_index,
         max_linear_predictor=max_linear_predictor,
         overflow_threshold=overflow_threshold,
+        n_nonfinite=int((~np.isfinite(linear_np[..., log_link_mask])).sum()),
     )
 
 
