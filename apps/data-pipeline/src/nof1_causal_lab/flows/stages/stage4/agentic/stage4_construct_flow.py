@@ -355,16 +355,30 @@ class ConstructBuildState:
             )
         assert self.catalog is not None  # set in __post_init__
         parents = construct_parents(self.causal_spec, construct)
-        allowed = self.catalog.allowed_for(construct, parents)
-        allowed |= deferred_closing_edge_params(
+        closing = deferred_closing_edge_params(
             self.causal_spec, construct, set(self.admission.names)
         )
+        allowed = self.catalog.allowed_for(construct, parents) | closing
         unknown = [name for name in priors if name not in allowed]
         if unknown:
             return (
                 f"These parameters are not free for `{construct}` and cannot take a prior: "
                 f"{', '.join(sorted(unknown))}. Author priors only for: "
                 f"{', '.join(sorted(allowed))}."
+            )
+        missing_closing = [
+            beta
+            for beta in sorted(n for n in closing if n.startswith("beta_"))
+            if beta not in priors and beta.replace("beta_", "hill_emax_", 1) not in priors
+        ]
+        if missing_closing:
+            return (
+                "Missing cycle-closing edge prior(s): "
+                + ", ".join(f"`{n}`" for n in missing_closing)
+                + ". This construct closes a feedback loop: the closing edge materializes "
+                "in the restricted model NOW, so its weight must be authored in this same "
+                "submission (as the `beta_...` prior named above, or its `hill_*` variants) "
+                "— otherwise the compiler rejects the unbound edge site."
             )
         payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
         contribution = contribution_from_payload(self.causal_spec, payload, self.catalog)
