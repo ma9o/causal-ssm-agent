@@ -88,5 +88,21 @@ set -a
 source "$ENV_FILE"
 set +a
 
+reap_orphaned_codex() {
+  # process-compose stops the worker but does not recurse into the headless
+  # `codex exec --json` subprocesses it spawned for the agentic stages: those
+  # reparent to launchd and keep spending tokens after the stack is down. Reap
+  # them here. Scoped to the headless `codex exec --json` invocation, so a
+  # developer's own interactive `codex …` sessions are never touched.
+  pkill -f 'codex exec --json' 2>/dev/null || true
+}
+trap reap_orphaned_codex EXIT
+
 cd "$REPO_ROOT"
-exec process-compose up -f "$PC_CONFIG" --port "$PC_PORT" "$@"
+# Run process-compose as a child (not exec) so the trap survives. Ctrl+C or
+# `kill <this pid>` forwards to it; `process-compose down` makes it exit on its
+# own. Either way we wait for it to fully drain, then the EXIT trap reaps.
+process-compose up -f "$PC_CONFIG" --port "$PC_PORT" "$@" &
+pc_pid=$!
+trap 'kill -TERM "$pc_pid" 2>/dev/null || true' INT TERM
+while kill -0 "$pc_pid" 2>/dev/null; do wait "$pc_pid" 2>/dev/null || true; done
