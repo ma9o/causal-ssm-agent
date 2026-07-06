@@ -39,12 +39,14 @@ process-compose --port 8181 process restart worker
 
 The worker caches `apps/data-pipeline/config.yaml` at first read
 (`lru_cache`), so after editing pipeline config, restart the `worker`
-process — no need to bounce the whole stack. Note the Temporal dev
-server keeps workflow state **in memory**: restarting the `temporal`
-process (or the stack) orphans in-flight episode workflows whose
-journals live on disk — start such episodes over in a fresh workspace
-(or wipe the workspace's `store/` + `episode/` dirs) rather than
-resuming them.
+process — no need to bounce the whole stack. The Temporal dev server
+persists its event history to `.local/agentic-integration-stack/temporal.db`
+(the `--db-filename` on its command), so restarting the `temporal`
+process — to serve the UI, pick up a change, or recover from a crash —
+**resumes** in-flight episode workflows exactly where they left off
+rather than orphaning them. To start genuinely fresh, delete that
+`temporal.db` before boot (and wipe the workspace's `store/` + `episode/`
+dirs). The Web UI is served at `http://localhost:8233`.
 
 ## Workspace Layout
 
