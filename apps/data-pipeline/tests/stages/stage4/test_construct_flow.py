@@ -22,6 +22,7 @@ from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
     ParamCatalog,
     construct_parents,
     contribution_from_payload,
+    deferred_closing_edge_params,
     render_admission_feedback,
 )
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_prompt import (
@@ -77,6 +78,23 @@ def test_construct_parents_reads_the_dag():
     assert construct_parents(spec, "Y") == ["X"]
     assert construct_parents(spec, "Z") == ["Y"]
     assert construct_parents(spec, "X") == []
+
+
+def test_deferred_closing_edge_params_cover_feedback_cycles():
+    """The cycle-closing edge's priors become authorable on the second member's turn."""
+    spec = _make_causal_spec_dict()
+    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
+    spec["latent"]["edges"].append(dict(feedback))
+    spec["estimation"]["edges"].append(dict(feedback))
+
+    # Y admitted first (its restricted spec has no Z edge) — nothing deferred for it.
+    assert deferred_closing_edge_params(spec, "Y", admitted=set()) == set()
+    # Z joins with Y already admitted: the closing edge Z->Y materializes now.
+    names = deferred_closing_edge_params(spec, "Z", admitted={"X", "Y"})
+    assert "beta_Z_Y" in names
+    assert "hill_emax_Z_Y" in names
+    # A plain downstream edge (Y->Z with Z being admitted) is not a closing edge.
+    assert deferred_closing_edge_params(spec, "Z", admitted=set()) == set()
 
 
 def test_contribution_from_payload_linear_edge():

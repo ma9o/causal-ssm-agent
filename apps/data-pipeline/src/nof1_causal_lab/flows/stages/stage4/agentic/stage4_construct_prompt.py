@@ -18,7 +18,11 @@ from .prompts.shared_fragments import (
     OBSERVATION_DISTRIBUTION_GUIDANCE_SECTION,
     PRIOR_DISTRIBUTION_TYPES_SECTION,
 )
-from .stage4_construct_flow import construct_parents, render_admission_feedback
+from .stage4_construct_flow import (
+    construct_parents,
+    deferred_closing_edge_params,
+    render_admission_feedback,
+)
 
 if TYPE_CHECKING:
     from .stage4_construct_flow import ConstructBuildState
@@ -48,7 +52,11 @@ def _indicators_for(causal_spec: dict, construct: str) -> list[dict]:
 def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> list[str]:
     """The compiler-authoritative free parameters this construct may author priors for."""
     assert state.catalog is not None  # set in ConstructBuildState.__post_init__
-    return sorted(state.catalog.by_construct.get(construct, ()))
+    names = set(state.catalog.by_construct.get(construct, ()))
+    names |= deferred_closing_edge_params(
+        state.causal_spec, construct, set(state.admission.names)
+    )
+    return sorted(names)
 
 
 def build_construct_messages(
@@ -98,11 +106,26 @@ def build_construct_messages(
             f"- `{var}` — {role}. {how} {f'(audit hint: {hint})' if hint else ''}".rstrip()
         )
 
+    closing_betas = sorted(
+        n
+        for n in deferred_closing_edge_params(causal_spec, construct, set(state.admission.names))
+        if n.startswith("beta_")
+    )
     lines += [
         "",
         "## Author priors for these canonical parameters",
         ", ".join(f"`{n}`" for n in param_names),
         "",
+    ]
+    if closing_betas:
+        lines += [
+            "This construct closes a feedback loop: the edge(s) "
+            + ", ".join(f"`{n}`" for n in closing_betas)
+            + " point INTO an already-admitted construct and first materialize now. "
+            "Author their priors in THIS submission — they could not be authored earlier.",
+            "",
+        ]
+    lines += [
         "Optional structural declarations (author the prior to enable):",
         f"- `self_limit_{construct}` — a self-limiting (quartic) well for bounded excursions.",
         f"- `setpoint_{construct}` — a nonzero equilibrium/center for this construct.",

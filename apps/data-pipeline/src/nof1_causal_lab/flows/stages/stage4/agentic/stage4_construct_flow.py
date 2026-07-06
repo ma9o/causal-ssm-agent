@@ -43,7 +43,7 @@ from nof1_causal_lab.utils.causal_spec import get_estimation_edges
 from .stage4_types import Stage4Result
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Collection, Mapping, Sequence
 
     import polars as pl
 
@@ -131,6 +131,34 @@ def construct_parents(causal_spec: dict, construct: str) -> list[str]:
         if effect == construct and cause is not None and str(cause) not in parents:
             parents.append(str(cause))
     return parents
+
+
+def deferred_closing_edge_params(
+    causal_spec: dict, construct: str, admitted: Collection[str]
+) -> set[str]:
+    """Params for cycle-closing edges ``construct -> already-admitted effect``.
+
+    ``restrict_causal_spec`` keeps an edge only when both endpoints are kept,
+    so a feedback edge out of ``construct`` into an earlier-admitted member
+    first materializes during THIS construct's admission. Its weight prior
+    must be authorable here: the effect construct was admitted without the
+    edge, and authoring the prior on its turn would have named a site absent
+    from that turn's restricted model.
+    """
+    names: set[str] = set()
+    for edge in get_estimation_edges(causal_spec):
+        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
+        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        if cause == construct and effect in admitted:
+            names.add(f"beta_{construct}_{effect}")
+            names.update(
+                {
+                    f"hill_emax_{construct}_{effect}",
+                    f"hill_ec50_{construct}_{effect}",
+                    f"hill_n_{construct}_{effect}",
+                }
+            )
+    return names
 
 
 # --------------------------------------------------------------------------- #
@@ -328,6 +356,9 @@ class ConstructBuildState:
         assert self.catalog is not None  # set in __post_init__
         parents = construct_parents(self.causal_spec, construct)
         allowed = self.catalog.allowed_for(construct, parents)
+        allowed |= deferred_closing_edge_params(
+            self.causal_spec, construct, set(self.admission.names)
+        )
         unknown = [name for name in priors if name not in allowed]
         if unknown:
             return (
