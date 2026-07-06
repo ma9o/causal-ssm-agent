@@ -17,8 +17,9 @@ processes:
     working_dir: apps/data-pipeline
     # --db-filename persists event history so restarting this process (e.g. to
     # serve the UI or after a crash) resumes in-flight episodes instead of
-    # orphaning them. Path is gitignored under .local/.
-    command: uv run python scripts/temporal_dev_server.py --port 7233 --db-filename .local/agentic-integration-stack/temporal.db
+    # orphaning them. The path is relative to working_dir (apps/data-pipeline),
+    # so ../../ lands it in the repo-root .local/ next to the logs (gitignored).
+    command: uv run python scripts/temporal_dev_server.py --port 7233 --db-filename ../../.local/agentic-integration-stack/temporal.db
     readiness_probe:
       exec:
         command: lsof -nP -iTCP:7233 -sTCP:LISTEN

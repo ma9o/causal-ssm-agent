@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("temporal-dev-server")
 
@@ -33,7 +34,12 @@ async def main(port: int, db_filename: str | None) -> None:
     from temporalio.testing import WorkflowEnvironment
 
     ui_port = port + 1000
-    extra_args = ["--db-filename", db_filename] if db_filename else []
+    extra_args: list[str] = []
+    if db_filename:
+        # The dev server errors out if the db's parent dir is missing; create
+        # it so a first run (before anything else touches .local/) succeeds.
+        Path(db_filename).parent.mkdir(parents=True, exist_ok=True)
+        extra_args = ["--db-filename", db_filename]
     env = await WorkflowEnvironment.start_local(
         port=port, ui=True, ui_port=ui_port, dev_server_extra_args=extra_args
     )
