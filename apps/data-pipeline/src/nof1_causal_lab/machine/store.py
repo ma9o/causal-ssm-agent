@@ -228,3 +228,20 @@ class EpisodeJournal:
         if not storage.exists(path):
             return EpisodeState()
         return EpisodeState.model_validate(storage.read_json(path))
+
+    def latest_seq(self) -> int:
+        """Highest transition sequence on disk, or 0 if the journal is empty.
+
+        Journal filenames are zero-padded sequence numbers, so the max leaf is
+        the last assigned seq — read from the directory listing without opening
+        any record. Paired with ``latest_state`` to reseed a fresh workflow so
+        its sequence numbering continues rather than colliding with existing
+        journal entries."""
+        if not storage.exists(self._journal_dir):
+            return 0
+        seqs = [
+            int(entry.rsplit("/", 1)[-1].removesuffix(".json"))
+            for entry in storage.listdir(self._journal_dir)
+            if entry.endswith(".json")
+        ]
+        return max(seqs, default=0)

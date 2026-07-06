@@ -97,9 +97,18 @@ async def _episode_handle(workspace_id: str):
     from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
     client = await _get_client()
+    # Reconstruct the resume seed from the durable journal. On a fresh start
+    # this rehydrates a workflow Temporal lost (empty for a new episode); on
+    # attach (USE_EXISTING) the live workflow keeps its own state and the seed
+    # is ignored.
+    journal = EpisodeJournal(workspace_id)
     return await client.start_workflow(
         EpisodeWorkflow.run,
-        EpisodeInit(workspace_id=workspace_id),
+        EpisodeInit(
+            workspace_id=workspace_id,
+            initial_state=journal.latest_state(),
+            initial_seq=journal.latest_seq(),
+        ),
         id=episode_workflow_id(workspace_id),
         task_queue=EPISODE_TASK_QUEUE,
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,

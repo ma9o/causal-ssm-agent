@@ -85,8 +85,12 @@ class EpisodeWorkflow:
         # workflow.init: updates can be dispatched before the run method's
         # first line executes, and every handler needs workspace_id.
         self._workspace_id = init.workspace_id
-        self._state = EpisodeState()
-        self._seq = 0
+        # Seed from the durable journal when resuming a lost workflow; empty
+        # state / seq 0 for a new episode. The facade reconstructs the seed
+        # (I/O can't happen here in the deterministic workflow) and passes it
+        # as a start argument, so replay stays deterministic.
+        self._state = init.initial_state if init.initial_state is not None else EpisodeState()
+        self._seq = init.initial_seq
         self._closed = False
         self._lock = asyncio.Lock()
 
