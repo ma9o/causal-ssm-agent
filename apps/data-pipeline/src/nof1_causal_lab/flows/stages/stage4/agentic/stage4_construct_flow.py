@@ -62,6 +62,20 @@ _MAX_ATTEMPTS_PER_CONSTRUCT = 4
 # dynamics parameters; they are admitted per construct on demand.
 _STRUCTURAL_ROLE = (ParameterRole.DYNAMICS_PARAMETER_POSITIVE, ParameterConstraint.POSITIVE)
 
+# Roles whose freeness is fixed by the admission-time model policy (not the
+# agent's per-construct choices): pinned initial-state means/SDs under STATIONARY
+# initialization, and the `cint_` state-intercept / well-centre, which is free
+# only under equilibrium forcing (never requested during gradual admission). For
+# these the provisional compile is authoritative, so the catalog trusts its
+# binding decision; every other role stays offered and is validated at submit.
+_POLICY_PINNED_ROLES = frozenset(
+    {
+        ParameterRole.INITIAL_STATE_MEAN,
+        ParameterRole.INITIAL_STATE_SD,
+        ParameterRole.STATE_INTERCEPT,
+    }
+)
+
 
 @dataclass(frozen=True)
 class ParamCatalog:
@@ -86,8 +100,23 @@ class ParamCatalog:
         by_construct: dict[str, list[str]] = {}
         global_params: set[str] = set()
         for param in (*skeleton.parameters, *skeleton.loading_params):
+            role = ParameterRole(param["role"])
+            # Initial-state means/SDs and the `cint_` well-centre are pinned by
+            # the admission-time model *policy* (STATIONARY init; no equilibrium
+            # forcing) — not by the agent's per-construct choices — so the
+            # provisional compile authoritatively decides their freeness. Drop
+            # them when the compiler did not bind them (no `compiled_site_kind`
+            # from `_enrich_parameter_with_binding`), which is what made the
+            # agent author priors the compiler then rejects as "not free"; keep
+            # the ones it did bind (e.g. a time-invariant construct's free
+            # initial state). Family-conditional surfaces (measurement-noise SD,
+            # observation intercept) depend on the agent's emission choice —
+            # unknown here — so they stay offered and the submit-time compile
+            # validates them against the locked family.
+            if role in _POLICY_PINNED_ROLES and "compiled_site_kind" not in param:
+                continue
             name = param["name"]
-            roles[name] = (ParameterRole(param["role"]), ParameterConstraint(param["constraint"]))
+            roles[name] = (role, ParameterConstraint(param["constraint"]))
             owner = param.get("construct")
             if owner is not None:
                 by_construct.setdefault(owner, []).append(name)

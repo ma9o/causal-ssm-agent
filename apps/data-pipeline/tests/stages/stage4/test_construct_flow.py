@@ -56,6 +56,14 @@ def test_param_catalog_reflects_compiler_free_params():
     assert "self_limit_Y" in y_allowed
     assert "hill_emax_X_Y" in y_allowed
     assert catalog.role_for("self_limit_Y")[0] == ParameterRole.DYNAMICS_PARAMETER_POSITIVE
+    # Policy-pinned surfaces the admission-time compile never frees (STATIONARY
+    # initialization; no equilibrium forcing) are NOT offered — surfacing them is
+    # what made the agent author priors the compiler then rejects as "not free".
+    # X is a dynamic construct (has rho_X/sigma_X), so its initial state and
+    # well-centre are pinned.
+    assert "cint_X" not in catalog.allowed_for("X", [])
+    assert "t0_mean_X" not in catalog.by_construct["X"]
+    assert "t0_sd_X" not in catalog.by_construct["X"]
 
 
 def test_submit_construct_rejects_non_free_parameter():

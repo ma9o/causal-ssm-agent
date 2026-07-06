@@ -109,8 +109,10 @@ LAGGED_BETA_AUTHORED_INTERVAL_SCALE: Final[str] = (
 def render_dynamic_prior_scale_guidance() -> str:
     """Render the shared authored-scale contract for dynamic priors."""
     return (
-        "AR coefficients (`rho_*`) should be authored as baseline discrete-time "
-        "persistence per observation interval, absent feedback from incoming causes. "
+        "AR coefficients (`rho_*`) should be authored as a baseline discrete-time "
+        "persistence per observation interval, absent feedback from incoming "
+        "causes: support on [0, 1] with the prior's location (`mu`) strictly "
+        "inside (0, 1) — 0 and 1 are degenerate (the CT decay is -ln(mu)/dt). "
         "`beta_*` priors should be authored on the interval they mean. For lagged "
         "`beta_*`, set `reference_interval_days` when the evidence is on a different "
         "interval; otherwise the model interval is assumed. The compiler handles "
@@ -135,6 +137,15 @@ _CONSTRAINT_DOMAINS: Final[dict[str, str]] = {
     "negative": "(-inf, 0)",
     "correlation": "[-1, 1]",
 }
+
+
+def constraint_domain(constraint: str) -> str:
+    """The numeric support domain (e.g. ``[0, 1]``) for a ``ParameterConstraint``.
+
+    ``constraint`` is a ``ParameterConstraint`` enum *value* — kept as a plain str
+    here so this module stays import-clean (see the note above).
+    """
+    return _CONSTRAINT_DOMAINS[constraint]
 
 
 @dataclass(frozen=True)

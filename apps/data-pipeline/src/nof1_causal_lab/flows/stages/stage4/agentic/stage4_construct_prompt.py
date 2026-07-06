@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.distributions import constraint_domain
 from nof1_causal_lab.utils.causal_spec import choose_reference_indicator, get_indicators
 
 from .prompts.shared_fragments import (
@@ -109,12 +110,25 @@ def build_construct_messages(
         for n in deferred_closing_edge_params(causal_spec, construct, set(state.admission.names))
         if n.startswith("beta_")
     )
+    catalog = state.catalog
+    assert catalog is not None  # guaranteed by _canonical_parameter_names above
     lines += [
         "",
-        "## Author priors for these canonical parameters",
-        ", ".join(f"`{n}`" for n in param_names),
+        "## Author priors for exactly these canonical parameters",
+        "",
+        "Author a prior for each parameter below, plus any optional structural "
+        "declaration you choose to enable (listed next). Do NOT author a prior for "
+        "any name in neither list — it is not a free parameter of this construct "
+        "and is rejected. Each prior's support must lie within the stated domain.",
         "",
     ]
+    for n in param_names:
+        role, constraint = catalog.role_for(n)
+        lines.append(
+            f"- `{n}` — {role.value.replace('_', ' ')} — support ⊆ "
+            f"{constraint_domain(constraint.value)}"
+        )
+    lines.append("")
     if closing_betas:
         lines += [
             "This construct closes a feedback loop: the edge(s) "
@@ -126,7 +140,6 @@ def build_construct_messages(
     lines += [
         "Optional structural declarations (author the prior to enable):",
         f"- `self_limit_{construct}` — a self-limiting (quartic) well for bounded excursions.",
-        f"- `setpoint_{construct}` — a nonzero equilibrium/center for this construct.",
         "- for a *saturating* parent effect, replace `beta_<p>_"
         + construct
         + "` with `hill_emax_<p>_"
