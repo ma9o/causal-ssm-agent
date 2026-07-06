@@ -1077,7 +1077,17 @@ def build_site_prior_distribution(
     family_values = np.asarray(params["family"], dtype=int).ravel()
     family = int(family_values[0]) if family_values.size else 0
     if family_values.size and not np.all(family_values == family):
-        raise ValueError(f"Mixed prior families within site {site.name!r} are unsupported")
+        decode = (
+            get_real_runtime_kind_from_index
+            if site.support in {SupportClass.REAL, SupportClass.CORRELATION}
+            else get_positive_runtime_kind_from_index
+        )
+        names = sorted({decode(int(v)).value for v in set(family_values.tolist())})
+        raise ValueError(
+            f"Mixed prior families within site {site.name!r} are unsupported "
+            f"(found: {', '.join(names)}). The site pools this parameter across "
+            "ALL admitted constructs — author the family already in use."
+        )
 
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         runtime_kind = get_real_runtime_kind_from_index(family)

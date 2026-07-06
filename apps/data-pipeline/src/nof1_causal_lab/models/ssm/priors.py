@@ -29,7 +29,15 @@ def _scalar_family_index(value: Any) -> int:
         raise ValueError("Prior family index payload is empty")
     family = int(values[0])
     if not np.all(values == family):
-        raise ValueError("Mixed prior families within one sample site are unsupported")
+        unique, counts = np.unique(values, return_counts=True)
+        breakdown = {int(k): int(v) for k, v in zip(unique, counts, strict=True)}
+        raise ValueError(
+            "Mixed prior families within one sample site are unsupported "
+            f"(family-index counts: {breakdown}). The site pools this parameter "
+            "across ALL admitted constructs, so a newly authored prior must use "
+            "the same distribution family the site's existing entries already "
+            "use — match the family authored by earlier constructs."
+        )
     return family
 
 
