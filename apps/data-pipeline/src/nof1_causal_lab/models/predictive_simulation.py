@@ -46,6 +46,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         bad_manifest_names: tuple[str, ...],
         manifest_indices: tuple[int, ...],
         failing_draw_indices: tuple[int, ...],
+        n_draws: int,
         first_bad_time_index: int,
         max_linear_predictor: float,
         overflow_threshold: float,
@@ -53,6 +54,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         self.bad_manifest_names = bad_manifest_names
         self.manifest_indices = manifest_indices
         self.failing_draw_indices = failing_draw_indices
+        self.n_draws = n_draws
         self.first_bad_time_index = first_bad_time_index
         self.max_linear_predictor = max_linear_predictor
         self.overflow_threshold = overflow_threshold
@@ -61,7 +63,11 @@ class PredictiveObservationMeanOverflow(RuntimeError):
             "Predictive log-link mean overflow before observation sampling: "
             f"linear predictor exceeded the finite exp range for {manifest_summary} "
             f"(max eta={max_linear_predictor:.2f}, threshold={overflow_threshold:.2f}, "
-            f"first bad time index={first_bad_time_index})."
+            f"first bad time index={first_bad_time_index}; "
+            f"{len(failing_draw_indices)} of {n_draws} prior draws overflow — "
+            "a small fraction means heavy tails (tighten sigma/upper bounds); "
+            "most draws means the central mass is wrong (lower the loading/edge-gain "
+            "or intercept location feeding this log link)."
         )
 
 
@@ -189,6 +195,7 @@ def _raise_if_log_link_mean_overflow(
         bad_manifest_names=bad_manifest_names,
         manifest_indices=manifest_indices,
         failing_draw_indices=failing_draw_indices,
+        n_draws=int(linear_np.shape[0]),
         first_bad_time_index=first_bad_time_index,
         max_linear_predictor=max_linear_predictor,
         overflow_threshold=overflow_threshold,

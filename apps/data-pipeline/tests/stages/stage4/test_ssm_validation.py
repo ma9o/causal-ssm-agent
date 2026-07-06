@@ -497,6 +497,7 @@ class TestPriorPredictiveValidation:
                     bad_manifest_names=("monthly_eveningness_activity_timing",),
                     manifest_indices=(0,),
                     failing_draw_indices=(0, 2),
+                    n_draws=3,
                     first_bad_time_index=73,
                     max_linear_predictor=111.52,
                     overflow_threshold=88.72,
