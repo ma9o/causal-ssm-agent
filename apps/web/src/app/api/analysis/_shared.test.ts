@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EpisodeStatus, TransitionRecord } from "@/lib/server/episode-runs";
 
 vi.mock("@/lib/server/episode-runs", () => ({
   getEpisodeStatus: vi.fn(),
   getEpisodeTimeline: vi.fn(),
+  getMachineDescription: vi.fn(),
 }));
 
 vi.mock("@/lib/storage", () => ({
@@ -11,7 +12,11 @@ vi.mock("@/lib/storage", () => ({
   readData: vi.fn(),
 }));
 
-import { getEpisodeStatus, getEpisodeTimeline } from "@/lib/server/episode-runs";
+import {
+  getEpisodeStatus,
+  getEpisodeTimeline,
+  getMachineDescription,
+} from "@/lib/server/episode-runs";
 import { readData } from "@/lib/storage";
 import { buildAnalysisManifest } from "./_shared";
 
@@ -60,6 +65,20 @@ function transition(
 }
 
 describe("buildAnalysisManifest", () => {
+  beforeEach(() => {
+    vi.mocked(getMachineDescription).mockResolvedValue({
+      transitions: [
+        { transition_id: "raw_data", runner_id: "stage-0" },
+        { transition_id: "latent_structure", runner_id: "stage-1a" },
+        { transition_id: "measurement_structure", runner_id: "stage-1b" },
+        { transition_id: "measurements", runner_id: "stage-2" },
+        { transition_id: "statistical_model_spec", runner_id: "stage-4" },
+        { transition_id: "posterior", runner_id: "stage-5b" },
+        { transition_id: "baseline_report", runner_id: "stage-6" },
+      ],
+    });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -89,13 +108,13 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 2,
           ts: "2026-07-01T00:01:00+00:00",
-          move: { kind: "run", stage_id: "stage-0" },
+          move: { kind: "run", artifact_id: "raw_data" },
           status: "applied",
         }),
         transition({
           seq: 3,
           ts: "2026-07-01T00:02:00+00:00",
-          move: { kind: "run", stage_id: "stage-1a" },
+          move: { kind: "run", artifact_id: "latent_structure" },
           status: "raised",
           error_type: "SchemaValidationError",
           error_message: "latent_structure payload failed validation",
@@ -103,7 +122,7 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 4,
           ts: "2026-07-01T00:03:00+00:00",
-          move: { kind: "run", stage_id: "stage-1a" },
+          move: { kind: "run", artifact_id: "latent_structure" },
           status: "rejected",
           reason: "stage-1a requires artifacts that do not exist: raw_data",
         }),
@@ -136,14 +155,14 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 1,
           ts: "2026-07-01T00:00:00+00:00",
-          move: { kind: "run", stage_id: "stage-0" },
+          move: { kind: "run", artifact_id: "raw_data" },
           status: "raised",
           error_type: "RuntimeError",
         }),
         transition({
           seq: 2,
           ts: "2026-07-01T00:05:00+00:00",
-          move: { kind: "run", stage_id: "stage-0" },
+          move: { kind: "run", artifact_id: "raw_data" },
           status: "applied",
         }),
       ],

@@ -209,14 +209,11 @@ def get_effective_observation_window(indicator: dict, model_clock: str | None) -
     return indicator.get("observation_window") or model_clock
 
 
-def get_indicator_info(causal_design: dict) -> dict[str, dict]:
-    """Extract indicator info from a CausalDesign dict.
-
-    Returns:
-        Dict mapping indicator name to semantic extraction/measurement metadata.
-    """
+def get_measurement_indicator_info(measurement_structure: dict) -> dict[str, dict]:
+    """Extract indicator info from a MeasurementStructure dict."""
     result: dict[str, dict] = {}
-    for ind in get_indicators(causal_design):
+    model_clock = measurement_structure.get("model_clock")
+    for ind in measurement_structure.get("indicators", []):
         sem = get_observation_semantics(ind)
         result[ind["name"]] = {
             "dtype": ind.get("measurement_dtype"),
@@ -225,21 +222,9 @@ def get_indicator_info(causal_design: dict) -> dict[str, dict]:
             "support_kind": sem.support_kind.value,
             "summary_operator": sem.summary_operator.value,
             "anchor_policy": sem.anchor_policy.value,
-            "observation_window": ind.get("observation_window"),
+            "observation_window": get_effective_observation_window(ind, model_clock),
         }
     return result
-
-
-def get_indicator_dtypes(causal_design: dict) -> dict[str, str]:
-    """Extract indicator name -> measurement_dtype mapping.
-
-    Returns:
-        Dict mapping indicator name to dtype string (e.g. "continuous", "binary")
-    """
-    return {
-        ind["name"]: ind.get("measurement_dtype", "continuous")
-        for ind in get_indicators(causal_design)
-    }
 
 
 _WORKER_INDICATOR_KEYS = (
@@ -253,21 +238,20 @@ _WORKER_INDICATOR_KEYS = (
 )
 
 
-def make_extraction_context(causal_design: dict) -> dict:
+def make_measurement_extraction_context(measurement_structure: dict) -> dict:
     """Build minimal context needed by Stage 2 extraction workers.
 
     Workers need:
     - indicators: name, measurement_dtype, how_to_measure, source_columns,
       aggregation, support_kind, summary_operator, anchor_policy, observation_window
-    - outcome: name, description (for prompt context)
 
     Does not include: construct_name, latent edges, or non-outcome constructs.
     Includes ordinal_levels only for ordinal indicators so workers can use a
     stable numeric codebook.
     """
-    model_clock = causal_design.get("measurement", {}).get("model_clock")
+    model_clock = measurement_structure.get("model_clock")
     slim_indicators = []
-    for ind in get_indicators(causal_design):
+    for ind in measurement_structure.get("indicators", []):
         sem = get_observation_semantics(ind)
         entry = {
             **{k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind},
@@ -279,15 +263,9 @@ def make_extraction_context(causal_design: dict) -> dict:
         if effective_window:
             entry["observation_window"] = effective_window
         slim_indicators.append(entry)
-    outcome = get_outcome_construct(causal_design)
-    slim_outcome = (
-        {"name": outcome["name"], "description": outcome.get("description", "")}
-        if outcome
-        else None
-    )
     return {
-        "measurement": {"indicators": slim_indicators},
-        "latent": {"constructs": [slim_outcome] if slim_outcome else []},
+        "model_clock": model_clock,
+        "indicators": slim_indicators,
     }
 
 

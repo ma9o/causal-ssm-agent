@@ -122,10 +122,10 @@ Re-running is just proposing the move again (the machine validates
 enabledness; there is no window arithmetic):
 
 ```bash
-# Run one stage
+# Run one transition
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -H 'Content-Type: application/json' \
-  -d '{"move": {"kind": "run", "stage_id": "stage-3"}}'
+  -d '{"move": {"kind": "run", "artifact_id": "statistical_model_spec"}}'
 
 # Or resume the default policy (runs everything enabled and stale/missing)
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
@@ -138,8 +138,9 @@ not a run parameter.
 ## Editing artifacts (replaces stage overrides)
 
 A human/LLM edit is a `write` move: schema-validated, provenance-stamped,
-and journaled. Editing `causal_design` fans out a recomputed positive
-`identification_report` when the spec has explicitly identified treatments;
+and journaled. Editing `measurement_structure` fans out a recomputed
+`causal_design` plus a positive `identification_report` when the composed
+design has explicitly identified treatments;
 downstream artifacts become **stale** (visible in `.artifacts`), and the
 next auto-run recomputes exactly the stale suffix.
 
@@ -147,8 +148,8 @@ next auto-run recomputes exactly the stale suffix.
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -H 'Content-Type: application/json' \
   -d '{
-    "move": {"kind": "write", "artifact_id": "causal_design", "provenance": "human"},
-    "payload": {"causal_design": {"latent": {...}, "measurement": {...}}}
+    "move": {"kind": "write", "artifact_id": "measurement_structure", "provenance": "human"},
+    "payload": {"measurement_structure": {"model_clock": "1d", "indicators": [...]}}
   }'
 
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
@@ -169,6 +170,6 @@ authoritative graph); the default topological order is:
 stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-5b → stage-6
 ```
 
-Note the machine is not a tape: any stage whose consumed artifacts exist
-can run, and `identification_report`/`model_data` are produced only when
-nonempty — their absence structurally disables the fit chain.
+Note the machine is not a tape: any transition whose consumed artifacts exist
+can run. `identification_report` and `panel` are produced only when their
+findings are nonempty, so their absence structurally disables the fit chain.

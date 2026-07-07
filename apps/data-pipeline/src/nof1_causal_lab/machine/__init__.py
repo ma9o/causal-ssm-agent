@@ -5,7 +5,7 @@ constrained only by artifact-level dependencies. This package holds the
 engine-agnostic core:
 
 - :mod:`artifacts` — artifact taxonomy, versions, provenance stamps
-- :mod:`graph` — the artifact-level dependency DAG (stage specs)
+- :mod:`graph` — the artifact-level dependency DAG
 - :mod:`hierarchy` — public actions, contexts, execution classes, write effects
 - :mod:`moves` — ``legal_moves`` / ``apply_transition`` / staleness / freshness
 - :mod:`errors` — typed stage-execution exceptions
@@ -30,11 +30,13 @@ from nof1_causal_lab.machine.errors import (
 )
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
+    DERIVATIONS,
     ROOTS,
     WRITABLE_ARTIFACTS,
+    Derivation,
     Root,
     Transition,
-    stage_spec,
+    transition_spec,
 )
 from nof1_causal_lab.machine.hierarchy import (
     ACTIONS,
@@ -45,11 +47,12 @@ from nof1_causal_lab.machine.hierarchy import (
     context_spec,
     legal_action_ids,
     legal_actions,
-    primary_stage_action,
+    primary_transition_action,
 )
 from nof1_causal_lab.machine.moves import (
     Move,
-    RunStage,
+    RetractedArtifact,
+    RunArtifact,
     WriteArtifact,
     apply_transition,
     freshness_report,
@@ -68,6 +71,8 @@ __all__ = [
     "ArtifactWriteRejected",
     "CONTEXTS",
     "ContextSpec",
+    "DERIVATIONS",
+    "Derivation",
     "EpisodeState",
     "ModelCompileError",
     "ModelFitError",
@@ -75,7 +80,8 @@ __all__ = [
     "Provenance",
     "ROOTS",
     "Root",
-    "RunStage",
+    "RetractedArtifact",
+    "RunArtifact",
     "StageExecutionError",
     "Transition",
     "WRITABLE_ARTIFACTS",
@@ -89,7 +95,7 @@ __all__ = [
     "legal_action_ids",
     "legal_actions",
     "legal_moves",
-    "primary_stage_action",
-    "stage_spec",
+    "primary_transition_action",
+    "transition_spec",
     "validate_move",
 ]

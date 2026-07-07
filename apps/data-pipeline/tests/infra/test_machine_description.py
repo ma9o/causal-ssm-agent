@@ -1,7 +1,7 @@
 """The static machine description served at GET /api/machine stays in lockstep with the graph."""
 
 from nof1_causal_lab.episode_api import machine_description
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, ROOT_ARTIFACTS
+from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS, ROOT_ARTIFACTS
 from nof1_causal_lab.machine.hierarchy import ACTIONS, CONTEXTS
 
 
@@ -13,17 +13,19 @@ def test_every_transition_declares_a_creation_class():
 def test_machine_description_serves_graph_and_classes():
     description = machine_description()
 
-    stages = {entry["stage_id"]: entry for entry in description["stages"]}
-    assert set(stages) == {spec.stage_id for spec in ARTIFACT_GRAPH}
+    transitions = {entry["transition_id"]: entry for entry in description["transitions"]}
+    assert set(transitions) == {spec.transition_id for spec in ARTIFACT_GRAPH}
     for spec in ARTIFACT_GRAPH:
-        entry = stages[spec.stage_id]
+        entry = transitions[spec.transition_id]
         assert entry["consumes"] == list(spec.consumes)
-        assert entry["produces"] == list(spec.produces)
+        assert entry["produces"] == [spec.produces]
         assert entry["produces_optional"] == list(spec.produces_optional)
-        assert entry["derives"] == list(spec.derives)
+        assert entry["runner_id"] == spec.runner_id
         assert entry["creation_class"] == spec.creation_class
         assert entry["writable"] == spec.writable
-    assert description["topological_stage_order"][0] == "stage-0"
+    derivations = {entry["produces"]: entry for entry in description["derivations"]}
+    assert set(derivations) == {spec.produces for spec in DERIVATIONS}
+    assert description["topological_transition_order"][0] == "raw_data"
     assert "question" in description["artifact_ids"]
     assert {entry["action_id"] for entry in description["actions"]} == {
         action.action_id for action in ACTIONS

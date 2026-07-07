@@ -1,31 +1,17 @@
-"""Public naming and context layer above the artifact machine.
-
-This module is intentionally thin and pure: no storage, no runners, no LLM
-clients, no Modal, no web. It maps intent-named public actions onto machine
-moves (``run``/``write``), reads, and derived queries, and it describes the
-control/context hierarchy the harness navigates.
-
-The *semantics* of creation — what a transition consumes, produces, derives,
-its creation class, and whether it is writable — live in the machine core
-(:mod:`nof1_causal_lab.machine.graph`). This layer only names and routes.
-
-Machine legality (may a move happen?) is existence-only and lives in
-:mod:`nof1_causal_lab.machine.moves`. The ``legal_actions`` here compute the
-weaker, stricter-when-useful *affordance* set: which public actions are worth
-surfacing for the navigator (e.g. do not offer ``analyze.save`` before a
-``posterior`` exists, even though ``write(saved_scenarios)`` is always legal).
-"""
+"""Public naming and context layer above the artifact machine."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
+    DERIVATIONS,
     ROOT_ARTIFACTS,
     WRITABLE_ARTIFACTS,
-    stage_spec,
+    transition_spec,
 )
 
 if TYPE_CHECKING:
@@ -40,13 +26,11 @@ MoveKind = Literal["run", "write"]
 
 @dataclass(frozen=True)
 class ContextSpec:
-    """One authority boundary in the harness/control hierarchy."""
-
     context_id: str
     layer: ContextLayer
     label: str
     parent_id: str | None = None
-    stage_id: str | None = None
+    runner_id: str | None = None
     owns: tuple[ArtifactId, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     runtime_state: tuple[str, ...] = ()
@@ -54,26 +38,19 @@ class ContextSpec:
 
 @dataclass(frozen=True)
 class MachineMoveSpec:
-    """The machine move an action compiles to, when it mutates state."""
-
     kind: MoveKind
-    stage_id: str | None = None
-    artifact_id: ArtifactId | None = None
+    artifact_id: ArtifactId
 
 
 @dataclass(frozen=True)
 class ToolQuerySpec:
-    """A read-only stage tool invoked from the query plane."""
-
-    stage_id: str
+    runner_id: str
     tool_name: str
     freshness_checked: bool = True
 
 
 @dataclass(frozen=True)
 class ActionSpec:
-    """One public action exposed over MCP/RPC/SDK."""
-
     action_id: str
     namespace: str
     name: str
@@ -108,66 +85,52 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         parent_id="action-registry",
     ),
     ContextSpec(
-        context_id="stage-0.ingestion",
+        context_id="ingestion",
         layer="delegated",
-        label="Stage 0 ingestion file/code loop",
+        label="Ingestion file/code loop",
         parent_id="episode-machine",
-        stage_id="stage-0",
+        runner_id="stage-0",
         owns=("raw_data",),
         allowed_tools=("list_files", "read_file_sample", "execute_python", "submit_table"),
         runtime_state=("prepared_input_dir", "sandbox", "result_df", "column_descriptions"),
     ),
     ContextSpec(
-        context_id="stage-1a.latent-structure",
+        context_id="latent-structure",
         layer="delegated",
-        label="Stage 1a latent structure proposal loop",
+        label="Latent structure proposal loop",
         parent_id="episode-machine",
-        stage_id="stage-1a",
+        runner_id="stage-1a",
         owns=("latent_structure",),
         allowed_tools=("validate_latent_structure",),
         runtime_state=("question", "latent_structure_draft", "llm_trace"),
     ),
     ContextSpec(
-        context_id="stage-1b.causal-model",
+        context_id="measurement-structure",
         layer="delegated",
-        label="Stage 1b measurement, DAG, and identification loop",
+        label="Measurement structure proposal loop",
         parent_id="episode-machine",
-        stage_id="stage-1b",
-        owns=("causal_design", "identification_report"),
+        runner_id="stage-1b",
+        owns=("measurement_structure",),
         allowed_tools=("validate_measurement_structure",),
-        runtime_state=(
-            "latent_structure",
-            "dataset_schema",
-            "causal_design_draft",
-            "identifiability",
-        ),
+        runtime_state=("latent_structure", "dataset_schema", "measurement_structure_draft"),
     ),
     ContextSpec(
-        context_id="stage-2.measurement",
+        context_id="measurement",
         layer="delegated",
-        label="Stage 2 extraction worker fan-out",
+        label="Indicator extraction worker fan-out",
         parent_id="episode-machine",
-        stage_id="stage-2",
-        owns=("extraction_report", "model_data"),
+        runner_id="stage-2",
+        owns=("measurements", "panel"),
         allowed_tools=("validate_extractions",),
         runtime_state=("indicator_plan", "worker_statuses", "extracted_values"),
     ),
     ContextSpec(
-        context_id="stage-3.validation",
+        context_id="statistical-model-spec",
         layer="delegated",
-        label="Stage 3 measured-data validation",
+        label="Model/prior reducer",
         parent_id="episode-machine",
-        stage_id="stage-3",
-        owns=("validation_report",),
-        runtime_state=("indicator_audits", "dataset_issues", "validation_status"),
-    ),
-    ContextSpec(
-        context_id="stage-4.statistical-model-spec",
-        layer="delegated",
-        label="Stage 4 model/prior reducer",
-        parent_id="episode-machine",
-        stage_id="stage-4",
-        owns=("compiled_ssm",),
+        runner_id="stage-4",
+        owns=("statistical_model_spec",),
         allowed_tools=("search_literature", "submit_statistical_model_spec", "submit_priors"),
         runtime_state=(
             "deterministic_skeleton",
@@ -179,37 +142,50 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         ),
     ),
     ContextSpec(
-        context_id="stage-5b.inference",
+        context_id="inference",
         layer="delegated",
-        label="Stage 5b exact nonlinear SSM inference job",
+        label="Exact nonlinear SSM inference job",
         parent_id="episode-machine",
-        stage_id="stage-5b",
+        runner_id="stage-5b",
         owns=("posterior",),
         runtime_state=("sampler_config", "diagnostics", "fitted_artifact"),
     ),
     ContextSpec(
-        context_id="stage-6.ranking",
+        context_id="ranking",
         layer="delegated",
-        label="Stage 6 baseline causal ranking",
+        label="Baseline causal ranking",
         parent_id="episode-machine",
-        stage_id="stage-6",
-        owns=("baseline_ranking",),
+        runner_id="stage-6",
+        owns=("baseline_report",),
         allowed_tools=("get_model_info", "simulate"),
         runtime_state=("identified_treatments", "effect_summaries", "llm_trace"),
     ),
 )
 
 
+def _reachable_derivations(artifact_id: ArtifactId) -> tuple[ArtifactId, ...]:
+    found: list[ArtifactId] = []
+    frontier = [artifact_id]
+    while frontier:
+        parent = frontier.pop(0)
+        for spec in DERIVATIONS:
+            if parent not in spec.from_ or spec.produces in found:
+                continue
+            found.append(spec.produces)
+            frontier.append(spec.produces)
+    return tuple(found)
+
+
 def _run_action(
     action_id: str,
     namespace: str,
     name: str,
-    stage_id: str,
+    artifact_id: ArtifactId,
     *,
     mode: ActionMode,
     lower_context_id: str,
 ) -> ActionSpec:
-    spec = stage_spec(stage_id)
+    spec = transition_spec(artifact_id)
     return ActionSpec(
         action_id=action_id,
         namespace=namespace,
@@ -218,10 +194,10 @@ def _run_action(
         mode=mode,
         context_id="navigator",
         consumes=spec.consumes,
-        produces=spec.produces,
+        produces=(spec.produces,),
         produces_optional=spec.produces_optional,
-        derives=spec.derives,
-        move=MachineMoveSpec(kind="run", stage_id=stage_id),
+        derives=_reachable_derivations(spec.transition_id),
+        move=MachineMoveSpec(kind="run", artifact_id=artifact_id),
         lower_context_id=lower_context_id,
     )
 
@@ -297,9 +273,9 @@ ACTIONS: tuple[ActionSpec, ...] = (
         "episode.ingest_data",
         "episode",
         "ingest_data",
-        "stage-0",
+        "raw_data",
         mode="delegated",
-        lower_context_id="stage-0.ingestion",
+        lower_context_id="ingestion",
     ),
     ActionSpec(
         action_id="episode.refresh",
@@ -313,17 +289,17 @@ ACTIONS: tuple[ActionSpec, ...] = (
         "specify.latent_structure",
         "specify",
         "latent_structure",
-        "stage-1a",
+        "latent_structure",
         mode="delegated",
-        lower_context_id="stage-1a.latent-structure",
+        lower_context_id="latent-structure",
     ),
     _run_action(
-        "specify.model",
+        "specify.measurement",
         "specify",
-        "model",
-        "stage-1b",
+        "measurement",
+        "measurement_structure",
         mode="delegated",
-        lower_context_id="stage-1b.causal-model",
+        lower_context_id="measurement-structure",
     ),
     ActionSpec(
         action_id="specify.edit",
@@ -332,10 +308,10 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="produce",
         mode="direct",
         context_id="navigator",
-        consumes=("causal_design",),
-        produces=("causal_design",),
-        derives=("identification_report",),
-        move=MachineMoveSpec(kind="write", artifact_id="causal_design"),
+        consumes=("measurement_structure",),
+        produces=("measurement_structure",),
+        derives=_reachable_derivations("measurement_structure"),
+        move=MachineMoveSpec(kind="write", artifact_id="measurement_structure"),
     ),
     ActionSpec(
         action_id="specify.identify",
@@ -347,50 +323,29 @@ ACTIONS: tuple[ActionSpec, ...] = (
         consumes=("causal_design",),
         derives=("identification_report",),
     ),
-    ActionSpec(
-        action_id="specify.refine",
-        namespace="specify",
-        name="refine",
-        kind="produce",
-        mode="delegated",
-        context_id="navigator",
-        consumes=("causal_design", "model_data", "validation_report"),
-        produces=("causal_design",),
-        derives=("identification_report",),
-        move=MachineMoveSpec(kind="write", artifact_id="causal_design"),
-        lower_context_id="stage-1b.causal-model",
-    ),
     _run_action(
         "measure.extract",
         "measure",
         "extract",
-        "stage-2",
+        "measurements",
         mode="delegated",
-        lower_context_id="stage-2.measurement",
+        lower_context_id="measurement",
     ),
     _run_action(
-        "analyze.validate",
-        "analyze",
-        "validate",
-        "stage-3",
-        mode="direct",
-        lower_context_id="stage-3.validation",
-    ),
-    _run_action(
-        "fit.compile",
+        "fit.specify",
         "fit",
-        "compile",
-        "stage-4",
+        "specify",
+        "statistical_model_spec",
         mode="delegated",
-        lower_context_id="stage-4.statistical-model-spec",
+        lower_context_id="statistical-model-spec",
     ),
     _run_action(
         "fit.infer",
         "fit",
         "infer",
-        "stage-5b",
+        "posterior",
         mode="async",
-        lower_context_id="stage-5b.inference",
+        lower_context_id="inference",
     ),
     ActionSpec(
         action_id="fit.check",
@@ -405,9 +360,9 @@ ACTIONS: tuple[ActionSpec, ...] = (
         "analyze.rank",
         "analyze",
         "rank",
-        "stage-6",
+        "baseline_report",
         mode="delegated",
-        lower_context_id="stage-6.ranking",
+        lower_context_id="ranking",
     ),
     ActionSpec(
         action_id="analyze.simulate",
@@ -417,7 +372,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("posterior", "causal_design", "identification_report"),
-        query=ToolQuerySpec(stage_id="stage-6", tool_name="simulate"),
+        query=ToolQuerySpec(runner_id="stage-6", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.counterfactual",
@@ -427,7 +382,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("posterior", "causal_design", "identification_report"),
-        query=ToolQuerySpec(stage_id="stage-6", tool_name="simulate"),
+        query=ToolQuerySpec(runner_id="stage-6", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.ppc",
@@ -436,7 +391,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="check",
         mode="direct",
         context_id="navigator",
-        consumes=("posterior", "model_data"),
+        consumes=("posterior", "panel"),
     ),
     ActionSpec(
         action_id="analyze.save",
@@ -457,7 +412,6 @@ ACTIONS_BY_ID: dict[str, ActionSpec] = {action.action_id: action for action in A
 
 
 def action_spec(action_id: str) -> ActionSpec:
-    """Return one action spec by id."""
     try:
         return ACTIONS_BY_ID[action_id]
     except KeyError as exc:
@@ -466,7 +420,6 @@ def action_spec(action_id: str) -> ActionSpec:
 
 
 def context_spec(context_id: str) -> ContextSpec:
-    """Return one context spec by id."""
     try:
         return CONTEXTS_BY_ID[context_id]
     except KeyError as exc:
@@ -474,77 +427,69 @@ def context_spec(context_id: str) -> ContextSpec:
         raise KeyError(f"Unknown context '{context_id}'. Expected one of: {known}") from exc
 
 
-def primary_stage_action(stage_id: str) -> ActionSpec:
-    """Return the public action that runs a stage."""
+def primary_transition_action(artifact_id: ArtifactId) -> ActionSpec:
     matches = [
         action
         for action in ACTIONS
         if action.move is not None
         and action.move.kind == "run"
-        and action.move.stage_id == stage_id
+        and action.move.artifact_id == artifact_id
     ]
     if len(matches) != 1:
-        raise KeyError(f"Expected exactly one primary action for {stage_id}, found {len(matches)}")
+        raise KeyError(
+            f"Expected exactly one primary action for {artifact_id}, found {len(matches)}"
+        )
     return matches[0]
 
 
 def action_is_enabled(state: EpisodeState, action: ActionSpec) -> bool:
-    """Whether an action is worth surfacing (affordance, not machine legality).
+    """Affordance-level enabledness for navigator actions.
 
-    Reads are always available. A run is surfaced when every consumed artifact
-    exists (this matches machine legality). A write/edit/query/check is surfaced
-    when its referenced inputs exist — a stricter affordance guard than the
-    always-legal ``write`` it may compile to.
+    This is intentionally not the machine legality engine. Run actions delegate
+    to the transition existence guard; read/query/check actions may add
+    usefulness preconditions so the navigator does not surface actions with no
+    meaningful context.
     """
     if action.kind == "read":
         return True
     if action.move is not None and action.move.kind == "run":
-        if action.move.stage_id is None:
-            return False
-        spec = stage_spec(action.move.stage_id)
+        spec = transition_spec(action.move.artifact_id)
         return all(state.has(artifact) for artifact in spec.consumes)
     return all(state.has(artifact) for artifact in action.consumes)
 
 
 def legal_actions(state: EpisodeState) -> tuple[ActionSpec, ...]:
-    """Public actions worth surfacing at the current artifact state."""
     return tuple(action for action in ACTIONS if action_is_enabled(state, action))
 
 
 def legal_action_ids(state: EpisodeState) -> tuple[str, ...]:
-    """Public action ids worth surfacing at the current artifact state."""
     return tuple(action.action_id for action in legal_actions(state))
 
 
-def _move_dict(move: MachineMoveSpec | None) -> dict[str, str | None] | None:
+def _move_dict(move: MachineMoveSpec | None) -> dict[str, str] | None:
     if move is None:
         return None
-    return {
-        "kind": move.kind,
-        "stage_id": move.stage_id,
-        "artifact_id": move.artifact_id,
-    }
+    return {"kind": move.kind, "artifact_id": move.artifact_id}
 
 
 def _query_dict(query: ToolQuerySpec | None) -> dict[str, str | bool] | None:
     if query is None:
         return None
     return {
-        "stage_id": query.stage_id,
+        "runner_id": query.runner_id,
         "tool_name": query.tool_name,
         "freshness_checked": query.freshness_checked,
     }
 
 
 def describe_contexts() -> list[dict[str, object]]:
-    """JSON-ready context registry description."""
     return [
         {
             "context_id": context.context_id,
             "layer": context.layer,
             "label": context.label,
             "parent_id": context.parent_id,
-            "stage_id": context.stage_id,
+            "runner_id": context.runner_id,
             "owns": list(context.owns),
             "allowed_tools": list(context.allowed_tools),
             "runtime_state": list(context.runtime_state),
@@ -554,7 +499,6 @@ def describe_contexts() -> list[dict[str, object]]:
 
 
 def describe_actions() -> list[dict[str, object]]:
-    """JSON-ready public action registry description."""
     return [
         {
             "action_id": action.action_id,
@@ -576,10 +520,9 @@ def describe_actions() -> list[dict[str, object]]:
 
 
 def _assert_hierarchy_consistent() -> None:
-    stage_ids = {spec.stage_id for spec in ARTIFACT_GRAPH}
-    artifact_ids = {
-        artifact for spec in ARTIFACT_GRAPH for artifact in (*spec.consumes, *spec.all_produces)
-    } | set(ROOT_ARTIFACTS)
+    runner_ids = {spec.runner_id for spec in ARTIFACT_GRAPH}
+    transition_ids = {spec.transition_id for spec in ARTIFACT_GRAPH}
+    artifact_ids = set(ARTIFACT_IDS)
 
     if len(CONTEXTS_BY_ID) != len(CONTEXTS):
         raise AssertionError("Context ids must be unique")
@@ -589,14 +532,14 @@ def _assert_hierarchy_consistent() -> None:
     for context in CONTEXTS:
         if context.parent_id is not None and context.parent_id not in CONTEXTS_BY_ID:
             raise AssertionError(f"Unknown parent context '{context.parent_id}'")
-        if context.stage_id is not None and context.stage_id not in stage_ids:
-            raise AssertionError(f"Unknown context stage '{context.stage_id}'")
+        if context.runner_id is not None and context.runner_id not in runner_ids:
+            raise AssertionError(f"Unknown context runner '{context.runner_id}'")
         unknown_owned = set(context.owns) - artifact_ids
         if unknown_owned:
             raise AssertionError(f"{context.context_id} owns unknown artifacts: {unknown_owned}")
 
-    for stage_id in stage_ids:
-        primary_stage_action(stage_id)
+    for artifact_id in transition_ids:
+        primary_transition_action(artifact_id)
 
     for action in ACTIONS:
         if action.context_id not in CONTEXTS_BY_ID:
@@ -608,13 +551,12 @@ def _assert_hierarchy_consistent() -> None:
         if action.move is not None and action.query is not None:
             raise AssertionError(f"{action.action_id} cannot have both move and query specs")
         if action.move is not None:
-            if action.move.kind == "run":
-                if action.move.stage_id not in stage_ids:
-                    raise AssertionError(f"{action.action_id} runs unknown stage")
-            elif action.move.kind == "write" and action.move.artifact_id not in WRITABLE_ARTIFACTS:
+            if action.move.kind == "run" and action.move.artifact_id not in transition_ids:
+                raise AssertionError(f"{action.action_id} runs unknown transition")
+            if action.move.kind == "write" and action.move.artifact_id not in WRITABLE_ARTIFACTS:
                 raise AssertionError(f"{action.action_id} writes non-writable artifact")
-        if action.query is not None and action.query.stage_id not in stage_ids:
-            raise AssertionError(f"{action.action_id} queries unknown stage")
+        if action.query is not None and action.query.runner_id not in runner_ids:
+            raise AssertionError(f"{action.action_id} queries unknown runner")
         referenced = (
             *action.consumes,
             *action.produces,
@@ -623,6 +565,10 @@ def _assert_hierarchy_consistent() -> None:
         )
         if set(referenced) - artifact_ids:
             raise AssertionError(f"{action.action_id} references unknown artifacts")
+
+    writable_produced = {spec.transition_id for spec in ARTIFACT_GRAPH if spec.writable}
+    if set(WRITABLE_ARTIFACTS) != set(ROOT_ARTIFACTS) | writable_produced:
+        raise AssertionError("Writable surface must be roots plus writable transitions")
 
 
 _assert_hierarchy_consistent()

@@ -1,8 +1,8 @@
-"""Modal-backed execution for expensive stages.
+"""Modal-backed execution for expensive transitions.
 
-When ``DEPLOYMENT_ENV=production``, ``machine.runners.execute_stage``
-routes stage-4 and stage-5b here. The remote function runs the same
-``execute_stage_locally`` against the same R2-backed artifact store —
+When ``DEPLOYMENT_ENV=production``, ``machine.runners.execute_transition``
+routes statistical model specification and posterior inference here. The remote
+function runs the same ``execute_transition_locally`` against the same R2-backed artifact store —
 Modal is compute placement, not a different execution path. Version
 stamps come back as plain dicts (Modal pickles across an image boundary).
 """
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import modal
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -65,20 +65,25 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
     gpu=GPU_A100_80GB,
     secrets=[secrets],
 )
+# Modal function identity is operational metadata, so keep the old stage word
+# stable while passing artifact-named transition ids in the payload.
 async def _run_stage_gpu(
     workspace_id: str,
-    stage_id: str,
+    artifact_id: str,
     pins: dict[str, int],
+    state: dict[str, Any],
     options: dict[str, Any],
 ) -> dict[str, Any]:
-    """Run a stage on Modal GPU compute against the R2 artifact store."""
+    """Run a transition on Modal GPU compute against the R2 artifact store."""
+    from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions
-    from nof1_causal_lab.machine.runners import execute_stage_locally
+    from nof1_causal_lab.machine.runners import execute_transition_locally
 
-    result = await execute_stage_locally(
+    result = await execute_transition_locally(
         workspace_id,
-        stage_id,
+        artifact_id,  # type: ignore[arg-type]
         pins,  # type: ignore[arg-type]
+        EpisodeState.model_validate(state),
         ExecOptions.model_validate(options),
     )
     return result.model_dump(mode="json")
@@ -97,20 +102,24 @@ def read_facade():
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
+# See ``_run_stage_gpu`` for the naming note.
 async def _run_stage_cpu(
     workspace_id: str,
-    stage_id: str,
+    artifact_id: str,
     pins: dict[str, int],
+    state: dict[str, Any],
     options: dict[str, Any],
 ) -> dict[str, Any]:
-    """Run a stage on Modal CPU compute against the R2 artifact store."""
+    """Run a transition on Modal CPU compute against the R2 artifact store."""
+    from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions
-    from nof1_causal_lab.machine.runners import execute_stage_locally
+    from nof1_causal_lab.machine.runners import execute_transition_locally
 
-    result = await execute_stage_locally(
+    result = await execute_transition_locally(
         workspace_id,
-        stage_id,
+        artifact_id,  # type: ignore[arg-type]
         pins,  # type: ignore[arg-type]
+        EpisodeState.model_validate(state),
         ExecOptions.model_validate(options),
     )
     return result.model_dump(mode="json")
@@ -120,23 +129,25 @@ async def _run_stage_cpu(
 # Runner callables (bound by machine.runners)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_GPU_STAGES = frozenset({"stage-5b"})
+_GPU_TRANSITIONS = frozenset({"posterior"})
 
 
-async def run_stage_on_modal(
+async def run_transition_on_modal(
     workspace_id: str,
-    stage_id: str,
+    artifact_id: ArtifactId,
     pins: dict[ArtifactId, int],
+    state: EpisodeState,
     options: ExecOptions,
 ) -> TransitionEffects:
-    """Invoke a stage remotely; credentials come from the Modal secret block."""
+    """Invoke a transition remotely; credentials come from the Modal secret block."""
     from nof1_causal_lab.machine.moves import TransitionEffects
 
-    remote_fn = _run_stage_gpu if stage_id in _GPU_STAGES else _run_stage_cpu
+    remote_fn = _run_stage_gpu if artifact_id in _GPU_TRANSITIONS else _run_stage_cpu
     raw = await remote_fn.remote.aio(
         workspace_id,
-        stage_id,
+        artifact_id,
         dict(pins),
+        state.model_dump(mode="json"),
         options.model_dump(mode="json"),
     )
     return TransitionEffects.model_validate(raw)

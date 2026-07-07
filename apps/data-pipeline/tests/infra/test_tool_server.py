@@ -62,7 +62,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     import polars as pl
 
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.moves import RunStage
+    from nof1_causal_lab.machine.moves import RunArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
     from nof1_causal_lab.models.ssm.testing import block_ssm_spec, full_dense_matrix_dynamics_spec
     from nof1_causal_lab.utils import data as data_module
@@ -94,12 +94,12 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
             "causal_design.json": {"causal_design": {"identifiability": {}, "measurement": {}}}
         },
     )
-    model_data_info = store.write_version(
-        "model_data",
+    panel_info = store.write_version(
+        "panel",
         provenance="computed",
         derived_from={"causal_design": 1},
         produced_by="stage-2",
-        parquet_files={"model_data.parquet": model_data},
+        parquet_files={"panel.parquet": model_data},
     )
     identification_report_info = store.write_version(
         "identification_report",
@@ -117,7 +117,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     posterior_info = store.write_version(
         "posterior",
         provenance="computed",
-        derived_from={"causal_design": 1, "model_data": 1},
+        derived_from={"panel": 1},
         produced_by="stage-5b",
         json_files={"diagnostics.json": {"outcome": "warn"}},
         pickle_files={"fitted.pkl": fitted_artifact},
@@ -126,11 +126,11 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         TransitionRecord(
             seq=1,
             ts="2026-07-03T00:00:00+00:00",
-            move=RunStage(stage_id="stage-5b"),
+            move=RunArtifact(artifact_id="posterior"),
             status="applied",
             produced=[posterior_info],
             state_after=EpisodeState().with_versions(
-                [causal_design_info, model_data_info, identification_report_info, posterior_info]
+                [causal_design_info, panel_info, identification_report_info, posterior_info]
             ),
         )
     )
@@ -156,7 +156,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
 
     assert isinstance(captured["model"], tool_server.SSMModel)
     # The runtime is rebuilt from the unpickled fitted artifact's spec, on the
-    # model_data version pinned by the posterior's derived_from.
+    # panel version pinned by the posterior's derived_from.
     assert captured["model"].spec is ctx["_fitted_artifact"].spec
     assert list(captured["model"].spec.latent_names) == ["screen_time", "sleep_quality"]
     assert captured["data_for_model"].equals(model_data)
@@ -179,28 +179,28 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
         make_stage4_grounding_result,
     )
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.moves import RunStage
+    from nof1_causal_lab.machine.moves import RunArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
 
     store = ArtifactStore("user-123")
-    model_data_info = store.write_version(
-        "model_data",
+    panel_info = store.write_version(
+        "panel",
         provenance="computed",
         derived_from={},
         produced_by="stage-2",
-        parquet_files={"model_data.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
+        parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
     )
     EpisodeJournal("user-123").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-03T00:00:00+00:00",
-            move=RunStage(stage_id="stage-2"),
+            move=RunArtifact(artifact_id="measurements"),
             status="applied",
-            produced=[model_data_info],
-            state_after=EpisodeState().with_versions([model_data_info]),
+            produced=[panel_info],
+            state_after=EpisodeState().with_versions([panel_info]),
         )
     )
 
@@ -208,8 +208,8 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
     captured: dict[str, object] = {}
 
     def fake_load_parquet(path):
-        # The registry resolves the episode's CURRENT model_data version.
-        assert path == store.file_path("model_data", 1, "model_data.parquet")
+        # The registry resolves the episode's CURRENT panel version.
+        assert path == store.file_path("panel", 1, "panel.parquet")
         return expected_data_for_model
 
     def fake_stage4_grounding(

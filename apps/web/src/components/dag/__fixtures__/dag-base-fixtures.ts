@@ -1,9 +1,9 @@
-import type { Stage1aData, Stage1bData } from "@nof1-causal-lab/api-types";
+import type { Stage1aData, Stage1bViewData } from "@nof1-causal-lab/api-types";
 import stage1aFixture from "../../__fixtures__/demo-run/stage-1a.json";
 import stage1bFixture from "../../__fixtures__/demo-run/stage-1b.json";
 
 const stage1a = stage1aFixture as unknown as Stage1aData;
-const stage1b = stage1bFixture as unknown as Stage1bData;
+const stage1b = stage1bFixture as unknown as Stage1bViewData;
 
 export const constructs = stage1a.latent_structure.constructs;
 export const edges = stage1a.latent_structure.edges;

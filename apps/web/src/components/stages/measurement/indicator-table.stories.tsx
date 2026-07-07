@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage1bData } from "@nof1-causal-lab/api-types";
+import type { Stage1bViewData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { IndicatorTable } from "./indicator-table";
 import fixture from "../../__fixtures__/demo-run/stage-1b.json";
 
-const data = fixture as unknown as Stage1bData;
+const data = fixture as unknown as Stage1bViewData;
 const indicators = data.causal_design.measurement.indicators;
 
 const meta = {

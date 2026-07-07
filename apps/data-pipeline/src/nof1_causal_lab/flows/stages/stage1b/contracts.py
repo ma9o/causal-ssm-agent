@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.causal_design import CausalDesign  # noqa: TC001
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 
 IS_INTERACTIVE_STAGE = True
@@ -23,17 +23,14 @@ class ValidateMeasurementStructureInput(BaseModel):
 STAGE1B_TOOL_CONTRACTS: list[ToolContract] = [
     ToolContract(
         name="validate_measurement_structure",
-        description=(
-            "Validate measurement structure JSON, check compiler constraints, "
-            "and verify causal identifiability."
-        ),
+        description=("Validate measurement structure JSON and compiler constraints."),
         input_schema=ValidateMeasurementStructureInput,
     ),
 ]
 
 
 class Stage1bContract(LLMStageContract):
-    causal_design: CausalDesign
+    measurement_structure: MeasurementStructure
 
 
 class IdentificationReportContract(BaseModel):

@@ -110,9 +110,9 @@ def load_demo_health_fixture() -> DemoHealthFixture:
         question=store.read_json_file("question", _version("question"), "question.json")["text"],
         stage0=store.read_parquet_file("raw_data", raw_version, "raw.parquet"),
         column_descriptions=_column_descriptions_from_stage0_payload(profile),
-        expected_model=store.read_parquet_file(
-            "model_data", _version("model_data"), "model_data.parquet"
-        ).select(EXPECTED_STAGE2_COLUMNS),
+        expected_model=store.read_parquet_file("panel", _version("panel"), "panel.parquet").select(
+            EXPECTED_STAGE2_COLUMNS
+        ),
     )
 
 

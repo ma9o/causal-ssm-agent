@@ -233,19 +233,8 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 You have access to `validate_measurement_structure` tool. It checks:
 1. Schema and compiler-level measurement constraints
-2. **Causal identifiability** - whether treatment effects can be estimated from the proposed indicators
 
 Keep validating until you get "VALID".
-
-### Identifiability
-
-If the tool reports identifiability issues, it will tell you:
-- Which treatment effects are blocked and by which unobserved confounders
-- Which confounders need proxy indicators
-
-To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement structure (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder - add it as a new indicator with the confounder as its `construct_name`.
-
-If no suitable strong proxy exists in the available data columns, proceed anyway - those effects will remain non-identifiable and be flagged in downstream analysis. Do not invent speculative semantic proxies from sparse incidental text just to satisfy identifiability.
 
 IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validated result is already saved by the tool. Any additional output will be ignored.
 """

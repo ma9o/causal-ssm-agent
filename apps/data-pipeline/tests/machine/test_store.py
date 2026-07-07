@@ -4,7 +4,7 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import RunStage, WriteArtifact
+from nof1_causal_lab.machine.moves import RunArtifact, WriteArtifact
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 
 
@@ -61,16 +61,16 @@ class TestArtifactStore:
         store = ArtifactStore(workspace)
         df = pl.DataFrame({"indicator": ["mood"], "value": [3.5]})
         info = store.write_version(
-            "model_data",
+            "panel",
             provenance="computed",
             derived_from={},
             produced_by="stage-2",
-            parquet_files={"model_data.parquet": df},
+            parquet_files={"panel.parquet": df},
             pickle_files={"aux.pkl": {"answer": 42}},
         )
-        loaded_df = store.read_parquet_file("model_data", info.version, "model_data.parquet")
+        loaded_df = store.read_parquet_file("panel", info.version, "panel.parquet")
         assert loaded_df.equals(df)
-        assert store.read_pickle_file("model_data", info.version, "aux.pkl") == {"answer": 42}
+        assert store.read_pickle_file("panel", info.version, "aux.pkl") == {"answer": 42}
 
     def test_empty_artifact_has_no_versions(self, workspace):
         store = ArtifactStore(workspace)
@@ -95,15 +95,18 @@ class TestEpisodeJournal:
         journal.append(
             self._record(
                 2,
-                RunStage(stage_id="stage-1b"),
+                RunArtifact(artifact_id="measurement_structure"),
                 status="rejected",
-                reason="stage-1b requires artifacts that do not exist: raw_data, latent_structure",
+                reason=(
+                    "measurement_structure requires artifacts that do not exist: "
+                    "raw_data, latent_structure"
+                ),
             )
         )
         journal.append(
             self._record(
                 3,
-                RunStage(stage_id="stage-5b"),
+                RunArtifact(artifact_id="posterior"),
                 status="raised",
                 error_type="ModelFitError",
                 error_message="sampler diverged",
@@ -118,7 +121,7 @@ class TestEpisodeJournal:
         assert records[2].diagnostics["rhat_max"] == 2.4
         # Move discriminated union round-trips.
         assert records[0].move.kind == "write"
-        assert records[2].move.stage_id == "stage-5b"
+        assert records[2].move.artifact_id == "posterior"
 
     def test_duplicate_seq_refused(self, workspace):
         journal = EpisodeJournal(workspace)

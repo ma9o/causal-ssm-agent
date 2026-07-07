@@ -47,7 +47,7 @@ async def extract_window_chunk(
     window_starts: list[str],
     chunk_idx: int,
     question: str,
-    causal_design: dict,
+    measurement_structure: dict,
     workspace_id: str | None = None,
 ) -> dict:
     """Extract indicator values from a chunk of support windows.
@@ -57,7 +57,7 @@ async def extract_window_chunk(
         window_starts: Expected support-window starts in this chunk.
         chunk_idx: Index of this chunk (for logging/naming).
         question: The causal research question.
-        causal_design: Full CausalDesign dict with measurement structure.
+        measurement_structure: MeasurementStructure dict for this chunk.
 
     Returns:
         Dict with 'dataframe' (as list of dicts for serialization),
@@ -66,7 +66,6 @@ async def extract_window_chunk(
     from dataclasses import replace
 
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
-    from nof1_causal_lab.utils.causal_design import get_indicators
     from nof1_causal_lab.utils.config import get_config
     from nof1_causal_lab.workers.core import run_worker_extraction
 
@@ -77,7 +76,7 @@ async def extract_window_chunk(
         config.stage2_workers.llm,
         timeout=config.stage2_workers.worker_timeout,
     )
-    indicator_count = len(get_indicators(causal_design))
+    indicator_count = len(measurement_structure.get("indicators", []))
     n_events = window_text.count("\n")
     chunk_label = chunk_log_label(chunk_idx, len(window_starts), n_events)
 
@@ -112,7 +111,7 @@ async def extract_window_chunk(
         window_text=window_text,
         window_starts=window_starts,
         question=question,
-        causal_design=causal_design,
+        measurement_structure=measurement_structure,
         session_factory=factory,
         logger=logger,
         call_label=chunk_label,
@@ -218,7 +217,7 @@ async def run_stage2_extraction_core(
     *,
     raw_df: pl.DataFrame,
     question: str,
-    causal_design: dict,
+    measurement_structure: dict,
     stage2_workers: Any,
     workspace_id: str | None = None,
     max_windows: int | None = None,
@@ -233,14 +232,13 @@ async def run_stage2_extraction_core(
     4. delegating semantic execution to an injected backend
     5. annotating canonical observation-row support metadata
     """
-    from nof1_causal_lab.utils.causal_design import get_indicators
     from nof1_causal_lab.utils.data import ObservationRecord, annotate_observation_rows
 
     semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_asyncio
 
-    all_indicators = get_indicators(causal_design)
+    all_indicators = list(measurement_structure.get("indicators", []))
     time_col = "timestamp"
-    model_clock = causal_design.get("measurement", {}).get("model_clock", "1d")
+    model_clock = measurement_structure.get("model_clock", "1d")
     logger.info("Stage 2: time_col='%s', model_clock='%s'", time_col, model_clock)
 
     computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
@@ -274,7 +272,7 @@ async def run_stage2_extraction_core(
         chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
             raw_df=raw_df,
             semantic_inds=semantic_inds,
-            causal_design=causal_design,
+            measurement_structure=measurement_structure,
             model_clock=model_clock,
             time_col=time_col,
             windows_per_chunk=stage2_workers.windows_per_chunk,
@@ -310,7 +308,7 @@ async def run_stage2_extraction_core(
 
     observation_rows = cast(
         "list[ObservationRecord]",
-        annotate_observation_rows(pl.DataFrame(all_dicts), causal_design).to_dicts(),
+        annotate_observation_rows(pl.DataFrame(all_dicts), measurement_structure).to_dicts(),
     )
 
     result = {
@@ -326,7 +324,7 @@ async def run_stage2_extraction_core(
 async def run_stage2_extraction(
     raw_df: pl.DataFrame,
     question: str,
-    causal_design: dict,
+    measurement_structure: dict,
     workspace_id: str | None = None,
     max_windows: int | None = None,
 ) -> dict:
@@ -343,7 +341,7 @@ async def run_stage2_extraction(
     return await run_stage2_extraction_core(
         raw_df=raw_df,
         question=question,
-        causal_design=causal_design,
+        measurement_structure=measurement_structure,
         stage2_workers=config.stage2_workers,
         workspace_id=workspace_id,
         max_windows=max_windows,

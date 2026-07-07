@@ -4,11 +4,11 @@ import { type ConstructStatus, StructureDag } from "@/components/dag/structure-d
 import { IndicatorTable } from "@/components/stages/measurement/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { Stage1bData } from "@nof1-causal-lab/api-types";
+import type { Stage1bViewData } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 
-function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
+function useNodeStatuses(data: Stage1bViewData): Record<string, ConstructStatus> {
   const spec = data.causal_design;
   return useMemo(() => {
     const statuses: Record<string, ConstructStatus> = {};
@@ -46,7 +46,7 @@ function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
   }, [spec]);
 }
 
-export default function Stage1bContent({ data }: { data: Stage1bData }) {
+export default function Stage1bContent({ data }: { data: Stage1bViewData }) {
   const spec = data.causal_design;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);

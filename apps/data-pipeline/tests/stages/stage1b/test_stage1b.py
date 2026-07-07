@@ -1,10 +1,4 @@
-"""Test Stage 1b: Measurement Structure with Identifiability.
-
-Tests the unified flow:
-1. Measurement structure proposal via fat validation tool
-2. Identifiability checking within the tool
-3. Marginalization analysis (deterministic post-processing)
-"""
+"""Test Stage 1b measurement structure proposal and related assembly helpers."""
 
 import asyncio
 import json
@@ -20,6 +14,17 @@ from nof1_causal_lab.flows.stages.stage1b.run import (
 from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_structure
 from nof1_causal_lab.utils.causal_design import get_outcome_name
 from tests.helpers import make_mock_session_factory
+
+
+def _assert_same_declared_measurement(actual: dict, expected: dict) -> None:
+    assert actual["model_clock"] == expected["model_clock"]
+    assert [item["name"] for item in actual["indicators"]] == [
+        item["name"] for item in expected["indicators"]
+    ]
+    assert [item["construct_name"] for item in actual["indicators"]] == [
+        item["construct_name"] for item in expected["indicators"]
+    ]
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UNIT TESTS: Measurement Compiler
@@ -142,7 +147,7 @@ class TestStage1bGrounding:
         assert get_outcome_name(spec["latent"]) == "Outcome"
 
     def test_valid_identifiable(self, stage1b_simple_latent, stage1b_measurement_all_observed):
-        """Valid + identifiable returns VALID feedback and stage_output."""
+        """Valid measurement structure returns VALID feedback and stage_output."""
         from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
@@ -151,28 +156,31 @@ class TestStage1bGrounding:
 
         assert feedback == "VALID"
         assert output is not None
-        assert "causal_design" in output
+        _assert_same_declared_measurement(
+            output["measurement_structure"],
+            stage1b_measurement_all_observed,
+        )
 
-    def test_valid_not_identifiable(
+    def test_valid_confounded_measurement_still_validates(
         self, stage1b_confounded_latent, stage1b_measurement_all_observed
     ):
-        """Valid but not identifiable returns stage_output with identifiability feedback."""
+        """Identifiability is not checked inside the measurement proposal."""
         from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             stage1b_measurement_all_observed, stage1b_confounded_latent
         )
 
-        assert output is not None  # stage_output set even when not identifiable
-        assert "causal_design" in output
-        assert output["causal_design"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
-        assert feedback != "VALID"
-        assert "NOT fully identifiable" in feedback
-        assert "proxy" in feedback.lower()
+        assert output is not None
+        _assert_same_declared_measurement(
+            output["measurement_structure"],
+            stage1b_measurement_all_observed,
+        )
+        assert feedback == "VALID"
 
     def test_lagged_time_varying_query_uses_prior_timestep(self):
         """Lagged X->Y effects are checked as X_{t-1}->Y_t, not X_t->Y_t."""
-        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.utils.identifiability import check_identifiability
 
         latent_structure = {
             "constructs": [
@@ -241,11 +249,8 @@ class TestStage1bGrounding:
             ],
         }
 
-        output, feedback = stage1b_grounding(measurement_structure, latent_structure)
-
-        assert output is not None
-        assert feedback != "VALID"
-        non_identifiable = output["causal_design"]["identifiability"]["non_identifiable_treatments"]
+        result = check_identifiability(latent_structure, measurement_structure)
+        non_identifiable = result["non_identifiable_treatments"]
         assert non_identifiable["Sleep"]["confounders"] == ["Chronotype"]
 
     def test_invalid_schema(self, stage1b_simple_latent):
@@ -259,10 +264,8 @@ class TestStage1bGrounding:
         assert output is None
         assert "VALIDATION ERRORS" in feedback
 
-    def test_drops_unmeasured_constructs_from_estimation_projection(self, monkeypatch):
+    def test_drops_unmeasured_constructs_from_estimation_projection(self):
         """Latent-only constructs should not remain in the executable state vector."""
-        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
-
         latent_structure = {
             "constructs": [
                 {
@@ -320,20 +323,17 @@ class TestStage1bGrounding:
             ],
         }
 
-        monkeypatch.setattr(
-            "nof1_causal_lab.utils.identifiability.check_identifiability",
-            lambda *_args, **_kwargs: {
+        causal_design = build_causal_design(
+            latent_structure,
+            measurement_structure,
+            {
                 "identifiable_treatments": {},
                 "non_identifiable_treatments": {},
             },
         )
 
-        output, feedback = stage1b_grounding(measurement_structure, latent_structure)
-
-        assert output is not None
-        assert feedback == "VALID"
-        assert output["causal_design"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
-        assert output["causal_design"]["estimation"]["edges"] == []
+        assert causal_design["estimation"]["state_order"] == ["Treatment", "Outcome"]
+        assert causal_design["estimation"]["edges"] == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -363,10 +363,10 @@ class TestStage1bFlow:
         )
 
         assert isinstance(result, Stage1bResult)
-        status = result.identifiability_status
-        assert isinstance(status["identifiable_treatments"], dict)
-        assert isinstance(status["non_identifiable_treatments"], dict)
-        assert len(status["non_identifiable_treatments"]) == 0
+        _assert_same_declared_measurement(
+            result.measurement_structure,
+            stage1b_measurement_all_observed,
+        )
 
     def test_non_identifiable_still_produces_result(
         self,
@@ -387,7 +387,10 @@ class TestStage1bFlow:
         )
 
         assert isinstance(result, Stage1bResult)
-        assert len(result.identifiability_status["non_identifiable_treatments"]) > 0
+        _assert_same_declared_measurement(
+            result.measurement_structure,
+            stage1b_measurement_all_observed,
+        )
 
 
 if __name__ == "__main__":

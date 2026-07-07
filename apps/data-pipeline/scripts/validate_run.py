@@ -22,6 +22,7 @@ Exits 1 if any errors are found (or any warnings with ``--strict``), else 0.
 from __future__ import annotations
 
 import argparse
+import graphlib
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
 from nof1_causal_lab.flows.run_store import load_parquet
 from nof1_causal_lab.flows.stage_contracts import STAGE_CONTRACTS
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.graph import topological_stage_order
+from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, current_artifact_file
 
 Severity = Literal["error", "warning"]
@@ -63,31 +64,55 @@ class RunContext:
 # Loading
 # ---------------------------------------------------------------------------
 
-STAGE_RESULT_ARTIFACTS: dict[str, tuple[ArtifactId, str]] = {
-    "stage-0": ("raw_data", "profile"),
-    "stage-1a": ("latent_structure", "latent_structure"),
-    "stage-1b": ("causal_design", "causal_design"),
-    "stage-2": ("extraction_report", "extraction_report"),
-    "stage-3": ("validation_report", "validation_report"),
-    "stage-4": ("compiled_ssm", "report"),
-    "stage-5b": ("posterior", "diagnostics"),
-    "stage-6": ("baseline_ranking", "baseline_ranking"),
+STAGE_RESULT_ARTIFACTS: dict[ArtifactId, tuple[str, str]] = {
+    "raw_data": ("stage-0", "profile"),
+    "latent_structure": ("stage-1a", "latent_structure"),
+    "causal_design": ("stage-1b", "causal_design"),
+    "measurements": ("stage-2", "measurements"),
+    "validation_report": ("stage-3", "validation_report"),
+    "statistical_model_spec": ("stage-4", "statistical_model_spec"),
+    "posterior": ("stage-5b", "diagnostics"),
+    "baseline_report": ("stage-6", "baseline_report"),
 }
 
 
+def _result_artifact_order() -> tuple[ArtifactId, ...]:
+    result_artifacts = set(STAGE_RESULT_ARTIFACTS)
+    dependencies: dict[ArtifactId, set[ArtifactId]] = {
+        artifact_id: set() for artifact_id in result_artifacts
+    }
+    for spec in ARTIFACT_GRAPH:
+        for artifact_id in spec.all_produces:
+            if artifact_id in dependencies:
+                dependencies[artifact_id].update(
+                    parent for parent in spec.consumes if parent in result_artifacts
+                )
+    for spec in DERIVATIONS:
+        if spec.produces in dependencies:
+            dependencies[spec.produces].update(
+                parent for parent in spec.from_ if parent in result_artifacts
+            )
+    return tuple(graphlib.TopologicalSorter(dependencies).static_order())
+
+
+def _stage_order() -> tuple[str, ...]:
+    return tuple(STAGE_RESULT_ARTIFACTS[artifact_id][0] for artifact_id in _result_artifact_order())
+
+
 def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
-    order = list(topological_stage_order())
-    if up_to is not None and up_to not in order:
-        raise ValueError(f"Unknown stage '{up_to}'. Expected one of: {', '.join(order)}")
+    stage_order = list(_stage_order())
+    if up_to is not None and up_to not in stage_order:
+        raise ValueError(f"Unknown stage '{up_to}'. Expected one of: {', '.join(stage_order)}")
+    artifact_order = list(_result_artifact_order())
     if up_to is not None:
-        order = order[: order.index(up_to) + 1]
+        artifact_order = artifact_order[: stage_order.index(up_to) + 1]
 
     stages: dict[str, dict[str, Any]] = {}
     stage_paths: dict[str, str] = {}
     state = EpisodeJournal(workspace_id).latest_state()
     store = ArtifactStore(workspace_id)
-    for stage_id in order:
-        artifact_id, key = STAGE_RESULT_ARTIFACTS[stage_id]
+    for artifact_id in artifact_order:
+        stage_id, key = STAGE_RESULT_ARTIFACTS[artifact_id]
         info = state.get(artifact_id)
         if info is None:
             continue
@@ -105,8 +130,8 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
         try:
             parquet_path = current_artifact_file(
                 workspace_id,
-                "model_data",
-                parquet_filename("model_data", "model_data"),
+                "panel",
+                parquet_filename("panel", "panel"),
             )
             df = load_parquet(parquet_path)
             if "indicator" in df.columns:
@@ -414,7 +439,7 @@ def rule_indicators_audited_by_stage3(ctx: RunContext) -> list[LineageIssue]:
     ]
 
 
-def rule_indicators_in_model_data(ctx: RunContext) -> list[LineageIssue]:
+def rule_indicators_in_panel(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1b" not in ctx.stages or "stage-2" not in ctx.stages or ctx.model_indicators is None:
         return []
     indicators_1b = _stage1b_indicator_names(ctx.stages["stage-1b"])
@@ -423,11 +448,11 @@ def rule_indicators_in_model_data(ctx: RunContext) -> list[LineageIssue]:
         return []
     return [
         LineageIssue(
-            rule="indicators-in-model-data",
+            rule="indicators-in-panel",
             severity="warning",
             stages=("stage-1b", "stage-2"),
             message=(
-                "Indicators declared in stage-1b but absent from model_data/model_data.parquet "
+                "Indicators declared in stage-1b but absent from panel/panel.parquet "
                 f"(no extracted observations): {sorted(missing)}"
             ),
         )
@@ -685,7 +710,7 @@ RULES: list[Callable[[RunContext], list[LineageIssue]]] = [
     rule_outcome_has_indicator,
     rule_source_columns_in_stage0,
     rule_indicators_audited_by_stage3,
-    rule_indicators_in_model_data,
+    rule_indicators_in_panel,
     rule_likelihood_variables_in_1b_indicators,
     rule_outcome_indicators_have_likelihoods,
     rule_stage4_priors_target_params,
@@ -737,9 +762,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Stages found: {', '.join(ctx.stages)}")
     if ctx.model_indicators is not None:
-        print(f"Model-data indicators: {len(ctx.model_indicators)} unique")
+        print(f"Panel indicators: {len(ctx.model_indicators)} unique")
     else:
-        print("Model-data indicators: (model_data/model_data.parquet not found)")
+        print("Panel indicators: (panel/panel.parquet not found)")
 
     issues: list[LineageIssue] = []
     for rule in RULES:

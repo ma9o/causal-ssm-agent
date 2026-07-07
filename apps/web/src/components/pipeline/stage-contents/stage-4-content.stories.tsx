@@ -1,6 +1,6 @@
 import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@nof1-causal-lab/api-types";
-import type { Stage1bData } from "@nof1-causal-lab/api-types";
+import type { Stage1bViewData } from "@nof1-causal-lab/api-types";
 import {
   createCompletedStageStory,
   createStageStatusStory,
@@ -11,7 +11,8 @@ import { stage4Data } from "@/components/stages/statistical-model-spec/__fixture
 import stage1bFixture from "../../__fixtures__/demo-run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
-const indicators = (stage1bFixture as unknown as Stage1bData).causal_design.measurement.indicators;
+const indicators = (stage1bFixture as unknown as Stage1bViewData).causal_design.measurement
+  .indicators;
 
 const meta = {
   title: "Pipeline/Stages/4 – Statistical Model Specification/Panel",

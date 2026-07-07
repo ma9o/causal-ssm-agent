@@ -27,20 +27,18 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.artifacts import (
-        ArtifactId,
         ArtifactVersionInfo,
         EpisodeState,
     )
-    from nof1_causal_lab.machine.graph import stage_spec
     from nof1_causal_lab.machine.moves import (
         Move,
-        RunStage,
+        RetractedArtifact,
+        RunArtifact,
         TransitionEffects,
         WriteArtifact,
         apply_transition,
         freshness_report,
         legal_moves,
-        run_retractions,
         validate_move,
     )
     from nof1_causal_lab.machine.temporal.messages import (
@@ -49,7 +47,7 @@ with workflow.unsafe.imports_passed_through():
         JournalInput,
         MoveOutcome,
         MoveRequest,
-        RunStageInput,
+        RunArtifactInput,
         WriteArtifactInput,
     )
 
@@ -120,12 +118,12 @@ class EpisodeWorkflow:
                 return self._outcome(seq, status="rejected", reason=reason)
 
             try:
-                if isinstance(move, RunStage):
+                if isinstance(move, RunArtifact):
                     effects = await workflow.execute_activity(
                         "run_stage_activity",
-                        RunStageInput(
+                        RunArtifactInput(
                             workspace_id=self._workspace_id,
-                            stage_id=move.stage_id,
+                            artifact_id=move.artifact_id,
                             state=self._state,
                             options=request.options,
                         ),
@@ -133,8 +131,6 @@ class EpisodeWorkflow:
                         start_to_close_timeout=_RUN_STAGE_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    produced = effects.produced
-                    retracted = run_retractions(self._state, stage_spec(move.stage_id), produced)
                 else:
                     effects = await workflow.execute_activity(
                         "write_artifact_activity",
@@ -143,15 +139,14 @@ class EpisodeWorkflow:
                             artifact_id=move.artifact_id,
                             payload=request.payload or {},
                             provenance=move.provenance,
+                            state=self._state,
                         ),
                         result_type=TransitionEffects,
                         start_to_close_timeout=_WRITE_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    produced = effects.produced
-                    retracted = [
-                        artifact for artifact in effects.retracted if self._state.has(artifact)
-                    ]
+                produced = effects.produced
+                retracted = effects.retracted
             except ActivityError as exc:
                 error_type, error_message, diagnostics = _unwrap_activity_error(exc)
                 await self._journal(
@@ -210,7 +205,7 @@ class EpisodeWorkflow:
         error_message: str | None = None,
         diagnostics: dict[str, Any] | None = None,
         produced: list[ArtifactVersionInfo] | None = None,
-        retracted: list[ArtifactId] | None = None,
+        retracted: list[RetractedArtifact] | None = None,
     ) -> None:
         await workflow.execute_activity(
             "journal_activity",

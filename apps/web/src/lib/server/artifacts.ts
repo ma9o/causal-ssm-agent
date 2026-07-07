@@ -4,14 +4,16 @@ export type EpisodeArtifactId =
   | "question"
   | "raw_data"
   | "latent_structure"
+  | "measurement_structure"
   | "causal_design"
   | "identification_report"
-  | "extraction_report"
-  | "model_data"
+  | "measurements"
+  | "panel"
   | "validation_report"
+  | "statistical_model_spec"
   | "compiled_ssm"
   | "posterior"
-  | "baseline_ranking"
+  | "baseline_report"
   | "saved_scenarios";
 
 type FileKind = "json" | "parquet" | "pickle";
@@ -43,14 +45,16 @@ export const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = 
   question: { json: { question: "question.json" } },
   raw_data: { json: { profile: "profile.json" }, parquet: { raw: "raw.parquet" } },
   latent_structure: { json: { latent_structure: "latent-structure.json" } },
+  measurement_structure: { json: { measurement_structure: "measurement_structure.json" } },
   causal_design: { json: { causal_design: "causal_design.json" } },
   identification_report: { json: { identification_report: "identification_report.json" } },
-  extraction_report: { json: { extraction_report: "extraction_report.json" } },
-  model_data: { parquet: { model_data: "model_data.parquet" } },
+  measurements: { json: { measurements: "measurements.json" } },
+  panel: { parquet: { panel: "panel.parquet" } },
   validation_report: { json: { validation_report: "validation_report.json" } },
+  statistical_model_spec: { json: { statistical_model_spec: "statistical_model_spec.json" } },
   compiled_ssm: { json: { compiled_ssm: "compiled-ssm.json", report: "report.json" } },
   posterior: { json: { diagnostics: "diagnostics.json" }, pickle: { fitted: "fitted.pkl" } },
-  baseline_ranking: { json: { baseline_ranking: "baseline_ranking.json" } },
+  baseline_report: { json: { baseline_report: "baseline_report.json" } },
   saved_scenarios: { json: { saved_scenarios: "saved_scenarios.json" } },
 };
 

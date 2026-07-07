@@ -117,7 +117,7 @@ def raw_dataframe(n_days: int = 20) -> pl.DataFrame:
     )
 
 
-def model_data_frame(n_days: int = 20) -> pl.DataFrame:
+def panel_frame(n_days: int = 20) -> pl.DataFrame:
     start = datetime(2024, 1, 1)
     rows: list[dict[str, Any]] = []
     for i in range(n_days):
@@ -323,7 +323,7 @@ def seed_latent_structure(
     )
 
 
-def seed_causal_design(
+def seed_measurement_structure(
     store: ArtifactStore,
     *,
     question_version: int = 1,
@@ -331,7 +331,7 @@ def seed_causal_design(
     latent_structure_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
-        "causal_design",
+        "measurement_structure",
         provenance="computed",
         derived_from={
             "question": question_version,
@@ -339,6 +339,28 @@ def seed_causal_design(
             "latent_structure": latent_structure_version,
         },
         produced_by="stage-1b",
+        json_files={
+            json_filename("measurement_structure", "measurement_structure"): {
+                "measurement_structure": measurement_structure()
+            }
+        },
+    )
+
+
+def seed_causal_design(
+    store: ArtifactStore,
+    *,
+    latent_structure_version: int = 1,
+    measurement_structure_version: int = 1,
+) -> ArtifactVersionInfo:
+    return store.write_version(
+        "causal_design",
+        provenance="computed",
+        derived_from={
+            "latent_structure": latent_structure_version,
+            "measurement_structure": measurement_structure_version,
+        },
+        produced_by="derive:causal_design",
         json_files={
             json_filename("causal_design", "causal_design"): {"causal_design": causal_design()}
         },
@@ -348,19 +370,13 @@ def seed_causal_design(
 def seed_identification_report(
     store: ArtifactStore,
     *,
-    question_version: int = 1,
-    raw_data_version: int = 1,
-    latent_structure_version: int = 1,
+    causal_design_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "identification_report",
         provenance="computed",
-        derived_from={
-            "question": question_version,
-            "raw_data": raw_data_version,
-            "latent_structure": latent_structure_version,
-        },
-        produced_by="stage-1b",
+        derived_from={"causal_design": causal_design_version},
+        produced_by="derive:identification_report",
         json_files={
             json_filename("identification_report", "identification_report"): (
                 identification_report()
@@ -369,23 +385,23 @@ def seed_identification_report(
     )
 
 
-def seed_model_data(
+def seed_panel(
     store: ArtifactStore,
     *,
     question_version: int = 1,
     raw_data_version: int = 1,
-    causal_design_version: int = 1,
+    measurement_structure_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
-        "model_data",
+        "panel",
         provenance="computed",
         derived_from={
             "question": question_version,
             "raw_data": raw_data_version,
-            "causal_design": causal_design_version,
+            "measurement_structure": measurement_structure_version,
         },
         produced_by="stage-2",
-        parquet_files={parquet_filename("model_data", "model_data"): model_data_frame()},
+        parquet_files={parquet_filename("panel", "panel"): panel_frame()},
     )
 
 
@@ -393,16 +409,16 @@ def seed_validation_report(
     store: ArtifactStore,
     *,
     causal_design_version: int = 1,
-    model_data_version: int = 1,
+    panel_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "validation_report",
         provenance="computed",
         derived_from={
             "causal_design": causal_design_version,
-            "model_data": model_data_version,
+            "panel": panel_version,
         },
-        produced_by="stage-3",
+        produced_by="derive:validation_report",
         json_files={json_filename("validation_report", "validation_report"): validation_report()},
     )
 
@@ -410,23 +426,17 @@ def seed_validation_report(
 def seed_compiled_ssm(
     store: ArtifactStore,
     *,
-    question_version: int = 1,
     causal_design_version: int = 1,
-    identification_report_version: int = 1,
-    model_data_version: int = 1,
-    validation_report_version: int = 1,
+    statistical_model_spec_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "compiled_ssm",
         provenance="computed",
         derived_from={
-            "question": question_version,
+            "statistical_model_spec": statistical_model_spec_version,
             "causal_design": causal_design_version,
-            "identification_report": identification_report_version,
-            "model_data": model_data_version,
-            "validation_report": validation_report_version,
         },
-        produced_by="stage-4",
+        produced_by="derive:compiled_ssm",
         json_files={
             json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm(),
             json_filename("compiled_ssm", "report"): stage4_report(),
@@ -438,7 +448,7 @@ def seed_posterior(
     store: ArtifactStore,
     *,
     compiled_ssm_version: int = 1,
-    model_data_version: int = 1,
+    panel_version: int = 1,
     fitted_artifact: Any = None,
 ) -> ArtifactVersionInfo:
     return store.write_version(
@@ -446,7 +456,7 @@ def seed_posterior(
         provenance="computed",
         derived_from={
             "compiled_ssm": compiled_ssm_version,
-            "model_data": model_data_version,
+            "panel": panel_version,
         },
         produced_by="stage-5b",
         json_files={json_filename("posterior", "diagnostics"): posterior_diagnostics()},

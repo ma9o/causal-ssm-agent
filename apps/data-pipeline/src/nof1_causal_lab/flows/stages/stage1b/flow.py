@@ -22,10 +22,10 @@ def build_causal_design(
     )
 
 
-propose_measurement_with_identifiability_fix = make_llm_stage_runner(
+propose_measurement_structure = make_llm_stage_runner(
     stage_id="stage-1b",
     orchestrator_fn=run_stage1b,
     stage_llm_getter=lambda: get_config().stage1_structure_proposal.llm,
     max_tool_turns_getter=lambda: get_config().stage1_structure_proposal.stage1b_max_tool_turns,
-    payload_builder=lambda result: {"causal_design": result.causal_design},
+    payload_builder=lambda result: {"measurement_structure": result.measurement_structure},
 )

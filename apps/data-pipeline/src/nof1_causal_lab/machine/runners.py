@@ -1,18 +1,10 @@
-"""Stage execution against the versioned artifact store.
+"""Transition execution against the versioned artifact store.
 
-``execute_stage`` is the single entry point the Temporal activity calls:
-it loads the *pinned* input versions from the store (never "latest on
-disk" — the derived_from stamp must be honest), runs the stage logic,
-writes the produced artifact versions, and returns the version stamps for
-the workflow to install.
-
-Execution failure raises the typed exceptions in :mod:`machine.errors`;
-negative findings withhold optional artifacts instead of raising.
-
-In production, stage-4 and stage-5b route to Modal (see
-:mod:`nof1_causal_lab.flows.modal_runners`); both paths run this module's
-``execute_stage_locally`` — Modal just runs it on remote compute against
-the same R2-backed store.
+Each runner receives explicit input pins selected by the machine before
+execution. It must read exactly those versions, write new artifact versions with
+the same pins in ``derived_from``, and return effects for the workflow to apply.
+Heavy transitions can be routed to Modal, but routing is infra-only: it cannot
+change the pinned versions or the derivation cascade applied to the result.
 """
 
 from __future__ import annotations
@@ -27,9 +19,15 @@ from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field a
     ArtifactVersionInfo,
     EpisodeState,
 )
+from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import ModelCompileError
-from nof1_causal_lab.machine.graph import stage_spec
-from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects, input_pins
+from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.machine.moves import (
+    ExecOptions,
+    TransitionEffects,
+    input_pins,
+    run_retractions,
+)
 from nof1_causal_lab.machine.store import ArtifactStore
 
 if TYPE_CHECKING:
@@ -38,9 +36,8 @@ if TYPE_CHECKING:
 
 
 def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:
-    """Filter a dict to only the fields known by a contract class."""
     fields = set(cls.model_fields.keys())
-    return {k: v for k, v in data.items() if k in fields}
+    return {key: value for key, value in data.items() if key in fields}
 
 
 def _question_text(store: ArtifactStore, pins: dict[ArtifactId, int]) -> str:
@@ -56,10 +53,20 @@ def _causal_design_dict(store: ArtifactStore, pins: dict[ArtifactId, int]) -> di
     return payload["causal_design"]
 
 
-def _model_data_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
-    return store.read_parquet_file(
-        "model_data", pins["model_data"], parquet_filename("model_data", "model_data")
+def _measurement_structure_dict(
+    store: ArtifactStore,
+    pins: dict[ArtifactId, int],
+) -> dict[str, Any]:
+    payload = store.read_json_file(
+        "measurement_structure",
+        pins["measurement_structure"],
+        json_filename("measurement_structure", "measurement_structure"),
     )
+    return payload["measurement_structure"]
+
+
+def _panel_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
+    return store.read_parquet_file("panel", pins["panel"], parquet_filename("panel", "panel"))
 
 
 async def _run_stage0(
@@ -111,12 +118,9 @@ async def _run_stage1b(
     pins: dict[ArtifactId, int],
     options: ExecOptions,
 ) -> list[ArtifactVersionInfo]:
+    from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
     from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
-    from nof1_causal_lab.flows.stage_contracts import Stage1bContract
-    from nof1_causal_lab.flows.stages.stage1b.flow import (
-        propose_measurement_with_identifiability_fix,
-    )
-    from nof1_causal_lab.flows.stages.stage1b.result import split_stage1b_result
+    from nof1_causal_lab.flows.stages.stage1b.flow import propose_measurement_structure
 
     del workspace_id, options
     question = _question_text(store, pins)
@@ -137,39 +141,27 @@ async def _run_stage1b(
         column["name"]: column["description"] for column in profile.get("column_descriptions", [])
     }
     dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
-    result = await propose_measurement_with_identifiability_fix(
+    result = await propose_measurement_structure(
         question,
         latent_structure,
         [dataset_schema],
         dataset_summary=f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
     )
-    artifacts = split_stage1b_result(result, latent_structure=latent_structure)
-
-    spec_payload = _filter_to_contract(Stage1bContract, artifacts.causal_design_payload)
-    produced = [
-        store.write_version(
-            "causal_design",
-            provenance="computed",
-            derived_from=pins,
-            produced_by="stage-1b",
-            json_files={json_filename("causal_design", "causal_design"): spec_payload},
-        )
-    ]
-    if artifacts.identification_report is not None:
-        produced.append(
-            store.write_version(
-                "identification_report",
-                provenance="computed",
-                derived_from=pins,
-                produced_by="stage-1b",
-                json_files={
-                    json_filename("identification_report", "identification_report"): (
-                        artifacts.identification_report
-                    )
-                },
-            )
-        )
-    return produced
+    measurement_structure = MeasurementStructure.model_validate(
+        result["measurement_structure"]
+    ).model_dump(mode="json")
+    info = store.write_version(
+        "measurement_structure",
+        provenance="computed",
+        derived_from=pins,
+        produced_by="stage-1b",
+        json_files={
+            json_filename("measurement_structure", "measurement_structure"): {
+                "measurement_structure": measurement_structure
+            }
+        },
+    )
+    return [info]
 
 
 async def _run_stage2(
@@ -186,17 +178,17 @@ async def _run_stage2(
     raw_df = store.read_parquet_file(
         "raw_data", pins["raw_data"], parquet_filename("raw_data", "raw")
     )
-    causal_design = _causal_design_dict(store, pins)
+    measurement_structure = _measurement_structure_dict(store, pins)
 
     result = await run_stage2_extraction(
         raw_df,
         question,
-        causal_design,
+        measurement_structure,
         workspace_id=workspace_id,
         max_windows=options.max_windows,
     )
-    materialized = materialize_stage2_outputs(result, causal_design)
-    data_for_model = materialized["data_for_model"]
+    materialized = materialize_stage2_outputs(result, measurement_structure)
+    panel = materialized["data_for_model"]
     worker_statuses = materialized["worker_statuses"]
 
     report: dict[str, Any] = {"workers": worker_statuses}
@@ -207,67 +199,24 @@ async def _run_stage2(
 
     produced = [
         store.write_version(
-            "extraction_report",
+            "measurements",
             provenance="computed",
             derived_from=pins,
             produced_by="stage-2",
-            json_files={json_filename("extraction_report", "extraction_report"): report},
+            json_files={json_filename("measurements", "measurements"): report},
         )
     ]
-    if len(data_for_model) > 0:
+    if len(panel) > 0:
         produced.append(
             store.write_version(
-                "model_data",
+                "panel",
                 provenance="computed",
                 derived_from=pins,
                 produced_by="stage-2",
-                parquet_files={parquet_filename("model_data", "model_data"): data_for_model},
+                parquet_files={parquet_filename("panel", "panel"): panel},
             )
         )
     return produced
-
-
-async def _run_stage3(
-    workspace_id: str,
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-    options: ExecOptions,
-) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.flows.stage_contracts import Stage3Contract
-    from nof1_causal_lab.flows.stages.stage3.flow import (
-        derive_validation_status,
-        validate_extraction,
-    )
-
-    del workspace_id, options
-    causal_design = _causal_design_dict(store, pins)
-    data_for_model = _model_data_df(store, pins)
-
-    audit_result = validate_extraction(causal_design, [data_for_model])
-    if not audit_result:
-        raise RuntimeError(
-            "Stage 3 validate_extraction returned an empty audit result; "
-            "refusing to fabricate an is_valid=False report with empty indicators."
-        )
-
-    indicator_issues = [
-        issue
-        for audit in audit_result.get("indicators", {}).values()
-        for issue in audit.get("validation", {}).get("issues", [])
-    ]
-    dataset_issues = audit_result.get("dataset_issues", [])
-    all_issues = [*indicator_issues, *dataset_issues]
-    status = derive_validation_status(all_issues)
-    report = _filter_to_contract(Stage3Contract, {**audit_result, "is_valid": status["is_valid"]})
-
-    info = store.write_version(
-        "validation_report",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="stage-3",
-        json_files={json_filename("validation_report", "validation_report"): report},
-    )
-    return [info]
 
 
 async def _run_stage4(
@@ -282,7 +231,7 @@ async def _run_stage4(
 
     question = _question_text(store, pins)
     causal_design = _causal_design_dict(store, pins)
-    data_for_model = _model_data_df(store, pins)
+    panel = _panel_df(store, pins)
     validation_report = store.read_json_file(
         "validation_report",
         pins["validation_report"],
@@ -297,7 +246,7 @@ async def _run_stage4(
     result = await stage4_agentic_flow(
         causal_design=causal_design,
         question=question,
-        data_for_model=data_for_model,
+        data_for_model=panel,
         indicator_audits=validation_report.get("indicators", {}),
         enable_literature=lit_enabled,
         workspace_id=workspace_id,
@@ -313,14 +262,11 @@ async def _run_stage4(
         )
 
     info = store.write_version(
-        "compiled_ssm",
+        "statistical_model_spec",
         provenance="computed",
         derived_from=pins,
         produced_by="stage-4",
-        json_files={
-            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm,
-            json_filename("compiled_ssm", "report"): report,
-        },
+        json_files={json_filename("statistical_model_spec", "statistical_model_spec"): report},
     )
     return [info]
 
@@ -341,12 +287,12 @@ async def _run_stage5b(
     compiled_ssm = store.read_json_file(
         "compiled_ssm", pins["compiled_ssm"], json_filename("compiled_ssm", "compiled_ssm")
     )
-    data_for_model = _model_data_df(store, pins)
+    panel = _panel_df(store, pins)
 
     result = await asyncio.to_thread(
         run_stage5b_with_data,
         compiled_ssm=compiled_ssm,
-        data_for_model=data_for_model,
+        data_for_model=panel,
         sampler_config=build_sampler_config(options.inference_method),
         workspace_id=workspace_id,
         compute_loo_diagnostics=get_config().inference.compute_loo_diagnostics,
@@ -399,65 +345,69 @@ async def _run_stage6(
     payload = _filter_to_contract(Stage6Contract, result)
 
     info = store.write_version(
-        "baseline_ranking",
+        "baseline_report",
         provenance="computed",
         derived_from=pins,
         produced_by="stage-6",
-        json_files={json_filename("baseline_ranking", "baseline_ranking"): payload},
+        json_files={json_filename("baseline_report", "baseline_report"): payload},
     )
     return [info]
 
 
-_STAGE_RUNNERS = {
-    "stage-0": _run_stage0,
-    "stage-1a": _run_stage1a,
-    "stage-1b": _run_stage1b,
-    "stage-2": _run_stage2,
-    "stage-3": _run_stage3,
-    "stage-4": _run_stage4,
-    "stage-5b": _run_stage5b,
-    "stage-6": _run_stage6,
+_TRANSITION_RUNNERS = {
+    "raw_data": _run_stage0,
+    "latent_structure": _run_stage1a,
+    "measurement_structure": _run_stage1b,
+    "measurements": _run_stage2,
+    "statistical_model_spec": _run_stage4,
+    "posterior": _run_stage5b,
+    "baseline_report": _run_stage6,
 }
 
-_MODAL_STAGES = frozenset({"stage-4", "stage-5b"})
+_MODAL_TRANSITIONS = frozenset({"statistical_model_spec", "posterior"})
 
 
-async def execute_stage_locally(
+async def execute_transition_locally(
     workspace_id: str,
-    stage_id: str,
+    artifact_id: ArtifactId,
     pins: dict[ArtifactId, int],
+    state: EpisodeState,
     options: ExecOptions,
 ) -> TransitionEffects:
-    """Run a stage on this process against the pinned input versions."""
+    """Run a transition on this process against pinned input versions."""
     from nof1_causal_lab.flows.runtime_events import emit_stage_progress_event
 
     store = ArtifactStore(workspace_id)
-    runner = _STAGE_RUNNERS[stage_id]
-    emit_stage_progress_event(workspace_id, stage_id, "running")
+    spec = transition_spec(artifact_id)
+    runner = _TRANSITION_RUNNERS[artifact_id]
+    emit_stage_progress_event(workspace_id, spec.runner_id, "running")
     try:
         produced = await runner(workspace_id, store, pins, options)
+        retracted = run_retractions(state, spec, produced)
+        effects = complete_derivation_cascade(store, state, produced, retracted)
     except Exception as exc:
         emit_stage_progress_event(
             workspace_id,
-            stage_id,
+            spec.runner_id,
             "failed",
             error={"type": type(exc).__name__, "message": str(exc)},
         )
         raise
-    emit_stage_progress_event(workspace_id, stage_id, "completed")
-    return TransitionEffects(produced=produced)
+    emit_stage_progress_event(workspace_id, spec.runner_id, "completed")
+    return effects
 
 
-async def execute_stage(
+async def execute_transition(
     workspace_id: str,
-    stage_id: str,
+    artifact_id: ArtifactId,
     state: EpisodeState,
     options: ExecOptions,
 ) -> TransitionEffects:
-    """Run a stage, routing heavy stages to Modal in production."""
-    pins = input_pins(state, stage_spec(stage_id))
-    if os.environ.get("DEPLOYMENT_ENV") == "production" and stage_id in _MODAL_STAGES:
-        from nof1_causal_lab.flows.modal_runners import run_stage_on_modal
+    """Run a transition, routing heavy transitions to Modal in production."""
+    spec = transition_spec(artifact_id)
+    pins = input_pins(state, spec)
+    if os.environ.get("DEPLOYMENT_ENV") == "production" and artifact_id in _MODAL_TRANSITIONS:
+        from nof1_causal_lab.flows.modal_runners import run_transition_on_modal
 
-        return await run_stage_on_modal(workspace_id, stage_id, pins, options)
-    return await execute_stage_locally(workspace_id, stage_id, pins, options)
+        return await run_transition_on_modal(workspace_id, artifact_id, pins, state, options)
+    return await execute_transition_locally(workspace_id, artifact_id, pins, state, options)

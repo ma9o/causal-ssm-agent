@@ -13,15 +13,15 @@ viewer uses. There is no SDK and no MCP server: `curl` is the interface.
 
 ## Orientation
 
-Call `GET /api/machine` once. It returns the static artifact graph — every stage
-with what it consumes, produces, optionally co-produces, and derives — plus each
-stage's creation class:
+Call `GET /api/machine` once. It returns the static artifact graph — every
+transition with what it consumes, produces, and optionally co-produces — plus
+each transition's creation class and the derivation graph:
 
 - `deterministic` — pure compute, no credentials (e.g. identification).
 - `batch_llm` — bulk LLM compute on the service's ambient key. You trigger it
   with a `run` move; you never supply a key.
 - `judgment` — proposal work you can do yourself by writing the produced
-  artifact directly. These stages are flagged `writable`.
+  artifact directly. These transitions are flagged `writable`.
 
 ## The loop
 
@@ -29,14 +29,14 @@ stage's creation class:
    state: per-artifact freshness, the legal moves, and whether an auto-run is
    active.
 2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
-   `{"move": {"kind": "run", "stage_id": "stage-1a"}}` to run a stage, or
+   `{"move": {"kind": "run", "artifact_id": "latent_structure"}}` to run a transition, or
    `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance": "llm"}, "payload": {...}}`
    to author a judgment artifact directly.
-3. Long stages (stage-4, stage-5b — minutes to hours) can outlive a client
+3. Long transitions (`statistical_model_spec`, `posterior` — minutes to hours) can outlive a client
    timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
-   that runs enabled stages in dependency order) and poll the state.
+   that runs enabled transitions in dependency order) and poll the state.
 4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,
-   `rejected` (illegal, state unchanged), or `raised` (typed stage error).
+   `rejected` (illegal, state unchanged), or `raised` (typed transition error).
 
 ## Staleness
 
@@ -48,7 +48,7 @@ flags.
 ## Data in, results out
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
-running stage-0. Read artifact payloads at
+running the `raw_data` transition. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
 (parquet, pickle) are served individually from `.../files/{filename}`.
 
@@ -186,15 +186,15 @@ Propose one move; blocks until it is applied, rejected, or raises.
 
 Two kinds:
 
-- Run a stage: `{"move": {"kind": "run", "stage_id": "stage-1a"}}`.
+- Run a transition: `{"move": {"kind": "run", "artifact_id": "latent_structure"}}`.
 - Author a judgment artifact directly (skip the in-service stage):
   `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance":
   "llm"}, "payload": {...}}`. The payload is schema-validated against that
   artifact's contract, journaled, and provenance-stamped; the write becomes a
   new provenance root and marks everything downstream stale until re-run.
 
-The synchronous outcome is the same record the timeline stores. Long stages
-(stage-4, stage-5b — minutes to hours) can outlive a client timeout; for
+The synchronous outcome is the same record the timeline stores. Long transitions
+(statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
 those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
 
 **Parameters**
@@ -205,7 +205,7 @@ those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/moves" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"move": {"kind": "run", "stage_id": "string"}}'
+  -d '{"move": {"kind": "run", "artifact_id": "question"}}'
 ```
 
 ### GET `/api/episodes/{workspace_id}/timeline`
@@ -229,8 +229,8 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/tim
 
 The static artifact graph and action hierarchy — read once to orient.
 
-Each stage entry declares what it `consumes`, `produces`, optionally
-co-produces (`produces_optional`), and `derives`, plus its **creation
+Each transition entry declares what it `consumes`, `produces`, and
+optionally co-produces (`produces_optional`), plus its **creation
 class**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk
 LLM compute on the service's ambient key — you trigger it with a `run` move,
 you never supply a key), or `judgment` (proposal work you can author yourself

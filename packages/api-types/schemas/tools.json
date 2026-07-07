@@ -110,7 +110,7 @@
   "stage-1b": [
     {
       "name": "validate_measurement_structure",
-      "description": "Validate measurement structure JSON, check compiler constraints, and verify causal identifiability.",
+      "description": "Validate measurement structure JSON and compiler constraints.",
       "parameters": {
         "additionalProperties": false,
         "properties": {

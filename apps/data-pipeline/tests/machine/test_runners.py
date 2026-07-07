@@ -37,17 +37,17 @@ def test_run_stage4_raises_model_compile_error_when_spec_does_not_compile(worksp
         json_files={"causal_design.json": {"causal_design": {"latent": {}}}},
     )
     store.write_version(
-        "model_data",
+        "panel",
         provenance="computed",
         derived_from={"causal_design": 1},
         produced_by="stage-2",
-        parquet_files={"model_data.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
+        parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
     )
     store.write_version(
         "validation_report",
         provenance="computed",
-        derived_from={"model_data": 1},
-        produced_by="stage-3",
+        derived_from={"panel": 1},
+        produced_by="derive:validation_report",
         json_files={"validation_report.json": {"indicators": {}}},
     )
 
@@ -59,11 +59,12 @@ def test_run_stage4_raises_model_compile_error_when_spec_does_not_compile(worksp
 
     monkeypatch.setattr(stage4_flow, "stage4_agentic_flow", fake_stage4_agentic_flow)
 
-    pins = {"question": 1, "causal_design": 1, "model_data": 1, "validation_report": 1}
+    pins = {"question": 1, "causal_design": 1, "panel": 1, "validation_report": 1}
     with pytest.raises(ModelCompileError) as excinfo:
         _run(_run_stage4(workspace, store, pins, ExecOptions(enable_literature=False)))
 
     assert excinfo.value.stage_id == "stage-4"
     assert "report" in excinfo.value.diagnostics
     # No poisoned pseudo-artifact: the failed attempt writes nothing.
+    assert store.list_versions("statistical_model_spec") == []
     assert store.list_versions("compiled_ssm") == []

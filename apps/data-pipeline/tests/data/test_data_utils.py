@@ -20,20 +20,18 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_design = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "stress_score",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            }
+        measurement_structure = {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "stress_score",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                }
+            ],
         }
 
-        annotated = annotate_observation_rows(raw, causal_design)
+        annotated = annotate_observation_rows(raw, measurement_structure)
 
         assert "timestamp" not in annotated.columns
         assert annotated["anchor_time"][0] == "2024-01-02T00:00:00"
@@ -53,21 +51,19 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_design = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "monthly_stress_score",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                        "observation_window": "1mo",
-                    }
-                ],
-            }
+        measurement_structure = {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "monthly_stress_score",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "observation_window": "1mo",
+                }
+            ],
         }
 
-        annotated = annotate_observation_rows(raw, causal_design)
+        annotated = annotate_observation_rows(raw, measurement_structure)
 
         assert "timestamp" not in annotated.columns
         assert annotated["anchor_time"][0] == "2024-02-01T00:00:00"
@@ -85,20 +81,18 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_design = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "closing_mood",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "last",
-                    }
-                ],
-            }
+        measurement_structure = {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "closing_mood",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "last",
+                }
+            ],
         }
 
-        annotated = annotate_observation_rows(raw, causal_design)
+        annotated = annotate_observation_rows(raw, measurement_structure)
 
         assert annotated["support_kind"][0] == "point"
         assert annotated["summary_operator"][0] == "last"

@@ -4,7 +4,7 @@ import type {
   LLMTrace,
   Stage0Data,
   Stage1aData,
-  Stage1bData,
+  Stage1bViewData,
   Stage2Data,
   Stage3Data,
   Stage4Data,
@@ -51,7 +51,7 @@ const SimulationViewer = lazy(() =>
 type AnyStageData =
   | Stage0Data
   | Stage1aData
-  | Stage1bData
+  | Stage1bViewData
   | Stage2Data
   | Stage3Data
   | Stage4Data
@@ -162,7 +162,7 @@ function createStageDataAdapter<TData>(Component: ComponentType<{ data: TData }>
 }
 
 function Stage4ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
-  const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
+  const { data: stage1b } = useStageData<Stage1bViewData>(workspaceId, "stage-1b", true);
   return <Stage4Content data={data} indicators={stage1b?.causal_design.measurement.indicators} />;
 }
 
@@ -179,7 +179,7 @@ function Stage5bConnectedContent({
 function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage6Data }) {
   const { selectedScenarioKey, selectScenario, readOnly } = useWorkspaceView();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
-  const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
+  const { data: stage1b } = useStageData<Stage1bViewData>(workspaceId, "stage-1b", true);
   const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
   const { data: stage5b } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
 
@@ -265,7 +265,7 @@ const stageContentAdapters = {
     <Stage0Content workspaceId={workspaceId} data={data as Stage0Data} />
   ),
   "stage-1a": createStageDataAdapter<Stage1aData>(Stage1aContent),
-  "stage-1b": createStageDataAdapter<Stage1bData>(Stage1bContent),
+  "stage-1b": createStageDataAdapter<Stage1bViewData>(Stage1bContent),
   "stage-2": ({ workspaceId, data }: StageContentAdapterProps) => (
     <Stage2Content workspaceId={workspaceId} data={data as Stage2Data} />
   ),

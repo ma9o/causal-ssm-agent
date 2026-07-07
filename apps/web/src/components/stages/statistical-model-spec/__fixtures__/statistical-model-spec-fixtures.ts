@@ -1,4 +1,4 @@
-import type { Stage1bData, Stage3Data, Stage4Data } from "@nof1-causal-lab/api-types";
+import type { Stage1bViewData, Stage3Data, Stage4Data } from "@nof1-causal-lab/api-types";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
 import { buildStage4LikelihoodDiagnostics } from "@/lib/stage4-likelihood-diagnostics";
 import { combinedExtractionsSample } from "@/components/__fixtures__/stage2-data";
@@ -7,7 +7,7 @@ import stage3Fixture from "../../../__fixtures__/demo-run/stage-3.json";
 import stage4Fixture from "../../../__fixtures__/demo-run/stage-4.json";
 
 const stage3 = stage3Fixture as unknown as Stage3Data;
-const stage1b = stage1bFixture as unknown as Stage1bData;
+const stage1b = stage1bFixture as unknown as Stage1bViewData;
 const stage4 = stage4Fixture as unknown as Stage4Data;
 
 // Mirrors the production loader `deriveStage4Data`: likelihood diagnostics are built from the

@@ -62,7 +62,7 @@ def prepare_semantic_chunks(
     *,
     raw_df: pl.DataFrame,
     semantic_inds: list[dict],
-    causal_design: dict,
+    measurement_structure: dict,
     model_clock: str,
     time_col: str,
     windows_per_chunk: int,
@@ -70,7 +70,7 @@ def prepare_semantic_chunks(
     max_windows: int | None,
 ) -> tuple[list[str], list[list[str]], list[dict]]:
     """Prepare semantic extraction chunks without executing them."""
-    from nof1_causal_lab.utils.causal_design import make_extraction_context
+    from nof1_causal_lab.utils.causal_design import make_measurement_extraction_context
     from nof1_causal_lab.utils.data import bucket_by_clock
     from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
 
@@ -82,10 +82,10 @@ def prepare_semantic_chunks(
         semantic_inds, model_clock
     ):
         semantic_spec = {
-            **causal_design,
-            "measurement": {**causal_design.get("measurement", {}), "indicators": semantic_group},
+            **measurement_structure,
+            "indicators": semantic_group,
         }
-        extraction_ctx = make_extraction_context(semantic_spec)
+        extraction_ctx = make_measurement_extraction_context(semantic_spec)
 
         projected = project_to_source_columns(raw_df, semantic_group)
         if time_col not in projected.columns:

@@ -121,7 +121,7 @@ def test_stage6_treatments_fail_when_identifiability_verdicts_are_missing() -> N
     assert "no identifiability verdicts" in issues[0].message
 
 
-def test_indicators_in_model_data_ignores_future_stage2_artifacts() -> None:
+def test_indicators_in_panel_ignores_future_stage2_artifacts() -> None:
     validate_run = _load_validate_run()
     ctx = validate_run.RunContext(
         workspace_id="ws",
@@ -139,7 +139,7 @@ def test_indicators_in_model_data_ignores_future_stage2_artifacts() -> None:
         raw_input_columns=None,
     )
 
-    assert validate_run.rule_indicators_in_model_data(ctx) == []
+    assert validate_run.rule_indicators_in_panel(ctx) == []
 
 
 def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypatch) -> None:
@@ -150,8 +150,8 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
 
     monkeypatch.setattr(
         validate_run,
-        "topological_stage_order",
-        lambda: ("stage-0", "stage-1a", "stage-1b", "stage-2"),
+        "_result_artifact_order",
+        lambda: ("raw_data", "latent_structure", "causal_design", "measurements"),
     )
 
     class FakeInfo:

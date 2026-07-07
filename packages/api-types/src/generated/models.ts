@@ -231,22 +231,7 @@ export interface EdgeSource {
 }
 export interface Stage1BContract {
   llm_trace?: LLMTrace | null;
-  causal_design: CausalDesign;
-}
-/**
- * Complete causal design combining latent and measurement structures.
- */
-export interface CausalDesign {
-  latent: LatentStructure;
-  measurement: MeasurementStructure;
-  /**
-   * Identifiability status of target causal effects
-   */
-  identifiability?: IdentifiabilityStatus | null;
-  /**
-   * Deterministic estimation-time projection consumed by downstream fitting
-   */
-  estimation?: EstimationSpec | null;
+  measurement_structure: MeasurementStructure;
 }
 /**
  * Operationalization of constructs into observed indicators.
@@ -318,119 +303,6 @@ export interface ComputedRule {
    * Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values.
    */
   window_expr: string;
-}
-/**
- * Status of causal effect identifiability.
- */
-export interface IdentifiabilityStatus {
-  /**
-   * Treatments with identifiable effects and how to estimate them
-   */
-  identifiable_treatments: {
-    [k: string]: IdentifiedTreatmentStatus | undefined;
-  };
-  /**
-   * Treatments whose effects are currently not identifiable
-   */
-  non_identifiable_treatments: {
-    [k: string]: NonIdentifiableTreatmentStatus | undefined;
-  };
-}
-/**
- * Details on how a treatment effect is identified.
- */
-export interface IdentifiedTreatmentStatus {
-  /**
-   * Identification strategy (e.g., do_calculus, instrumental_variable)
-   */
-  method: string;
-  /**
-   * Closed-form estimand or IV placeholder
-   */
-  estimand: string;
-  /**
-   * Unobserved confounders the estimand integrates out
-   */
-  marginalized_confounders: string[];
-  /**
-   * Instrumental variables used (if method=instrumental_variable)
-   */
-  instruments: string[];
-}
-/**
- * Context on why a treatment effect is not identifiable.
- */
-export interface NonIdentifiableTreatmentStatus {
-  /**
-   * Unobserved constructs blocking identification
-   */
-  confounders: string[];
-  /**
-   * Optional explanation if confounders cannot be enumerated
-   */
-  notes?: string | null;
-}
-/**
- * Deterministic estimation-time projection of the user-facing latent DAG.
- */
-export interface EstimationSpec {
-  /**
-   * Retained latent states in canonical array order for compilation
-   */
-  state_order: string[];
-  /**
-   * Directed estimation graph over retained states
-   */
-  edges: CausalEdge[];
-  /**
-   * Dependencies induced after marginalizing latent root confounders
-   */
-  induced_dependencies: InducedDependency[];
-  /**
-   * Observed construct trajectories compiled as B u(t) transition inputs
-   */
-  known_inputs: KnownInput[];
-}
-/**
- * Dependence induced among retained states after marginalizing latent roots.
- */
-export interface InducedDependency {
-  /**
-   * Pair of retained states whose joint dependence is induced
-   *
-   * @minItems 2
-   * @maxItems 2
-   */
-  between: [any, any];
-  /**
-   * Which covariance block the induced dependence belongs to
-   */
-  kind: "innovation_correlation" | "initial_state_correlation";
-  /**
-   * Marginalized source constructs that induce this dependence
-   */
-  source_confounders: string[];
-}
-/**
- * Observed input trajectory used as a deterministic transition driver.
- */
-export interface KnownInput {
-  /**
-   * Construct removed from the latent state vector
-   */
-  construct: string;
-  /**
-   * Measurement indicator column supplying u(t)
-   */
-  source_indicator: string;
-  /**
-   * Positive divisor applied to the source indicator before inference
-   */
-  scale: number;
-  /**
-   * How to fill missing input values on the model time grid
-   */
-  missing_policy: "zero" | "forward_fill";
 }
 export interface Stage2Contract {
   llm_trace?: LLMTrace | null;

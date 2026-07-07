@@ -31,7 +31,10 @@ from nof1_causal_lab.machine.artifacts import (
     EpisodeState,
     Provenance,
 )
-from nof1_causal_lab.machine.moves import Move  # noqa: TC001 (pydantic field annotations)
+from nof1_causal_lab.machine.moves import (  # noqa: TC001 (pydantic field annotations)
+    Move,
+    RetractedArtifact,
+)
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -127,6 +130,10 @@ class ArtifactStore:
         storage.write_text(storage.join(directory, "meta.json"), info.model_dump_json())
         return info
 
+    def delete_version(self, artifact_id: ArtifactId, version: int) -> None:
+        """Remove one artifact version directory written by a failed move."""
+        storage.rm_tree(self.version_dir(artifact_id, version))
+
     # -- read ----------------------------------------------------------------
 
     def read_meta(self, artifact_id: ArtifactId, version: int) -> ArtifactVersionInfo:
@@ -189,7 +196,7 @@ class TransitionRecord(BaseModel):
     error_message: str | None = None
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    retracted: list[ArtifactId] = Field(default_factory=list)
+    retracted: list[RetractedArtifact] = Field(default_factory=list)
     state_after: EpisodeState
 
 

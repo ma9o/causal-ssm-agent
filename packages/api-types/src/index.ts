@@ -5,6 +5,12 @@
 export type { PipelineRun, RunStatus, StageState, StageStatus } from "./run";
 export type { StageId, StageLogScopePolicy, StageMeta } from "./stages";
 export { STAGE_IDS, STAGES } from "./stages";
+export type {
+  CausalDesign,
+  IdentifiabilityStatus,
+  IdentifiedTreatmentStatus,
+  NonIdentifiableTreatmentStatus,
+} from "./causal-design";
 
 // ---------------------------------------------------------------------------
 // Generated from Python contracts
@@ -22,15 +28,12 @@ export { STAGE_IDS, STAGES } from "./stages";
 // LLM trace types
 // Inference diagnostic types
 export type {
-  CausalDesign,
   CausalEdge,
   Construct,
   DistributionFamily,
   EdgeSource,
   EnergyDiagnostics,
   EnergyHistogram,
-  IdentifiabilityStatus,
-  IdentifiedTreatmentStatus,
   Indicator,
   IndicatorAuditContract as IndicatorAudit,
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
@@ -45,7 +48,6 @@ export type {
   MCMCDiagnostics,
   MCMCParamDiagnostic,
   MeasurementStructure,
-  NonIdentifiableTreatmentStatus,
   ParameterConstraint,
   ParameterRole,
   ParameterSpec,
@@ -112,6 +114,10 @@ export type Stage4Data = Stage4PersistedData & {
   likelihood_diagnostics: {
     [k: string]: Stage4LikelihoodDiagnostics | undefined;
   };
+};
+
+export type Stage1bViewData = import("./generated/models").Stage1BContract & {
+  causal_design: import("./causal-design").CausalDesign;
 };
 
 // Distribution catalog metadata (codegen'd from Python)

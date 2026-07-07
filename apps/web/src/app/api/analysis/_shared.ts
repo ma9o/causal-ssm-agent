@@ -1,5 +1,6 @@
 import type { AnalysisManifest, AnalysisStageRun, AnalysisStageRuns } from "@/lib/api/analysis";
 import {
+  getMachineDescription,
   getEpisodeStatus,
   getEpisodeTimeline,
   type EpisodeStatus,
@@ -14,6 +15,18 @@ function emptyStageRun(): AnalysisStageRun {
 
 function isStageId(value: unknown): value is StageId {
   return typeof value === "string" && STAGES.some((stage) => stage.id === value);
+}
+
+function stageIdsByArtifact(
+  transitions: Awaited<ReturnType<typeof getMachineDescription>>["transitions"],
+) {
+  const entries: Array<[string, StageId]> = [];
+  for (const transition of transitions) {
+    if (isStageId(transition.runner_id)) {
+      entries.push([transition.transition_id, transition.runner_id]);
+    }
+  }
+  return Object.fromEntries(entries) as Partial<Record<string, StageId>>;
 }
 
 async function readEpisodeQuestion(
@@ -42,20 +55,27 @@ async function readEpisodeQuestion(
  * completed run attempt per stage wins (applied → completed, raised →
  * failed; rejected attempts never executed).
  */
-function summarizeTimelineStageRuns(transitions: TransitionRecord[]): AnalysisStageRuns {
+function summarizeTimelineStageRuns(
+  transitions: TransitionRecord[],
+  artifactStageIds: Partial<Record<string, StageId>>,
+): AnalysisStageRuns {
   const stages = Object.fromEntries(
     STAGES.map((stage) => [stage.id, emptyStageRun()]),
   ) as AnalysisStageRuns;
 
   for (const record of transitions) {
-    if (record.move.kind !== "run" || !isStageId(record.move.stage_id)) {
+    if (record.move.kind !== "run") {
+      continue;
+    }
+    const stageId = artifactStageIds[record.move.artifact_id];
+    if (!isStageId(stageId)) {
       continue;
     }
     if (record.status === "rejected") {
       continue;
     }
 
-    stages[record.move.stage_id] = {
+    stages[stageId] = {
       execution: {
         stateType: record.status === "applied" ? "COMPLETED" : "FAILED",
         startTime: record.ts,
@@ -75,9 +95,10 @@ function summarizeTimelineStageRuns(transitions: TransitionRecord[]): AnalysisSt
 export async function buildAnalysisManifest(
   workspaceId: string,
 ): Promise<Omit<AnalysisManifest, "readOnly"> | null> {
-  const [status, timeline] = await Promise.all([
+  const [status, timeline, machine] = await Promise.all([
     getEpisodeStatus(workspaceId),
     getEpisodeTimeline(workspaceId),
+    getMachineDescription(),
   ]);
   if (timeline.transitions.length === 0) {
     return null;
@@ -89,6 +110,9 @@ export async function buildAnalysisManifest(
     workspaceId,
     createdAt: timeline.transitions[0].ts,
     question,
-    stages: summarizeTimelineStageRuns(timeline.transitions),
+    stages: summarizeTimelineStageRuns(
+      timeline.transitions,
+      stageIdsByArtifact(machine.transitions),
+    ),
   };
 }

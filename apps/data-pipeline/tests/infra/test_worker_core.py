@@ -1,7 +1,6 @@
 """Tests for worker core helper functions.
 
-Covers: _format_indicators, _get_outcome_description, WorkerMessages,
-run_worker_extraction.
+Covers: _format_indicators, WorkerMessages, run_worker_extraction.
 """
 
 import json
@@ -12,47 +11,32 @@ import pytest
 from nof1_causal_lab.workers.core import (
     WorkerMessages,
     _format_indicators,
-    _get_outcome_description,
     run_worker_extraction,
 )
 from tests.helpers import make_mock_session_factory
 from tests.helpers import run_async as _run
 
 
-def _causal_design():
-    """Minimal CausalDesign for testing."""
+def _measurement_structure():
+    """Minimal MeasurementStructure for testing."""
     return {
-        "latent": {
-            "constructs": [
-                {"name": "stress", "role": "exogenous", "description": "Perceived stress"},
-                {
-                    "name": "sleep",
-                    "role": "endogenous",
-                    "description": "Sleep quality",
-                    "is_outcome": True,
-                },
-            ],
-            "edges": [{"cause": "stress", "effect": "sleep"}],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "name": "pss_score",
-                    "construct_name": "stress",
-                    "measurement_dtype": "continuous",
-                    "how_to_measure": "Perceived Stress Scale score",
-                    "aggregation": "mean",
-                },
-                {
-                    "name": "sleep_hours",
-                    "construct_name": "sleep",
-                    "measurement_dtype": "continuous",
-                    "how_to_measure": "Self-reported hours of sleep",
-                    "aggregation": "mean",
-                },
-            ],
-        },
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": "pss_score",
+                "construct_name": "stress",
+                "measurement_dtype": "continuous",
+                "how_to_measure": "Perceived Stress Scale score",
+                "aggregation": "mean",
+            },
+            {
+                "name": "sleep_hours",
+                "construct_name": "sleep",
+                "measurement_dtype": "continuous",
+                "how_to_measure": "Self-reported hours of sleep",
+                "aggregation": "mean",
+            },
+        ],
     }
 
 
@@ -63,7 +47,7 @@ def _causal_design():
 
 class TestFormatIndicators:
     def test_basic_formatting(self):
-        result = _format_indicators(_causal_design())
+        result = _format_indicators(_measurement_structure())
         assert "pss_score" in result
         assert "sleep_hours" in result
         assert "continuous" in result
@@ -73,74 +57,39 @@ class TestFormatIndicators:
         assert "window=1d" in result
 
     def test_empty_indicators(self):
-        result = _format_indicators({"measurement": {"model_clock": "1d", "indicators": []}})
+        result = _format_indicators({"model_clock": "1d", "indicators": []})
         assert result == ""
 
     def test_missing_optional_fields(self):
         spec = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "x",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            }
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "x",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                }
+            ],
         }
         result = _format_indicators(spec)
         assert "x" in result
 
     def test_indicator_specific_window_overrides_model_clock(self):
         spec = {
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "monthly_pss_score",
-                        "measurement_dtype": "continuous",
-                        "how_to_measure": "Average perceived stress over the last month",
-                        "aggregation": "mean",
-                        "observation_window": "1mo",
-                    }
-                ],
-            }
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "monthly_pss_score",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Average perceived stress over the last month",
+                    "aggregation": "mean",
+                    "observation_window": "1mo",
+                }
+            ],
         }
 
         result = _format_indicators(spec)
         assert "window=1mo" in result
-
-
-# =============================================================================
-# _get_outcome_description
-# =============================================================================
-
-
-class TestGetOutcomeDescription:
-    def test_returns_description(self):
-        result = _get_outcome_description(_causal_design())
-        assert "Sleep quality" in result
-
-    def test_no_outcome(self):
-        spec = {
-            "latent": {
-                "constructs": [{"name": "X", "role": "exogenous"}],
-                "edges": [],
-            },
-        }
-        result = _get_outcome_description(spec)
-        assert result == "Not specified"
-
-    def test_outcome_without_description(self):
-        spec = {
-            "latent": {
-                "constructs": [{"name": "Y", "role": "endogenous", "is_outcome": True}],
-                "edges": [],
-            },
-        }
-        result = _get_outcome_description(spec)
-        assert "Y" in result
 
 
 # =============================================================================
@@ -155,7 +104,7 @@ class TestWorkerMessages:
     def test_user_message_contains_context(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
-            causal_design=_causal_design(),
+            measurement_structure=_measurement_structure(),
             window_text=self._sample_window_text(),
             n_windows=1,
         )
@@ -168,7 +117,7 @@ class TestWorkerMessages:
     def test_indicators_in_prompt(self):
         wm = WorkerMessages(
             question="test",
-            causal_design=_causal_design(),
+            measurement_structure=_measurement_structure(),
             window_text=self._sample_window_text(),
             n_windows=1,
         )
@@ -206,7 +155,7 @@ class TestRunWorkerExtraction:
                     window_text=self._sample_window_text(),
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
-                    causal_design=_causal_design(),
+                    measurement_structure=_measurement_structure(),
                     session_factory=factory,
                     logger=logger,
                 )
@@ -239,7 +188,7 @@ class TestRunWorkerExtraction:
                     window_text=self._sample_window_text(),
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
-                    causal_design=_causal_design(),
+                    measurement_structure=_measurement_structure(),
                     session_factory=factory,
                     logger=logger,
                     call_label="stage2 chunk=3 windows=1 events=1",

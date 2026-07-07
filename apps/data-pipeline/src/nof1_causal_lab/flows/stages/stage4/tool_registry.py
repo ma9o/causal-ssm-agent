@@ -78,9 +78,7 @@ def _load_stage2_data_for_model(workspace_id: str) -> Any:
     from nof1_causal_lab.machine.store import current_artifact_file
 
     try:
-        path = current_artifact_file(
-            workspace_id, "model_data", parquet_filename("model_data", "model_data")
-        )
+        path = current_artifact_file(workspace_id, "panel", parquet_filename("panel", "panel"))
     except FileNotFoundError:
         return None
     return load_parquet(path)
@@ -90,11 +88,13 @@ def _load_stage4_current(workspace_id: str) -> dict[str, Any] | None:
     """Load the current accepted Stage 4 report, if one exists."""
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
 
-    info = EpisodeJournal(workspace_id).latest_state().get("compiled_ssm")
+    info = EpisodeJournal(workspace_id).latest_state().get("statistical_model_spec")
     if info is None:
         return None
     return ArtifactStore(workspace_id).read_json_file(
-        "compiled_ssm", info.version, json_filename("compiled_ssm", "report")
+        "statistical_model_spec",
+        info.version,
+        json_filename("statistical_model_spec", "statistical_model_spec"),
     )
 
 

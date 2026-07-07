@@ -134,7 +134,7 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 def annotate_observation_rows(
     df: pl.DataFrame,
-    causal_design: dict,
+    measurement_structure: dict,
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:
@@ -145,7 +145,7 @@ def annotate_observation_rows(
     - ``anchor_time``: latent-grid attachment time for the observation
     - ``support_start`` / ``support_end``: realized support bounds
 
-    Canonical support semantics are always derived from the measurement spec,
+    Canonical support semantics are always derived from the measurement structure,
     not preserved from any caller-supplied row metadata.
     """
     if df.is_empty():
@@ -157,9 +157,9 @@ def annotate_observation_rows(
     if "indicator" not in df.columns:
         return df
 
-    model_clock = causal_design.get("measurement", {}).get("model_clock")
+    model_clock = measurement_structure.get("model_clock")
     indicator_rows = []
-    for ind in causal_design.get("measurement", {}).get("indicators", []):
+    for ind in measurement_structure.get("indicators", []):
         if not ind.get("name"):
             continue
         semantics = get_observation_semantics(ind)

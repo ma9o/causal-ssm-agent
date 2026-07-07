@@ -14,8 +14,8 @@ from nof1_causal_lab.workers.schemas import (
 from tests.helpers import invalid_dict_payload
 
 
-def _causal_design(*indicators):
-    """Build a minimal CausalDesign dict with given indicator tuples (name, dtype)."""
+def _measurement_structure(*indicators):
+    """Build a minimal MeasurementStructure dict with given indicator tuples (name, dtype)."""
     default_aggregations = {
         "continuous": "mean",
         "binary": "last",
@@ -24,18 +24,16 @@ def _causal_design(*indicators):
         "categorical": "last",
     }
     return {
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "name": name,
-                    "measurement_dtype": dtype,
-                    "aggregation": default_aggregations.get(dtype, "last"),
-                    **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
-                }
-                for name, dtype in indicators
-            ],
-        }
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": name,
+                "measurement_dtype": dtype,
+                "aggregation": default_aggregations.get(dtype, "last"),
+                **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
+            }
+            for name, dtype in indicators
+        ],
     }
 
 
@@ -119,7 +117,7 @@ class TestCheckDtypeMatch:
 
 class TestValidateWorkerOutput:
     def test_valid_single_extraction(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": 3.5}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
@@ -127,42 +125,42 @@ class TestValidateWorkerOutput:
         assert len(output.extractions) == 1
 
     def test_empty_extractions_valid(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": []}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
 
     def test_missing_extractions_defaults_empty(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
 
     def test_not_dict_returns_error(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         output, errors = validate_worker_output(invalid_dict_payload("not a dict"), spec)
         assert output is None
         assert len(errors) == 1
         assert "dictionary" in errors[0].lower()
 
     def test_extractions_not_list(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": "bad"}
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert any("list" in e.lower() for e in errors)
 
     def test_extraction_not_dict(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": [42]}
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert any("dictionary" in e.lower() for e in errors)
 
     def test_unknown_indicator_error(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "nonexistent", "value": 1.0}
@@ -174,7 +172,7 @@ class TestValidateWorkerOutput:
         assert any("mood" in e for e in errors)  # suggests valid indicators
 
     def test_dtype_mismatch_error(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "mood", "value": "not_a_number"}
@@ -185,7 +183,7 @@ class TestValidateWorkerOutput:
         assert any("dtype" in e for e in errors)
 
     def test_multiple_errors_collected(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "bad1", "value": 1.0},
@@ -197,7 +195,7 @@ class TestValidateWorkerOutput:
         assert len(errors) >= 2
 
     def test_window_start_preserved(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": 5.0}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
@@ -205,14 +203,14 @@ class TestValidateWorkerOutput:
         assert output.extractions[0].window_start == "2024-01-01"
 
     def test_null_value_accepted(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": None}]}
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
 
     def test_binary_valid(self):
-        spec = _causal_design(("is_smoking", "binary"))
+        spec = _measurement_structure(("is_smoking", "binary"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "is_smoking", "value": True}
@@ -223,7 +221,7 @@ class TestValidateWorkerOutput:
         assert errors == []
 
     def test_multiple_indicators(self):
-        spec = _causal_design(("mood", "continuous"), ("is_smoking", "binary"))
+        spec = _measurement_structure(("mood", "continuous"), ("is_smoking", "binary"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "mood", "value": 7.0},
@@ -236,7 +234,7 @@ class TestValidateWorkerOutput:
         assert len(output.extractions) == 2
 
     def test_duplicate_window_start_indicator_rejected(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "mood", "value": 3.0},
@@ -248,7 +246,7 @@ class TestValidateWorkerOutput:
         assert any("duplicate" in e.lower() for e in errors)
 
     def test_unexpected_window_start_rejected_when_expected_window_starts_given(self):
-        spec = _causal_design(("mood", "continuous"))
+        spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-99", "indicator": "mood", "value": 3.0},
@@ -261,7 +259,7 @@ class TestValidateWorkerOutput:
         assert any("not in expected support windows" in e for e in errors)
 
     def test_ordinal_requires_numeric_code(self):
-        spec = _causal_design(("severity", "ordinal"))
+        spec = _measurement_structure(("severity", "ordinal"))
         data = {
             "extractions": [
                 {"window_start": "2024-01-01", "indicator": "severity", "value": "high"}
@@ -272,7 +270,7 @@ class TestValidateWorkerOutput:
         assert any("expected dtype 'ordinal'" in e for e in errors)
 
     def test_ordinal_code_must_be_in_range(self):
-        spec = _causal_design(("severity", "ordinal"))
+        spec = _measurement_structure(("severity", "ordinal"))
         data = {
             "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 3}]
         }
@@ -281,7 +279,7 @@ class TestValidateWorkerOutput:
         assert any("must be in 0..2" in e for e in errors)
 
     def test_ordinal_value_normalized_to_int(self):
-        spec = _causal_design(("severity", "ordinal"))
+        spec = _measurement_structure(("severity", "ordinal"))
         data = {
             "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 2.0}]
         }

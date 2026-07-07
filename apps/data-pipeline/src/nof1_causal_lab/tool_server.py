@@ -73,15 +73,15 @@ viewer uses. There is no SDK and no MCP server: `curl` is the interface.
 
 ## Orientation
 
-Call `GET /api/machine` once. It returns the static artifact graph — every stage
-with what it consumes, produces, optionally co-produces, and derives — plus each
-stage's creation class:
+Call `GET /api/machine` once. It returns the static artifact graph — every
+transition with what it consumes, produces, and optionally co-produces — plus
+each transition's creation class and the derivation graph:
 
 - `deterministic` — pure compute, no credentials (e.g. identification).
 - `batch_llm` — bulk LLM compute on the service's ambient key. You trigger it
   with a `run` move; you never supply a key.
 - `judgment` — proposal work you can do yourself by writing the produced
-  artifact directly. These stages are flagged `writable`.
+  artifact directly. These transitions are flagged `writable`.
 
 ## The loop
 
@@ -89,14 +89,14 @@ stage's creation class:
    state: per-artifact freshness, the legal moves, and whether an auto-run is
    active.
 2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
-   `{"move": {"kind": "run", "stage_id": "stage-1a"}}` to run a stage, or
+   `{"move": {"kind": "run", "artifact_id": "latent_structure"}}` to run a transition, or
    `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance": "llm"}, "payload": {...}}`
    to author a judgment artifact directly.
-3. Long stages (stage-4, stage-5b — minutes to hours) can outlive a client
+3. Long transitions (`statistical_model_spec`, `posterior` — minutes to hours) can outlive a client
    timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
-   that runs enabled stages in dependency order) and poll the state.
+   that runs enabled transitions in dependency order) and poll the state.
 4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,
-   `rejected` (illegal, state unchanged), or `raised` (typed stage error).
+   `rejected` (illegal, state unchanged), or `raised` (typed transition error).
 
 ## Staleness
 
@@ -108,7 +108,7 @@ flags.
 ## Data in, results out
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
-running stage-0. Read artifact payloads at
+running the `raw_data` transition. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
 (parquet, pickle) are served individually from `.../files/{filename}`.
 
@@ -329,7 +329,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     """Query-plane context: pinned artifact versions + provenance freshness.
 
     Everything is read from the versioned store at the episode's *current*
-    versions; ``model_data`` comes from the version the posterior was
+    versions; ``panel`` comes from the version the posterior was
     actually fitted on (its ``derived_from`` pin). Freshness of the whole
     serving chain rides along so simulations from a superseded model are
     hard-flagged rather than silently served.
@@ -350,12 +350,10 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "posterior", posterior_info.version, json_filename("posterior", "diagnostics")
     )
 
-    model_data_pin = posterior_info.derived_from.get("model_data")
-    if model_data_pin is None:
-        raise HTTPException(500, "posterior artifact is missing its model_data pin")
-    data_for_model = store.read_parquet_file(
-        "model_data", model_data_pin, parquet_filename("model_data", "model_data")
-    )
+    panel_pin = posterior_info.derived_from.get("panel")
+    if panel_pin is None:
+        raise HTTPException(500, "posterior artifact is missing its panel pin")
+    data_for_model = store.read_parquet_file("panel", panel_pin, parquet_filename("panel", "panel"))
 
     spec_info = state.get("causal_design")
     if spec_info is None:
@@ -372,12 +370,12 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         if compiled_info is not None
         else {}
     )
-    ranking_info = state.get("baseline_ranking")
+    ranking_info = state.get("baseline_report")
     stage6 = (
         store.read_json_file(
-            "baseline_ranking",
+            "baseline_report",
             ranking_info.version,
-            json_filename("baseline_ranking", "baseline_ranking"),
+            json_filename("baseline_report", "baseline_report"),
         )
         if ranking_info is not None
         else {}
@@ -408,7 +406,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
 
     serving_chain = (
         "posterior",
-        "baseline_ranking",
+        "baseline_report",
         "causal_design",
         "identification_report",
         "compiled_ssm",

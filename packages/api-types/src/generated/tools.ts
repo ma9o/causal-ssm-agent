@@ -56,7 +56,7 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   "stage-1b": [
     {
       name: "validate_measurement_structure",
-      description: "Validate measurement structure JSON, check compiler constraints, and verify causal identifiability.",
+      description: "Validate measurement structure JSON and compiler constraints.",
       parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement structure to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementStructureInput","type":"object"},
       result: null,
     },

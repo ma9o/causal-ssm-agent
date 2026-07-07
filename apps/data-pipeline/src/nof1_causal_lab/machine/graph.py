@@ -3,20 +3,15 @@
 Nodes are artifacts, not stages. An artifact enters the store exactly one of
 three ways:
 
-- **produced** by a run of a transition (named by its primary output; the
-  ``stage_id`` is only the transition's execution/runner label),
-- **written** directly (roots, and produced artifacts flagged ``writable``),
-- **derived** — a deterministic milestone recomputed whenever its parent
-  artifact is (re)created, by run *or* by write (``identification_report`` from
-  ``causal_design``). A derived artifact has no independent producer and is never
-  written directly.
+- **root** artifacts are written directly by a caller,
+- **produced** artifacts are computed by running the transition keyed by the
+  artifact it primarily creates,
+- **derived** artifacts are deterministic machine-maintained nodes recomputed
+  from their parents inside the same move that changed those parents.
 
-Run legality is a pure existence check over a transition's ``consumes`` — no
-content predicates. The epistemic gate ("numeric claims only when
-identification supports them") emerges structurally: ``causal_design`` derives
-``identification_report`` only when at least one treatment is explicitly
-identifiable, and ``compiled_ssm`` consumes that milestone, so fitting and
-interventions are simply never enabled without it.
+Run legality is a pure existence check over a transition's ``consumes``. Derived
+nodes are never runnable, never writable, and never stale: they move in lockstep
+with their parents through the derivation cascade.
 """
 
 from __future__ import annotations
@@ -28,9 +23,8 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId
 
-# How a produced artifact is computed — and therefore whether an external agent
-# can shortcut its run by writing the artifact itself (``judgment`` work is
-# proposal work an agent can supply directly; the other two need compute/creds).
+# How a produced artifact is computed, and therefore whether an external agent
+# can shortcut its run by writing the artifact itself.
 CreationClass = Literal["deterministic", "batch_llm", "judgment"]
 
 
@@ -38,38 +32,39 @@ CreationClass = Literal["deterministic", "batch_llm", "judgment"]
 class Transition:
     """How a produced artifact is computed from its inputs.
 
-    ``consumes`` are the inputs whose existence gates a run (the guard).
-    ``produces`` is the primary artifact — the transition's identity.
-    ``produces_optional`` are substantive co-outputs withheld on a negative
-    finding (their absence is a finding, not a failure). ``derives`` are
-    deterministic milestones recomputed on every creation of ``produces`` — by
-    run *or* by a direct write of ``produces``. Re-running retracts an optional
-    or derived artifact the new run withholds. ``writable`` says a caller may
-    also supply ``produces`` directly via a ``write`` move.
+    ``produces`` is the transition identity. ``runner_id`` names the legacy
+    stage implementation used to execute the transition and is not part of the
+    move surface.
     """
 
-    stage_id: str
+    runner_id: str
     consumes: tuple[ArtifactId, ...]
-    produces: tuple[ArtifactId, ...]
+    produces: ArtifactId
     creation_class: CreationClass
     produces_optional: tuple[ArtifactId, ...] = ()
-    derives: tuple[ArtifactId, ...] = ()
     writable: bool = False
 
     @property
+    def transition_id(self) -> ArtifactId:
+        return self.produces
+
+    @property
     def all_produces(self) -> tuple[ArtifactId, ...]:
-        return self.produces + self.produces_optional + self.derives
+        return (self.produces, *self.produces_optional)
+
+
+@dataclass(frozen=True)
+class Derivation:
+    """A deterministic, machine-maintained artifact node."""
+
+    produces: ArtifactId
+    from_: tuple[ArtifactId, ...]
+    optional: bool = False
 
 
 @dataclass(frozen=True)
 class Root:
-    """An artifact that enters the store by ``write``, not by a transition.
-
-    ``write_pins`` are the inputs a direct write stamps into ``derived_from``,
-    so a written artifact participates in staleness like a computed one. A pure
-    root (``question``) pins nothing; ``saved_scenarios`` pins the ``posterior``
-    it was simulated against.
-    """
+    """An artifact that enters the store by ``write``, not by a transition."""
 
     artifact_id: ArtifactId
     write_pins: tuple[ArtifactId, ...] = ()
@@ -77,69 +72,67 @@ class Root:
 
 ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition(
-        stage_id="stage-0",
+        runner_id="stage-0",
         consumes=(),
-        produces=("raw_data",),
+        produces="raw_data",
         creation_class="batch_llm",
     ),
     Transition(
-        stage_id="stage-1a",
+        runner_id="stage-1a",
         consumes=("question",),
-        produces=("latent_structure",),
+        produces="latent_structure",
         creation_class="judgment",
         writable=True,
     ),
     Transition(
-        stage_id="stage-1b",
+        runner_id="stage-1b",
         consumes=("question", "raw_data", "latent_structure"),
-        produces=("causal_design",),
+        produces="measurement_structure",
         creation_class="judgment",
-        derives=("identification_report",),
         writable=True,
     ),
     Transition(
-        stage_id="stage-2",
-        consumes=("question", "raw_data", "causal_design"),
-        produces=("extraction_report",),
+        runner_id="stage-2",
+        consumes=("question", "raw_data", "measurement_structure"),
+        produces="measurements",
         creation_class="batch_llm",
-        produces_optional=("model_data",),
-        writable=True,
+        produces_optional=("panel",),
     ),
     Transition(
-        stage_id="stage-3",
-        consumes=("causal_design", "model_data"),
-        produces=("validation_report",),
-        creation_class="deterministic",
-        writable=True,
-    ),
-    Transition(
-        stage_id="stage-4",
+        runner_id="stage-4",
         consumes=(
             "question",
             "causal_design",
             "identification_report",
-            "model_data",
+            "panel",
             "validation_report",
         ),
-        produces=("compiled_ssm",),
+        produces="statistical_model_spec",
         creation_class="judgment",
+        writable=True,
     ),
     Transition(
-        stage_id="stage-5b",
-        consumes=("compiled_ssm", "model_data"),
-        produces=("posterior",),
+        runner_id="stage-5b",
+        consumes=("compiled_ssm", "panel"),
+        produces="posterior",
         creation_class="deterministic",
     ),
     Transition(
-        stage_id="stage-6",
+        runner_id="stage-6",
         consumes=("posterior", "causal_design", "identification_report"),
-        produces=("baseline_ranking",),
+        produces="baseline_report",
         creation_class="judgment",
         writable=True,
     ),
 )
 
-# Roots enter the store via ``write`` moves, never via a transition.
+DERIVATIONS: tuple[Derivation, ...] = (
+    Derivation(produces="causal_design", from_=("latent_structure", "measurement_structure")),
+    Derivation(produces="identification_report", from_=("causal_design",), optional=True),
+    Derivation(produces="validation_report", from_=("panel", "causal_design")),
+    Derivation(produces="compiled_ssm", from_=("statistical_model_spec", "causal_design")),
+)
+
 ROOTS: tuple[Root, ...] = (
     Root(artifact_id="question"),
     Root(artifact_id="saved_scenarios", write_pins=("posterior",)),
@@ -147,60 +140,126 @@ ROOTS: tuple[Root, ...] = (
 
 ROOT_ARTIFACTS: tuple[ArtifactId, ...] = tuple(root.artifact_id for root in ROOTS)
 
-# The full ``write`` surface: every root, plus every produced artifact whose
-# transition is ``writable``. Derived milestones (``identification_report``) are
-# deliberately absent — they are recomputed from their parent, never supplied.
+# The full ``write`` surface: every root, plus every judgment-class transition.
 WRITABLE_ARTIFACTS: tuple[ArtifactId, ...] = ROOT_ARTIFACTS + tuple(
-    spec.produces[0] for spec in ARTIFACT_GRAPH if spec.writable
+    spec.transition_id for spec in ARTIFACT_GRAPH if spec.writable
 )
 
 
-def stage_spec(stage_id: str) -> Transition:
+def transition_spec(artifact_id: ArtifactId) -> Transition:
+    """Return the transition whose primary output is ``artifact_id``."""
     for spec in ARTIFACT_GRAPH:
-        if spec.stage_id == stage_id:
+        if spec.transition_id == artifact_id:
             return spec
-    known = ", ".join(spec.stage_id for spec in ARTIFACT_GRAPH)
-    raise KeyError(f"Unknown stage '{stage_id}'. Expected one of: {known}")
+    known = ", ".join(spec.transition_id for spec in ARTIFACT_GRAPH)
+    raise KeyError(f"Unknown transition '{artifact_id}'. Expected one of: {known}")
 
 
-def producer_of(artifact_id: ArtifactId) -> Transition | None:
-    """The transition that produces or derives an artifact, or None for roots."""
+def producer_of(artifact_id: ArtifactId) -> Transition | Derivation | None:
+    """The graph node that creates an artifact, or None for roots."""
     for spec in ARTIFACT_GRAPH:
         if artifact_id in spec.all_produces:
+            return spec
+    for spec in DERIVATIONS:
+        if artifact_id == spec.produces:
             return spec
     return None
 
 
-def topological_stage_order() -> tuple[str, ...]:
-    """Stages sorted by artifact dependencies (for default-policy drivers)."""
-    producers: dict[ArtifactId, str] = {}
-    for spec in ARTIFACT_GRAPH:
-        for artifact in spec.all_produces:
-            producers[artifact] = spec.stage_id
+def topological_derivation_order() -> tuple[Derivation, ...]:
+    """Derived nodes sorted so parent derivations precede their children."""
+    derived_by_id = {spec.produces: spec for spec in DERIVATIONS}
     dep_graph = {
-        spec.stage_id: {producers[artifact] for artifact in spec.consumes if artifact in producers}
+        spec.produces: {parent for parent in spec.from_ if parent in derived_by_id}
+        for spec in DERIVATIONS
+    }
+    ordered = graphlib.TopologicalSorter(dep_graph).static_order()
+    return tuple(derived_by_id[artifact_id] for artifact_id in ordered)
+
+
+def _transition_dependencies(artifact_id: ArtifactId) -> set[ArtifactId]:
+    """Runnable transition ids upstream of an artifact dependency."""
+    producer = producer_of(artifact_id)
+    if producer is None:
+        return set()
+    if isinstance(producer, Transition):
+        return {producer.transition_id}
+    dependencies: set[ArtifactId] = set()
+    for parent in producer.from_:
+        dependencies.update(_transition_dependencies(parent))
+    return dependencies
+
+
+def topological_transition_order() -> tuple[ArtifactId, ...]:
+    """Runnable transitions sorted by artifact dependencies."""
+    dep_graph = {
+        spec.transition_id: {
+            dependency
+            for artifact in spec.consumes
+            for dependency in _transition_dependencies(artifact)
+            if dependency != spec.transition_id
+        }
         for spec in ARTIFACT_GRAPH
     }
     return tuple(graphlib.TopologicalSorter(dep_graph).static_order())
 
 
+def _artifact_dependency_graph() -> dict[ArtifactId, set[ArtifactId]]:
+    dependencies: dict[ArtifactId, set[ArtifactId]] = {}
+    for spec in ARTIFACT_GRAPH:
+        for artifact in spec.all_produces:
+            dependencies[artifact] = set(spec.consumes)
+    for spec in DERIVATIONS:
+        dependencies[spec.produces] = set(spec.from_)
+    return dependencies
+
+
 def _assert_graph_consistent() -> None:
+    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+
     produced: set[ArtifactId] = set()
     for spec in ARTIFACT_GRAPH:
-        if len(spec.produces) != 1:
-            raise AssertionError(f"{spec.stage_id} must have exactly one primary output")
+        if spec.writable and spec.creation_class != "judgment":
+            raise AssertionError(f"Writable transition '{spec.transition_id}' must be judgment")
         for artifact in spec.all_produces:
             if artifact in produced:
                 raise AssertionError(f"Artifact '{artifact}' has two producers")
             produced.add(artifact)
+
+    for spec in DERIVATIONS:
+        if spec.produces in produced:
+            raise AssertionError(f"Derived artifact '{spec.produces}' has a transition producer")
+        produced.add(spec.produces)
+
     overlap = produced.intersection(ROOT_ARTIFACTS)
     if overlap:
-        raise AssertionError(f"Root artifacts cannot have transition producers: {overlap}")
+        raise AssertionError(f"Root artifacts cannot have producers: {overlap}")
+
+    all_artifacts = set(ARTIFACT_IDS)
+    unknown_produced = produced - all_artifacts
+    if unknown_produced:
+        raise AssertionError(f"Graph produces unknown artifacts: {unknown_produced}")
+
+    missing = all_artifacts - produced - set(ROOT_ARTIFACTS)
+    if missing:
+        raise AssertionError(f"Artifacts need a root, transition, or derivation: {missing}")
+
+    dependencies = _artifact_dependency_graph()
+    for artifact, parents in dependencies.items():
+        unknown_parents = parents - all_artifacts
+        if unknown_parents:
+            raise AssertionError(f"{artifact} depends on unknown artifacts: {unknown_parents}")
+
     for root in ROOTS:
-        for pinned in root.write_pins:
-            if pinned not in produced:
-                raise AssertionError(f"Root '{root.artifact_id}' pins unknown artifact '{pinned}'")
-    topological_stage_order()  # raises on cycles
+        unknown_pins = set(root.write_pins) - all_artifacts
+        if unknown_pins:
+            raise AssertionError(
+                f"Root '{root.artifact_id}' pins unknown artifacts: {unknown_pins}"
+            )
+
+    graphlib.TopologicalSorter(dependencies).static_order()
+    topological_transition_order()
+    topological_derivation_order()
 
 
 _assert_graph_consistent()

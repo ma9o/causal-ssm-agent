@@ -12,8 +12,8 @@ vi.mock("@/lib/server/episode-runs", () => ({
   },
   STAGE_EDIT_ARTIFACTS: {
     "stage-1a": "latent_structure",
-    "stage-1b": "causal_design",
-    "stage-6": "baseline_ranking",
+    "stage-1b": "measurement_structure",
+    "stage-6": "baseline_report",
   },
   proposeMove: vi.fn(),
   startAutoRun: vi.fn(),
@@ -96,13 +96,13 @@ describe("POST /api/replay", () => {
     expect(proposeMove).toHaveBeenNthCalledWith(
       1,
       "user-1",
-      { kind: "write", artifact_id: "causal_design", provenance: "human" },
+      { kind: "write", artifact_id: "measurement_structure", provenance: "human" },
       { a: 1 },
     );
     expect(proposeMove).toHaveBeenNthCalledWith(
       2,
       "user-1",
-      { kind: "write", artifact_id: "baseline_ranking", provenance: "human" },
+      { kind: "write", artifact_id: "baseline_report", provenance: "human" },
       { b: 2 },
     );
   });

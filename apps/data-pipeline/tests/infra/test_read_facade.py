@@ -21,7 +21,7 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
 
     move = client.post(
         "/api/episodes/WS-READONLY/moves",
-        json={"move": {"kind": "run", "stage_id": "stage-0"}},
+        json={"move": {"kind": "run", "artifact_id": "raw_data"}},
     )
     assert move.status_code == 403
     start = client.post("/api/episodes", json={"workspace_id": "WS-READONLY"})

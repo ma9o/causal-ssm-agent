@@ -10,25 +10,16 @@ from nof1_causal_lab.workers.schemas import validate_worker_output
 
 def worker_schema():
     return {
-        "latent": {
-            "constructs": [
-                {"name": "stress", "role": "exogenous"},
-                {"name": "sleep", "role": "endogenous", "is_outcome": True},
-            ],
-            "edges": [{"cause": "stress", "effect": "sleep"}],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "name": "sleep_hours",
-                    "construct_name": "sleep",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "last",
-                    "how_to_measure": "Read sleep hours directly from the rows",
-                }
-            ],
-        },
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": "sleep_hours",
+                "construct_name": "sleep",
+                "measurement_dtype": "continuous",
+                "aggregation": "last",
+                "how_to_measure": "Read sleep hours directly from the rows",
+            }
+        ],
     }
 
 

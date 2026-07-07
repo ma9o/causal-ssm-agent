@@ -1,14 +1,14 @@
 """Moves, legality, transition application, staleness, freshness.
 
-The whole machine in five lines:
+The machine mutates only through artifact-named moves: ``run(artifact)`` for a
+transition's primary output, or ``write(artifact)`` for roots and writable
+judgment artifacts. Run legality is existence-only over declared inputs. Write
+legality is schema/provenance-bound and the write executor owns any derivation
+cascade that must complete before the move can become current.
 
-- state: versioned artifact store, provenance-stamped (:mod:`artifacts`)
-- transitions: ``run(stage)`` — enabled iff all consumed artifacts exist;
-  ``write(artifact)`` — schema-validated, any artifact
-- derived, never stored: staleness and enabledness
-- ``run`` raises typed exceptions (state unchanged, attempt journaled)
-- reported numeric results require a fresh provenance chain (enforced at
-  the query plane on every serve, not at a one-shot publish transition)
+Freshness is a derived query over version pins, not a stored flag. Produced and
+written artifacts can be stale; derived artifacts are maintained by the cascade
+and are either current or absent on the public surface.
 """
 
 from __future__ import annotations
@@ -23,18 +23,23 @@ from nof1_causal_lab.machine.artifacts import (
     ArtifactVersionInfo,
     Provenance,
 )
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, WRITABLE_ARTIFACTS, stage_spec
+from nof1_causal_lab.machine.graph import (
+    ARTIFACT_GRAPH,
+    DERIVATIONS,
+    WRITABLE_ARTIFACTS,
+    transition_spec,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.graph import Transition
 
 
-class RunStage(BaseModel):
+class RunArtifact(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["run"] = "run"
-    stage_id: str
+    artifact_id: ArtifactId
 
 
 class WriteArtifact(BaseModel):
@@ -45,7 +50,16 @@ class WriteArtifact(BaseModel):
     provenance: Provenance = "human"
 
 
-Move = Annotated[RunStage | WriteArtifact, Field(discriminator="kind")]
+Move = Annotated[RunArtifact | WriteArtifact, Field(discriminator="kind")]
+
+
+class RetractedArtifact(BaseModel):
+    """A current artifact removed by a move, with the finding that caused it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    artifact_id: ArtifactId
+    reason_ref: str
 
 
 class TransitionEffects(BaseModel):
@@ -54,15 +68,11 @@ class TransitionEffects(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    retracted: list[ArtifactId] = Field(default_factory=list)
+    retracted: list[RetractedArtifact] = Field(default_factory=list)
 
 
 class ExecOptions(BaseModel):
-    """Per-move execution parameters (infra, not domain state).
-
-    Credentials are never per-move: LLM stages read the ambient
-    ``OPENROUTER_API_KEY`` of whatever process executes them.
-    """
+    """Per-move execution parameters (infra, not domain state)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -72,18 +82,17 @@ class ExecOptions(BaseModel):
 
 
 def legal_moves(state: EpisodeState) -> list[Move]:
-    """The full affordance set at ``state``.
+    """The full machine-legal move set at ``state``.
 
-    ``run`` moves require all consumed artifacts to exist — a pure existence
-    check, no content predicates. ``write`` moves are offered for artifacts
-    with declared write effects; content is gated by schema validation at
-    execution time, and ``write`` provenance is whatever the caller declares
-    (``computed`` is reserved for stages).
+    This deliberately does not rank or hide moves by usefulness. The action
+    hierarchy computes affordances separately so the core has one legality
+    model: run guards check input existence, and writes are offered for every
+    declared writable artifact.
     """
     moves: list[Move] = []
     for spec in ARTIFACT_GRAPH:
         if all(state.has(artifact) for artifact in spec.consumes):
-            moves.append(RunStage(stage_id=spec.stage_id))
+            moves.append(RunArtifact(artifact_id=spec.transition_id))
     moves.extend(WriteArtifact(artifact_id=aid) for aid in WRITABLE_ARTIFACTS)
     return moves
 
@@ -93,14 +102,16 @@ def validate_move(state: EpisodeState, move: Move) -> str | None:
     if isinstance(move, WriteArtifact):
         if move.provenance == "computed":
             return "write moves must declare provenance 'human' or 'llm'"
+        if move.artifact_id not in WRITABLE_ARTIFACTS:
+            return f"artifact '{move.artifact_id}' is not writable"
         return None
     try:
-        spec = stage_spec(move.stage_id)
+        spec = transition_spec(move.artifact_id)
     except KeyError as exc:
         return str(exc)
     missing = [artifact for artifact in spec.consumes if not state.has(artifact)]
     if missing:
-        return f"{move.stage_id} requires artifacts that do not exist: {', '.join(missing)}"
+        return f"{move.artifact_id} requires artifacts that do not exist: {', '.join(missing)}"
     return None
 
 
@@ -110,20 +121,35 @@ def input_pins(state: EpisodeState, spec: Transition) -> dict[ArtifactId, int]:
     for artifact in spec.consumes:
         info = state.get(artifact)
         if info is None:
-            raise ValueError(f"{spec.stage_id} input '{artifact}' does not exist")
+            raise ValueError(f"{spec.transition_id} input '{artifact}' does not exist")
         pins[artifact] = info.version
+    return pins
+
+
+def write_pins(state: EpisodeState, artifact_ids: tuple[ArtifactId, ...]) -> dict[ArtifactId, int]:
+    """Pin existing inputs for write moves.
+
+    Writes stay existence-free, so absent pins are omitted. Existing pins still
+    make a hand-authored judgment artifact stale when the context it was written
+    against moves.
+    """
+    pins: dict[ArtifactId, int] = {}
+    for artifact in artifact_ids:
+        info = state.get(artifact)
+        if info is not None:
+            pins[artifact] = info.version
     return pins
 
 
 def apply_transition(
     state: EpisodeState,
     produced: list[ArtifactVersionInfo],
-    retracted: list[ArtifactId] | None = None,
+    retracted: list[RetractedArtifact] | None = None,
 ) -> EpisodeState:
-    """Install produced versions (and retractions) into a new state."""
+    """Install produced versions and retractions into a new state."""
     next_state = state.with_versions(produced)
     if retracted:
-        next_state = next_state.without(retracted)
+        next_state = next_state.without([item.artifact_id for item in retracted])
     return next_state
 
 
@@ -131,29 +157,30 @@ def run_retractions(
     state: EpisodeState,
     spec: Transition,
     produced: list[ArtifactVersionInfo],
-) -> list[ArtifactId]:
-    """Optional/derived artifacts to retract after a successful run of ``spec``.
-
-    An optional co-output or derived milestone that the previous run produced
-    but this run withheld is a *changed negative finding* — it must leave
-    ``current`` so downstream enabledness reflects it.
-    """
+) -> list[RetractedArtifact]:
+    """Optional co-outputs to retract after a successful run of ``spec``."""
     produced_ids = {info.artifact_id for info in produced}
     return [
-        artifact
-        for artifact in (*spec.produces_optional, *spec.derives)
+        RetractedArtifact(
+            artifact_id=artifact,
+            reason_ref=f"{spec.transition_id}.produces_optional.{artifact}",
+        )
+        for artifact in spec.produces_optional
         if artifact not in produced_ids and state.has(artifact)
     ]
+
+
+_DERIVED_ARTIFACTS = frozenset(spec.produces for spec in DERIVATIONS)
 
 
 def is_stale(state: EpisodeState, artifact_id: ArtifactId) -> bool:
     """Whether an artifact's provenance chain references superseded versions.
 
-    An artifact is stale iff any pinned input is absent, has moved past the
-    pinned version, or is itself (transitively) stale. Root artifacts (empty
-    ``derived_from``) are never stale. Absent artifacts are not stale — they
-    are absent.
+    Derived artifacts are never stale. If their parents change, the move that
+    changed the parents also recomputes or retracts the derivation.
     """
+    if artifact_id in _DERIVED_ARTIFACTS:
+        return False
     return _staleness(state, artifact_id, frozenset())
 
 
@@ -174,11 +201,7 @@ def _staleness(
 
 
 def is_fresh(state: EpisodeState, artifact_id: ArtifactId) -> bool:
-    """Exists and its whole provenance chain pins current versions.
-
-    This is the point-of-claim gate: the query plane must refuse (or
-    hard-flag) serving numeric results derived from a non-fresh chain.
-    """
+    """Exists and its whole provenance chain pins current versions."""
     return state.has(artifact_id) and not is_stale(state, artifact_id)
 
 

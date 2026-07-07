@@ -3,12 +3,13 @@
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { STAGES } from "@nof1-causal-lab/api-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   type EpisodeEventRecord,
   type EpisodeProgressPayload,
   type EpisodeTransitionRecord,
   getEpisodeProgress,
+  getMachineDescription,
 } from "@/lib/api/analysis";
 import { groupStaleArtifactsByStage, hasStaleArtifacts } from "@/lib/artifact-staleness";
 import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
@@ -57,6 +58,16 @@ export function cursorTimestampMs(cursor: string): number | undefined {
 
 function isStageId(value: unknown): value is StageId {
   return typeof value === "string" && STAGES.some((stage) => stage.id === value);
+}
+
+function stageIdsByArtifact(
+  transitions: Awaited<ReturnType<typeof getMachineDescription>>["transitions"] | undefined,
+) {
+  const entries =
+    transitions
+      ?.map((transition) => [transition.transition_id, transition.runner_id] as const)
+      .filter((entry): entry is readonly [string, StageId] => isStageId(entry[1])) ?? [];
+  return Object.fromEntries(entries) as Partial<Record<string, StageId>>;
 }
 
 function isStageRunStatus(value: unknown): value is StageProgressStatus {
@@ -120,11 +131,12 @@ function invalidateStageData(
 function applyRunTransition(
   progress: PipelineProgress | undefined,
   transition: EpisodeTransitionRecord,
+  artifactStageIds: Partial<Record<string, StageId>>,
 ): PipelineProgress | undefined {
   if (transition.move.kind !== "run") {
     return progress;
   }
-  const stageId = transition.move.stage_id;
+  const stageId = artifactStageIds[transition.move.artifact_id];
   if (!isStageId(stageId)) {
     return progress;
   }
@@ -155,6 +167,18 @@ export function useRunEvents(workspaceId: string | null) {
   const cursorRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const hydratedWorkspaceRef = useRef<string | null>(null);
+  const machineDescriptionQuery = useQuery({
+    queryKey: ["machine"],
+    queryFn: getMachineDescription,
+    enabled: !isMockMode(),
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+  const artifactStageIds = useMemo(
+    () => stageIdsByArtifact(machineDescriptionQuery.data?.transitions),
+    [machineDescriptionQuery.data?.transitions],
+  );
 
   const updateStage = useCallback(
     (stageId: StageId, status: StageRunStatus, eventTime?: number, errorMessage?: string) => {
@@ -226,7 +250,7 @@ export function useRunEvents(workspaceId: string | null) {
         }
         queryClient.setQueryData<PipelineProgress>(
           getPipelineStatusQueryKey(workspaceId),
-          (old) => applyRunTransition(old, transition) ?? old,
+          (old) => applyRunTransition(old, transition, artifactStageIds) ?? old,
         );
         lastSeqRef.current = Math.max(lastSeqRef.current, transition.seq);
       }
@@ -237,7 +261,7 @@ export function useRunEvents(workspaceId: string | null) {
         autoRunning: payload.autoRunning,
       }));
     },
-    [queryClient, updateStage, workspaceId],
+    [artifactStageIds, queryClient, updateStage, workspaceId],
   );
 
   // Reset the reduced caches when the workspace changes.

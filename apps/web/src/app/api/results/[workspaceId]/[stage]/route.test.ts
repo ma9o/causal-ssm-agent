@@ -168,11 +168,11 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     const parquet = new Uint8Array([4, 5, 6]);
 
     mockJsonFiles({
-      "user/episode/state.json": stateFor("extraction_report", "model_data"),
-      [artifactPath("user", "extraction_report", "extraction_report.json")]: persisted,
+      "user/episode/state.json": stateFor("measurements", "panel"),
+      [artifactPath("user", "measurements", "measurements.json")]: persisted,
     });
     vi.mocked(readBinary).mockImplementation(async (path: string) => {
-      if (path === artifactPath("user", "model_data", "model_data.parquet")) return parquet;
+      if (path === artifactPath("user", "panel", "panel.parquet")) return parquet;
       throw storageMissing(path);
     });
 
@@ -202,12 +202,12 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     const parquet = new Uint8Array([7, 8, 9]);
 
     mockJsonFiles({
-      "user/episode/state.json": stateFor("compiled_ssm", "validation_report", "model_data"),
-      [artifactPath("user", "compiled_ssm", "report.json")]: stage4,
+      "user/episode/state.json": stateFor("statistical_model_spec", "validation_report", "panel"),
+      [artifactPath("user", "statistical_model_spec", "statistical_model_spec.json")]: stage4,
       [artifactPath("user", "validation_report", "validation_report.json")]: stage3,
     });
     vi.mocked(readBinary).mockImplementation(async (path: string) => {
-      if (path === artifactPath("user", "model_data", "model_data.parquet")) return parquet;
+      if (path === artifactPath("user", "panel", "panel.parquet")) return parquet;
       throw storageMissing(path);
     });
 

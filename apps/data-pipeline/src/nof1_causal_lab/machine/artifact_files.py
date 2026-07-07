@@ -1,6 +1,6 @@
 """Canonical file layout for versioned machine artifacts.
 
-The artifact graph names semantic dependencies such as ``model_data`` or
+The artifact graph names semantic dependencies such as ``panel`` or
 ``posterior``. This module is the single map from those artifact ids to the
 files inside ``store/{artifact_id}/v{N}/``. UI projections, fixture seeders,
 stage runners, and tool contexts should refer to this map instead of spelling
@@ -33,13 +33,19 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
         parquet={"raw": "raw.parquet"},
     ),
     "latent_structure": ArtifactFileSpec(json={"latent_structure": "latent-structure.json"}),
+    "measurement_structure": ArtifactFileSpec(
+        json={"measurement_structure": "measurement_structure.json"}
+    ),
     "causal_design": ArtifactFileSpec(json={"causal_design": "causal_design.json"}),
     "identification_report": ArtifactFileSpec(
         json={"identification_report": "identification_report.json"}
     ),
-    "extraction_report": ArtifactFileSpec(json={"extraction_report": "extraction_report.json"}),
-    "model_data": ArtifactFileSpec(parquet={"model_data": "model_data.parquet"}),
+    "measurements": ArtifactFileSpec(json={"measurements": "measurements.json"}),
+    "panel": ArtifactFileSpec(parquet={"panel": "panel.parquet"}),
     "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
+    "statistical_model_spec": ArtifactFileSpec(
+        json={"statistical_model_spec": "statistical_model_spec.json"}
+    ),
     "compiled_ssm": ArtifactFileSpec(
         json={"compiled_ssm": "compiled-ssm.json", "report": "report.json"}
     ),
@@ -47,7 +53,7 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
         json={"diagnostics": "diagnostics.json"},
         pickle={"fitted": "fitted.pkl"},
     ),
-    "baseline_ranking": ArtifactFileSpec(json={"baseline_ranking": "baseline_ranking.json"}),
+    "baseline_report": ArtifactFileSpec(json={"baseline_report": "baseline_report.json"}),
     "saved_scenarios": ArtifactFileSpec(json={"saved_scenarios": "saved_scenarios.json"}),
 }
 

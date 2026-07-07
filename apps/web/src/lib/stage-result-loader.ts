@@ -1,5 +1,8 @@
 import type {
+  CausalDesign,
   Stage0PersistedData,
+  Stage1bData,
+  Stage1bViewData,
   Stage2PersistedData,
   Stage3Data,
   Stage4PersistedData,
@@ -27,30 +30,40 @@ const STAGE_RESULT_LOADERS: Partial<Record<StageId, StageResultLoader>> = {
   },
   "stage-1a": (workspaceId) =>
     readArtifactJson(workspaceId, "latent_structure", "latent_structure"),
-  "stage-1b": (workspaceId) => readArtifactJson(workspaceId, "causal_design", "causal_design"),
-  "stage-2": async (workspaceId) => {
-    const [payload, modelData] = await Promise.all([
-      readArtifactJson<Stage2PersistedData>(workspaceId, "extraction_report", "extraction_report"),
-      readArtifactBinary(workspaceId, "model_data", "parquet", "model_data"),
+  "stage-1b": async (workspaceId): Promise<Stage1bViewData> => {
+    const [payload, causalDesign] = await Promise.all([
+      readArtifactJson<Stage1bData>(workspaceId, "measurement_structure", "measurement_structure"),
+      readArtifactJson<CausalDesign>(workspaceId, "causal_design", "causal_design"),
     ]);
-    return deriveStage2Data(payload, modelData.data);
+    return { ...payload, causal_design: causalDesign };
+  },
+  "stage-2": async (workspaceId) => {
+    const [payload, panel] = await Promise.all([
+      readArtifactJson<Stage2PersistedData>(workspaceId, "measurements", "measurements"),
+      readArtifactBinary(workspaceId, "panel", "parquet", "panel"),
+    ]);
+    return deriveStage2Data(payload, panel.data);
   },
   "stage-3": (workspaceId) =>
     readArtifactJson(workspaceId, "validation_report", "validation_report"),
   "stage-4": async (workspaceId) => {
-    const [payload, stage3, modelData] = await Promise.all([
-      readArtifactJson<Stage4PersistedData>(workspaceId, "compiled_ssm", "report"),
+    const [payload, stage3, panel] = await Promise.all([
+      readArtifactJson<Stage4PersistedData>(
+        workspaceId,
+        "statistical_model_spec",
+        "statistical_model_spec",
+      ),
       readArtifactJson<Stage3Data>(workspaceId, "validation_report", "validation_report"),
-      readArtifactBinary(workspaceId, "model_data", "parquet", "model_data"),
+      readArtifactBinary(workspaceId, "panel", "parquet", "panel"),
     ]);
-    return deriveStage4Data(payload, stage3, modelData.data);
+    return deriveStage4Data(payload, stage3, panel.data);
   },
   "stage-5b": (workspaceId) => readArtifactJson(workspaceId, "posterior", "diagnostics"),
   "stage-6": async (workspaceId) => {
     const ranking = await readArtifactJson<Stage6Data>(
       workspaceId,
-      "baseline_ranking",
-      "baseline_ranking",
+      "baseline_report",
+      "baseline_report",
     );
     try {
       const saved = await readArtifactJson<{

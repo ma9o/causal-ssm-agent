@@ -14,7 +14,7 @@ import pytest
 
 from nof1_causal_lab.machine import runners as runners_module
 from nof1_causal_lab.machine.errors import ModelCompileError
-from nof1_causal_lab.machine.moves import RunStage, WriteArtifact
+from nof1_causal_lab.machine.moves import RunArtifact, TransitionEffects, WriteArtifact
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
@@ -55,29 +55,45 @@ def machine_env(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
-    monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS, "stage-0", _fake_runner(("raw_data", "stage-0"))
+
+    def complete_without_derivations(store, state, produced, retracted=None):
+        del store, state
+        return TransitionEffects(produced=produced, retracted=retracted or [])
+
+    monkeypatch.setattr(
+        runners_module,
+        "complete_derivation_cascade",
+        complete_without_derivations,
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS, "stage-1a", _fake_runner(("latent_structure", "stage-1a"))
+        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "stage-0"))
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS,
-        "stage-1b",
+        runners_module._TRANSITION_RUNNERS,
+        "latent_structure",
+        _fake_runner(("latent_structure", "stage-1a")),
+    )
+    monkeypatch.setitem(
+        runners_module._TRANSITION_RUNNERS,
+        "measurement_structure",
         _fake_runner(
-            ("causal_design", "stage-1b"),
-            ("identification_report", "stage-1b"),
+            ("measurement_structure", "stage-1b"),
+            ("causal_design", "derive:causal_design"),
+            ("identification_report", "derive:identification_report"),
         ),
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS,
-        "stage-2",
-        _fake_runner(("extraction_report", "stage-2"), ("model_data", "stage-2")),
+        runners_module._TRANSITION_RUNNERS,
+        "measurements",
+        _fake_runner(
+            ("measurements", "stage-2"),
+            ("panel", "stage-2"),
+            ("validation_report", "derive:validation_report"),
+        ),
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS, "stage-3", _fake_runner(("validation_report", "stage-3"))
+        runners_module._TRANSITION_RUNNERS, "statistical_model_spec", _failing_runner
     )
-    monkeypatch.setitem(runners_module._STAGE_RUNNERS, "stage-4", _failing_runner)
     return f"ws-{uuid.uuid4().hex[:8]}"
 
 
@@ -106,7 +122,7 @@ def test_episode_workflow_journey(machine_env):
                     )
 
                 # 1. Illegal move first: rejected AND journaled.
-                rejected = await propose(RunStage(stage_id="stage-1b"))
+                rejected = await propose(RunArtifact(artifact_id="measurement_structure"))
                 assert rejected.status == "rejected"
                 assert "question" in rejected.reason
 
@@ -118,14 +134,19 @@ def test_episode_workflow_journey(machine_env):
                 assert applied.status == "applied"
                 assert applied.state.has("question")
 
-                # 3. Free navigation through enabled stages (stubs).
-                for stage in ("stage-0", "stage-1a", "stage-1b", "stage-2", "stage-3"):
-                    outcome = await propose(RunStage(stage_id=stage))
-                    assert outcome.status == "applied", (stage, outcome)
+                # 3. Free navigation through enabled transitions (stubs).
+                for artifact_id in (
+                    "raw_data",
+                    "latent_structure",
+                    "measurement_structure",
+                    "measurements",
+                ):
+                    outcome = await propose(RunArtifact(artifact_id=artifact_id))
+                    assert outcome.status == "applied", (artifact_id, outcome)
 
                 # 4. Typed stage failure: raised, state unchanged.
                 before = (await handle.query(EpisodeWorkflow.get_state)).current
-                raised = await propose(RunStage(stage_id="stage-4"))
+                raised = await propose(RunArtifact(artifact_id="statistical_model_spec"))
                 assert raised.status == "raised"
                 assert raised.error_type == "ModelCompileError"
                 assert raised.diagnostics == {"hint": "prior scale unidentifiable"}
@@ -143,7 +164,7 @@ def test_episode_workflow_journey(machine_env):
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
                 assert "latent_structure" in stale
-                assert "causal_design" in stale
+                assert "measurement_structure" in stale
                 assert "raw_data" not in stale  # not derived from question
 
                 # 6. Journal recorded every attempt, including the rejection
@@ -157,7 +178,6 @@ def test_episode_workflow_journey(machine_env):
                     "applied",  # stage-1a
                     "applied",  # stage-1b
                     "applied",  # stage-2
-                    "applied",  # stage-3
                     "raised",  # stage-4
                     "applied",  # question rewrite
                 ]

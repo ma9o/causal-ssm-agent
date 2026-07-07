@@ -7,7 +7,7 @@ episode workflow's ``propose`` update, which validates, executes, and
 journals durably.
 
 The ``auto`` endpoint is the default navigation policy — run enabled
-stages in dependency order while their outputs are missing or stale —
+transitions in dependency order while their outputs are missing or stale —
 giving the web "run the pipeline" parity as one background driver. An
 LLM navigator replaces this policy by calling ``moves`` directly.
 """
@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.runtime_events import read_events
 from nof1_causal_lab.machine.artifacts import ArtifactId  # noqa: TC001 (FastAPI runtime annotation)
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_stage_order
+from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_transition_order
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     Move,
-    RunStage,
+    RunArtifact,
     freshness_report,
     is_stale,
     legal_moves,
@@ -85,28 +85,41 @@ def machine_description() -> dict[str, Any]:
     workspace store.
     """
     from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
-    from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, ROOTS, topological_stage_order
+    from nof1_causal_lab.machine.graph import (
+        ARTIFACT_GRAPH,
+        DERIVATIONS,
+        ROOTS,
+        topological_transition_order,
+    )
     from nof1_causal_lab.machine.hierarchy import describe_actions, describe_contexts
 
     return {
         "artifact_ids": list(ARTIFACT_IDS),
-        "topological_stage_order": topological_stage_order(),
+        "topological_transition_order": topological_transition_order(),
         "contexts": describe_contexts(),
         "actions": describe_actions(),
         "roots": [
             {"artifact_id": root.artifact_id, "write_pins": list(root.write_pins)} for root in ROOTS
         ],
-        "stages": [
+        "transitions": [
             {
-                "stage_id": spec.stage_id,
+                "transition_id": spec.transition_id,
+                "runner_id": spec.runner_id,
                 "consumes": list(spec.consumes),
-                "produces": list(spec.produces),
+                "produces": [spec.produces],
                 "produces_optional": list(spec.produces_optional),
-                "derives": list(spec.derives),
                 "creation_class": spec.creation_class,
                 "writable": spec.writable,
             }
             for spec in ARTIFACT_GRAPH
+        ],
+        "derivations": [
+            {
+                "produces": spec.produces,
+                "from": list(spec.from_),
+                "optional": spec.optional,
+            }
+            for spec in DERIVATIONS
         ],
     }
 
@@ -115,8 +128,8 @@ def machine_description() -> dict[str, Any]:
 def get_machine() -> dict[str, Any]:
     """The static artifact graph and action hierarchy — read once to orient.
 
-    Each stage entry declares what it `consumes`, `produces`, optionally
-    co-produces (`produces_optional`), and `derives`, plus its **creation
+    Each transition entry declares what it `consumes`, `produces`, and
+    optionally co-produces (`produces_optional`), plus its **creation
     class**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk
     LLM compute on the service's ambient key — you trigger it with a `run` move,
     you never supply a key), or `judgment` (proposal work you can author yourself
@@ -395,15 +408,15 @@ async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
 
     Two kinds:
 
-    - Run a stage: `{"move": {"kind": "run", "stage_id": "stage-1a"}}`.
+    - Run a transition: `{"move": {"kind": "run", "artifact_id": "latent_structure"}}`.
     - Author a judgment artifact directly (skip the in-service stage):
       `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance":
       "llm"}, "payload": {...}}`. The payload is schema-validated against that
       artifact's contract, journaled, and provenance-stamped; the write becomes a
       new provenance root and marks everything downstream stale until re-run.
 
-    The synchronous outcome is the same record the timeline stores. Long stages
-    (stage-4, stage-5b — minutes to hours) can outlive a client timeout; for
+    The synchronous outcome is the same record the timeline stores. Long transitions
+    (statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
     those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
     """
     _require_moves_enabled()
@@ -422,18 +435,18 @@ def _needs_run(state: EpisodeState, spec: Transition) -> bool:
 
     An *absent optional* output with a fresh report is a standing negative
     finding, not a reason to rerun — otherwise the driver would loop on
-    stages like 1b/2 whose finding was legitimately empty.
+    transitions whose finding was legitimately empty.
     """
-    if any(not state.has(artifact) for artifact in spec.produces):
+    if not state.has(spec.produces):
         return True
     return any(is_stale(state, artifact) for artifact in spec.all_produces if state.has(artifact))
 
 
-def _next_auto_move(state: EpisodeState) -> RunStage | None:
-    specs = {spec.stage_id: spec for spec in ARTIFACT_GRAPH}
-    for stage_id in topological_stage_order():
-        spec = specs[stage_id]
-        move = RunStage(stage_id=stage_id)
+def _next_auto_move(state: EpisodeState) -> RunArtifact | None:
+    specs = {spec.transition_id: spec for spec in ARTIFACT_GRAPH}
+    for artifact_id in topological_transition_order():
+        spec = specs[artifact_id]
+        move = RunArtifact(artifact_id=artifact_id)
         if validate_move(state, move) is None and _needs_run(state, spec):
             return move
     return None
@@ -447,13 +460,13 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
             if move is None:
                 logger.info("auto-run %s: quiescent", workspace_id)
                 return
-            logger.info("auto-run %s: %s", workspace_id, move.stage_id)
+            logger.info("auto-run %s: %s", workspace_id, move.artifact_id)
             outcome = await _propose(workspace_id, MoveBody(move=move, options=options))
             if outcome["status"] != "applied":
                 logger.warning(
                     "auto-run %s stopped: %s %s (%s)",
                     workspace_id,
-                    move.stage_id,
+                    move.artifact_id,
                     outcome["status"],
                     outcome.get("error_type") or outcome.get("reason"),
                 )

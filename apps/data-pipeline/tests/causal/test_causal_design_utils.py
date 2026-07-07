@@ -2,7 +2,7 @@
 
 Trivial accessors are exercised through higher-level tests. This file covers
 the helpers with real transformation or graph logic:
-- ``make_extraction_context``
+- ``make_measurement_extraction_context``
 - ``build_digraph``
 - ``get_outcome_name``
 - ``get_all_treatments``
@@ -19,7 +19,7 @@ from nof1_causal_lab.utils.causal_design import (
     get_estimation_constructs,
     get_marginalized_scales,
     get_outcome_name,
-    make_extraction_context,
+    make_measurement_extraction_context,
 )
 
 
@@ -68,19 +68,19 @@ def _full_spec():
 
 
 # =============================================================================
-# make_extraction_context
+# make_measurement_extraction_context
 # =============================================================================
 
 
-class TestMakeExtractionContext:
+class TestMakeMeasurementExtractionContext:
     def test_strips_to_worker_fields(self):
         spec = _full_spec()
         # Add extra fields that workers don't need
         spec["measurement"]["indicators"][0]["aggregation"] = "mean"
         spec["measurement"]["indicators"][0]["construct_name"] = "stress"
         spec["measurement"]["indicators"][0]["source_columns"] = ["pss_col"]
-        ctx = make_extraction_context(spec)
-        ind = ctx["measurement"]["indicators"][0]
+        ctx = make_measurement_extraction_context(spec["measurement"])
+        ind = ctx["indicators"][0]
         assert set(ind.keys()) == {
             "name",
             "measurement_dtype",
@@ -95,41 +95,16 @@ class TestMakeExtractionContext:
         assert "construct_name" not in ind
         assert "ordinal_levels" not in ind
 
-    def test_outcome_slimmed_to_name_and_description(self):
-        spec = _full_spec()
-        ctx = make_extraction_context(spec)
-        constructs = ctx["latent"]["constructs"]
-        assert len(constructs) == 1
-        outcome = constructs[0]
-        assert set(outcome.keys()) == {"name", "description"}
-
-    def test_no_outcome_gives_empty_constructs(self):
-        spec = {
-            "latent": {"constructs": [{"name": "x", "role": "exogenous"}]},
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "name": "ind",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            },
-        }
-        ctx = make_extraction_context(spec)
-        assert ctx["latent"]["constructs"] == []
-
     def test_source_columns_included_when_present(self):
         spec = _full_spec()
         spec["measurement"]["indicators"][0]["source_columns"] = ["col_a", "col_b"]
-        ctx = make_extraction_context(spec)
-        assert ctx["measurement"]["indicators"][0]["source_columns"] == ["col_a", "col_b"]
+        ctx = make_measurement_extraction_context(spec["measurement"])
+        assert ctx["indicators"][0]["source_columns"] == ["col_a", "col_b"]
 
     def test_ordinal_levels_included_for_worker_codebook(self):
         spec = _full_spec()
-        ctx = make_extraction_context(spec)
-        assert ctx["measurement"]["indicators"][1]["ordinal_levels"] == ["low", "medium", "high"]
+        ctx = make_measurement_extraction_context(spec["measurement"])
+        assert ctx["indicators"][1]["ordinal_levels"] == ["low", "medium", "high"]
 
 
 class TestBuildDigraph:

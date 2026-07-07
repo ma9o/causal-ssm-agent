@@ -39,49 +39,6 @@
       "title": "AnchorPolicy",
       "type": "string"
     },
-    "CausalDesign": {
-      "description": "Complete causal design combining latent and measurement structures.",
-      "properties": {
-        "latent": {
-          "$ref": "#/$defs/LatentStructure",
-          "description": "Theoretical causal structure (topological)"
-        },
-        "measurement": {
-          "$ref": "#/$defs/MeasurementStructure",
-          "description": "Operationalization into indicators"
-        },
-        "identifiability": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/IdentifiabilityStatus"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Identifiability status of target causal effects"
-        },
-        "estimation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EstimationSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Deterministic estimation-time projection consumed by downstream fitting"
-        }
-      },
-      "required": [
-        "latent",
-        "measurement"
-      ],
-      "title": "CausalDesign",
-      "type": "object"
-    },
     "CausalEdge": {
       "description": "A directed causal relationship between constructs.",
       "properties": {
@@ -276,117 +233,6 @@
         "density"
       ],
       "title": "EnergyHistogram",
-      "type": "object"
-    },
-    "EstimationSpec": {
-      "description": "Deterministic estimation-time projection of the user-facing latent DAG.",
-      "properties": {
-        "state_order": {
-          "description": "Retained latent states in canonical array order for compilation",
-          "items": {
-            "type": "string"
-          },
-          "title": "State Order",
-          "type": "array"
-        },
-        "edges": {
-          "description": "Directed estimation graph over retained states",
-          "items": {
-            "$ref": "#/$defs/CausalEdge"
-          },
-          "title": "Edges",
-          "type": "array"
-        },
-        "induced_dependencies": {
-          "description": "Dependencies induced after marginalizing latent root confounders",
-          "items": {
-            "$ref": "#/$defs/InducedDependency"
-          },
-          "title": "Induced Dependencies",
-          "type": "array"
-        },
-        "known_inputs": {
-          "description": "Observed construct trajectories compiled as B u(t) transition inputs",
-          "items": {
-            "$ref": "#/$defs/KnownInput"
-          },
-          "title": "Known Inputs",
-          "type": "array"
-        }
-      },
-      "required": [
-        "edges",
-        "induced_dependencies",
-        "known_inputs",
-        "state_order"
-      ],
-      "title": "EstimationSpec",
-      "type": "object"
-    },
-    "IdentifiabilityStatus": {
-      "description": "Status of causal effect identifiability.",
-      "properties": {
-        "identifiable_treatments": {
-          "additionalProperties": {
-            "$ref": "#/$defs/IdentifiedTreatmentStatus"
-          },
-          "description": "Treatments with identifiable effects and how to estimate them",
-          "title": "Identifiable Treatments",
-          "type": "object"
-        },
-        "non_identifiable_treatments": {
-          "additionalProperties": {
-            "$ref": "#/$defs/NonIdentifiableTreatmentStatus"
-          },
-          "description": "Treatments whose effects are currently not identifiable",
-          "title": "Non Identifiable Treatments",
-          "type": "object"
-        }
-      },
-      "title": "IdentifiabilityStatus",
-      "type": "object",
-      "required": [
-        "identifiable_treatments",
-        "non_identifiable_treatments"
-      ]
-    },
-    "IdentifiedTreatmentStatus": {
-      "description": "Details on how a treatment effect is identified.",
-      "properties": {
-        "method": {
-          "description": "Identification strategy (e.g., do_calculus, instrumental_variable)",
-          "title": "Method",
-          "type": "string"
-        },
-        "estimand": {
-          "description": "Closed-form estimand or IV placeholder",
-          "title": "Estimand",
-          "type": "string"
-        },
-        "marginalized_confounders": {
-          "description": "Unobserved confounders the estimand integrates out",
-          "items": {
-            "type": "string"
-          },
-          "title": "Marginalized Confounders",
-          "type": "array"
-        },
-        "instruments": {
-          "description": "Instrumental variables used (if method=instrumental_variable)",
-          "items": {
-            "type": "string"
-          },
-          "title": "Instruments",
-          "type": "array"
-        }
-      },
-      "required": [
-        "estimand",
-        "instruments",
-        "marginalized_confounders",
-        "method"
-      ],
-      "title": "IdentifiedTreatmentStatus",
       "type": "object"
     },
     "Indicator": {
@@ -817,50 +663,6 @@
       "title": "IndicatorValidationContract",
       "type": "object"
     },
-    "InducedDependency": {
-      "description": "Dependence induced among retained states after marginalizing latent roots.",
-      "properties": {
-        "between": {
-          "description": "Pair of retained states whose joint dependence is induced",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "title": "Between",
-          "type": "array"
-        },
-        "kind": {
-          "description": "Which covariance block the induced dependence belongs to",
-          "enum": [
-            "innovation_correlation",
-            "initial_state_correlation"
-          ],
-          "title": "Kind",
-          "type": "string"
-        },
-        "source_confounders": {
-          "description": "Marginalized source constructs that induce this dependence",
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Confounders",
-          "type": "array"
-        }
-      },
-      "required": [
-        "between",
-        "kind",
-        "source_confounders"
-      ],
-      "title": "InducedDependency",
-      "type": "object"
-    },
     "InferenceMetadataContract": {
       "additionalProperties": false,
       "properties": {
@@ -893,46 +695,6 @@
       ],
       "title": "InitializationPolicy",
       "type": "string"
-    },
-    "KnownInput": {
-      "description": "Observed input trajectory used as a deterministic transition driver.",
-      "properties": {
-        "construct": {
-          "description": "Construct removed from the latent state vector",
-          "title": "Construct",
-          "type": "string"
-        },
-        "source_indicator": {
-          "description": "Measurement indicator column supplying u(t)",
-          "title": "Source Indicator",
-          "type": "string"
-        },
-        "scale": {
-          "default": 1.0,
-          "description": "Positive divisor applied to the source indicator before inference",
-          "exclusiveMinimum": 0.0,
-          "title": "Scale",
-          "type": "number"
-        },
-        "missing_policy": {
-          "default": "zero",
-          "description": "How to fill missing input values on the model time grid",
-          "enum": [
-            "zero",
-            "forward_fill"
-          ],
-          "title": "Missing Policy",
-          "type": "string"
-        }
-      },
-      "required": [
-        "construct",
-        "missing_policy",
-        "scale",
-        "source_indicator"
-      ],
-      "title": "KnownInput",
-      "type": "object"
     },
     "LLMTrace": {
       "description": "Full trace of an LLM multi-turn conversation.",
@@ -1381,37 +1143,6 @@
       ],
       "title": "MeasurementStructure",
       "type": "object"
-    },
-    "NonIdentifiableTreatmentStatus": {
-      "description": "Context on why a treatment effect is not identifiable.",
-      "properties": {
-        "confounders": {
-          "description": "Unobserved constructs blocking identification",
-          "items": {
-            "type": "string"
-          },
-          "title": "Confounders",
-          "type": "array"
-        },
-        "notes": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional explanation if confounders cannot be enumerated",
-          "title": "Notes"
-        }
-      },
-      "title": "NonIdentifiableTreatmentStatus",
-      "type": "object",
-      "required": [
-        "confounders"
-      ]
     },
     "ObservationInterceptPolicy": {
       "description": "Global policy for whether eligible manifest intercepts remain free.",
@@ -2178,12 +1909,12 @@
           ],
           "default": null
         },
-        "causal_design": {
-          "$ref": "#/$defs/CausalDesign"
+        "measurement_structure": {
+          "$ref": "#/$defs/MeasurementStructure"
         }
       },
       "required": [
-        "causal_design"
+        "measurement_structure"
       ],
       "title": "Stage1bContract",
       "type": "object"

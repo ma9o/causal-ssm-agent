@@ -5,12 +5,9 @@ import { normalizeWorkspaceId } from "@/lib/workspace-id";
 /**
  * Map stage IDs to their canonical parquet artifact.
  */
-const PARQUET_MAP: Record<
-  string,
-  { artifact: "raw_data" | "model_data"; key: "raw" | "model_data" }
-> = {
+const PARQUET_MAP: Record<string, { artifact: "raw_data" | "panel"; key: "raw" | "panel" }> = {
   "stage-0": { artifact: "raw_data", key: "raw" },
-  "stage-2": { artifact: "model_data", key: "model_data" },
+  "stage-2": { artifact: "panel", key: "panel" },
 };
 
 export async function GET(

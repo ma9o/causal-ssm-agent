@@ -13,6 +13,15 @@ export interface AnalysisStageRun {
 
 export type AnalysisStageRuns = Record<StageId, AnalysisStageRun>;
 
+export interface MachineTransition {
+  transition_id: string;
+  runner_id: string;
+}
+
+export interface MachineDescription {
+  transitions: MachineTransition[];
+}
+
 export interface AnalysisManifest {
   workspaceId: string;
   createdAt: string;
@@ -40,7 +49,7 @@ export interface EpisodeArtifactStatus {
 }
 
 export type EpisodeMove =
-  | { kind: "run"; stage_id: string }
+  | { kind: "run"; artifact_id: string }
   | { kind: "write"; artifact_id: string; provenance: string };
 
 /** One journaled transition attempt (applied, rejected, or raised). */
@@ -69,6 +78,10 @@ export function getAnalysisManifestQueryKey(workspaceId: string) {
 
 export async function getAnalysisManifest(workspaceId: string): Promise<AnalysisManifest> {
   return apiFetch<AnalysisManifest>(`/api/analysis/${workspaceId}`);
+}
+
+export async function getMachineDescription(): Promise<MachineDescription> {
+  return apiFetch<MachineDescription>("/api/machine");
 }
 
 export async function getEpisodeProgress(

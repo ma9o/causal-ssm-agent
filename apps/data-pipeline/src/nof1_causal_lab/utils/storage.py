@@ -125,6 +125,16 @@ def makedirs(path: str) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
+def rm_tree(path: str) -> None:
+    """Remove a directory tree or object prefix when it exists."""
+    if is_remote():
+        get_fs().rm(path, recursive=True, missing_ok=True)
+        return
+    import shutil
+
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def listdir(path: str) -> list[str]:
     """List entries in *path*. Returns full paths/URIs."""
     if is_remote():

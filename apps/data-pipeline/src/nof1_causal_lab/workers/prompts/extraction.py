@@ -108,10 +108,6 @@ USER = """\
 
 {question}
 
-## Outcome description
-
-{outcome_description}
-
 ## Indicators to extract (one value per indicator per support window)
 
 {indicators}

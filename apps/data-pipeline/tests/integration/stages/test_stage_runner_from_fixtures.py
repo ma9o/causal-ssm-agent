@@ -15,11 +15,12 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
 from nof1_causal_lab.flows.stage_contracts import validate_stage_payload
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.graph import stage_spec
+from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import ExecOptions, input_pins
-from nof1_causal_lab.machine.runners import execute_stage_locally
+from nof1_causal_lab.machine.runners import execute_transition_locally
 from nof1_causal_lab.utils import data as data_module
 from tests.helpers import run_async
 from tests.integration import stage_runner_fixtures as fx
@@ -72,14 +73,23 @@ class _LocalSandboxContext:
         return None
 
 
-def _run_stage(
+def _run_transition(
     workspace_id: str,
     state,
-    stage_id: str,
+    artifact_id: str,
     options: ExecOptions | None = None,
 ):
-    pins = input_pins(state, stage_spec(stage_id))
-    return run_async(execute_stage_locally(workspace_id, stage_id, pins, options or ExecOptions()))
+    spec = transition_spec(artifact_id)
+    pins = input_pins(state, spec)
+    return run_async(
+        execute_transition_locally(
+            workspace_id,
+            artifact_id,
+            pins,
+            state,
+            options or ExecOptions(),
+        )
+    )
 
 
 def _produced(effects, artifact_id: str):
@@ -90,16 +100,19 @@ def _assert_contract(store: ArtifactStore, artifact_id: str, version: int, stage
     key_by_stage = {
         "stage-0": ("raw_data", "profile"),
         "stage-1a": ("latent_structure", "latent_structure"),
-        "stage-1b": ("causal_design", "causal_design"),
-        "stage-2": ("extraction_report", "extraction_report"),
+        "stage-1b": ("measurement_structure", "measurement_structure"),
+        "stage-2": ("measurements", "measurements"),
         "stage-3": ("validation_report", "validation_report"),
-        "stage-4": ("compiled_ssm", "report"),
+        "stage-4": ("statistical_model_spec", "statistical_model_spec"),
         "stage-5b": ("posterior", "diagnostics"),
-        "stage-6": ("baseline_ranking", "baseline_ranking"),
+        "stage-6": ("baseline_report", "baseline_report"),
     }[stage_id]
     expected_artifact, key = key_by_stage
     assert artifact_id == expected_artifact
     payload = store.read_json_file(artifact_id, version, json_filename(artifact_id, key))
+    if stage_id == "stage-1b":
+        MeasurementStructure.model_validate(payload["measurement_structure"])
+        return payload
     validate_stage_payload(stage_id, payload)
     return payload
 
@@ -200,7 +213,7 @@ def test_stage0_ingests_uploaded_file_through_runner(
 
     install_scripted_stage_factory(handler)
 
-    effects = _run_stage(integration_workspace, fx.state_from(), "stage-0")
+    effects = _run_transition(integration_workspace, fx.state_from(), "raw_data")
 
     assert {info.artifact_id for info in effects.produced} == {"raw_data"}
     raw_info = _produced(effects, "raw_data")
@@ -226,7 +239,7 @@ def test_stage1a_reads_question_and_persists_latent_structure(
     install_scripted_stage_factory(handler)
     state = fx.state_from(question)
 
-    effects = _run_stage(integration_workspace, state, "stage-1a")
+    effects = _run_transition(integration_workspace, state, "latent_structure")
 
     info = _produced(effects, "latent_structure")
     assert info.derived_from == {"question": question.version}
@@ -234,7 +247,7 @@ def test_stage1a_reads_question_and_persists_latent_structure(
     assert payload["latent_structure"]["constructs"][1]["is_outcome"] is True
 
 
-def test_stage1b_reads_upstream_artifacts_and_persists_identification(
+def test_stage1b_reads_upstream_artifacts_and_persists_measurement_derivations(
     integration_workspace: str,
     artifact_store: ArtifactStore,
     install_scripted_stage_factory,
@@ -250,10 +263,15 @@ def test_stage1b_reads_upstream_artifacts_and_persists_identification(
     install_scripted_stage_factory(handler)
     state = fx.state_from(question, raw_data, latent_structure)
 
-    effects = _run_stage(integration_workspace, state, "stage-1b")
+    effects = _run_transition(integration_workspace, state, "measurement_structure")
 
     produced_ids = {info.artifact_id for info in effects.produced}
-    assert produced_ids == {"causal_design", "identification_report"}
+    assert produced_ids == {
+        "measurement_structure",
+        "causal_design",
+        "identification_report",
+    }
+    measurement_info = _produced(effects, "measurement_structure")
     spec_info = _produced(effects, "causal_design")
     id_info = _produced(effects, "identification_report")
     expected_pins = {
@@ -261,9 +279,18 @@ def test_stage1b_reads_upstream_artifacts_and_persists_identification(
         "raw_data": raw_data.version,
         "latent_structure": latent_structure.version,
     }
-    assert spec_info.derived_from == expected_pins
-    assert id_info.derived_from == expected_pins
-    _assert_contract(artifact_store, "causal_design", spec_info.version, "stage-1b")
+    assert measurement_info.derived_from == expected_pins
+    assert spec_info.derived_from == {
+        "latent_structure": latent_structure.version,
+        "measurement_structure": measurement_info.version,
+    }
+    assert id_info.derived_from == {"causal_design": spec_info.version}
+    _assert_contract(
+        artifact_store,
+        "measurement_structure",
+        measurement_info.version,
+        "stage-1b",
+    )
     id_payload = artifact_store.read_json_file(
         "identification_report",
         id_info.version,
@@ -278,52 +305,49 @@ def test_stage2_runs_computed_extraction_from_seeded_artifacts(
 ) -> None:
     question = fx.seed_question(artifact_store)
     raw_data = fx.seed_raw_data(artifact_store)
-    causal_design = fx.seed_causal_design(
+    latent_structure = fx.seed_latent_structure(artifact_store, question_version=question.version)
+    measurement_structure = fx.seed_measurement_structure(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
+        latent_structure_version=latent_structure.version,
     )
-    state = fx.state_from(question, raw_data, causal_design)
+    causal_design = fx.seed_causal_design(
+        artifact_store,
+        latent_structure_version=latent_structure.version,
+        measurement_structure_version=measurement_structure.version,
+    )
+    state = fx.state_from(
+        question, raw_data, latent_structure, measurement_structure, causal_design
+    )
 
-    effects = _run_stage(integration_workspace, state, "stage-2")
+    effects = _run_transition(integration_workspace, state, "measurements")
 
     produced_ids = {info.artifact_id for info in effects.produced}
-    assert produced_ids == {"extraction_report", "model_data"}
-    report_info = _produced(effects, "extraction_report")
-    model_data_info = _produced(effects, "model_data")
+    assert produced_ids == {"measurements", "panel", "validation_report"}
+    report_info = _produced(effects, "measurements")
+    panel_info = _produced(effects, "panel")
+    validation_info = _produced(effects, "validation_report")
     expected_pins = {
         "question": question.version,
         "raw_data": raw_data.version,
-        "causal_design": causal_design.version,
+        "measurement_structure": measurement_structure.version,
     }
     assert report_info.derived_from == expected_pins
-    assert model_data_info.derived_from == expected_pins
-    _assert_contract(artifact_store, "extraction_report", report_info.version, "stage-2")
-    model_data = artifact_store.read_parquet_file(
-        "model_data", model_data_info.version, parquet_filename("model_data", "model_data")
-    )
-    assert set(model_data["indicator"].unique()) == {"sleep_score", "stress_score"}
-
-
-def test_stage3_validates_seeded_model_data_through_runner(
-    integration_workspace: str,
-    artifact_store: ArtifactStore,
-) -> None:
-    causal_design = fx.seed_causal_design(artifact_store)
-    model_data = fx.seed_model_data(artifact_store, causal_design_version=causal_design.version)
-    state = fx.state_from(causal_design, model_data)
-
-    effects = _run_stage(integration_workspace, state, "stage-3")
-
-    info = _produced(effects, "validation_report")
-    assert info.derived_from == {
+    assert panel_info.derived_from == expected_pins
+    assert validation_info.derived_from == {
         "causal_design": causal_design.version,
-        "model_data": model_data.version,
+        "panel": panel_info.version,
     }
+    _assert_contract(artifact_store, "measurements", report_info.version, "stage-2")
+    panel = artifact_store.read_parquet_file(
+        "panel", panel_info.version, parquet_filename("panel", "panel")
+    )
+    assert set(panel["indicator"].unique()) == {"sleep_score", "stress_score"}
     payload = _assert_contract(
         artifact_store,
         "validation_report",
-        info.version,
+        validation_info.version,
         "stage-3",
     )
     assert set(payload["indicators"]) == {"sleep_score", "stress_score"}
@@ -342,28 +366,31 @@ def test_stage4_persists_compiled_ssm_from_seeded_artifacts(
     question = fx.seed_question(artifact_store)
     raw_data = fx.seed_raw_data(artifact_store)
     latent_structure = fx.seed_latent_structure(artifact_store, question_version=question.version)
-    causal_design = fx.seed_causal_design(
+    measurement_structure = fx.seed_measurement_structure(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
         latent_structure_version=latent_structure.version,
+    )
+    causal_design = fx.seed_causal_design(
+        artifact_store,
+        latent_structure_version=latent_structure.version,
+        measurement_structure_version=measurement_structure.version,
     )
     identification_report = fx.seed_identification_report(
         artifact_store,
-        question_version=question.version,
-        raw_data_version=raw_data.version,
-        latent_structure_version=latent_structure.version,
+        causal_design_version=causal_design.version,
     )
-    model_data = fx.seed_model_data(
+    panel = fx.seed_panel(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
-        causal_design_version=causal_design.version,
+        measurement_structure_version=measurement_structure.version,
     )
     validation_report = fx.seed_validation_report(
         artifact_store,
         causal_design_version=causal_design.version,
-        model_data_version=model_data.version,
+        panel_version=panel.version,
     )
 
     original_build = stage4_construct_flow.run_stage4_construct_build
@@ -384,30 +411,42 @@ def test_stage4_persists_compiled_ssm_from_seeded_artifacts(
     install_scripted_stage_factory(handler)
     state = fx.state_from(
         question,
+        raw_data,
+        latent_structure,
+        measurement_structure,
         causal_design,
         identification_report,
-        model_data,
+        panel,
         validation_report,
     )
 
-    effects = _run_stage(
+    effects = _run_transition(
         integration_workspace,
         state,
-        "stage-4",
+        "statistical_model_spec",
         ExecOptions(enable_literature=False),
     )
 
-    info = _produced(effects, "compiled_ssm")
-    assert info.derived_from == {
+    produced_ids = {info.artifact_id for info in effects.produced}
+    assert produced_ids == {"statistical_model_spec", "compiled_ssm"}
+    spec_info = _produced(effects, "statistical_model_spec")
+    compiled_info = _produced(effects, "compiled_ssm")
+    assert spec_info.derived_from == {
         "question": question.version,
         "causal_design": causal_design.version,
         "identification_report": identification_report.version,
-        "model_data": model_data.version,
+        "panel": panel.version,
         "validation_report": validation_report.version,
     }
-    _assert_contract(artifact_store, "compiled_ssm", info.version, "stage-4")
+    assert compiled_info.derived_from == {
+        "statistical_model_spec": spec_info.version,
+        "causal_design": causal_design.version,
+    }
+    _assert_contract(artifact_store, "statistical_model_spec", spec_info.version, "stage-4")
     compiled = artifact_store.read_json_file(
-        "compiled_ssm", info.version, json_filename("compiled_ssm", "compiled_ssm")
+        "compiled_ssm",
+        compiled_info.version,
+        json_filename("compiled_ssm", "compiled_ssm"),
     )
     assert "spec" in compiled
 
@@ -420,7 +459,7 @@ def test_stage5b_persists_posterior_from_seeded_model_artifacts(
     from nof1_causal_lab.flows.stages.stage5b import fit as stage5_fit
 
     compiled_ssm = fx.seed_compiled_ssm(artifact_store)
-    model_data = fx.seed_model_data(artifact_store)
+    panel = fx.seed_panel(artifact_store)
 
     def fake_fit_model(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {
@@ -450,20 +489,20 @@ def test_stage5b_persists_posterior_from_seeded_model_artifacts(
             "test_stats": [],
         },
     )
-    state = fx.state_from(compiled_ssm, model_data)
+    state = fx.state_from(compiled_ssm, panel)
 
-    effects = _run_stage(integration_workspace, state, "stage-5b")
+    effects = _run_transition(integration_workspace, state, "posterior")
 
     info = _produced(effects, "posterior")
     assert info.derived_from == {
         "compiled_ssm": compiled_ssm.version,
-        "model_data": model_data.version,
+        "panel": panel.version,
     }
     payload = _assert_contract(artifact_store, "posterior", info.version, "stage-5b")
     assert payload["inference_metadata"]["n_samples"] == 4
 
 
-def test_stage6_persists_baseline_ranking_from_seeded_posterior(
+def test_stage6_persists_baseline_report_from_seeded_posterior(
     integration_workspace: str,
     artifact_store: ArtifactStore,
     install_scripted_stage_factory,
@@ -489,13 +528,13 @@ def test_stage6_persists_baseline_ranking_from_seeded_posterior(
     install_scripted_stage_factory(handler)
     state = fx.state_from(posterior, causal_design, identification_report)
 
-    effects = _run_stage(integration_workspace, state, "stage-6")
+    effects = _run_transition(integration_workspace, state, "baseline_report")
 
-    info = _produced(effects, "baseline_ranking")
+    info = _produced(effects, "baseline_report")
     assert info.derived_from == {
         "posterior": posterior.version,
         "causal_design": causal_design.version,
         "identification_report": identification_report.version,
     }
-    payload = _assert_contract(artifact_store, "baseline_ranking", info.version, "stage-6")
+    payload = _assert_contract(artifact_store, "baseline_report", info.version, "stage-6")
     assert payload["intervention_results"][0]["treatment"] == "Stress"

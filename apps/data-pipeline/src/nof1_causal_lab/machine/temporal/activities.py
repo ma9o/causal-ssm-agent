@@ -17,20 +17,27 @@ from nof1_causal_lab.machine.errors import ArtifactWriteRejected, StageExecution
 # Runtime imports (not TYPE_CHECKING): temporalio resolves activity type
 # hints at registration time to drive payload conversion.
 from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
-from nof1_causal_lab.machine.runners import execute_stage
+from nof1_causal_lab.machine.runners import execute_transition
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, utc_now_iso
 from nof1_causal_lab.machine.temporal.messages import (  # noqa: TC001
     JournalInput,
-    RunStageInput,
+    RunArtifactInput,
     WriteArtifactInput,
 )
 from nof1_causal_lab.machine.writes import execute_write
 
 
+# Keep the activity name stable for Temporal history replay. The payload is
+# artifact-named; only the registered activity symbol retains the old stage word.
 @activity.defn
-async def run_stage_activity(input: RunStageInput) -> TransitionEffects:
+async def run_stage_activity(input: RunArtifactInput) -> TransitionEffects:
     try:
-        return await execute_stage(input.workspace_id, input.stage_id, input.state, input.options)
+        return await execute_transition(
+            input.workspace_id,
+            input.artifact_id,
+            input.state,
+            input.options,
+        )
     except StageExecutionError as exc:
         raise ApplicationError(
             str(exc),
@@ -43,7 +50,13 @@ async def run_stage_activity(input: RunStageInput) -> TransitionEffects:
 @activity.defn
 async def write_artifact_activity(input: WriteArtifactInput) -> TransitionEffects:
     try:
-        return execute_write(input.workspace_id, input.artifact_id, input.payload, input.provenance)
+        return execute_write(
+            input.workspace_id,
+            input.artifact_id,
+            input.payload,
+            input.provenance,
+            input.state,
+        )
     except ArtifactWriteRejected as exc:
         raise ApplicationError(
             str(exc),

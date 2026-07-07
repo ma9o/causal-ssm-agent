@@ -21,6 +21,7 @@ from nof1_causal_lab.machine.moves import (
     ArtifactStatus,
     ExecOptions,
     Move,
+    RetractedArtifact,
 )
 
 
@@ -55,7 +56,7 @@ class MoveOutcome(BaseModel):
     error_message: str | None = None
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    retracted: list[ArtifactId] = Field(default_factory=list)
+    retracted: list[RetractedArtifact] = Field(default_factory=list)
     state: EpisodeState
 
 
@@ -69,11 +70,11 @@ class EpisodeStatus(BaseModel):
     legal: list[Move]
 
 
-class RunStageInput(BaseModel):
+class RunArtifactInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    stage_id: str
+    artifact_id: ArtifactId
     state: EpisodeState
     options: ExecOptions = Field(default_factory=ExecOptions)
 
@@ -85,6 +86,7 @@ class WriteArtifactInput(BaseModel):
     artifact_id: ArtifactId
     payload: dict[str, Any]
     provenance: Provenance
+    state: EpisodeState
 
 
 class JournalInput(BaseModel):
@@ -99,5 +101,5 @@ class JournalInput(BaseModel):
     error_message: str | None = None
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    retracted: list[ArtifactId] = Field(default_factory=list)
+    retracted: list[RetractedArtifact] = Field(default_factory=list)
     state_after: EpisodeState

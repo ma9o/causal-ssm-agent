@@ -8,18 +8,20 @@ export type EpisodeArtifactId =
   | "question"
   | "raw_data"
   | "latent_structure"
+  | "measurement_structure"
   | "causal_design"
   | "identification_report"
-  | "extraction_report"
-  | "model_data"
+  | "measurements"
+  | "panel"
   | "validation_report"
+  | "statistical_model_spec"
   | "compiled_ssm"
   | "posterior"
-  | "baseline_ranking"
+  | "baseline_report"
   | "saved_scenarios";
 
 export type EpisodeMove =
-  | { kind: "run"; stage_id: string }
+  | { kind: "run"; artifact_id: EpisodeArtifactId }
   | { kind: "write"; artifact_id: EpisodeArtifactId; provenance: EpisodeProvenance };
 
 export interface ArtifactVersionInfo {
@@ -47,8 +49,13 @@ export interface TransitionRecord {
   error_message: string | null;
   diagnostics: Record<string, unknown>;
   produced: ArtifactVersionInfo[];
-  retracted: EpisodeArtifactId[];
+  retracted: RetractedArtifact[];
   state_after: EpisodeState;
+}
+
+export interface RetractedArtifact {
+  artifact_id: EpisodeArtifactId;
+  reason_ref: string;
 }
 
 export interface MoveOutcome {
@@ -59,7 +66,7 @@ export interface MoveOutcome {
   error_message: string | null;
   diagnostics: Record<string, unknown>;
   produced: ArtifactVersionInfo[];
-  retracted: EpisodeArtifactId[];
+  retracted: RetractedArtifact[];
   state: EpisodeState;
 }
 
@@ -87,11 +94,21 @@ export interface EpisodeEvent {
   cursor: string;
 }
 
+export interface MachineTransition {
+  transition_id: EpisodeArtifactId;
+  runner_id: string;
+}
+
+export interface MachineDescription {
+  transitions: MachineTransition[];
+}
+
 /** The artifact a stage's human-edited result writes back into the machine. */
 export const STAGE_EDIT_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
   "stage-1a": "latent_structure",
-  "stage-1b": "causal_design",
-  "stage-6": "baseline_ranking",
+  "stage-1b": "measurement_structure",
+  "stage-4": "statistical_model_spec",
+  "stage-6": "baseline_report",
 };
 
 export class EpisodeRunError extends Error {
@@ -169,6 +186,14 @@ export async function getEpisodeEvents(
 ): Promise<{ workspace_id: string; events: EpisodeEvent[] }> {
   const search = after ? `?${new URLSearchParams({ after }).toString()}` : "";
   return episodeFetch(`/${workspaceId}/events${search}`);
+}
+
+export async function getMachineDescription(): Promise<MachineDescription> {
+  const response = await fetch(`${TOOL_SERVER}/api/machine`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new EpisodeRunError(502, `Machine description error ${response.status}`);
+  }
+  return response.json() as Promise<MachineDescription>;
 }
 
 /**

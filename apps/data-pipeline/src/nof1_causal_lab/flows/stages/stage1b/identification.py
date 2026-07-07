@@ -1,31 +1,11 @@
-"""Stage 1b result shaping: split the LLM proposal into machine artifacts.
-
-The proposal becomes two artifacts:
-
-- ``causal_design`` — the structural + measurement structure (always)
-- ``identification_report`` — ONLY when at least one treatment is explicitly
-  identifiable; its absence structurally disables fitting and interventions
-
-This module is also the derivation used when a human/LLM *writes* an edited
-``causal_design`` directly: identification fan-out is pure computation over the
-spec's explicit identifiability status.
-"""
+"""Identification-report derivation for Stage 1b structures."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class Stage1bArtifacts:
-    """Payloads for the artifacts a stage-1b run (or causal_design write) yields."""
-
-    causal_design_payload: dict[str, Any]
-    identification_report: dict[str, Any] | None
 
 
 def derive_identification_report(
@@ -50,15 +30,15 @@ def derive_identification_report(
             notes = details.get("notes") if isinstance(details, dict) else None
             if blockers:
                 logger.warning(
-                    "  - %s → %s (blocked by: %s)",
+                    "  - %s -> %s (blocked by: %s)",
                     treatment,
                     outcome_name,
                     ", ".join(blockers),
                 )
             elif notes:
-                logger.warning("  - %s → %s (%s)", treatment, outcome_name, notes)
+                logger.warning("  - %s -> %s (%s)", treatment, outcome_name, notes)
             else:
-                logger.warning("  - %s → %s", treatment, outcome_name)
+                logger.warning("  - %s -> %s", treatment, outcome_name)
         logger.info(
             "Retaining %d estimable intervention targets after identifiability filtering",
             len(treatments),
@@ -66,8 +46,8 @@ def derive_identification_report(
 
     if not treatments:
         logger.warning(
-            "No estimable intervention targets remain for %s — "
-            "identification_report artifact withheld (fit chain stays disabled)",
+            "No estimable intervention targets remain for %s; "
+            "identification_report artifact withheld",
             outcome_name or "the outcome",
         )
         return None
@@ -76,18 +56,3 @@ def derive_identification_report(
         "estimable_treatments": treatments,
         "non_identifiable_treatments": non_identifiable,
     }
-
-
-def split_stage1b_result(
-    result: dict[str, Any],
-    *,
-    latent_structure: dict[str, Any] | None = None,
-) -> Stage1bArtifacts:
-    """Split a raw stage-1b LLM result into machine artifacts."""
-    payload = dict(result)
-    causal_design = payload.get("causal_design", {}) or {}
-    report = derive_identification_report(causal_design, latent_structure=latent_structure)
-    return Stage1bArtifacts(
-        causal_design_payload=payload,
-        identification_report=report,
-    )

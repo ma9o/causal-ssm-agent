@@ -1,9 +1,10 @@
 """legal_moves / apply_transition / staleness / freshness semantics."""
 
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
-from nof1_causal_lab.machine.graph import WRITABLE_ARTIFACTS, stage_spec
+from nof1_causal_lab.machine.graph import WRITABLE_ARTIFACTS, transition_spec
 from nof1_causal_lab.machine.moves import (
-    RunStage,
+    RetractedArtifact,
+    RunArtifact,
     WriteArtifact,
     apply_transition,
     freshness_report,
@@ -32,16 +33,16 @@ def _state(*infos):
 
 
 def _runnable(state):
-    return {move.stage_id for move in legal_moves(state) if isinstance(move, RunStage)}
+    return {move.artifact_id for move in legal_moves(state) if isinstance(move, RunArtifact)}
 
 
 class TestLegalMoves:
-    def test_empty_state_enables_only_stage0(self):
-        assert _runnable(EpisodeState()) == {"stage-0"}
+    def test_empty_state_enables_only_raw_data(self):
+        assert _runnable(EpisodeState()) == {"raw_data"}
 
-    def test_question_write_enables_stage1a(self):
+    def test_question_write_enables_latent_structure(self):
         state = _state(_version("question", provenance="human"))
-        assert _runnable(state) == {"stage-0", "stage-1a"}
+        assert _runnable(state) == {"raw_data", "latent_structure"}
 
     def test_declared_writes_are_offered(self):
         offered = {
@@ -51,57 +52,60 @@ class TestLegalMoves:
         }
         assert offered == set(WRITABLE_ARTIFACTS)
         assert "question" in offered
-        assert "causal_design" in offered
+        assert "measurement_structure" in offered
+        assert "statistical_model_spec" in offered
+        assert "causal_design" not in offered
         assert "raw_data" not in offered
 
     def test_no_identification_report_disables_fit_chain(self):
-        """The epistemic gate: identification produced nothing estimable."""
-        state = _state(
-            _version("question", provenance="human"),
-            _version("raw_data", produced_by="stage-0"),
-            _version("latent_structure", produced_by="stage-1a"),
-            _version("causal_design", produced_by="stage-1b"),
-            _version("extraction_report", produced_by="stage-2"),
-            _version("model_data", produced_by="stage-2"),
-            _version("validation_report", produced_by="stage-3"),
-        )
-        runnable = _runnable(state)
-        assert "stage-4" not in runnable
-        assert "stage-3" in runnable
-
-    def test_identification_report_enables_stage4(self):
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data"),
             _version("latent_structure"),
+            _version("measurement_structure"),
             _version("causal_design"),
-            _version("identification_report"),
-            _version("extraction_report"),
-            _version("model_data"),
+            _version("measurements"),
+            _version("panel"),
             _version("validation_report"),
         )
-        assert "stage-4" in _runnable(state)
+        runnable = _runnable(state)
+        assert "statistical_model_spec" not in runnable
+        assert "measurements" in runnable
 
-    def test_stage6_does_not_require_question(self):
+    def test_identification_report_enables_statistical_model_spec(self):
+        state = _state(
+            _version("question", provenance="human"),
+            _version("raw_data"),
+            _version("latent_structure"),
+            _version("measurement_structure"),
+            _version("causal_design"),
+            _version("identification_report"),
+            _version("measurements"),
+            _version("panel"),
+            _version("validation_report"),
+        )
+        assert "statistical_model_spec" in _runnable(state)
+
+    def test_baseline_report_does_not_require_question(self):
         state = _state(
             _version("causal_design"),
             _version("identification_report"),
             _version("posterior"),
         )
-        assert "stage-6" in _runnable(state)
+        assert "baseline_report" in _runnable(state)
 
 
 class TestValidateMove:
     def test_missing_inputs_rejected_with_names(self):
-        reason = validate_move(EpisodeState(), RunStage(stage_id="stage-1b"))
+        reason = validate_move(EpisodeState(), RunArtifact(artifact_id="measurement_structure"))
         assert reason is not None
         assert "question" in reason
         assert "latent_structure" in reason
 
-    def test_unknown_stage_rejected(self):
-        reason = validate_move(EpisodeState(), RunStage(stage_id="stage-99"))
+    def test_unknown_transition_rejected(self):
+        reason = validate_move(EpisodeState(), RunArtifact(artifact_id="validation_report"))
         assert reason is not None
-        assert "Unknown stage" in reason
+        assert "Unknown transition" in reason
 
     def test_computed_provenance_write_rejected(self):
         reason = validate_move(
@@ -110,8 +114,13 @@ class TestValidateMove:
         )
         assert reason is not None
 
+    def test_derived_artifact_write_rejected(self):
+        reason = validate_move(EpisodeState(), WriteArtifact(artifact_id="causal_design"))
+        assert reason is not None
+        assert "not writable" in reason
+
     def test_legal_run_accepted(self):
-        assert validate_move(EpisodeState(), RunStage(stage_id="stage-0")) is None
+        assert validate_move(EpisodeState(), RunArtifact(artifact_id="raw_data")) is None
 
 
 class TestApplyTransition:
@@ -126,27 +135,29 @@ class TestApplyTransition:
         assert state.get("raw_data").version == 2
 
     def test_optional_artifact_retracted_when_withheld(self):
-        """A rerun of stage-1b that finds nothing estimable retracts the report."""
-        spec = stage_spec("stage-1b")
+        spec = transition_spec("measurements")
         state = _state(
-            _version("causal_design", version=1),
-            _version("identification_report", version=1),
+            _version("measurements", version=1),
+            _version("panel", version=1),
         )
-        produced = [
-            _version("causal_design", version=2),
-        ]
+        produced = [_version("measurements", version=2)]
         retracted = run_retractions(state, spec, produced)
-        assert retracted == ["identification_report"]
+        assert retracted == [
+            RetractedArtifact(
+                artifact_id="panel",
+                reason_ref="measurements.produces_optional.panel",
+            )
+        ]
         next_state = apply_transition(state, produced, retracted)
-        assert not next_state.has("identification_report")
-        assert next_state.get("causal_design").version == 2
+        assert not next_state.has("panel")
+        assert next_state.get("measurements").version == 2
 
     def test_no_retraction_when_optional_still_produced(self):
-        spec = stage_spec("stage-1b")
-        state = _state(_version("identification_report", version=1))
+        spec = transition_spec("measurements")
+        state = _state(_version("panel", version=1))
         produced = [
-            _version("causal_design"),
-            _version("identification_report", version=2),
+            _version("measurements"),
+            _version("panel", version=2),
         ]
         assert run_retractions(state, spec, produced) == []
 
@@ -158,51 +169,111 @@ class TestStaleness:
         latent_structure = _version(
             "latent_structure", derived_from={"question": 1}, produced_by="stage-1a"
         )
-        spec = _version(
-            "causal_design",
+        measurement_structure = _version(
+            "measurement_structure",
             derived_from={"question": 1, "raw_data": 1, "latent_structure": 1},
             produced_by="stage-1b",
         )
-        model_data = _version(
-            "model_data",
-            derived_from={"question": 1, "raw_data": 1, "causal_design": 1},
+        causal_design = _version(
+            "causal_design",
+            derived_from={"latent_structure": 1, "measurement_structure": 1},
+            produced_by="derive:causal_design",
+        )
+        identification_report = _version(
+            "identification_report",
+            derived_from={"causal_design": 1},
+            produced_by="derive:identification_report",
+        )
+        measurements = _version(
+            "measurements",
+            derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
             produced_by="stage-2",
         )
-        posterior = _version(
-            "posterior",
-            derived_from={"compiled_ssm": 1, "model_data": 1},
-            produced_by="stage-5b",
+        panel = _version(
+            "panel",
+            derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
+            produced_by="stage-2",
+        )
+        validation = _version(
+            "validation_report",
+            derived_from={"panel": 1, "causal_design": 1},
+            produced_by="derive:validation_report",
+        )
+        sms = _version(
+            "statistical_model_spec",
+            derived_from={
+                "question": 1,
+                "causal_design": 1,
+                "identification_report": 1,
+                "panel": 1,
+                "validation_report": 1,
+            },
+            produced_by="stage-4",
         )
         compiled = _version(
             "compiled_ssm",
-            derived_from={"causal_design": 1, "model_data": 1},
-            produced_by="stage-4",
+            derived_from={"statistical_model_spec": 1, "causal_design": 1},
+            produced_by="derive:compiled_ssm",
         )
-        return _state(question, raw, latent_structure, spec, model_data, compiled, posterior)
+        posterior = _version(
+            "posterior",
+            derived_from={"compiled_ssm": 1, "panel": 1},
+            produced_by="stage-5b",
+        )
+        return _state(
+            question,
+            raw,
+            latent_structure,
+            measurement_structure,
+            causal_design,
+            identification_report,
+            measurements,
+            panel,
+            validation,
+            sms,
+            compiled,
+            posterior,
+        )
 
     def test_fresh_chain_reports_fresh(self):
         state = self._fitted_chain()
         assert is_fresh(state, "posterior")
         assert not is_stale(state, "posterior")
 
-    def test_editing_causal_design_stales_posterior_transitively(self):
-        """The scenario halt-on-fail used to (badly) protect against."""
+    def test_editing_measurement_structure_stales_produced_descendants(self):
         state = self._fitted_chain()
         state = apply_transition(
             state,
-            [_version("causal_design", version=2, provenance="human")],
+            [
+                _version("measurement_structure", version=2, provenance="human"),
+                _version(
+                    "causal_design",
+                    version=2,
+                    derived_from={"latent_structure": 1, "measurement_structure": 2},
+                ),
+                _version("identification_report", version=2, derived_from={"causal_design": 2}),
+                _version(
+                    "compiled_ssm",
+                    version=2,
+                    derived_from={"statistical_model_spec": 1, "causal_design": 2},
+                ),
+            ],
         )
-        assert is_stale(state, "model_data")
-        assert is_stale(state, "compiled_ssm")
+        assert is_stale(state, "measurements")
+        assert is_stale(state, "panel")
+        assert is_stale(state, "statistical_model_spec")
         assert is_stale(state, "posterior")
         assert not is_fresh(state, "posterior")
-        # Roots and untouched intermediates stay fresh.
+        # Derived nodes are recomputed in the move and are never reported stale.
+        assert not is_stale(state, "causal_design")
+        assert not is_stale(state, "identification_report")
+        assert not is_stale(state, "compiled_ssm")
         assert not is_stale(state, "question")
         assert not is_stale(state, "latent_structure")
 
     def test_retracted_input_stales_dependents(self):
         state = self._fitted_chain()
-        state = state.without(["model_data"])
+        state = state.without(["panel"])
         assert is_stale(state, "posterior")
 
     def test_absent_artifact_is_not_stale(self):
@@ -210,14 +281,51 @@ class TestStaleness:
 
     def test_recompute_restores_freshness(self):
         state = self._fitted_chain()
-        state = apply_transition(state, [_version("causal_design", version=2)])
+        state = apply_transition(
+            state,
+            [
+                _version("measurement_structure", version=2),
+                _version(
+                    "causal_design",
+                    version=2,
+                    derived_from={"latent_structure": 1, "measurement_structure": 2},
+                ),
+                _version("identification_report", version=2, derived_from={"causal_design": 2}),
+            ],
+        )
         state = apply_transition(
             state,
             [
                 _version(
-                    "model_data",
+                    "measurements",
                     version=2,
-                    derived_from={"question": 1, "raw_data": 1, "causal_design": 2},
+                    derived_from={"question": 1, "raw_data": 1, "measurement_structure": 2},
+                ),
+                _version(
+                    "panel",
+                    version=2,
+                    derived_from={"question": 1, "raw_data": 1, "measurement_structure": 2},
+                ),
+                _version(
+                    "validation_report",
+                    version=2,
+                    derived_from={"panel": 2, "causal_design": 2},
+                ),
+            ],
+        )
+        state = apply_transition(
+            state,
+            [
+                _version(
+                    "statistical_model_spec",
+                    version=2,
+                    derived_from={
+                        "question": 1,
+                        "causal_design": 2,
+                        "identification_report": 2,
+                        "panel": 2,
+                        "validation_report": 2,
+                    },
                 )
             ],
         )
@@ -227,7 +335,7 @@ class TestStaleness:
                 _version(
                     "compiled_ssm",
                     version=2,
-                    derived_from={"causal_design": 2, "model_data": 2},
+                    derived_from={"statistical_model_spec": 2, "causal_design": 2},
                 )
             ],
         )
@@ -237,7 +345,7 @@ class TestStaleness:
                 _version(
                     "posterior",
                     version=2,
-                    derived_from={"compiled_ssm": 2, "model_data": 2},
+                    derived_from={"compiled_ssm": 2, "panel": 2},
                 )
             ],
         )
@@ -249,7 +357,7 @@ class TestInputPins:
         state = _state(
             _version("question", version=3, provenance="human"),
         )
-        pins = input_pins(state, stage_spec("stage-1a"))
+        pins = input_pins(state, transition_spec("latent_structure"))
         assert pins == {"question": 3}
 
 

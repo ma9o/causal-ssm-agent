@@ -1,4 +1,4 @@
-"""Stage 1b: Measurement Structure with Identifiability."""
+"""Stage 1b: Measurement Structure proposal."""
 
 from __future__ import annotations
 
@@ -17,11 +17,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Stage1bResult:
-    """Result of Stage 1b: measurement structure with identifiability status."""
+    """Result of Stage 1b: validated measurement structure."""
 
     measurement_structure: dict
-    identifiability_status: dict
-    causal_design: dict
 
 
 def _build_stage1b_user_prompt(
@@ -45,22 +43,13 @@ async def run_stage1b(
     session_factory: StageSessionFactory,
     dataset_summary: str = "",
 ) -> Stage1bResult:
-    """Run the Stage 1b flow: measurement structure + identifiability check.
-
-    The fat validation tool checks structural validity and causal
-    identifiability together. When identifiability fails, the tool
-    returns rich feedback the model can use to add proxy indicators in
-    the next turn — all within one session.
-    """
+    """Run the Stage 1b measurement-structure proposal flow."""
     from nof1_causal_lab.flows.stage_tool_factory import make_stage_tool
     from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
     tool, capture = make_stage_tool(
         name="validate_measurement_structure",
-        description=(
-            "Validate measurement structure JSON, check compiler constraints, "
-            "and verify causal identifiability."
-        ),
+        description="Validate measurement structure JSON and compiler constraints.",
         param_name="measurement_json",
         param_description="The JSON string containing the measurement structure.",
         compute_fn=lambda data: stage1b_grounding(data, latent_structure),
@@ -76,22 +65,8 @@ async def run_stage1b(
         )
         await session.turn(templates.REVIEW)
 
-    causal_design = capture.get("causal_design")
-    if causal_design is None:
+    measurement = capture.get("measurement_structure")
+    if measurement is None:
         raise ValueError("No valid measurement structure produced")
 
-    measurement = causal_design.get("measurement", {})
-    id_info = causal_design.get("identifiability") or {}
-    id_status = {
-        "identifiable_treatments": id_info.get("identifiable_treatments", {}),
-        "non_identifiable_treatments": id_info.get("non_identifiable_treatments", {}),
-    }
-    graph_info = capture.get("graph_info")
-    if graph_info is not None:
-        id_status["graph_info"] = graph_info
-
-    return Stage1bResult(
-        measurement_structure=measurement,
-        identifiability_status=id_status,
-        causal_design=causal_design,
-    )
+    return Stage1bResult(measurement_structure=measurement)

@@ -1,12 +1,14 @@
-"""Runner/write executors: the produced-when-nonempty gates and write fan-out."""
+"""Runner/write executors: optional outputs and derivation cascade."""
 
 import polars as pl
 import pytest
 
-from nof1_causal_lab.flows.stages.stage1b.result import split_stage1b_result
+from nof1_causal_lab.flows.stages.stage1b.identification import derive_identification_report
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
-from nof1_causal_lab.machine.runners import execute_stage_locally
+from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.machine.moves import ExecOptions, apply_transition, input_pins
+from nof1_causal_lab.machine.runners import execute_transition_locally
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.writes import execute_write
 
@@ -21,45 +23,8 @@ def workspace(monkeypatch, tmp_path):
 
 def _valid_causal_design(*, include_identifiability=True, non_identifiable=None) -> dict:
     spec = {
-        "latent": {
-            "constructs": [
-                {
-                    "name": "Perf",
-                    "description": "Performance",
-                    "role": "endogenous",
-                    "is_outcome": True,
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "Stress",
-                    "description": "Stress level",
-                    "role": "endogenous",
-                    "is_outcome": False,
-                    "temporal_status": "time_varying",
-                },
-            ],
-            "edges": [
-                {
-                    "cause": "Stress",
-                    "effect": "Perf",
-                    "description": "Stress reduces performance",
-                    "lagged": True,
-                }
-            ],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "name": "stress_score",
-                    "construct_name": "Stress",
-                    "construct_polarity": "positive",
-                    "how_to_measure": "Self-reported stress",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                }
-            ],
-        },
+        "latent": _latent_structure(),
+        "measurement": _measurement_structure(),
         "estimation": {
             "state_order": ["Stress", "Perf"],
             "edges": [
@@ -93,31 +58,78 @@ def _valid_causal_design(*, include_identifiability=True, non_identifiable=None)
     return spec
 
 
-class TestStage1bSplit:
+def _latent_structure() -> dict:
+    return {
+        "constructs": [
+            {
+                "name": "Perf",
+                "description": "Performance",
+                "role": "endogenous",
+                "is_outcome": True,
+                "temporal_status": "time_varying",
+            },
+            {
+                "name": "Stress",
+                "description": "Stress level",
+                "role": "endogenous",
+                "is_outcome": False,
+                "temporal_status": "time_varying",
+            },
+        ],
+        "edges": [
+            {
+                "cause": "Stress",
+                "effect": "Perf",
+                "description": "Stress reduces performance",
+                "lagged": True,
+            }
+        ],
+    }
+
+
+def _measurement_structure() -> dict:
+    return {
+        "model_clock": "1d",
+        "indicators": [
+            {
+                "name": "stress_score",
+                "construct_name": "Stress",
+                "construct_polarity": "positive",
+                "how_to_measure": "Self-reported stress",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+            },
+            {
+                "name": "perf_score",
+                "construct_name": "Perf",
+                "construct_polarity": "positive",
+                "how_to_measure": "Self-reported performance",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+            },
+        ],
+    }
+
+
+class TestIdentificationReportDerivation:
     def test_explicit_identifiable_treatments_produce_identification_report(self):
-        artifacts = split_stage1b_result({"causal_design": _valid_causal_design()})
-        assert artifacts.identification_report["estimable_treatments"] == ["Stress"]
+        report = derive_identification_report(_valid_causal_design())
+        assert report is not None
+        assert report["estimable_treatments"] == ["Stress"]
 
     def test_missing_identifiability_withholds_identification_report(self):
-        artifacts = split_stage1b_result(
-            {"causal_design": _valid_causal_design(include_identifiability=False)}
-        )
-        assert artifacts.identification_report is None
+        report = derive_identification_report(_valid_causal_design(include_identifiability=False))
+        assert report is None
 
     def test_all_non_identifiable_withholds_identification_report(self):
-        """The epistemic gate: no positive report means the fit chain is disabled."""
-        artifacts = split_stage1b_result(
-            {
-                "causal_design": _valid_causal_design(
-                    non_identifiable={"Stress": {"confounders": ["U"]}}
-                )
-            }
+        report = derive_identification_report(
+            _valid_causal_design(non_identifiable={"Stress": {"confounders": ["U"]}})
         )
-        assert artifacts.identification_report is None
+        assert report is None
 
 
 class TestStage2Gate:
-    async def _run_stage2(self, workspace, monkeypatch, observation_rows):
+    async def _run_measurements(self, workspace, monkeypatch, observation_rows):
         from nof1_causal_lab.flows.stages.stage2 import flow as stage2_flow
         from nof1_causal_lab.flows.stages.stage2 import materialization
 
@@ -140,11 +152,15 @@ class TestStage2Gate:
                     parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
                 ),
                 store.write_version(
-                    "causal_design",
+                    "measurement_structure",
                     provenance="computed",
                     derived_from={},
                     produced_by="stage-1b",
-                    json_files={"causal_design.json": {"causal_design": _valid_causal_design()}},
+                    json_files={
+                        "measurement_structure.json": {
+                            "measurement_structure": _measurement_structure()
+                        }
+                    },
                 ),
             ]
         )
@@ -161,82 +177,274 @@ class TestStage2Gate:
         monkeypatch.setattr(stage2_flow, "run_stage2_extraction", fake_extraction)
         monkeypatch.setattr(materialization, "materialize_stage2_outputs", fake_materialize)
 
-        from nof1_causal_lab.machine.moves import ExecOptions
+        spec = transition_spec("measurements")
+        return await execute_transition_locally(
+            workspace,
+            "measurements",
+            input_pins(state, spec),
+            state,
+            ExecOptions(),
+        )
 
-        return await execute_stage_locally(workspace, "stage-2", _pins(state), ExecOptions())
-
-    def test_empty_extraction_withholds_model_data(self, workspace, monkeypatch):
+    def test_empty_extraction_withholds_panel(self, workspace, monkeypatch):
         import asyncio
 
-        effects = asyncio.run(self._run_stage2(workspace, monkeypatch, []))
+        effects = asyncio.run(self._run_measurements(workspace, monkeypatch, []))
         produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"extraction_report"}
+        assert produced == {"measurements"}
 
-    def test_nonempty_extraction_produces_model_data(self, workspace, monkeypatch):
+    def test_nonempty_extraction_produces_panel(self, workspace, monkeypatch):
         import asyncio
 
         rows = [{"indicator": "stress_score", "value": 3.0, "timestamp": "2026-01-01"}]
-        effects = asyncio.run(self._run_stage2(workspace, monkeypatch, rows))
+        effects = asyncio.run(self._run_measurements(workspace, monkeypatch, rows))
         produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"extraction_report", "model_data"}
-        model_data = next(i for i in effects.produced if i.artifact_id == "model_data")
-        # derived_from pins the exact inputs consumed
-        assert set(model_data.derived_from) == {"question", "raw_data", "causal_design"}
+        assert produced == {"measurements", "panel"}
+        panel = next(info for info in effects.produced if info.artifact_id == "panel")
+        assert set(panel.derived_from) == {"question", "raw_data", "measurement_structure"}
 
 
-def _pins(state):
-    from nof1_causal_lab.machine.graph import stage_spec
-    from nof1_causal_lab.machine.moves import input_pins
+class TestMeasurementStructureArtifactWrite:
+    def _state_with_latent(self, store: ArtifactStore):
+        latent_info = store.write_version(
+            "latent_structure",
+            provenance="llm",
+            derived_from={},
+            produced_by=None,
+            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
+        )
+        return EpisodeState().with_versions([latent_info])
 
-    return input_pins(state, stage_spec("stage-2"))
+    def test_write_cascades_causal_design_and_identification_report(self, workspace):
+        store = ArtifactStore(workspace)
+        state = self._state_with_latent(store)
 
-
-class TestCausalDesignWrite:
-    def test_write_fans_out_positive_identification_report(self, workspace):
         effects = execute_write(
             workspace,
-            "causal_design",
-            {"causal_design": _valid_causal_design()},
+            "measurement_structure",
+            {"measurement_structure": _measurement_structure()},
             "human",
+            state,
         )
+
         produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"causal_design", "identification_report"}
+        assert produced == {
+            "measurement_structure",
+            "causal_design",
+            "identification_report",
+        }
         assert effects.retracted == []
-        for info in effects.produced:
-            assert info.provenance == "human"
         derived = {
             info.artifact_id: info.derived_from
             for info in effects.produced
-            if info.artifact_id != "causal_design"
+            if info.artifact_id != "measurement_structure"
         }
-        spec_version = next(
-            info.version for info in effects.produced if info.artifact_id == "causal_design"
+        measurement_version = next(
+            info.version for info in effects.produced if info.artifact_id == "measurement_structure"
         )
-        assert derived["identification_report"] == {"causal_design": spec_version}
+        assert derived["causal_design"] == {
+            "latent_structure": 1,
+            "measurement_structure": measurement_version,
+        }
+        assert derived["identification_report"] == {"causal_design": 1}
 
-    def test_write_with_nothing_estimable_retracts_identification_report(self, workspace):
-        effects = execute_write(
-            workspace,
+    def test_write_retracts_derivations_with_stale_non_cascading_parents(self, workspace):
+        store = ArtifactStore(workspace)
+        question = store.write_version(
+            "question",
+            provenance="human",
+            derived_from={},
+            produced_by=None,
+            json_files={"question.json": {"text": "does stress hurt performance?"}},
+        )
+        raw_data = store.write_version(
+            "raw_data",
+            provenance="computed",
+            derived_from={},
+            produced_by="stage-0",
+            json_files={"profile.json": {"column_descriptions": []}},
+            parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
+        )
+        latent_structure = store.write_version(
+            "latent_structure",
+            provenance="computed",
+            derived_from={"question": question.version},
+            produced_by="stage-1a",
+            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
+        )
+        old_measurement = store.write_version(
+            "measurement_structure",
+            provenance="computed",
+            derived_from={
+                "question": question.version,
+                "raw_data": raw_data.version,
+                "latent_structure": latent_structure.version,
+            },
+            produced_by="stage-1b",
+            json_files={
+                "measurement_structure.json": {"measurement_structure": _measurement_structure()}
+            },
+        )
+        old_causal_design = store.write_version(
             "causal_design",
-            {
-                "causal_design": _valid_causal_design(
-                    non_identifiable={"Stress": {"confounders": ["U"]}}
+            provenance="computed",
+            derived_from={
+                "latent_structure": latent_structure.version,
+                "measurement_structure": old_measurement.version,
+            },
+            produced_by="derive:causal_design",
+            json_files={"causal_design.json": {"causal_design": _valid_causal_design()}},
+        )
+        old_identification = store.write_version(
+            "identification_report",
+            provenance="computed",
+            derived_from={"causal_design": old_causal_design.version},
+            produced_by="derive:identification_report",
+            json_files={
+                "identification_report.json": {
+                    "outcome_name": "Perf",
+                    "estimable_treatments": ["Stress"],
+                    "non_identifiable_treatments": {},
+                }
+            },
+        )
+        panel = store.write_version(
+            "panel",
+            provenance="computed",
+            derived_from={
+                "question": question.version,
+                "raw_data": raw_data.version,
+                "measurement_structure": old_measurement.version,
+            },
+            produced_by="stage-2",
+            parquet_files={
+                "panel.parquet": pl.DataFrame(
+                    {
+                        "indicator": ["stress_score"],
+                        "value": [3.0],
+                        "anchor_time": ["2026-01-01"],
+                    }
                 )
             },
-            "human",
         )
-        produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"causal_design"}
-        assert effects.retracted == ["identification_report"]
+        validation = store.write_version(
+            "validation_report",
+            provenance="computed",
+            derived_from={"panel": panel.version, "causal_design": old_causal_design.version},
+            produced_by="derive:validation_report",
+            json_files={
+                "validation_report.json": {
+                    "is_valid": True,
+                    "indicators": {},
+                    "dataset_issues": [],
+                }
+            },
+        )
+        statistical_model_spec = store.write_version(
+            "statistical_model_spec",
+            provenance="computed",
+            derived_from={
+                "question": question.version,
+                "causal_design": old_causal_design.version,
+                "identification_report": old_identification.version,
+                "panel": panel.version,
+                "validation_report": validation.version,
+            },
+            produced_by="stage-4",
+            json_files={
+                "statistical_model_spec.json": {
+                    "statistical_model_spec": {"likelihoods": [], "parameters": []},
+                    "authored_priors": {},
+                    "resolved_priors": [],
+                    "prior_predictive_samples": {},
+                }
+            },
+        )
+        compiled = store.write_version(
+            "compiled_ssm",
+            provenance="computed",
+            derived_from={
+                "statistical_model_spec": statistical_model_spec.version,
+                "causal_design": old_causal_design.version,
+            },
+            produced_by="derive:compiled_ssm",
+            json_files={"compiled-ssm.json": {"spec": {}}, "report.json": {}},
+        )
+        state = EpisodeState().with_versions(
+            [
+                question,
+                raw_data,
+                latent_structure,
+                old_measurement,
+                old_causal_design,
+                old_identification,
+                panel,
+                validation,
+                statistical_model_spec,
+                compiled,
+            ]
+        )
 
-    def test_invalid_payload_rejected(self, workspace):
+        effects = execute_write(
+            workspace,
+            "measurement_structure",
+            {"measurement_structure": _measurement_structure()},
+            "human",
+            state,
+        )
+
+        produced = {info.artifact_id for info in effects.produced}
+        retracted = {item.artifact_id: item.reason_ref for item in effects.retracted}
+        assert produced == {
+            "measurement_structure",
+            "causal_design",
+            "identification_report",
+        }
+        assert retracted == {
+            "validation_report": "validation_report.parents_stale.panel",
+            "compiled_ssm": "compiled_ssm.parents_stale.statistical_model_spec",
+        }
+        next_state = apply_transition(state, effects.produced, effects.retracted)
+        assert not next_state.has("validation_report")
+        assert not next_state.has("compiled_ssm")
+
+    def test_failed_cascade_removes_written_versions(self, workspace, monkeypatch):
+        from nof1_causal_lab.utils import identifiability
+
+        store = ArtifactStore(workspace)
+        state = self._state_with_latent(store)
+
+        def fail_identifiability(*_args, **_kwargs):
+            raise RuntimeError("identification failed")
+
+        monkeypatch.setattr(identifiability, "check_identifiability", fail_identifiability)
+
+        with pytest.raises(RuntimeError, match="identification failed"):
+            execute_write(
+                workspace,
+                "measurement_structure",
+                {"measurement_structure": _measurement_structure()},
+                "human",
+                state,
+            )
+
+        assert store.list_versions("measurement_structure") == []
+        assert store.list_versions("causal_design") == []
+
+    def test_invalid_measurement_payload_rejected(self, workspace):
         with pytest.raises(ArtifactWriteRejected):
-            execute_write(workspace, "causal_design", {"causal_design": {"nope": True}}, "human")
+            execute_write(
+                workspace,
+                "measurement_structure",
+                {"measurement_structure": {"nope": True}},
+                "human",
+                EpisodeState(),
+            )
 
     def test_question_write_requires_text(self, workspace):
         with pytest.raises(ArtifactWriteRejected):
-            execute_write(workspace, "question", {"text": "   "}, "human")
+            execute_write(workspace, "question", {"text": "   "}, "human", EpisodeState())
 
     def test_binary_artifacts_not_directly_writable(self, workspace):
         with pytest.raises(ArtifactWriteRejected, match="no write executor"):
-            execute_write(workspace, "posterior", {"anything": 1}, "human")
+            execute_write(workspace, "posterior", {"anything": 1}, "human", EpisodeState())

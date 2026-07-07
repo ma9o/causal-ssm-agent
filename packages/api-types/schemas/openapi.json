@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every stage\nwith what it consumes, produces, optionally co-produces, and derives \u2014 plus each\nstage's creation class:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These stages are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"stage_id\": \"stage-1a\"}}` to run a stage, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long stages (stage-4, stage-5b \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled stages in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed stage error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning stage-0. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
+    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every\ntransition with what it consumes, produces, and optionally co-produces \u2014 plus\neach transition's creation class and the derivation graph:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These transitions are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}` to run a transition, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long transitions (`statistical_model_spec`, `posterior` \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled transitions in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed transition error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning the `raw_data` transition. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -172,14 +172,16 @@
                 "question",
                 "raw_data",
                 "latent_structure",
+                "measurement_structure",
                 "causal_design",
                 "identification_report",
-                "extraction_report",
-                "model_data",
+                "measurements",
+                "panel",
                 "validation_report",
+                "statistical_model_spec",
                 "compiled_ssm",
                 "posterior",
-                "baseline_ranking",
+                "baseline_report",
                 "saved_scenarios"
               ],
               "type": "string",
@@ -253,14 +255,16 @@
                 "question",
                 "raw_data",
                 "latent_structure",
+                "measurement_structure",
                 "causal_design",
                 "identification_report",
-                "extraction_report",
-                "model_data",
+                "measurements",
+                "panel",
                 "validation_report",
+                "statistical_model_spec",
                 "compiled_ssm",
                 "posterior",
-                "baseline_ranking",
+                "baseline_report",
                 "saved_scenarios"
               ],
               "type": "string",
@@ -359,7 +363,7 @@
     "/api/episodes/{workspace_id}/moves": {
       "post": {
         "summary": "Propose Move",
-        "description": "Propose one move; blocks until it is applied, rejected, or raises.\n\nTwo kinds:\n\n- Run a stage: `{\"move\": {\"kind\": \"run\", \"stage_id\": \"stage-1a\"}}`.\n- Author a judgment artifact directly (skip the in-service stage):\n  `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\":\n  \"llm\"}, \"payload\": {...}}`. The payload is schema-validated against that\n  artifact's contract, journaled, and provenance-stamped; the write becomes a\n  new provenance root and marks everything downstream stale until re-run.\n\nThe synchronous outcome is the same record the timeline stores. Long stages\n(stage-4, stage-5b \u2014 minutes to hours) can outlive a client timeout; for\nthose prefer `POST /api/episodes/{workspace_id}/auto` plus polling.",
+        "description": "Propose one move; blocks until it is applied, rejected, or raises.\n\nTwo kinds:\n\n- Run a transition: `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}`.\n- Author a judgment artifact directly (skip the in-service stage):\n  `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\":\n  \"llm\"}, \"payload\": {...}}`. The payload is schema-validated against that\n  artifact's contract, journaled, and provenance-stamped; the write becomes a\n  new provenance root and marks everything downstream stale until re-run.\n\nThe synchronous outcome is the same record the timeline stores. Long transitions\n(statistical model specification, posterior \u2014 minutes to hours) can outlive a client timeout; for\nthose prefer `POST /api/episodes/{workspace_id}/auto` plus polling.",
         "operationId": "propose_move_api_episodes__workspace_id__moves_post",
         "parameters": [
           {
@@ -484,7 +488,7 @@
     "/api/machine": {
       "get": {
         "summary": "Get Machine",
-        "description": "The static artifact graph and action hierarchy \u2014 read once to orient.\n\nEach stage entry declares what it `consumes`, `produces`, optionally\nco-produces (`produces_optional`), and `derives`, plus its **creation\nclass**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk\nLLM compute on the service's ambient key \u2014 you trigger it with a `run` move,\nyou never supply a key), or `judgment` (proposal work you can author yourself\nby writing the produced artifact directly \u2014 these are flagged `writable`).",
+        "description": "The static artifact graph and action hierarchy \u2014 read once to orient.\n\nEach transition entry declares what it `consumes`, `produces`, and\noptionally co-produces (`produces_optional`), plus its **creation\nclass**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk\nLLM compute on the service's ambient key \u2014 you trigger it with a `run` move,\nyou never supply a key), or `judgment` (proposal work you can author yourself\nby writing the produced artifact directly \u2014 these are flagged `writable`).",
         "operationId": "get_machine_api_machine_get",
         "responses": {
           "200": {
@@ -660,7 +664,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ExecOptions",
-        "description": "Per-move execution parameters (infra, not domain state).\n\nCredentials are never per-move: LLM stages read the ambient\n``OPENROUTER_API_KEY`` of whatever process executes them."
+        "description": "Per-move execution parameters (infra, not domain state)."
       },
       "HTTPValidationError": {
         "properties": {
@@ -680,7 +684,7 @@
           "move": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/RunStage"
+                "$ref": "#/components/schemas/RunArtifact"
               },
               {
                 "$ref": "#/components/schemas/WriteArtifact"
@@ -690,7 +694,7 @@
             "discriminator": {
               "propertyName": "kind",
               "mapping": {
-                "run": "#/components/schemas/RunStage",
+                "run": "#/components/schemas/RunArtifact",
                 "write": "#/components/schemas/WriteArtifact"
               }
             }
@@ -718,7 +722,7 @@
         ],
         "title": "MoveBody"
       },
-      "RunStage": {
+      "RunArtifact": {
         "properties": {
           "kind": {
             "type": "string",
@@ -726,17 +730,33 @@
             "title": "Kind",
             "default": "run"
           },
-          "stage_id": {
+          "artifact_id": {
             "type": "string",
-            "title": "Stage Id"
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "stage_id"
+          "artifact_id"
         ],
-        "title": "RunStage"
+        "title": "RunArtifact"
       },
       "StartEpisodeBody": {
         "properties": {
@@ -836,14 +856,16 @@
               "question",
               "raw_data",
               "latent_structure",
+              "measurement_structure",
               "causal_design",
               "identification_report",
-              "extraction_report",
-              "model_data",
+              "measurements",
+              "panel",
               "validation_report",
+              "statistical_model_spec",
               "compiled_ssm",
               "posterior",
-              "baseline_ranking",
+              "baseline_report",
               "saved_scenarios"
             ],
             "title": "Artifact Id"
