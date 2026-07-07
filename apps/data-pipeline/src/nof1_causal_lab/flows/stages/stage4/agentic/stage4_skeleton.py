@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from nof1_causal_lab.artifacts.model_spec import VALID_LINKS_FOR_DISTRIBUTION
+from nof1_causal_lab.artifacts.statistical_model_spec import VALID_LINKS_FOR_DISTRIBUTION
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
-from nof1_causal_lab.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_design import (
     build_reference_indicator_lookup,
     get_constructs,
     get_estimation_edges,
@@ -19,12 +19,12 @@ from nof1_causal_lab.utils.causal_spec import (
 )
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
-from .stage4_parameter_surfaces import parameter_is_active_for_model_spec
+from .stage4_parameter_surfaces import parameter_is_active_for_statistical_model_spec
 
 
 @dataclass(frozen=True)
 class Stage4Skeleton:
-    """Deterministic Stage 4 decision surface derived from the causal spec."""
+    """Deterministic Stage 4 decision surface derived from the causal design."""
 
     resolved_likelihoods: list[dict[str, Any]] = field(default_factory=list)
     ambiguous_indicators: list[dict[str, Any]] = field(default_factory=list)
@@ -42,14 +42,14 @@ class Stage4Skeleton:
         return [param["name"] for param in self.all_params]
 
 
-def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
+def derive_deterministic_spec(causal_design: dict) -> Stage4Skeleton:
     """Pre-compute all deterministic parts of the stage-4 model skeleton."""
-    retained_state_order = get_estimation_state_order(causal_spec)
-    retained_edges = get_estimation_edges(causal_spec)
-    induced_dependencies = get_induced_dependencies(causal_spec)
-    indicators = get_manifest_indicators(causal_spec)
+    retained_state_order = get_estimation_state_order(causal_design)
+    retained_edges = get_estimation_edges(causal_design)
+    induced_dependencies = get_induced_dependencies(causal_design)
+    indicators = get_manifest_indicators(causal_design)
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_constructs(causal_spec)
+        construct["name"]: construct for construct in get_constructs(causal_design)
     }
     retained_constructs = [
         latent_construct_lookup[name]
@@ -218,7 +218,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
 
     seed_parameters.extend(
         _confounder_baseline_factor_parameters(
-            get_marginalized_scales(causal_spec),
+            get_marginalized_scales(causal_design),
             retained_state_order=retained_state_order,
         )
     )
@@ -246,7 +246,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     parameters, loading_params = _compiler_authoritative_stage4_inventory(
-        causal_spec,
+        causal_design,
         resolved_likelihoods=resolved_likelihoods,
         ambiguous_indicators=ambiguous_indicators,
         seed_parameters=seed_parameters,
@@ -292,7 +292,7 @@ def _indicator_semantics_fields(indicator: dict[str, Any]) -> dict[str, str | No
 
 
 def _compiler_authoritative_stage4_inventory(
-    causal_spec: dict,
+    causal_design: dict,
     *,
     resolved_likelihoods: list[dict[str, Any]],
     ambiguous_indicators: list[dict[str, Any]],
@@ -319,7 +319,7 @@ def _compiler_authoritative_stage4_inventory(
     provisional_likelihood_by_variable = {
         str(likelihood["variable"]): dict(likelihood) for likelihood in provisional_likelihoods
     }
-    provisional_model_spec = {
+    provisional_statistical_model_spec = {
         "likelihoods": provisional_likelihoods,
         "initialization_policy": "stationary",
         "observation_intercept_policy": "free",
@@ -327,7 +327,7 @@ def _compiler_authoritative_stage4_inventory(
         "parameters": [
             parameter
             for parameter in [*seed_parameters, *seed_loading_params]
-            if parameter_is_active_for_model_spec(
+            if parameter_is_active_for_statistical_model_spec(
                 parameter,
                 provisional_likelihood_by_variable,
                 initialization_policy="stationary",
@@ -337,9 +337,11 @@ def _compiler_authoritative_stage4_inventory(
         ],
     }
     try:
-        compiled_ssm = compile_ssm_artifact(provisional_model_spec, {}, causal_spec=causal_spec)
+        compiled_ssm = compile_ssm_artifact(
+            provisional_statistical_model_spec, {}, causal_design=causal_design
+        )
     except ValueError:
-        # Some unit tests intentionally exercise pre-compile-invalid causal specs.
+        # Some unit tests intentionally exercise pre-compile-invalid causal designs.
         # Preserve the deterministic skeleton for those cases and simply skip the
         # compiler-backed membership step rather than failing at prompt-construction time.
         fallback_inventory = dict(seed_by_name)
@@ -635,7 +637,7 @@ def _measurement_error_parameters(
     (Gaussian or Student-t). For Poisson, Gamma, Negative-Binomial, Beta,
     Bernoulli, Ordered-Logistic, or Categorical channels the emission log-prob
     ignores R, so the parameter is filtered out by
-    ``parameter_is_active_for_model_spec`` before reaching authored priors.
+    ``parameter_is_active_for_statistical_model_spec`` before reaching authored priors.
     """
     noise_families = sorted(
         family.value for family in DistributionFamily if family.uses_manifest_noise

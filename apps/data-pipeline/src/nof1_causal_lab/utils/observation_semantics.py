@@ -59,7 +59,7 @@ def _coerce_summary_operator(aggregation: str) -> SummaryOperator:
     except ValueError as exc:
         raise ValueError(
             "aggregation "
-            f"'{aggregation}' is not yet supported by the measurement model. "
+            f"'{aggregation}' is not yet supported by the measurement structure. "
             f"Supported operators: {supported_summary_operators_text()}."
         ) from exc
 
@@ -71,7 +71,7 @@ def validate_indicator_observation_semantics(
     """Return a user-facing validation error for unsupported semantics."""
     if aggregation not in SUPPORTED_SUMMARY_OPERATORS:
         return (
-            f"aggregation '{aggregation}' is not yet supported by the measurement model. "
+            f"aggregation '{aggregation}' is not yet supported by the measurement structure. "
             f"Supported operators: {supported_summary_operators_text()}."
         )
 

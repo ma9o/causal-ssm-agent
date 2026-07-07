@@ -290,7 +290,7 @@ function AssistantMessage({
             }
             return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
           }
-          case "tool-validate_measurement_model":
+          case "tool-validate_measurement_structure":
           case "tool-stage1b_grounding":
           case "tool-search_literature":
           case "tool-elicit_prior_gmm":

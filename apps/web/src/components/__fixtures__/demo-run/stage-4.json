@@ -1,7 +1,7 @@
 {
   "outcome": "warn",
   "fail_reason": null,
-  "model_spec": {
+  "statistical_model_spec": {
     "likelihoods": [
       {
         "variable": "state_of_mind_valence",
@@ -55371,7 +55371,7 @@
     "messages": [
       {
         "role": "system",
-        "content": "You are a Bayesian state-space modeling specialist completing Stage 4 (model specification + prior elicitation) for a within-person N-of-1 causal model. Resolve every ambiguous indicator likelihood choice, set global policies (initialization, observation intercept, equilibrium forcing), and author priors for every active parameter. Use compile + prior predictive validation before submitting. Anchor headline causal-effect priors in published meta-analyses or PK reviews.",
+        "content": "You are a Bayesian state-space modeling specialist completing Stage 4 (statistical model specification + prior elicitation) for a within-person N-of-1 causal model. Resolve every ambiguous indicator likelihood choice, set global policies (initialization, observation intercept, equilibrium forcing), and author priors for every active parameter. Use compile + prior predictive validation before submitting. Anchor headline causal-effect priors in published meta-analyses or PK reviews.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,
@@ -55380,7 +55380,7 @@
       },
       {
         "role": "user",
-        "content": "Patient question (verbatim): \"I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own \u2014 and what would my likely trajectory look like if I taper now versus continue another six months?\"\n\nStage 1b CausalSpec: 11 constructs (10 retained in estimation.state_order + 1 latent confounder baseline_extraversion), 19 latent edges, 17 retained estimation edges, 25 indicators (2 ordinal skeleton-resolved + 23 ambiguous to resolve). Identifiability: 8 identifiable treatments, 1 non-identifiable (social_engagement, blocked by baseline_extraversion). Induced dependencies: empty \u2014 extraversion is a blocking confounder, not a marginalizable one, so no innovation correlation is induced.\n\nStage 3 audit: outcome=warn, 0 errors, 29 warnings (all legitimate sparse-indicator + boundary-pattern findings).\n\nAuthor the full ModelSpec + authored priors. Use the compile + prior-predictive validation to verify the spec before submitting.",
+        "content": "Patient question (verbatim): \"I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own \u2014 and what would my likely trajectory look like if I taper now versus continue another six months?\"\n\nStage 1b CausalDesign: 11 constructs (10 retained in estimation.state_order + 1 latent confounder baseline_extraversion), 19 latent edges, 17 retained estimation edges, 25 indicators (2 ordinal skeleton-resolved + 23 ambiguous to resolve). Identifiability: 8 identifiable treatments, 1 non-identifiable (social_engagement, blocked by baseline_extraversion). Induced dependencies: empty \u2014 extraversion is a blocking confounder, not a marginalizable one, so no innovation correlation is induced.\n\nStage 3 audit: outcome=warn, 0 errors, 29 warnings (all legitimate sparse-indicator + boundary-pattern findings).\n\nAuthor the full StatisticalModelSpec + authored priors. Use the compile + prior-predictive validation to verify the spec before submitting.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,
@@ -55407,7 +55407,7 @@
       },
       {
         "role": "assistant",
-        "content": "Stage 4 locked. ModelSpec + authored priors compiled successfully and pass prior predictive validation. The 14 warnings are informational rather than blocking: they either flag honest rescaling decisions (daily-scale priors anchored on longer-interval evidence) or identify near-constant indicators (the patient's PDC) where the latent variability is genuinely small. The run is ready for Stage 5b inference.",
+        "content": "Stage 4 locked. StatisticalModelSpec + authored priors compiled successfully and pass prior predictive validation. The 14 warnings are informational rather than blocking: they either flag honest rescaling decisions (daily-scale priors anchored on longer-interval evidence) or identify near-constant indicators (the patient's PDC) where the latent variability is genuinely small. The run is ready for Stage 5b inference.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,

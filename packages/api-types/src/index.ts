@@ -12,18 +12,18 @@ export { STAGE_IDS, STAGES } from "./stages";
 // ---------------------------------------------------------------------------
 
 // Stage contracts as Stage*Data aliases (frontend convention)
-// Latent model types
-// Measurement model types
-// Causal spec types
+// Latent structure types
+// Measurement structure types
+// Causal design types
 // Worker / extraction types
 // Validation types
-// Model spec types
+// Statistical model spec types
 // Prior types
 // LLM trace types
 // Inference diagnostic types
 export type {
+  CausalDesign,
   CausalEdge,
-  CausalSpec,
   Construct,
   DistributionFamily,
   EdgeSource,
@@ -36,7 +36,7 @@ export type {
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
   IndicatorValidationContract as IndicatorValidation,
   InferenceMetadataContract as InferenceMetadata,
-  LatentModel,
+  LatentStructure,
   LikelihoodSource,
   LikelihoodSpec,
   LinkFunction,
@@ -44,8 +44,7 @@ export type {
   LOODiagnostics,
   MCMCDiagnostics,
   MCMCParamDiagnostic,
-  MeasurementModel,
-  ModelSpec,
+  MeasurementStructure,
   NonIdentifiableTreatmentStatus,
   ParameterConstraint,
   ParameterRole,
@@ -70,6 +69,7 @@ export type {
   Stage3Contract as Stage3Data,
   Stage5BContract as Stage5bData,
   Stage6Contract as Stage6Data,
+  StatisticalModelSpec,
   TemporalStatus,
   TraceChain,
   TraceData,

@@ -8,7 +8,7 @@ import {
 } from "@nof1-causal-lab/api-types";
 
 export function collectStage4UiPriors(data: Stage4Data): PriorProposal[] {
-  return data.model_spec.parameters.flatMap((parameter) => {
+  return data.statistical_model_spec.parameters.flatMap((parameter) => {
     const prior = data.authored_priors[parameter.name];
     return prior ? [prior] : [];
   });

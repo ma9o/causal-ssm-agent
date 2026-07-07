@@ -79,7 +79,7 @@ def stage1b_confounded_latent():
 
 @pytest.fixture
 def stage1b_measurement_all_observed():
-    """Measurement model with indicators for Treatment and Outcome."""
+    """Measurement structure with indicators for Treatment and Outcome."""
     return {
         "model_clock": "1d",
         "indicators": [
@@ -107,7 +107,7 @@ def stage1b_measurement_all_observed():
 
 @pytest.fixture
 def stage1b_dummy_chunks():
-    """Dummy data chunks for measurement model proposal."""
+    """Dummy data chunks for measurement structure proposal."""
     return [
         "Day 1: Patient took 10mg treatment, outcome score was 5.",
         "Day 2: Patient took 15mg treatment, outcome score was 7.",

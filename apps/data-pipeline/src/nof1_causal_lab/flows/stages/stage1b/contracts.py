@@ -6,41 +6,41 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.causal_spec import CausalSpec  # noqa: TC001
+from nof1_causal_lab.artifacts.causal_design import CausalDesign  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 
 IS_INTERACTIVE_STAGE = True
 
 
-class ValidateMeasurementModelInput(BaseModel):
+class ValidateMeasurementStructureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     measurement_json: str = Field(
-        description="The JSON string containing the measurement model to validate."
+        description="The JSON string containing the measurement structure to validate."
     )
 
 
 STAGE1B_TOOL_CONTRACTS: list[ToolContract] = [
     ToolContract(
-        name="validate_measurement_model",
+        name="validate_measurement_structure",
         description=(
-            "Validate measurement model JSON, check compiler constraints, "
+            "Validate measurement structure JSON, check compiler constraints, "
             "and verify causal identifiability."
         ),
-        input_schema=ValidateMeasurementModelInput,
+        input_schema=ValidateMeasurementStructureInput,
     ),
 ]
 
 
 class Stage1bContract(LLMStageContract):
-    causal_spec: CausalSpec
+    causal_design: CausalDesign
 
 
 class IdentificationReportContract(BaseModel):
     """The positive identification finding.
 
     Only produced when at least one treatment effect is explicitly
-    identifiable. Negative findings remain in ``causal_spec.identifiability``.
+    identifiable. Negative findings remain in ``causal_design.identifiability``.
     """
 
     model_config = ConfigDict(extra="forbid")

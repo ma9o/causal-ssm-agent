@@ -2,7 +2,7 @@
 
 A scripted (LLM-free) session submits one construct at a time; the loop runs the
 exact prior-predictive reachability battery over real observation rows (via
-``prepare_model_runtime``) and, on success, assembles a ModelSpec + priors that
+``prepare_model_runtime``) and, on success, assembles a StatisticalModelSpec + priors that
 compile to a live ``compiled_ssm``. This is the offline proof that the loop the
 stage flow drives actually works end to end before the real LLM is pointed at it.
 """
@@ -20,7 +20,7 @@ import pytest
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
     run_stage4_construct_build,
 )
-from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
+from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 # Every soft check is pre-accepted so admission turns only on the hard checks
 # (finite simulation + reachable data location) — the reachability *values* of
@@ -145,10 +145,10 @@ class _ScriptedFactory:
 
 @pytest.mark.slow
 def test_construct_build_over_real_data_compiles():
-    causal_spec = _make_causal_spec_dict()
+    causal_design = _make_causal_design_dict()
     result = asyncio.run(
         run_stage4_construct_build(
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             question="Does X drive Y drive Z?",
             data_for_model=_real_data_for_model(),
             indicator_audits={},
@@ -158,18 +158,18 @@ def test_construct_build_over_real_data_compiles():
     )
     # The accumulated spec + priors are the exact inputs the stage materializes.
     assert set(result.authored_priors) >= {"rho_X", "beta_X_Y", "beta_Y_Z"}
-    latent_names = [lik["variable"] for lik in result.model_spec["likelihoods"]]
+    latent_names = [lik["variable"] for lik in result.statistical_model_spec["likelihoods"]]
     assert set(latent_names) == {"x1", "x2", "y1", "z1"}
 
     from nof1_causal_lab.flows.stages.stage4.assembly import materialize_stage4_result
 
     materialized = materialize_stage4_result(
-        model_spec=result.model_spec,
+        statistical_model_spec=result.statistical_model_spec,
         authored_priors=result.authored_priors,
         data_for_model=_real_data_for_model(),
         indicator_audits={},
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         skip_ppc=True,  # the construct loop's reachability battery is the validation
     )
     assert materialized.get("_compiled_ssm") is not None
-    assert materialized["model_spec"] is not None
+    assert materialized["statistical_model_spec"] is not None

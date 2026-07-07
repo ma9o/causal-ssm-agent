@@ -1,4 +1,4 @@
-"""Trajectory-level observation likelihoods for support-aware measurement models."""
+"""Trajectory-level observation likelihoods for support-aware measurement structures."""
 
 from __future__ import annotations
 

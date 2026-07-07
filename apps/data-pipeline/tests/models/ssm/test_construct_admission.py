@@ -20,10 +20,10 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     DesignInfo,
     admit_construct,
     build_construct_order,
-    restrict_causal_spec,
+    restrict_causal_design,
     run_construct_build,
 )
-from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
+from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 _ALL_SOFT = {
     "C1b confinement": "t",
@@ -114,14 +114,14 @@ def _design(seed: int = 0) -> DesignInfo:
 
 
 def test_build_construct_order_is_topological():
-    order = build_construct_order(_make_causal_spec_dict())
+    order = build_construct_order(_make_causal_design_dict())
     assert order.index("X") < order.index("Y") < order.index("Z")
 
 
 def test_build_construct_order_covers_only_estimation_states():
     """Constructs marginalized/anchored/dropped out of the estimation
     projection carry no state — nothing to admit for them."""
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     spec["latent"]["constructs"].append(
         {
             "name": "M",
@@ -136,7 +136,7 @@ def test_build_construct_order_covers_only_estimation_states():
 
 def test_build_construct_order_admits_lagged_feedback_cycles():
     """Lagged feedback loops sort as a unit: cycle members adjacent, parents first."""
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
     spec["latent"]["edges"].append(dict(feedback))
     spec["estimation"]["edges"].append(dict(feedback))
@@ -144,8 +144,8 @@ def test_build_construct_order_admits_lagged_feedback_cycles():
     assert order == ["X", "Y", "Z"]
 
 
-def test_restrict_causal_spec_to_subset():
-    restricted = restrict_causal_spec(_make_causal_spec_dict(), {"X", "Y"})
+def test_restrict_causal_design_to_subset():
+    restricted = restrict_causal_design(_make_causal_design_dict(), {"X", "Y"})
     names = {c["name"] for c in restricted["latent"]["constructs"]}
     assert names == {"X", "Y"}
     assert restricted["estimation"]["state_order"] == ["X", "Y"]
@@ -156,9 +156,9 @@ def test_restrict_causal_spec_to_subset():
 
 @pytest.mark.slow
 def test_admit_root_runs_full_battery():
-    causal_spec = _make_causal_spec_dict()
+    causal_design = _make_causal_design_dict()
     state, report = admit_construct(
-        AdmissionState(), _contrib_X(), causal_spec, _design(), accepted=_ALL_SOFT
+        AdmissionState(), _contrib_X(), causal_design, _design(), accepted=_ALL_SOFT
     )
     ids = {r.check for r in report.results}
     assert {"C1a finiteness", "C1b confinement", "C2 latent scale", "C3 resolvability"} <= ids
@@ -172,13 +172,13 @@ def test_admit_root_runs_full_battery():
 
 @pytest.mark.slow
 def test_admit_child_runs_edge_check_via_edge_off_resim():
-    causal_spec = _make_causal_spec_dict()
+    causal_design = _make_causal_design_dict()
     design = _design()
     state, _ = admit_construct(
-        AdmissionState(), _contrib_X(), causal_spec, design, accepted=_ALL_SOFT
+        AdmissionState(), _contrib_X(), causal_design, design, accepted=_ALL_SOFT
     )
     state, report = admit_construct(
-        state, _contrib_child("Y", "y1", "X"), causal_spec, design, accepted=_ALL_SOFT
+        state, _contrib_child("Y", "y1", "X"), causal_design, design, accepted=_ALL_SOFT
     )
     ids = {r.check for r in report.results}
     assert "C4b edge overwhelm" in ids
@@ -199,21 +199,23 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
         compile_ssm_artifact,
     )
 
-    causal_spec = _make_causal_spec_dict()
+    causal_design = _make_causal_design_dict()
     contributions = {
         "X": _contrib_X(),
         "Y": _contrib_child("Y", "y1", "X"),
         "Z": _contrib_child("Z", "z1", "Y"),
     }
     accepted = dict.fromkeys(contributions, _ALL_SOFT)
-    state, reports = run_construct_build(causal_spec, contributions, _design(), accepted)
+    state, reports = run_construct_build(causal_design, contributions, _design(), accepted)
     assert [r.name for r in reports] == ["X", "Y", "Z"]
     assert all(r.admitted for r in reports)
     assert state.names == ("X", "Y", "Z")
 
-    # The accumulated ModelSpec + priors compile to the real compiled_ssm artifact
-    # the stage produces, and build a live, fittable 3-latent model.
-    compiled = compile_ssm_artifact(state.model_spec(), dict(state.priors), causal_spec=causal_spec)
+    # The accumulated StatisticalModelSpec + priors compile to the real compiled_ssm artifact
+    # the stage produces, and build a live, fittable 3-latent structure.
+    compiled = compile_ssm_artifact(
+        state.statistical_model_spec(), dict(state.priors), causal_design=causal_design
+    )
     assert "spec" in compiled
     assert "schema_version" in compiled
     wide = pl.DataFrame(

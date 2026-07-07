@@ -64,7 +64,65 @@ def _require_moves_enabled() -> None:
 
 @capabilities_router.get("/capabilities")
 def get_capabilities() -> dict[str, Any]:
+    """Whether this deployment serves the move plane.
+
+    `moves_enabled` is `false` on the hosted read-only viewer backend, where
+    every `POST` (moves, auto-run, start-episode) returns 403 and only the read
+    endpoints are live.
+    """
     return {"moves_enabled": moves_enabled()}
+
+
+machine_router = APIRouter(prefix="/api")
+
+
+def machine_description() -> dict[str, Any]:
+    """The static shape of the episode machine, independent of any workspace.
+
+    Aggregates the artifact graph, its roots, and the action/context hierarchy
+    into the single payload an agent reads once to orient. The route
+    `GET /api/machine` returns exactly this; it never touches Temporal or a
+    workspace store.
+    """
+    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+    from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, ROOTS, topological_stage_order
+    from nof1_causal_lab.machine.hierarchy import describe_actions, describe_contexts
+
+    return {
+        "artifact_ids": list(ARTIFACT_IDS),
+        "topological_stage_order": topological_stage_order(),
+        "contexts": describe_contexts(),
+        "actions": describe_actions(),
+        "roots": [
+            {"artifact_id": root.artifact_id, "write_pins": list(root.write_pins)} for root in ROOTS
+        ],
+        "stages": [
+            {
+                "stage_id": spec.stage_id,
+                "consumes": list(spec.consumes),
+                "produces": list(spec.produces),
+                "produces_optional": list(spec.produces_optional),
+                "derives": list(spec.derives),
+                "creation_class": spec.creation_class,
+                "writable": spec.writable,
+            }
+            for spec in ARTIFACT_GRAPH
+        ],
+    }
+
+
+@machine_router.get("/machine")
+def get_machine() -> dict[str, Any]:
+    """The static artifact graph and action hierarchy — read once to orient.
+
+    Each stage entry declares what it `consumes`, `produces`, optionally
+    co-produces (`produces_optional`), and `derives`, plus its **creation
+    class**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk
+    LLM compute on the service's ambient key — you trigger it with a `run` move,
+    you never supply a key), or `judgment` (proposal work you can author yourself
+    by writing the produced artifact directly — these are flagged `writable`).
+    """
+    return machine_description()
 
 
 # ---------------------------------------------------------------------------
@@ -178,11 +236,25 @@ def _episode_status(workspace_id: str) -> dict[str, Any]:
 
 @router.get("/{workspace_id}")
 def get_episode(workspace_id: str) -> dict[str, Any]:
+    """Current episode state: the single read to poll while navigating.
+
+    Returns per-artifact freshness (existence, staleness, version, provenance),
+    the `legal` moves available right now, and `auto_running` — whether the
+    background driver is active. Journal-backed, so it works even against a
+    published read-only store.
+    """
     return _episode_status(workspace_id)
 
 
 @router.get("/{workspace_id}/timeline")
 def get_timeline(workspace_id: str) -> dict[str, Any]:
+    """The transition journal: every move attempt in order.
+
+    Each record is `applied` (state advanced), `rejected` (illegal move, state
+    unchanged), or `raised` (the stage ran but threw — the record carries the
+    typed error). Re-running after a `raised`/`rejected` is just proposing the
+    move again.
+    """
     records = EpisodeJournal(workspace_id).read_all()
     return {
         "workspace_id": workspace_id,
@@ -192,6 +264,12 @@ def get_timeline(workspace_id: str) -> dict[str, Any]:
 
 @router.get("/{workspace_id}/events")
 def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
+    """Intra-stage telemetry (e.g. stage-2 worker fan-out, stage progress).
+
+    Pass the last-seen event id as `after` to page forward; omit it for the full
+    stream. This is finer-grained than the timeline, which records only whole
+    move outcomes.
+    """
     return {
         "workspace_id": workspace_id,
         "events": read_events(workspace_id, after=after),
@@ -290,7 +368,13 @@ def get_artifact_file(
 
 @router.post("")
 async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
-    """Ensure the episode workflow exists; optionally write the question."""
+    """Ensure the episode workflow exists; optionally seed the `question` root.
+
+    Idempotent: attaches to an existing episode or starts a fresh one. Passing
+    `question` writes the `question` root artifact with `human` provenance. Raw
+    data enters separately by placing files under `data/{workspace_id}/input/`
+    before running stage-0. Returns the same shape as `GET /api/episodes/{id}`.
+    """
     _require_moves_enabled()
     await _episode_handle(body.workspace_id)
     outcome = None
@@ -307,6 +391,21 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
 
 @router.post("/{workspace_id}/moves")
 async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
+    """Propose one move; blocks until it is applied, rejected, or raises.
+
+    Two kinds:
+
+    - Run a stage: `{"move": {"kind": "run", "stage_id": "stage-1a"}}`.
+    - Author a judgment artifact directly (skip the in-service stage):
+      `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance":
+      "llm"}, "payload": {...}}`. The payload is schema-validated against that
+      artifact's contract, journaled, and provenance-stamped; the write becomes a
+      new provenance root and marks everything downstream stale until re-run.
+
+    The synchronous outcome is the same record the timeline stores. Long stages
+    (stage-4, stage-5b — minutes to hours) can outlive a client timeout; for
+    those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
+    """
     _require_moves_enabled()
     return await _propose(workspace_id, body)
 
@@ -365,7 +464,14 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
 
 @router.post("/{workspace_id}/auto")
 async def auto_run(workspace_id: str, body: AutoRunBody) -> dict[str, Any]:
-    """Run enabled stages in dependency order until quiescent (background)."""
+    """Start the default navigation policy in the background.
+
+    Runs enabled stages in dependency order while their outputs are missing or
+    stale, stopping when quiescent or when a move fails. Returns immediately;
+    follow progress with `GET /api/episodes/{workspace_id}` (`auto_running`) and
+    the timeline. An LLM navigator replaces this policy by proposing `moves`
+    itself. 409 if a driver is already active for this workspace.
+    """
     _require_moves_enabled()
     if workspace_id in _AUTO_DRIVERS:
         raise HTTPException(409, f"auto-run already active for {workspace_id}")

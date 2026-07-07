@@ -1,4 +1,4 @@
-"""Stage 1a: Latent Model Proposal."""
+"""Stage 1a: Latent Structure Proposal."""
 
 from __future__ import annotations
 
@@ -13,26 +13,26 @@ if TYPE_CHECKING:
 
 @dataclass
 class Stage1aResult:
-    """Result of Stage 1a: latent model proposal."""
+    """Result of Stage 1a: latent structure proposal."""
 
-    latent_model: dict
+    latent_structure: dict
 
     @property
     def n_constructs(self) -> int:
         """Number of constructs in the model."""
-        return len(self.latent_model.get("constructs", []))
+        return len(self.latent_structure.get("constructs", []))
 
     @property
     def n_edges(self) -> int:
         """Number of edges in the model."""
-        return len(self.latent_model.get("edges", []))
+        return len(self.latent_structure.get("edges", []))
 
 
 async def run_stage1a(
     question: str,
     session_factory: StageSessionFactory,
 ) -> Stage1aResult:
-    """Run the Stage 1a flow: latent model proposal + self-review.
+    """Run the Stage 1a flow: latent structure proposal + self-review.
 
     Opens one :class:`AgentSession` with the validation tool bound, sends
     the proposal prompt, then sends the review follow-up in the same
@@ -42,10 +42,10 @@ async def run_stage1a(
     from nof1_causal_lab.flows.stages.stage1a.grounding import stage1a_grounding
 
     tool, capture = make_stage_tool(
-        name="validate_latent_model",
-        description="Validate latent model JSON.",
+        name="validate_latent_structure",
+        description="Validate latent structure JSON.",
         param_name="structure_json",
-        param_description="The JSON string containing the latent model.",
+        param_description="The JSON string containing the latent structure.",
         compute_fn=stage1a_grounding,
     )
 
@@ -57,7 +57,7 @@ async def run_stage1a(
         await session.turn(templates.USER.format(question=question))
         await session.turn(templates.REVIEW)
 
-    if not capture.get("latent_model"):
-        raise ValueError("No valid latent model produced")
+    if not capture.get("latent_structure"):
+        raise ValueError("No valid latent structure produced")
 
-    return Stage1aResult(latent_model=capture["latent_model"])
+    return Stage1aResult(latent_structure=capture["latent_structure"])

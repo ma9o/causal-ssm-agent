@@ -17,7 +17,7 @@ import numpy as np
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ParameterSpec
+    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.workers.schemas_prior import (
     AggregatedPrior,
@@ -202,7 +202,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     Returns:
         Default PriorProposal based on parameter role/constraint
     """
-    from nof1_causal_lab.artifacts.model_spec import ParameterConstraint, ParameterRole
+    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterConstraint, ParameterRole
 
     # AR priors live on the baseline DT persistence scale in (0, 1).
     if parameter.role == ParameterRole.AR_COEFFICIENT:

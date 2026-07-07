@@ -3,7 +3,7 @@ from typing import TypedDict
 
 import polars as pl
 
-from nof1_causal_lab.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_design import (
     get_effective_observation_window,
 )
 from nof1_causal_lab.utils.observation_semantics import (
@@ -134,7 +134,7 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 def annotate_observation_rows(
     df: pl.DataFrame,
-    causal_spec: dict,
+    causal_design: dict,
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:
@@ -157,9 +157,9 @@ def annotate_observation_rows(
     if "indicator" not in df.columns:
         return df
 
-    model_clock = causal_spec.get("measurement", {}).get("model_clock")
+    model_clock = causal_design.get("measurement", {}).get("model_clock")
     indicator_rows = []
-    for ind in causal_spec.get("measurement", {}).get("indicators", []):
+    for ind in causal_design.get("measurement", {}).get("indicators", []):
         if not ind.get("name"):
             continue
         semantics = get_observation_semantics(ind)

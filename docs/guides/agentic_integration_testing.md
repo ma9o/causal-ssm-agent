@@ -138,7 +138,7 @@ not a run parameter.
 ## Editing artifacts (replaces stage overrides)
 
 A human/LLM edit is a `write` move: schema-validated, provenance-stamped,
-and journaled. Editing `causal_spec` fans out a recomputed positive
+and journaled. Editing `causal_design` fans out a recomputed positive
 `identification_report` when the spec has explicitly identified treatments;
 downstream artifacts become **stale** (visible in `.artifacts`), and the
 next auto-run recomputes exactly the stale suffix.
@@ -147,8 +147,8 @@ next auto-run recomputes exactly the stale suffix.
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -H 'Content-Type: application/json' \
   -d '{
-    "move": {"kind": "write", "artifact_id": "causal_spec", "provenance": "human"},
-    "payload": {"causal_spec": {"latent": {...}, "measurement": {...}}}
+    "move": {"kind": "write", "artifact_id": "causal_design", "provenance": "human"},
+    "payload": {"causal_design": {"latent": {...}, "measurement": {...}}}
   }'
 
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \

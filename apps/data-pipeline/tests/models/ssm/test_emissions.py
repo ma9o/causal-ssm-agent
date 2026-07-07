@@ -31,7 +31,7 @@ from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import ge
 
 
 def _simple_params(n_latent=2, n_manifest=2):
-    """Identity measurement model: H=I, d=0, R=0.5*I."""
+    """Identity measurement structure: H=I, d=0, R=0.5*I."""
     H = jnp.eye(n_manifest, n_latent)
     d = jnp.zeros(n_manifest)
     R = jnp.eye(n_manifest) * 0.5

@@ -21,8 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field
 ArtifactId = Literal[
     "question",
     "raw_data",
-    "constructs",
-    "causal_spec",
+    "latent_structure",
+    "causal_design",
     "identification_report",
     "extraction_report",
     "model_data",
@@ -36,8 +36,8 @@ ArtifactId = Literal[
 ARTIFACT_IDS: tuple[ArtifactId, ...] = (
     "question",
     "raw_data",
-    "constructs",
-    "causal_spec",
+    "latent_structure",
+    "causal_design",
     "identification_report",
     "extraction_report",
     "model_data",

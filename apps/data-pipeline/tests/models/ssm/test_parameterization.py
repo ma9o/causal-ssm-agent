@@ -278,7 +278,7 @@ def dag_model(dag_spec):
 
 
 @pytest.fixture
-def model_spec_and_priors():
+def statistical_model_spec_and_priors():
     return (
         {
             "likelihoods": [
@@ -1218,12 +1218,12 @@ class TestCanonicalRuntimePriors:
 class TestCompiledArtifactIntegration:
     """Test that compiled_prior_semantics is emitted and correctly consumed."""
 
-    def test_artifact_contains_compiled_prior_semantics(self, model_spec_and_priors):
+    def test_artifact_contains_compiled_prior_semantics(self, statistical_model_spec_and_priors):
         """compile_ssm_artifact emits semantics and omits legacy priors."""
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
         assert "priors" not in artifact
         assert "compiled_prior_semantics" in artifact
         assert "edge_lag_days" in artifact
@@ -1237,7 +1237,7 @@ class TestCompiledArtifactIntegration:
         """A beta from a known input compiles to B, not the latent dynamics matrix."""
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
-        causal_spec = {
+        causal_design = {
             "latent": {
                 "constructs": [
                     {
@@ -1305,7 +1305,7 @@ class TestCompiledArtifactIntegration:
                 ],
             },
         }
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1341,7 +1341,7 @@ class TestCompiledArtifactIntegration:
             "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
 
-        artifact = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
+        artifact = compile_ssm_artifact(statistical_model_spec, priors, causal_design=causal_design)
 
         assert artifact["spec"]["manifest_names"] == ["mood_score"]
         assert artifact["spec"]["input_names"] == ["dose"]
@@ -1364,7 +1364,7 @@ class TestCompiledArtifactIntegration:
         assert beta_binding["site_kind"] == "input_effect"
         assert beta_binding["transform"] == "dt_effect_to_ct_rate"
 
-    def test_model_from_artifact_uses_semantics(self, model_spec_and_priors):
+    def test_model_from_artifact_uses_semantics(self, statistical_model_spec_and_priors):
         """build_model_from_compiled_artifact reads compiled_prior_semantics."""
         import polars as pl
 
@@ -1373,8 +1373,8 @@ class TestCompiledArtifactIntegration:
             compile_ssm_artifact,
         )
 
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
         model = build_model_from_compiled_artifact(
             artifact,
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
@@ -1382,7 +1382,9 @@ class TestCompiledArtifactIntegration:
         assert model.priors is not None
         assert model.get_prior_runtime_bundle() is not None
 
-    def test_model_from_artifact_requires_compiled_prior_semantics(self, model_spec_and_priors):
+    def test_model_from_artifact_requires_compiled_prior_semantics(
+        self, statistical_model_spec_and_priors
+    ):
         """Model rebuild fails clearly when compiled semantics are missing."""
         import polars as pl
 
@@ -1391,8 +1393,8 @@ class TestCompiledArtifactIntegration:
             compile_ssm_artifact,
         )
 
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
         del artifact["compiled_prior_semantics"]
 
         with pytest.raises(ValueError, match="compiled_prior_semantics"):
@@ -1401,7 +1403,7 @@ class TestCompiledArtifactIntegration:
                 pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
             )
 
-    def test_end_to_end_compile_rebuild_sample(self, model_spec_and_priors):
+    def test_end_to_end_compile_rebuild_sample(self, statistical_model_spec_and_priors):
         """Full roundtrip: compile → rebuild → sample."""
         import numpy as np
         import polars as pl
@@ -1413,8 +1415,8 @@ class TestCompiledArtifactIntegration:
         )
         from nof1_causal_lab.utils.data import pivot_to_wide
 
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
 
         rng = np.random.default_rng(42)
         n = 30
@@ -1440,7 +1442,7 @@ class TestCompiledArtifactIntegration:
         )
         assert samples is not None
 
-    def test_compiled_model_prior_predictive(self, model_spec_and_priors):
+    def test_compiled_model_prior_predictive(self, statistical_model_spec_and_priors):
         """Compiled models can sample prior predictive from artifact semantics."""
         import polars as pl
 
@@ -1450,8 +1452,8 @@ class TestCompiledArtifactIntegration:
         )
         from nof1_causal_lab.models.ssm.runtime import sample_prior_predictive
 
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
         model = build_model_from_compiled_artifact(
             artifact,
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),

@@ -11,16 +11,16 @@
 
 The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge, where available, in the form of prior distributions and modeling assumptions.
 
-The user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
+The user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement structure for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
 
 ```mermaid
 flowchart LR
   Q(["Question"])
   DS(["Dataset"])
   L["Causal DAG"]
-  M["Measurement\nmodel proposal"]
+  M["Measurement\nstructure"]
   ID{"Identified?"}
-  MS["Model specification\n& estimation"]
+  MS["Statistical model specification\n& estimation"]
   SIM["Simulation"]
   R(["Causal effect\nestimate"])
 
@@ -50,9 +50,9 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 
 [https://project-n98yx.vercel.app/analysis/DEMO](https://project-n98yx.vercel.app/analysis/DEMO)
 
-| <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Structural causal model specification | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
+| <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Causal design and measurement structure | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
 |:--:|:--:|
-| <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Functional modeling state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Functional model specification** <tr></tr> |
+| <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Functional modeling state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Statistical model specification** <tr></tr> |
 | <img src="docs/assets/stage5.gif" width="400" alt="stage5"><br>**Inference diagnostics** | <img src="docs/assets/stage6.gif" width="400" alt="stage2"><br>**Counterfactual simulation** |
 
 ## Modeling
@@ -67,7 +67,7 @@ The system is a continuous-discrete nonlinear state-space model: the latent cons
 </p>
 <!-- docs-latex:end -->
 
-Observations follow indicator-specific likelihoods (see the supported [distribution families](docs/reference/model-spec/likelihoods.md#distribution-families) and [link functions](docs/reference/model-spec/likelihoods.md#link-functions)):
+Observations follow indicator-specific likelihoods (see the supported [distribution families](docs/reference/statistical-model-spec/likelihoods.md#distribution-families) and [link functions](docs/reference/statistical-model-spec/likelihoods.md#link-functions)):
 
 <!-- docs-latex:start eyJkaXNwbGF5Ijp0cnVlLCJsYXRleCI6InlfaSh0KSBcXG1pZCBcXGJvbGRzeW1ib2x7XFxldGF9KHQpIFxcc2ltIEZfaVxcIVxcbGVmdChnX2leey0xfVxcbGVmdCgoXFxib2xkc3ltYm9se1xcTGFtYmRhfVxcYm9sZHN5bWJvbHtcXGV0YX0odCkrXFxib2xkc3ltYm9se1xcbXV9KV9pXFxyaWdodCk7IFxcdGhldGFfaVxccmlnaHQpIn0 -->
 <p align="center">
@@ -75,7 +75,7 @@ Observations follow indicator-specific likelihoods (see the supported [distribut
 </p>
 <!-- docs-latex:end -->
 
-See [causal-spec](docs/reference/causal-spec/identifiability.md), [latent-model](docs/reference/latent-model/assumptions.md) and [measurement-model](docs/reference/measurement-model/assumptions.md) for the structural assumptions baked into the modeling framework.
+See [causal-design](docs/reference/causal-design/identifiability.md), [latent-structure](docs/reference/latent-structure/assumptions.md) and [measurement-structure](docs/reference/measurement-structure/assumptions.md) for the structural assumptions baked into the modeling framework.
 
 ## Quick Start
 

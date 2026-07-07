@@ -43,9 +43,9 @@ export const Playground: Story = {
 export const Running: Story = {
   args: {
     number: "1a",
-    title: "Causal Specification",
+    title: "Latent Structure",
     status: "running",
-    context: "Generating causal specification from user question.",
+    context: "Generating latent structure from user question.",
     loadingHint: "Querying the LLM for causal structure…",
   },
 };
@@ -54,9 +54,9 @@ export const Running: Story = {
 export const FailedWithError: Story = {
   args: {
     number: "1a",
-    title: "Causal Specification",
+    title: "Latent Structure",
     status: "failed",
-    context: "Generates the causal specification from the user question.",
-    errorMessage: "SchemaValidationError: constructs payload failed validation",
+    context: "Generates the latent structure from the user question.",
+    errorMessage: "SchemaValidationError: latent_structure payload failed validation",
   },
 };

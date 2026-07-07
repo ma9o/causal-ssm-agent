@@ -126,7 +126,7 @@ def render_dynamic_prior_scale_guidance() -> str:
 
 # ---------------------------------------------------------------------------
 # Parameter role catalog — authoritative source for docs codegen and the
-# EXPECTED_CONSTRAINT_FOR_ROLE dict in artifacts/model_spec.py.
+# EXPECTED_CONSTRAINT_FOR_ROLE dict in artifacts/statistical_model_spec.py.
 # Uses plain strings (not enum references) so this module stays import-clean.
 # ---------------------------------------------------------------------------
 
@@ -250,7 +250,7 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         symbol="lambda",
         count="One per non-reference indicator in multi-indicator constructs",
         constraint="positive",
-        ssm_location="Measurement model",
+        ssm_location="Observation model",
         note="Stage 1b indicator polarity fixes each loading sign as either "
         "`positive` or `negative`; Stage 4 no longer chooses loading orientation",
     ),

@@ -296,9 +296,12 @@ export function buildEdgePosteriors({
     return {};
   }
 
-  const constructNames = stage1a.latent_model.constructs.map((construct) => construct.name);
+  const constructNames = stage1a.latent_structure.constructs.map((construct) => construct.name);
   const parametersByName = new Map(
-    (stage4?.model_spec.parameters ?? []).map((parameter) => [parameter.name, parameter]),
+    (stage4?.statistical_model_spec.parameters ?? []).map((parameter) => [
+      parameter.name,
+      parameter,
+    ]),
   );
   const marginals = stage5b?.posterior_marginals ?? [];
   const edgePosteriors: Record<string, EdgePosterior> = {};

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 
 from .base import NUMERICAL_EPSILON

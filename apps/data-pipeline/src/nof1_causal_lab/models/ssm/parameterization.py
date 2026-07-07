@@ -138,7 +138,7 @@ def build_site_registry(
     The returned list is sorted by site name to match JAX pytree
     dict-key ordering used by ``ravel_pytree``.
     """
-    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 
     sites: list[SiteDescriptor] = list(spec.iter_sample_sites())
     n_m = spec.n_manifest

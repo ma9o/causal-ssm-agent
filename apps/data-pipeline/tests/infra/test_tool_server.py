@@ -19,12 +19,12 @@ def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
 
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("stage-1a", "validate_latent_model"),
+        ("stage-1a", "validate_latent_structure"),
         fake_impl,
     )
 
     response = client.post(
-        "/api/tools/stage-1a/validate_latent_model",
+        "/api/tools/stage-1a/validate_latent_structure",
         json={"workspace_id": "user-123", "input": {}},
     )
 
@@ -38,12 +38,12 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
     monkeypatch.setattr(tool_server, "_build_context", lambda *_args, **_kwargs: {})
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("stage-1a", "validate_latent_model"),
+        ("stage-1a", "validate_latent_structure"),
         lambda _ctx, _args: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     response = client.post(
-        "/api/tools/stage-1a/validate_latent_model",
+        "/api/tools/stage-1a/validate_latent_structure",
         json={"workspace_id": "user-123", "input": {"structure_json": "{}"}},
     )
 
@@ -53,7 +53,7 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
             "message": "boom",
             "exception_type": "RuntimeError",
             "stage_id": "stage-1a",
-            "tool_name": "validate_latent_model",
+            "tool_name": "validate_latent_structure",
         }
     }
 
@@ -85,26 +85,26 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     )
 
     store = ArtifactStore("user-123")
-    causal_spec_info = store.write_version(
-        "causal_spec",
+    causal_design_info = store.write_version(
+        "causal_design",
         provenance="llm",
         derived_from={},
         produced_by="stage-1b",
         json_files={
-            "causal_spec.json": {"causal_spec": {"identifiability": {}, "measurement": {}}}
+            "causal_design.json": {"causal_design": {"identifiability": {}, "measurement": {}}}
         },
     )
     model_data_info = store.write_version(
         "model_data",
         provenance="computed",
-        derived_from={"causal_spec": 1},
+        derived_from={"causal_design": 1},
         produced_by="stage-2",
         parquet_files={"model_data.parquet": model_data},
     )
     identification_report_info = store.write_version(
         "identification_report",
         provenance="computed",
-        derived_from={"causal_spec": 1},
+        derived_from={"causal_design": 1},
         produced_by="stage-1b",
         json_files={
             "identification_report.json": {
@@ -117,7 +117,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     posterior_info = store.write_version(
         "posterior",
         provenance="computed",
-        derived_from={"causal_spec": 1, "model_data": 1},
+        derived_from={"causal_design": 1, "model_data": 1},
         produced_by="stage-5b",
         json_files={"diagnostics.json": {"outcome": "warn"}},
         pickle_files={"fitted.pkl": fitted_artifact},
@@ -130,7 +130,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
             status="applied",
             produced=[posterior_info],
             state_after=EpisodeState().with_versions(
-                [causal_spec_info, model_data_info, identification_report_info, posterior_info]
+                [causal_design_info, model_data_info, identification_report_info, posterior_info]
             ),
         )
     )
@@ -162,7 +162,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     assert captured["data_for_model"].equals(model_data)
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime
-    assert ctx["stage-1b"] == {"causal_spec": {"identifiability": {}, "measurement": {}}}
+    assert ctx["stage-1b"] == {"causal_design": {"identifiability": {}, "measurement": {}}}
     assert ctx["stage-5b"] == {"outcome": "warn"}
     assert ctx["_outcome_name"] == "sleep_quality"
     assert ctx["_identifiable_treatments"] == ["screen_time"]
@@ -214,18 +214,18 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
 
     def fake_stage4_grounding(
         _data,
-        causal_spec,
+        causal_design,
         *,
         current=None,
         data_for_model=None,
         indicator_audits=None,
     ):
-        captured["causal_spec"] = causal_spec
+        captured["causal_design"] = causal_design
         captured["current"] = current
         captured["data_for_model"] = data_for_model
         captured["indicator_audits"] = indicator_audits
         return make_stage4_grounding_result(
-            stage_output={"model_spec": {}},
+            stage_output={"statistical_model_spec": {}},
             status="accepted",
             feedback="VALID",
             retain_for_next_prompt=False,
@@ -236,22 +236,25 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
     monkeypatch.setattr(
         stage4_tool_registry,
         "_load_stage4_current",
-        lambda workspace_id: {"workspace_id": workspace_id, "model_spec": {"parameters": []}},
+        lambda workspace_id: {
+            "workspace_id": workspace_id,
+            "statistical_model_spec": {"parameters": []},
+        },
     )
     monkeypatch.setattr(stage4_grounding_module, "stage4_grounding", fake_stage4_grounding)
 
     result = tool_server._execute_submit_priors(
         {
             "_workspace_id": "user-123",
-            "stage-1b": {"causal_spec": {"latent": {"constructs": []}}},
+            "stage-1b": {"causal_design": {"latent": {"constructs": []}}},
         },
         {"priors_json": "{}"},
     )
 
-    assert result == {"result": "VALID", "stage_output": {"model_spec": {}}}
+    assert result == {"result": "VALID", "stage_output": {"statistical_model_spec": {}}}
     assert captured == {
-        "causal_spec": {"latent": {"constructs": []}},
-        "current": {"workspace_id": "user-123", "model_spec": {"parameters": []}},
+        "causal_design": {"latent": {"constructs": []}},
+        "current": {"workspace_id": "user-123", "statistical_model_spec": {"parameters": []}},
         "data_for_model": expected_data_for_model,
         "indicator_audits": None,
     }
@@ -347,7 +350,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_spec": {"measurement": {"model_clock": "1d"}}},
+        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
         "stage-6": {},
     }
     args = {
@@ -473,7 +476,7 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_spec": {"measurement": {"model_clock": "1d"}}},
+        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
         "stage-6": {},
     }
     args = {
@@ -550,7 +553,7 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_spec": {"measurement": {"model_clock": "1d"}}},
+        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
         "stage-6": {},
     }
     args = {
@@ -612,7 +615,7 @@ def test_manifest_effects_include_interval_supported_outcome_indicators():
 def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():
     ctx = {
         "stage-1b": {
-            "causal_spec": {
+            "causal_design": {
                 "latent": {
                     "constructs": [
                         {

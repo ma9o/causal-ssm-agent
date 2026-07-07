@@ -29,8 +29,8 @@ class IdentificationRunner(StageRunner):
 
         ins = scenario.inputs()
         return check_identifiability(
-            ins["latent_model"],
-            ins["measurement_model"],
+            ins["latent_structure"],
+            ins["measurement_structure"],
             iv_allowed=ins.get("iv_allowed", True),
         )
 

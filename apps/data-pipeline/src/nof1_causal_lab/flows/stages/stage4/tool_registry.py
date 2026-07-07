@@ -36,11 +36,13 @@ class SearchLiteratureInput(BaseModel):
     )
 
 
-class SubmitModelSpecInput(BaseModel):
+class SubmitStatisticalModelSpecInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model_spec_json: str = Field(
-        description=("The JSON string containing the complete ModelSpec to lock for Stage 4."),
+    statistical_model_spec_json: str = Field(
+        description=(
+            "The JSON string containing the complete StatisticalModelSpec to lock for Stage 4."
+        ),
     )
 
 
@@ -108,13 +110,13 @@ def _execute_stage4_submission(
 
     workspace_id = ctx["_workspace_id"]
     stage1b = ctx.get("stage-1b", {})
-    causal_spec = stage1b.get("causal_spec", {})
+    causal_design = stage1b.get("causal_design", {})
     current = _load_stage4_current(workspace_id)
     data_for_model = _load_stage2_data_for_model(workspace_id)
 
     grounding_result = stage4_grounding(
         data,
-        causal_spec,
+        causal_design,
         current=current,
         data_for_model=data_for_model,
     )
@@ -151,10 +153,10 @@ async def execute_public_search_literature(
     return {"result": result}
 
 
-execute_public_submit_model_spec = partial(
+execute_public_submit_statistical_model_spec = partial(
     _execute_public_json_submission,
-    arg_name="model_spec_json",
-    payload_key="model_spec",
+    arg_name="statistical_model_spec_json",
+    payload_key="statistical_model_spec",
 )
 execute_public_submit_priors = partial(
     _execute_public_json_submission,
@@ -171,10 +173,10 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
         public_impl=execute_public_search_literature,
     ),
     Stage4ToolSpec(
-        name="submit_model_spec",
-        description="Submit the full Stage 4 ModelSpec for compile-only locking and validation.",
-        input_schema=SubmitModelSpecInput,
-        public_impl=execute_public_submit_model_spec,
+        name="submit_statistical_model_spec",
+        description="Submit the full Stage 4 StatisticalModelSpec for compile-only locking and validation.",
+        input_schema=SubmitStatisticalModelSpecInput,
+        public_impl=execute_public_submit_statistical_model_spec,
     ),
     Stage4ToolSpec(
         name="submit_priors",

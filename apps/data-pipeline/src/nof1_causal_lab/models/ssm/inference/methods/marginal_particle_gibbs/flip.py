@@ -1,6 +1,6 @@
 """Joint (latent coordinate, loading column) sign-flip MH move.
 
-Factor measurement models carry a sign ambiguity: the likelihood sees only the
+Factor measurement structures carry a sign ambiguity: the likelihood sees only the
 product of a loading column and its latent coordinate path, so (lambda_d, x_{:,d})
 and (-lambda_d, -x_{:,d}) fit the data identically. The default lambda prior is
 deliberately sign-asymmetric (soft anchoring), which identifies the posterior — but

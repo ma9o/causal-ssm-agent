@@ -10,7 +10,7 @@ import numpy as np
 import scipy.linalg
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.artifacts.model_spec import ModelSpec, ParameterRole
+from nof1_causal_lab.artifacts.statistical_model_spec import ParameterRole, StatisticalModelSpec
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
@@ -75,7 +75,7 @@ _DEGENERATE_PRIOR_PREAMBLE = (
     "the parameter's value with infinite certainty, which is a structural claim "
     "rather than a Bayesian belief. Legitimate fixed-value cases (identification "
     "fixings, baseline policies) belong on the structural surface — the skeleton "
-    "parameter list or model-spec policy toggles — not on the prior surface."
+    "parameter list or statistical-model-spec policy toggles — not on the prior surface."
 )
 
 
@@ -254,15 +254,15 @@ def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | 
     return None
 
 
-def _resolve_model_clock_interval_days(causal_spec: dict | None) -> float | None:
+def _resolve_model_clock_interval_days(causal_design: dict | None) -> float | None:
     """Resolve the declared model clock interval without silently defaulting to 1 day."""
-    if causal_spec is None:
+    if causal_design is None:
         return None
 
     model_clock = (
-        causal_spec.get("measurement", {}).get("model_clock")
-        if isinstance(causal_spec, dict)
-        else getattr(getattr(causal_spec, "measurement", None), "model_clock", None)
+        causal_design.get("measurement", {}).get("model_clock")
+        if isinstance(causal_design, dict)
+        else getattr(getattr(causal_design, "measurement", None), "model_clock", None)
     )
     if not model_clock:
         return None
@@ -271,13 +271,13 @@ def _resolve_model_clock_interval_days(causal_spec: dict | None) -> float | None
         interval_days = parse_duration_to_hours(model_clock) / 24.0
     except ValueError as exc:
         raise ValueError(
-            "causal_spec.measurement.model_clock must parse to a positive interval to "
+            "causal_design.measurement.model_clock must parse to a positive interval to "
             "compile cross-lag priors without explicit reference_interval_days."
         ) from exc
 
     if interval_days <= 0:
         raise ValueError(
-            "causal_spec.measurement.model_clock must resolve to a positive interval to "
+            "causal_design.measurement.model_clock must resolve to a positive interval to "
             "compile cross-lag priors."
         )
     return interval_days
@@ -289,7 +289,7 @@ def _resolve_cross_lag_interval_days(
     prior_spec: dict[str, Any],
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
-    causal_spec: dict | None,
+    causal_design: dict | None,
     effect_idx: int,
     cause_idx: int,
 ) -> float:
@@ -319,14 +319,14 @@ def _resolve_cross_lag_interval_days(
             "SSMSpec.latent_names is empty."
         )
     effect_name = ssm_spec.latent_names[effect_idx]
-    interval_days = _resolve_model_clock_interval_days(causal_spec)
+    interval_days = _resolve_model_clock_interval_days(causal_design)
     if interval_days is not None:
         return interval_days
 
     raise ValueError(
         f"Cross-lag prior '{param_name}' could not resolve an authoring interval. "
         "Set reference_interval_days explicitly, or compile with edge_lag_days / "
-        f"causal_spec model_clock metadata for effect '{effect_name}'."
+        f"causal_design model_clock metadata for effect '{effect_name}'."
     )
 
 
@@ -793,13 +793,15 @@ def matrix_log_diagnostic_drift(
     return np.real(log_transition) / interval_days
 
 
-def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
+def _collect_role_lookup(
+    statistical_model_spec: StatisticalModelSpec | dict | None,
+) -> dict[str, ParameterRole]:
     role_by_name: dict[str, ParameterRole] = {}
-    spec_obj: ModelSpec | None = None
-    if isinstance(model_spec, dict) and model_spec.get("parameters"):
-        spec_obj = ModelSpec.model_validate(model_spec)
-    elif isinstance(model_spec, ModelSpec):
-        spec_obj = model_spec
+    spec_obj: StatisticalModelSpec | None = None
+    if isinstance(statistical_model_spec, dict) and statistical_model_spec.get("parameters"):
+        spec_obj = StatisticalModelSpec.model_validate(statistical_model_spec)
+    elif isinstance(statistical_model_spec, StatisticalModelSpec):
+        spec_obj = statistical_model_spec
 
     if spec_obj is None:
         return role_by_name
@@ -992,10 +994,10 @@ def _coerce_initial_state_correlation_prior(
 
 def compile_priors(
     raw_priors: dict[str, dict],
-    model_spec: ModelSpec | dict | None,
+    statistical_model_spec: StatisticalModelSpec | dict | None,
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
 ) -> tuple[PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
@@ -1003,21 +1005,21 @@ def compile_priors(
         site.name: default_prior_for_descriptor(site) for site in active_sites
     }
     site_by_name = {site.name: site for site in active_sites}
-    role_by_name = _collect_role_lookup(model_spec)
+    role_by_name = _collect_role_lookup(statistical_model_spec)
     per_site: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
-    has_model_spec = model_spec is not None and (
-        not isinstance(model_spec, dict) or bool(model_spec)
+    has_statistical_model_spec = statistical_model_spec is not None and (
+        not isinstance(statistical_model_spec, dict) or bool(statistical_model_spec)
     )
-    resolved_model_spec = model_spec if has_model_spec else None
-    if resolved_model_spec is not None and ssm_spec is not None:
+    resolved_statistical_model_spec = statistical_model_spec if has_statistical_model_spec else None
+    if resolved_statistical_model_spec is not None and ssm_spec is not None:
         bindings = build_semantic_prior_bindings(
             ssm_spec,
-            resolved_model_spec,
-            causal_spec=causal_spec,
+            resolved_statistical_model_spec,
+            causal_design=causal_design,
         )
-    elif raw_priors and not has_model_spec:
+    elif raw_priors and not has_statistical_model_spec:
         raise ValueError(
-            "compile_priors() requires model_spec when compiling semantic prior proposals."
+            "compile_priors() requires statistical_model_spec when compiling semantic prior proposals."
         )
     elif raw_priors and ssm_spec is None:
         raise ValueError(
@@ -1048,11 +1050,11 @@ def compile_priors(
                     errors.append(
                         f"Prior {param_name!r} with role {role.value!r} could not be structurally "
                         "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
-                        "matches the ModelSpec."
+                        "matches the StatisticalModelSpec."
                     )
                     continue
                 errors.append(
-                    f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
+                    f"Prior {param_name!r} does not correspond to any parameter in StatisticalModelSpec."
                 )
                 continue
 
@@ -1081,7 +1083,7 @@ def compile_priors(
                 dt = (
                     resolved_ref_days
                     if resolved_ref_days is not None
-                    else get_construct_dt_days(causal_spec, construct_name)
+                    else get_construct_dt_days(causal_design, construct_name)
                 )
                 param_errors: list[str] = []
                 lower = normalized.get("lower")
@@ -1148,7 +1150,7 @@ def compile_priors(
                     dt = (
                         resolved_ref_days
                         if resolved_ref_days is not None
-                        else get_construct_dt_days(causal_spec)
+                        else get_construct_dt_days(causal_design)
                     )
                 elif binding.effect_idx is not None and binding.cause_idx is not None:
                     dt = _resolve_cross_lag_interval_days(
@@ -1156,7 +1158,7 @@ def compile_priors(
                         prior_spec=prior_spec,
                         ssm_spec=ssm_spec,
                         edge_lag_days=edge_lag_days,
-                        causal_spec=causal_spec,
+                        causal_design=causal_design,
                         effect_idx=binding.effect_idx,
                         cause_idx=binding.cause_idx,
                     )

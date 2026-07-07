@@ -1,32 +1,32 @@
 """Shared artifact models used across pipeline stages and model code."""
 
-from .causal_spec import (
-    CausalSpec,
+from .causal_design import (
+    CausalDesign,
     EstimationSpec,
     IdentifiabilityStatus,
     IdentifiedTreatmentStatus,
     InducedDependency,
     NonIdentifiableTreatmentStatus,
-    validate_causal_spec,
+    validate_causal_design,
 )
 from .duration import parse_duration_to_hours
-from .latent_model import (
+from .latent_structure import (
     CausalEdge,
     Construct,
-    LatentModel,
+    LatentStructure,
     Role,
     TemporalStatus,
-    validate_latent_model,
+    validate_latent_structure,
 )
-from .measurement_model import (
+from .measurement_structure import (
     ComputedRule,
     Indicator,
     IndicatorPolarity,
-    MeasurementModel,
+    MeasurementStructure,
     check_semantic_collisions,
-    validate_measurement_model,
+    validate_measurement_structure,
 )
-from .model_spec import (
+from .statistical_model_spec import (
     EXPECTED_CONSTRAINT_FOR_ROLE,
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
@@ -34,17 +34,17 @@ from .model_spec import (
     LikelihoodSource,
     LikelihoodSpec,
     LinkFunction,
-    ModelSpec,
     ObservationInterceptPolicy,
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
-    validate_model_spec_dict,
+    StatisticalModelSpec,
+    validate_statistical_model_spec_dict,
 )
 
 __all__ = [
     "CausalEdge",
-    "CausalSpec",
+    "CausalDesign",
     "ComputedRule",
     "Construct",
     "DistributionFamily",
@@ -56,12 +56,12 @@ __all__ = [
     "IndicatorPolarity",
     "InducedDependency",
     "InitializationPolicy",
-    "LatentModel",
+    "LatentStructure",
     "LikelihoodSource",
     "LikelihoodSpec",
     "LinkFunction",
-    "MeasurementModel",
-    "ModelSpec",
+    "MeasurementStructure",
+    "StatisticalModelSpec",
     "ObservationInterceptPolicy",
     "NonIdentifiableTreatmentStatus",
     "ParameterConstraint",
@@ -72,8 +72,8 @@ __all__ = [
     "VALID_LINKS_FOR_DISTRIBUTION",
     "check_semantic_collisions",
     "parse_duration_to_hours",
-    "validate_causal_spec",
-    "validate_latent_model",
-    "validate_measurement_model",
-    "validate_model_spec_dict",
+    "validate_causal_design",
+    "validate_latent_structure",
+    "validate_measurement_structure",
+    "validate_statistical_model_spec_dict",
 ]

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.distributions import constraint_domain
-from nof1_causal_lab.utils.causal_spec import choose_reference_indicator, get_indicators
+from nof1_causal_lab.utils.causal_design import choose_reference_indicator, get_indicators
 
 from .prompts.shared_fragments import (
     CONTINUOUS_TIME_DYNAMICS_SECTION,
@@ -46,15 +46,17 @@ Elicit each dynamic construct's settling time so it is resolvable at the
 observation cadence and within the study span."""
 
 
-def _indicators_for(causal_spec: dict, construct: str) -> list[dict]:
-    return [i for i in get_indicators(causal_spec) if i.get("construct_name") == construct]
+def _indicators_for(causal_design: dict, construct: str) -> list[dict]:
+    return [i for i in get_indicators(causal_design) if i.get("construct_name") == construct]
 
 
 def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> list[str]:
     """The compiler-authoritative free parameters this construct may author priors for."""
     assert state.catalog is not None  # set in ConstructBuildState.__post_init__
     names = set(state.catalog.by_construct.get(construct, ()))
-    names |= deferred_closing_edge_params(state.causal_spec, construct, set(state.admission.names))
+    names |= deferred_closing_edge_params(
+        state.causal_design, construct, set(state.admission.names)
+    )
     return sorted(names)
 
 
@@ -63,7 +65,7 @@ def build_construct_messages(
     state: ConstructBuildState,
     construct: str,
     question: str,
-    causal_spec: dict,
+    causal_design: dict,
     indicator_audits: dict[str, dict],
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for admitting ``construct``."""
@@ -77,11 +79,11 @@ def build_construct_messages(
         ]
     )
 
-    indicators = _indicators_for(causal_spec, construct)
+    indicators = _indicators_for(causal_design, construct)
     reference = choose_reference_indicator(indicators)
     reference_var = reference["name"] if reference else None
     admitted_parents = [
-        p for p in construct_parents(causal_spec, construct) if p in state.admission.names
+        p for p in construct_parents(causal_design, construct) if p in state.admission.names
     ]
     param_names = _canonical_parameter_names(state, construct)
 
@@ -107,7 +109,7 @@ def build_construct_messages(
 
     closing_betas = sorted(
         n
-        for n in deferred_closing_edge_params(causal_spec, construct, set(state.admission.names))
+        for n in deferred_closing_edge_params(causal_design, construct, set(state.admission.names))
         if n.startswith("beta_")
     )
     catalog = state.catalog

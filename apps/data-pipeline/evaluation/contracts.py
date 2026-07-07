@@ -24,7 +24,7 @@ class Stage(StrEnum):
 
     The enum grows with the matrix: a stage gains a member when its first
     scorer lands. Planned next: constructs (stage1a), measurement (stage1b),
-    model_spec (stage4), effects (stage6).
+    statistical_model_spec (stage4), effects (stage6).
     """
 
     IDENTIFICATION = "identification"  # stage1b: y0 identification verdict

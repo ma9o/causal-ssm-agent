@@ -37,7 +37,7 @@ CONFIG = load_eval_config()
 # Eval configurations
 EVAL_CONFIGS = {
     "orchestrator": {
-        "file": "evals/single_model/eval1a_latent_model.py",
+        "file": "evals/single_model/eval1a_latent_structure.py",
         "models": {m["id"]: m["alias"] for m in CONFIG["orchestrator_models"]},
     },
     "worker": {

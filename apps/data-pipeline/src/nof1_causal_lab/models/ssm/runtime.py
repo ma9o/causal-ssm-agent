@@ -18,8 +18,8 @@ from nof1_causal_lab.models.ssm import (
 )
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
 from nof1_causal_lab.models.ssm.compile.inputs import (
-    compile_ssm_inputs_from_model_spec,
     compile_ssm_inputs_from_spec,
+    compile_ssm_inputs_from_statistical_model_spec,
 )
 from nof1_causal_lab.models.ssm.inference.structure import (
     InferenceStructurePlan,
@@ -40,7 +40,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.inference import InferenceResult
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
@@ -94,30 +94,30 @@ def get_default_sampler_config() -> dict[str, Any]:
 
 def compile_model_inputs(
     *,
-    model_spec: ModelSpec | dict | None = None,
+    statistical_model_spec: StatisticalModelSpec | dict | None = None,
     priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
     ssm_spec: SSMSpec | None = None,
     prior_registry: PriorRegistry | None = None,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
 ) -> tuple[SSMSpec, PriorRegistry, list[dict[str, object]]]:
     """Compile user-facing or direct SSM inputs into executable model inputs."""
-    if model_spec is not None and (ssm_spec is not None or prior_registry is not None):
+    if statistical_model_spec is not None and (ssm_spec is not None or prior_registry is not None):
         raise ValueError(
-            "Compile either ModelSpec-driven inputs or direct SSMSpec inputs, not both."
+            "Compile either StatisticalModelSpec-driven inputs or direct SSMSpec inputs, not both."
         )
-    if model_spec is None and ssm_spec is not None and causal_spec is not None:
+    if statistical_model_spec is None and ssm_spec is not None and causal_design is not None:
         raise ValueError(
-            "Do not pass causal_spec alongside a direct SSMSpec. Compile from ModelSpec + "
-            "CausalSpec or use a compiled artifact so the causal structure is encoded "
+            "Do not pass causal_design alongside a direct SSMSpec. Compile from StatisticalModelSpec + "
+            "CausalDesign or use a compiled artifact so the causal structure is encoded "
             "explicitly in the spec masks."
         )
 
-    if model_spec is not None:
+    if statistical_model_spec is not None:
         spec, resolved_priors, bindings, _diagnostics, _edge_lag_days = (
-            compile_ssm_inputs_from_model_spec(
-                model_spec=model_spec,
+            compile_ssm_inputs_from_statistical_model_spec(
+                statistical_model_spec=statistical_model_spec,
                 priors=dump_prior_payloads(priors or {}),
-                causal_spec=causal_spec,
+                causal_design=causal_design,
             )
         )
     elif ssm_spec is not None:
@@ -126,12 +126,12 @@ def compile_model_inputs(
                 ssm_spec=ssm_spec,
                 priors=dump_prior_payloads(priors or {}),
                 prior_registry=prior_registry,
-                model_spec=model_spec,
-                causal_spec=causal_spec,
+                statistical_model_spec=statistical_model_spec,
+                causal_design=causal_design,
             )
         )
     else:
-        raise ValueError("Model construction requires either model_spec or ssm_spec.")
+        raise ValueError("Model construction requires either statistical_model_spec or ssm_spec.")
 
     return spec, resolved_priors, bindings
 
@@ -139,13 +139,13 @@ def compile_model_inputs(
 def build_ssm_model(
     wide_data: pl.DataFrame,
     *,
-    model_spec: ModelSpec | dict | None = None,
+    statistical_model_spec: StatisticalModelSpec | dict | None = None,
     priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
     ssm_spec: SSMSpec | None = None,
     prior_registry: PriorRegistry | None = None,
     compiled_prior_semantics: dict | None = None,
     prior_runtime_bundle: PriorRuntimeBundle | None = None,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     parameter_bindings: list[dict[str, Any]] | None = None,
 ) -> SSMModel:
     """Build a live ``SSMModel`` from compiled inputs and wide data."""
@@ -153,11 +153,11 @@ def build_ssm_model(
         raise ValueError("Cannot build SSM model from empty data")
 
     spec, resolved_priors, bindings = compile_model_inputs(
-        model_spec=model_spec,
+        statistical_model_spec=statistical_model_spec,
         priors=priors,
         ssm_spec=ssm_spec,
         prior_registry=prior_registry,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
     )
     spec = hydrate_discrete_manifest_metadata(spec, wide_data)
     validate_observation_support(spec, wide_data)

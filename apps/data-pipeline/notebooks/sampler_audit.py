@@ -4195,7 +4195,7 @@ def coda5_model_zoo(
 
 @app.cell
 def coda5_harness(jax, jnp, np):
-    # One grid gold standard and one pilot for all five models — every model-specific
+    # One grid gold standard and one pilot for all five models — every statistical-model-specific
     # quantity (drift Jacobian, emission gradient and curvature) comes from jax.grad,
     # so nothing here knows which model it is running.
     def _logn_np(v, mu, sd):

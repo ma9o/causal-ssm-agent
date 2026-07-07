@@ -2,7 +2,7 @@
 
 Consumed by ``conftest.py`` (the ``simple_*`` fixtures), ``test_ssm_validation.py``
 (pure builders + third-party re-exports), and ``test_grounding.py``
-(``make_causal_spec_dict``).
+(``make_causal_design_dict``).
 """
 
 # ruff: noqa: F401 — this module deliberately re-exports names for its consumers.
@@ -27,20 +27,20 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
 from nof1_causal_lab.models.ssm.compile.inputs import (
-    compile_ssm_inputs_from_model_spec,
+    compile_ssm_inputs_from_statistical_model_spec,
 )
 from nof1_causal_lab.utils.openrouter_client import GenerateConfig
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 
-def make_causal_spec_dict(
+def make_causal_design_dict(
     constructs: list[dict],
     edges: list[dict],
     indicators: list[dict],
     *,
     model_clock: str | None = "1d",
 ) -> dict:
-    """Build a CausalSpec dict (latent + measurement + estimation) for tests.
+    """Build a CausalDesign dict (latent + measurement + estimation) for tests.
 
     Defaults indicator polarity to ``positive`` when not set; estimation block
     is derived from ``constructs`` (state_order = construct names) and ``edges``.
@@ -113,8 +113,8 @@ def _make_polars_data() -> pl.DataFrame:
 
 
 @pytest.fixture
-def simple_model_spec() -> dict:
-    """Minimal Stage 4 model spec used by SSM-validation tests."""
+def simple_statistical_model_spec() -> dict:
+    """Minimal Stage 4 statistical model spec used by SSM-validation tests."""
     return {
         "likelihoods": [
             {
@@ -143,7 +143,7 @@ def simple_model_spec() -> dict:
 
 @pytest.fixture
 def simple_priors() -> dict:
-    """Priors matching ``simple_model_spec``."""
+    """Priors matching ``simple_statistical_model_spec``."""
     return {
         "rho_mood": {
             "parameter": "rho_mood",
@@ -164,7 +164,7 @@ def simple_priors() -> dict:
 
 @pytest.fixture
 def simple_data() -> pd.DataFrame:
-    """Tabular fixture aligned with ``simple_model_spec``."""
+    """Tabular fixture aligned with ``simple_statistical_model_spec``."""
     n = 50
     rng = np.random.default_rng(0)
     return pd.DataFrame(

@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, StateDecaySpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.model import SSMModel

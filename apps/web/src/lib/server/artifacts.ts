@@ -3,8 +3,8 @@ import { readBinary, readData } from "@/lib/storage";
 export type EpisodeArtifactId =
   | "question"
   | "raw_data"
-  | "constructs"
-  | "causal_spec"
+  | "latent_structure"
+  | "causal_design"
   | "identification_report"
   | "extraction_report"
   | "model_data"
@@ -42,8 +42,8 @@ export class ArtifactNotFoundError extends Error {
 export const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = {
   question: { json: { question: "question.json" } },
   raw_data: { json: { profile: "profile.json" }, parquet: { raw: "raw.parquet" } },
-  constructs: { json: { constructs: "constructs.json" } },
-  causal_spec: { json: { causal_spec: "causal_spec.json" } },
+  latent_structure: { json: { latent_structure: "latent-structure.json" } },
+  causal_design: { json: { causal_design: "causal_design.json" } },
   identification_report: { json: { identification_report: "identification_report.json" } },
   extraction_report: { json: { extraction_report: "extraction_report.json" } },
   model_data: { parquet: { model_data: "model_data.parquet" } },

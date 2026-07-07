@@ -7,7 +7,7 @@ from typing import Any
 
 import polars as pl
 
-from nof1_causal_lab.utils.causal_spec import get_indicators
+from nof1_causal_lab.utils.causal_design import get_indicators
 
 FIXTURE_USER_ID = "DEMO"
 EXPECTED_STAGE2_COLUMNS = ["indicator", "value", "anchor_time"]
@@ -167,7 +167,7 @@ def _per_indicator_counts(df: pl.DataFrame) -> dict[str, int]:
 
 def compare_demo_health_outputs(
     *,
-    causal_spec: dict,
+    causal_design: dict,
     stage0: pl.DataFrame,
     data_for_model: pl.DataFrame,
     expected_model: pl.DataFrame,
@@ -182,7 +182,7 @@ def compare_demo_health_outputs(
     actual = _normalized_stage2(data_for_model)
     expected = _normalized_stage2(expected_model)
 
-    indicators = get_indicators(causal_spec)
+    indicators = get_indicators(causal_design)
     actual_indicator_names = {ind["name"] for ind in indicators}
     expected_indicator_names = set(expected["indicator"].unique())
 

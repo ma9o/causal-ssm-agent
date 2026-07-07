@@ -4,13 +4,13 @@
 |---|---|---|
 | Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
-Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. The default sampler is `marginal_particle_gibbs` (see [structural routing](../reference/inference-routing.md#structural-routing)); the user can override to another [available method](../reference/inference-routing.md#method-taxonomy).
+Fits the compiled state-space model from [Stage 4](04-statistical-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. The default sampler is `marginal_particle_gibbs` (see [structural routing](../reference/inference-routing.md#structural-routing)); the user can override to another [available method](../reference/inference-routing.md#method-taxonomy).
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
+| `compiled_ssm` | [Stage 4](04-statistical-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with statistical model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 | `inference_method` | Pipeline config | Optional sampler override (`"marginal_particle_gibbs"`, the default, or `"particle_marginal_mh"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
 

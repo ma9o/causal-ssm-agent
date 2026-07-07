@@ -134,7 +134,7 @@ describe("buildEdgePosteriors", () => {
   it("maps fixed-effect posterior marginals onto source→target edges", () => {
     const edgePosteriors = buildEdgePosteriors({
       stage1a: {
-        latent_model: {
+        latent_structure: {
           constructs: [
             {
               name: "stress_load",
@@ -162,7 +162,7 @@ describe("buildEdgePosteriors", () => {
         },
       } as Stage1aData,
       stage4: {
-        model_spec: {
+        statistical_model_spec: {
           likelihoods: [],
           parameters: [
             {

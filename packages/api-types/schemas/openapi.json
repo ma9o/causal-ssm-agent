@@ -1,0 +1,871 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "nof1-causal-lab episode API",
+    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every stage\nwith what it consumes, produces, optionally co-produces, and derives \u2014 plus each\nstage's creation class:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These stages are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"stage_id\": \"stage-1a\"}}` to run a stage, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long stages (stage-4, stage-5b \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled stages in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed stage error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning stage-0. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/episodes/{workspace_id}": {
+      "get": {
+        "summary": "Get Episode",
+        "description": "Current episode state: the single read to poll while navigating.\n\nReturns per-artifact freshness (existence, staleness, version, provenance),\nthe `legal` moves available right now, and `auto_running` \u2014 whether the\nbackground driver is active. Journal-backed, so it works even against a\npublished read-only store.",
+        "operationId": "get_episode_api_episodes__workspace_id__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Episode Api Episodes  Workspace Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/timeline": {
+      "get": {
+        "summary": "Get Timeline",
+        "description": "The transition journal: every move attempt in order.\n\nEach record is `applied` (state advanced), `rejected` (illegal move, state\nunchanged), or `raised` (the stage ran but threw \u2014 the record carries the\ntyped error). Re-running after a `raised`/`rejected` is just proposing the\nmove again.",
+        "operationId": "get_timeline_api_episodes__workspace_id__timeline_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Timeline Api Episodes  Workspace Id  Timeline Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/events": {
+      "get": {
+        "summary": "Get Events",
+        "description": "Intra-stage telemetry (e.g. stage-2 worker fan-out, stage progress).\n\nPass the last-seen event id as `after` to page forward; omit it for the full\nstream. This is finer-grained than the timeline, which records only whole\nmove outcomes.",
+        "operationId": "get_events_api_episodes__workspace_id__events_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Events Api Episodes  Workspace Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/artifacts/{artifact_id}": {
+      "get": {
+        "summary": "Get Artifact",
+        "description": "One artifact version: meta + inline JSON payloads.\n\nDefaults to the episode's *current* version (the journal projection,\nnot merely the highest on disk). Binary payload files (parquet,\npickle) are listed by name, never inlined.",
+        "operationId": "get_artifact_api_episodes__workspace_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "question",
+                "raw_data",
+                "latent_structure",
+                "causal_design",
+                "identification_report",
+                "extraction_report",
+                "model_data",
+                "validation_report",
+                "compiled_ssm",
+                "posterior",
+                "baseline_ranking",
+                "saved_scenarios"
+              ],
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Artifact Api Episodes  Workspace Id  Artifacts  Artifact Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/artifacts/{artifact_id}/files/{filename}": {
+      "get": {
+        "summary": "Get Artifact File",
+        "description": "One declared payload file from an artifact version.\n\nDefaults to the episode's current version. Unlike the JSON artifact\nendpoint, this serves binary files as bytes and refuses undeclared\nfilenames so callers cannot browse arbitrary workspace paths.",
+        "operationId": "get_artifact_file_api_episodes__workspace_id__artifacts__artifact_id__files__filename__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "question",
+                "raw_data",
+                "latent_structure",
+                "causal_design",
+                "identification_report",
+                "extraction_report",
+                "model_data",
+                "validation_report",
+                "compiled_ssm",
+                "posterior",
+                "baseline_ranking",
+                "saved_scenarios"
+              ],
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes": {
+      "post": {
+        "summary": "Start Episode",
+        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance. Raw\ndata enters separately by placing files under `data/{workspace_id}/input/`\nbefore running stage-0. Returns the same shape as `GET /api/episodes/{id}`.",
+        "operationId": "start_episode_api_episodes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartEpisodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Start Episode Api Episodes Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/moves": {
+      "post": {
+        "summary": "Propose Move",
+        "description": "Propose one move; blocks until it is applied, rejected, or raises.\n\nTwo kinds:\n\n- Run a stage: `{\"move\": {\"kind\": \"run\", \"stage_id\": \"stage-1a\"}}`.\n- Author a judgment artifact directly (skip the in-service stage):\n  `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\":\n  \"llm\"}, \"payload\": {...}}`. The payload is schema-validated against that\n  artifact's contract, journaled, and provenance-stamped; the write becomes a\n  new provenance root and marks everything downstream stale until re-run.\n\nThe synchronous outcome is the same record the timeline stores. Long stages\n(stage-4, stage-5b \u2014 minutes to hours) can outlive a client timeout; for\nthose prefer `POST /api/episodes/{workspace_id}/auto` plus polling.",
+        "operationId": "propose_move_api_episodes__workspace_id__moves_post",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Propose Move Api Episodes  Workspace Id  Moves Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/auto": {
+      "post": {
+        "summary": "Auto Run",
+        "description": "Start the default navigation policy in the background.\n\nRuns enabled stages in dependency order while their outputs are missing or\nstale, stopping when quiescent or when a move fails. Returns immediately;\nfollow progress with `GET /api/episodes/{workspace_id}` (`auto_running`) and\nthe timeline. An LLM navigator replaces this policy by proposing `moves`\nitself. 409 if a driver is already active for this workspace.",
+        "operationId": "auto_run_api_episodes__workspace_id__auto_post",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoRunBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Auto Run Api Episodes  Workspace Id  Auto Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/capabilities": {
+      "get": {
+        "summary": "Get Capabilities",
+        "description": "Whether this deployment serves the move plane.\n\n`moves_enabled` is `false` on the hosted read-only viewer backend, where\nevery `POST` (moves, auto-run, start-episode) returns 403 and only the read\nendpoints are live.",
+        "operationId": "get_capabilities_api_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Capabilities Api Capabilities Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/machine": {
+      "get": {
+        "summary": "Get Machine",
+        "description": "The static artifact graph and action hierarchy \u2014 read once to orient.\n\nEach stage entry declares what it `consumes`, `produces`, optionally\nco-produces (`produces_optional`), and `derives`, plus its **creation\nclass**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk\nLLM compute on the service's ambient key \u2014 you trigger it with a `run` move,\nyou never supply a key), or `judgment` (proposal work you can author yourself\nby writing the produced artifact directly \u2014 these are flagged `writable`).",
+        "operationId": "get_machine_api_machine_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Machine Api Machine Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/{stage_id}": {
+      "get": {
+        "summary": "Get Tool Schemas",
+        "description": "List a stage's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{stage_id}/{tool_name}`. Examples:\nstage-6 `simulate` / `get_model_info`, stage-4 `submit_statistical_model_spec`.",
+        "operationId": "get_tool_schemas_api_tools__stage_id__get",
+        "parameters": [
+          {
+            "name": "stage_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Stage Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Tool Schemas Api Tools  Stage Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/{stage_id}/{tool_name}": {
+      "post": {
+        "summary": "Execute Tool",
+        "description": "Execute a stage tool against the workspace's current artifact-store versions.\n\nBody is `{\"workspace_id\": \"...\", \"input\": {...}}` where `input` matches the\ntool's `parameters` schema from `GET /api/tools/{stage_id}`; 422 on a schema\nviolation. Numeric tools hard-flag stale provenance chains in their result\nwarnings \u2014 do not report numbers past those flags.",
+        "operationId": "execute_tool_api_tools__stage_id___tool_name__post",
+        "parameters": [
+          {
+            "name": "stage_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Stage Id"
+            }
+          },
+          {
+            "name": "tool_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolCallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Execute Tool Api Tools  Stage Id   Tool Name  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AutoRunBody": {
+        "properties": {
+          "options": {
+            "$ref": "#/components/schemas/ExecOptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AutoRunBody"
+      },
+      "ExecOptions": {
+        "properties": {
+          "inference_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inference Method"
+          },
+          "enable_literature": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Literature"
+          },
+          "max_windows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Windows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ExecOptions",
+        "description": "Per-move execution parameters (infra, not domain state).\n\nCredentials are never per-move: LLM stages read the ambient\n``OPENROUTER_API_KEY`` of whatever process executes them."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MoveBody": {
+        "properties": {
+          "move": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunStage"
+              },
+              {
+                "$ref": "#/components/schemas/WriteArtifact"
+              }
+            ],
+            "title": "Move",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "run": "#/components/schemas/RunStage",
+                "write": "#/components/schemas/WriteArtifact"
+              }
+            }
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "options": {
+            "$ref": "#/components/schemas/ExecOptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "move"
+        ],
+        "title": "MoveBody"
+      },
+      "RunStage": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "run",
+            "title": "Kind",
+            "default": "run"
+          },
+          "stage_id": {
+            "type": "string",
+            "title": "Stage Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stage_id"
+        ],
+        "title": "RunStage"
+      },
+      "StartEpisodeBody": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace_id"
+        ],
+        "title": "StartEpisodeBody"
+      },
+      "ToolCallRequest": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "input": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "input"
+        ],
+        "title": "ToolCallRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WriteArtifact": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "write",
+            "title": "Kind",
+            "default": "write"
+          },
+          "artifact_id": {
+            "type": "string",
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "causal_design",
+              "identification_report",
+              "extraction_report",
+              "model_data",
+              "validation_report",
+              "compiled_ssm",
+              "posterior",
+              "baseline_ranking",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "computed",
+              "human",
+              "llm"
+            ],
+            "title": "Provenance",
+            "default": "human"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "artifact_id"
+        ],
+        "title": "WriteArtifact"
+      }
+    }
+  }
+}

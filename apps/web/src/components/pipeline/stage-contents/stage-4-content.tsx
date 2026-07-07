@@ -1,7 +1,7 @@
-import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
-import { MeasurementTable } from "@/components/stages/model-spec/measurement-table";
-import { PriorTable } from "@/components/stages/model-spec/prior-table";
-import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
+import { FunctionalSpecLink } from "@/components/stages/statistical-model-spec/functional-spec-link";
+import { MeasurementTable } from "@/components/stages/statistical-model-spec/measurement-table";
+import { PriorTable } from "@/components/stages/statistical-model-spec/prior-table";
+import { SSMEquationDisplay } from "@/components/stages/statistical-model-spec/ssm-equation-display";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
 import type { Indicator, Stage4Data } from "@nof1-causal-lab/api-types";
 
@@ -20,8 +20,8 @@ export default function Stage4Content({
   return (
     <div className="space-y-4">
       <SSMEquationDisplay
-        likelihoods={data.model_spec.likelihoods}
-        parameters={data.model_spec.parameters}
+        likelihoods={data.statistical_model_spec.likelihoods}
+        parameters={data.statistical_model_spec.parameters}
         priors={authoredPriors}
         indicators={indicators}
       />
@@ -32,7 +32,7 @@ export default function Stage4Content({
             <FunctionalSpecLink />
           </div>
           <MeasurementTable
-            likelihoods={data.model_spec.likelihoods}
+            likelihoods={data.statistical_model_spec.likelihoods}
             diagnostics={data.likelihood_diagnostics}
             priorPredictiveSamples={
               (data.prior_predictive_samples ?? undefined) as Record<string, number[]> | undefined
@@ -49,7 +49,7 @@ export default function Stage4Content({
               Terms without an authored prior are labeled as not authored in the semantic panels.
             </p>
           </div>
-          <PriorTable priors={authoredPriors} parameters={data.model_spec.parameters} />
+          <PriorTable priors={authoredPriors} parameters={data.statistical_model_spec.parameters} />
         </div>
       )}
     </div>

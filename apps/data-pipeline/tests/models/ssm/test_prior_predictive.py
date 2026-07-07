@@ -297,7 +297,7 @@ class TestFormatParameterFeedback:
         assert "mu=0.0" in feedback
 
     def test_scale_mismatch_only_surfaces_for_targeted_scale_parameter(self):
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "monthly_eveningness_activity_timing",
@@ -338,7 +338,7 @@ class TestFormatParameterFeedback:
             format_parameter_feedback(
                 "t0_mean_chronotype",
                 results,
-                model_spec=model_spec,
+                statistical_model_spec=statistical_model_spec,
             )
             == ""
         )
@@ -346,14 +346,14 @@ class TestFormatParameterFeedback:
             format_parameter_feedback(
                 "manifest_mean_monthly_eveningness_activity_timing",
                 results,
-                model_spec=model_spec,
+                statistical_model_spec=statistical_model_spec,
             )
             == ""
         )
         feedback = format_parameter_feedback(
             "t0_sd_chronotype",
             results,
-            model_spec=model_spec,
+            statistical_model_spec=statistical_model_spec,
         )
         assert "Scale mismatch for monthly_eveningness_activity_timing" in feedback
 
@@ -374,8 +374,8 @@ class TestGetFailedParameters:
         failed = get_failed_parameters(results, params)
         assert set(failed) == {"alpha", "beta"}
 
-    def test_scale_mismatch_with_model_spec_targets_variance_parameter(self):
-        model_spec = {
+    def test_scale_mismatch_with_statistical_model_spec_targets_variance_parameter(self):
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "monthly_eveningness_activity_timing",
@@ -403,7 +403,7 @@ class TestGetFailedParameters:
                 },
             ],
         }
-        causal_spec = {
+        causal_design = {
             "measurement": {
                 "indicators": [
                     {
@@ -423,15 +423,15 @@ class TestGetFailedParameters:
 
         failed = get_failed_parameters(
             results,
-            [parameter["name"] for parameter in model_spec["parameters"]],
-            causal_spec=causal_spec,
-            model_spec=model_spec,
+            [parameter["name"] for parameter in statistical_model_spec["parameters"]],
+            causal_design=causal_design,
+            statistical_model_spec=statistical_model_spec,
         )
 
         assert failed == ["t0_sd_chronotype"]
 
-    def test_scale_mismatch_with_sparse_model_spec_targets_variance_parameter(self):
-        model_spec = {
+    def test_scale_mismatch_with_sparse_statistical_model_spec_targets_variance_parameter(self):
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "monthly_eveningness_activity_timing",
@@ -459,7 +459,7 @@ class TestGetFailedParameters:
                 },
             ],
         }
-        causal_spec = {
+        causal_design = {
             "measurement": {
                 "indicators": [
                     {
@@ -479,17 +479,17 @@ class TestGetFailedParameters:
 
         failed = get_failed_parameters(
             results,
-            [parameter["name"] for parameter in model_spec["parameters"]],
-            causal_spec=causal_spec,
-            model_spec=model_spec,
+            [parameter["name"] for parameter in statistical_model_spec["parameters"]],
+            causal_design=causal_design,
+            statistical_model_spec=statistical_model_spec,
         )
 
         assert failed == ["t0_sd_chronotype"]
 
 
 class TestResolveScaleTargetParameters:
-    def test_sparse_model_spec_infers_construct_from_parameter_names(self):
-        model_spec = {
+    def test_sparse_statistical_model_spec_infers_construct_from_parameter_names(self):
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "monthly_eveningness_activity_timing",
@@ -516,7 +516,7 @@ class TestResolveScaleTargetParameters:
 
         resolved = resolve_scale_target_parameters(
             "monthly_eveningness_activity_timing",
-            model_spec,
+            statistical_model_spec,
             indicator_to_construct={"monthly_eveningness_activity_timing": "chronotype"},
         )
 
@@ -547,7 +547,7 @@ class TestCheckLaggedResponsePlausibility:
             "spec": serialize_ssm_spec(spec),
             "edge_lag_days": serialize_edge_lag_days({(1, 0): 1.0}),
         }
-        causal_spec = {
+        causal_design = {
             "latent": {"constructs": [], "edges": []},
             "measurement": {"model_clock": "1d"},
             "estimation": {
@@ -567,7 +567,7 @@ class TestCheckLaggedResponsePlausibility:
             dynamics_samples,
             [0, 1],
             compiled_ssm=compiled_ssm,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         assert scope is not None
@@ -602,7 +602,7 @@ class TestCheckLaggedResponsePlausibility:
             "spec": serialize_ssm_spec(spec),
             "edge_lag_days": serialize_edge_lag_days({(1, 0): 1.0}),
         }
-        causal_spec = {
+        causal_design = {
             "latent": {"constructs": [], "edges": []},
             "measurement": {"model_clock": "1d"},
             "estimation": {
@@ -611,7 +611,7 @@ class TestCheckLaggedResponsePlausibility:
             },
         }
 
-        results = _check_lagged_response_plausibility(samples, compiled_ssm, causal_spec)
+        results = _check_lagged_response_plausibility(samples, compiled_ssm, causal_design)
 
         assert len(results) == 1
         assert results[0].parameter == "beta_stress_sleep"
@@ -769,7 +769,7 @@ class TestScalePlausibilityDiagnostics:
         assert "rho_X" in failed
         assert "beta_X_Y" not in failed
 
-    def test_scale_mismatch_without_causal_spec_returns_all(self):
+    def test_scale_mismatch_without_causal_design_returns_all(self):
         results = [
             PriorValidationResult(parameter="scale_mood", is_valid=False, issue="Scale mismatch")
         ]

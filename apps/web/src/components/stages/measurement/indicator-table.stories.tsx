@@ -5,7 +5,7 @@ import { IndicatorTable } from "./indicator-table";
 import fixture from "../../__fixtures__/demo-run/stage-1b.json";
 
 const data = fixture as unknown as Stage1bData;
-const indicators = data.causal_spec.measurement.indicators;
+const indicators = data.causal_design.measurement.indicators;
 
 const meta = {
   title: "Pipeline/Stages/1b – Measurement/IndicatorTable",

@@ -11,7 +11,7 @@ Applies steady-state interventional-effect and trajectory-simulation semantics t
 | Input | Source | Description |
 |---|---|---|
 | `fitted_artifact` | [Stage 5b](05b-inference-diagnostics.md) | [`FittedArtifact`](05b-inference-diagnostics.md#fittedartifact) with posterior samples, runtime builder, observation times, PPC result, and power-scaling result |
-| `causal_spec` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with identifiability status, measurement model, and outcome construct designation |
+| `causal_design` | [Stage 1b](01b-measurement-structure-identifiability.md) | [`CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign) with identifiability status, measurement structure, and outcome construct designation |
 | `question` | User | Original research question for grounding the opening commentary |
 
 Stage 5b provided the posterior and diagnostics; Stage 1b provided the identifiability verdicts. Stage 6 is the first point where posterior samples are translated into causal decision quantities.
@@ -25,9 +25,9 @@ flowchart LR
     B[Baseline\nranking] --> C[LLM commentary] --> T([Interactive tools])
 ```
 
-**Baseline ranking:** For each treatment that remains after the [Stage 1b identifiability screen](01b-measurement-identifiability.md), the stage computes a steady-state interventional effect under `do(treatment = baseline + 1)`. For each posterior draw the baseline steady state η\* solves the vector-field root `f(η*) = 0` (numerically, via Levenberg-Marquardt); for the [affine special case](../reference/estimation.md#1-ct-sde-formulation) this reduces to η\* = −**A**⁻¹**c** for [drift matrix **A** and continuous intercept **c**](../reference/estimation.md#1-ct-sde-formulation). An intervention clamps the treatment equation and re-solves the modified system, comparing the intervened and baseline outcome values. The default `do(treatment = baseline + 1)` is vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
+**Baseline ranking:** For each treatment that remains after the [Stage 1b identifiability screen](01b-measurement-structure-identifiability.md), the stage computes a steady-state interventional effect under `do(treatment = baseline + 1)`. For each posterior draw the baseline steady state η\* solves the vector-field root `f(η*) = 0` (numerically, via Levenberg-Marquardt); for the [affine special case](../reference/estimation.md#1-ct-sde-formulation) this reduces to η\* = −**A**⁻¹**c** for [drift matrix **A** and continuous intercept **c**](../reference/estimation.md#1-ct-sde-formulation). An intervention clamps the treatment equation and re-solves the modified system, comparing the intervened and baseline outcome values. The default `do(treatment = baseline + 1)` is vmapped over all posterior draws to produce the full posterior treatment-effect distribution.
 
-- *Temporal forward simulation:* When temporal information is available (either from the [`model_clock`](01b-measurement-identifiability.md#observation_window-and-model_clock) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment, discretizing the continuous-time system from the baseline steady state with the treatment clamped at each step. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
+- *Temporal forward simulation:* When temporal information is available (either from the [`model_clock`](01b-measurement-structure-identifiability.md#observation_window-and-model_clock) or the median observed timestep), the stage also runs a 30-day forward simulation for each treatment, discretizing the continuous-time system from the baseline steady state with the treatment clamped at each step. The mean trajectory across posterior draws is summarized into a [`TemporalEffect`](#temporaleffect) with 1-day, 7-day, and 30-day snapshots plus peak effect and time-to-peak.
 - *Manifest-level decomposition:* When posterior draws of the [loading matrix](../reference/estimation.md#1-ct-sde-formulation) λ are available, the stage projects each treatment's outcome-level effect through the loadings to produce per-manifest effects: `manifest_effect[i] = λ[i, outcome_idx] × effect_mean`.
 - *Ranking:* Treatments are sorted by |mean(`posterior_draws`)| descending.
 
@@ -62,7 +62,7 @@ For a study of agricultural practices and crop yield where Stage 1a posited cons
 | `temporal` | [`TemporalEffect`](#temporaleffect) \| null | Forward-simulation summary at 1-day, 7-day, and 30-day horizons |
 | `manifest_effects` | `dict[str, float]` \| null | Per-manifest outcome decomposition via [loading-matrix](../reference/estimation.md#1-ct-sde-formulation) projection; keys are manifest names, values are `λ[manifest, outcome] × effect_mean` |
 
-Identifiability status, [PPC warnings](05b-inference-diagnostics.md#ppcresult), and [power-scaling diagnostics](05b-inference-diagnostics.md#powerscalingresult) are not duplicated here — consumers derive them from [Stage 1b](01b-measurement-identifiability.md#identifiabilitystatus) and [Stage 5b](05b-inference-diagnostics.md) outputs respectively.
+Identifiability status, [PPC warnings](05b-inference-diagnostics.md#ppcresult), and [power-scaling diagnostics](05b-inference-diagnostics.md#powerscalingresult) are not duplicated here — consumers derive them from [Stage 1b](01b-measurement-structure-identifiability.md#identifiabilitystatus) and [Stage 5b](05b-inference-diagnostics.md) outputs respectively.
 
 ### `TemporalEffect`
 

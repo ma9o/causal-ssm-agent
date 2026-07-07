@@ -7,8 +7,8 @@ export type EpisodeProvenance = "computed" | "human" | "llm";
 export type EpisodeArtifactId =
   | "question"
   | "raw_data"
-  | "constructs"
-  | "causal_spec"
+  | "latent_structure"
+  | "causal_design"
   | "identification_report"
   | "extraction_report"
   | "model_data"
@@ -89,8 +89,8 @@ export interface EpisodeEvent {
 
 /** The artifact a stage's human-edited result writes back into the machine. */
 export const STAGE_EDIT_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
-  "stage-1a": "constructs",
-  "stage-1b": "causal_spec",
+  "stage-1a": "latent_structure",
+  "stage-1b": "causal_design",
   "stage-6": "baseline_ranking",
 };
 

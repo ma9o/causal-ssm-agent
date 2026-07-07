@@ -9,7 +9,7 @@ from __future__ import annotations
 from nof1_causal_lab.utils.identifiability import check_identifiability
 
 
-def _iv_structure_latent_model():
+def _iv_structure_latent_structure():
     """A DAG with a textbook IV pattern: U → X → Y, Z → X, with U unobserved.
 
     With U unobserved and confounding both X and Y, the backdoor cannot be
@@ -32,7 +32,7 @@ def _iv_structure_latent_model():
     }
 
 
-def _measurement_model_observing_xyz():
+def _measurement_structure_observing_xyz():
     return {
         "indicators": [
             {"name": "y_obs", "construct_name": "Y"},
@@ -46,10 +46,10 @@ class TestIVAllowedDefault:
     def test_default_gate_finds_iv(self):
         """Default ``iv_allowed=True`` may mark X as identifiable via Z
         when U blocks backdoor identification."""
-        latent_model = _iv_structure_latent_model()
-        measurement_model = _measurement_model_observing_xyz()
+        latent_structure = _iv_structure_latent_structure()
+        measurement_structure = _measurement_structure_observing_xyz()
 
-        result = check_identifiability(latent_model, measurement_model)
+        result = check_identifiability(latent_structure, measurement_structure)
 
         # X should be identifiable via Z (IV) under linearity assumption.
         assert "X" in result["identifiable_treatments"]
@@ -66,11 +66,15 @@ class TestIVAllowedFalse:
     def test_disabled_iv_gate_skips_iv(self):
         """With ``iv_allowed=False`` and only-IV-identification structure,
         the treatment must end up non-identifiable."""
-        latent_model = _iv_structure_latent_model()
-        measurement_model = _measurement_model_observing_xyz()
+        latent_structure = _iv_structure_latent_structure()
+        measurement_structure = _measurement_structure_observing_xyz()
 
-        result_with_iv = check_identifiability(latent_model, measurement_model, iv_allowed=True)
-        result_no_iv = check_identifiability(latent_model, measurement_model, iv_allowed=False)
+        result_with_iv = check_identifiability(
+            latent_structure, measurement_structure, iv_allowed=True
+        )
+        result_no_iv = check_identifiability(
+            latent_structure, measurement_structure, iv_allowed=False
+        )
 
         assert result_no_iv["graph_info"]["iv_allowed"] is False
 
@@ -91,22 +95,26 @@ class TestIVAllowedFalse:
         """Treatments identified via do-calculus (backdoor/front-door) should
         be unchanged when IV is disabled — IV is a fallback, not a primary."""
         # Simpler DAG: X → Y, no confounders. Backdoor trivially identifiable.
-        latent_model = {
+        latent_structure = {
             "constructs": [
                 {"name": "X", "is_outcome": False, "temporal_status": "time_invariant"},
                 {"name": "Y", "is_outcome": True, "temporal_status": "time_invariant"},
             ],
             "edges": [{"cause": "X", "effect": "Y", "lagged": False}],
         }
-        measurement_model = {
+        measurement_structure = {
             "indicators": [
                 {"name": "y_obs", "construct_name": "Y"},
                 {"name": "x_obs", "construct_name": "X"},
             ],
         }
 
-        result_with_iv = check_identifiability(latent_model, measurement_model, iv_allowed=True)
-        result_no_iv = check_identifiability(latent_model, measurement_model, iv_allowed=False)
+        result_with_iv = check_identifiability(
+            latent_structure, measurement_structure, iv_allowed=True
+        )
+        result_no_iv = check_identifiability(
+            latent_structure, measurement_structure, iv_allowed=False
+        )
 
         assert "X" in result_with_iv["identifiable_treatments"]
         assert "X" in result_no_iv["identifiable_treatments"]

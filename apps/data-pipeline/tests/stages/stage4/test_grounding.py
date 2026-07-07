@@ -18,17 +18,17 @@ from nof1_causal_lab.flows.stages.stage4.grounding import (
     stage4_grounding,
 )
 from nof1_causal_lab.flows.stages.stage4.tools import make_search_tool
-from tests.stages.stage4._support import make_causal_spec_dict
+from tests.stages.stage4._support import make_causal_design_dict
 
 
-def _make_priors(model_spec: dict) -> dict[str, dict]:
-    """Generate weakly-informative priors for each parameter in a model spec.
+def _make_priors(statistical_model_spec: dict) -> dict[str, dict]:
+    """Generate weakly-informative priors for each parameter in a statistical model spec.
 
     Picks the family by parameter name pattern: ``rho_*`` -> Beta(2,2),
     ``sigma_*`` -> HalfNormal(1), otherwise Normal(0, 0.5).
     """
     priors: dict[str, dict] = {}
-    for p in model_spec["parameters"]:
+    for p in statistical_model_spec["parameters"]:
         name = p["name"]
         if "rho" in name:
             priors[name] = {
@@ -62,9 +62,9 @@ def _make_priors(model_spec: dict) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 
-def _make_causal_spec() -> dict:
-    """Minimal causal spec: stress→sleep, two continuous indicators."""
-    spec = make_causal_spec_dict(
+def _make_causal_design() -> dict:
+    """Minimal causal design: stress→sleep, two continuous indicators."""
+    spec = make_causal_design_dict(
         constructs=[
             {
                 "name": "stress",
@@ -106,8 +106,8 @@ def _make_causal_spec() -> dict:
     return spec
 
 
-def _make_model_spec() -> dict:
-    """Minimal model spec matching the causal spec above."""
+def _make_statistical_model_spec() -> dict:
+    """Minimal statistical model spec matching the causal design above."""
     return {
         "likelihoods": [
             {
@@ -165,18 +165,18 @@ def _run_stage4_grounding(*args, **kwargs):
 
 
 @pytest.fixture
-def causal_spec():
-    return _make_causal_spec()
+def causal_design():
+    return _make_causal_design()
 
 
 @pytest.fixture
-def model_spec():
-    return _make_model_spec()
+def statistical_model_spec():
+    return _make_statistical_model_spec()
 
 
 @pytest.fixture
-def priors(model_spec):
-    return _make_priors(model_spec)
+def priors(statistical_model_spec):
+    return _make_priors(statistical_model_spec)
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ def priors(model_spec):
 class TestStage4GroundingSchemaValidation:
     """Schema branches that are only exercised through stage4_grounding itself."""
 
-    def test_invalid_prior_distribution_returns_error(self, causal_spec, model_spec):
+    def test_invalid_prior_distribution_returns_error(self, causal_design, statistical_model_spec):
         """Unknown prior family should fail schema validation immediately."""
         output, feedback = _run_stage4_grounding(
             {
@@ -201,8 +201,8 @@ class TestStage4GroundingSchemaValidation:
                     }
                 }
             },
-            causal_spec,
-            current={"model_spec": model_spec},
+            causal_design,
+            current={"statistical_model_spec": statistical_model_spec},
         )
         assert output is None
         assert "SCHEMA ERRORS" in feedback
@@ -232,15 +232,17 @@ class TestStage4PriorSourceGuidance:
 class TestStage4GroundingMissingState:
     """Compile guidance when incremental updates arrive before model state exists."""
 
-    def test_priors_without_model_spec_returns_compile_error(self, causal_spec, priors):
-        """Priors without model_spec in current state should fail with guidance."""
+    def test_priors_without_statistical_model_spec_returns_compile_error(
+        self, causal_design, priors
+    ):
+        """Priors without statistical_model_spec in current state should fail with guidance."""
         _output, feedback = _run_stage4_grounding(
             {"priors": {"beta_stress_sleep": priors["beta_stress_sleep"]}},
-            causal_spec,
+            causal_design,
             current=None,
         )
         assert "COMPILE ERROR" in feedback
-        assert "model_spec" in feedback.lower()
+        assert "statistical_model_spec" in feedback.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +253,13 @@ class TestStage4GroundingMissingState:
 class TestStage4GroundingStateMerging:
     """Priors merge with current state (accumulate during refinement)."""
 
-    def test_partial_priors_merge_with_current(self, causal_spec, model_spec, priors):
+    def test_partial_priors_merge_with_current(self, causal_design, statistical_model_spec, priors):
         """Submitting one prior merges with existing priors in current."""
         # Start with full priors in current
-        current = {"model_spec": model_spec, "authored_priors": dict(priors)}
+        current = {
+            "statistical_model_spec": statistical_model_spec,
+            "authored_priors": dict(priors),
+        }
 
         # Submit a changed single prior
         new_beta = {
@@ -266,7 +271,7 @@ class TestStage4GroundingStateMerging:
         }
         output, feedback = _run_stage4_grounding(
             {"priors": {"beta_stress_sleep": new_beta}},
-            causal_spec,
+            causal_design,
             current=current,
         )
         assert output is not None
@@ -277,20 +282,22 @@ class TestStage4GroundingStateMerging:
         # The submitted prior should be updated
         assert output["authored_priors"]["beta_stress_sleep"]["params"]["mu"] == -0.3
 
-    def test_new_model_spec_replaces_current(self, causal_spec, model_spec):
-        """Submitting model_spec replaces the one in current."""
-        old_spec = {**model_spec, "extra_field": "old"}
-        current = {"model_spec": old_spec}
+    def test_new_statistical_model_spec_replaces_current(
+        self, causal_design, statistical_model_spec
+    ):
+        """Submitting statistical_model_spec replaces the one in current."""
+        old_spec = {**statistical_model_spec, "extra_field": "old"}
+        current = {"statistical_model_spec": old_spec}
 
         output, feedback = _run_stage4_grounding(
-            {"model_spec": model_spec},
-            causal_spec,
+            {"statistical_model_spec": statistical_model_spec},
+            causal_design,
             current=current,
         )
         assert output is not None
-        # Model spec accepted but priors still needed
+        # Statistical model spec accepted but priors still needed
         assert "MODEL STATE SAVED" in feedback or "missing priors" in feedback.lower()
-        assert "extra_field" not in output["model_spec"]
+        assert "extra_field" not in output["statistical_model_spec"]
 
 
 class TestStage4GroundingCompileOwnership:
@@ -300,17 +307,17 @@ class TestStage4GroundingCompileOwnership:
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(
-            model_spec,
+            statistical_model_spec,
             priors,
             data_for_model,
             indicator_audits,
-            causal_spec,
+            causal_design,
             *,
             skip_ppc=False,
         ):
             del skip_ppc
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=False,
                 compile_error="dimension mismatch in dynamics matrix",
             )
@@ -333,8 +340,8 @@ class TestStage4GroundingCompileOwnership:
         }
         output, feedback = _run_stage4_grounding(
             data,
-            causal_spec={},
-            current={"model_spec": {"likelihoods": [], "parameters": []}},
+            causal_design={},
+            current={"statistical_model_spec": {"likelihoods": [], "parameters": []}},
             data_for_model=None,
         )
 
@@ -351,18 +358,18 @@ class TestStage4GroundingCompileOwnership:
         calls: list[bool] = []
 
         def stub_validate_assembly(
-            model_spec,
+            statistical_model_spec,
             priors,
             data_for_model,
             indicator_audits,
-            causal_spec,
+            causal_design,
             *,
             skip_ppc=False,
         ):
-            del priors, data_for_model, indicator_audits, causal_spec
+            del priors, data_for_model, indicator_audits, causal_design
             calls.append(skip_ppc)
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=True,
             )
 
@@ -373,7 +380,7 @@ class TestStage4GroundingCompileOwnership:
 
         output, feedback = _run_stage4_grounding(
             {
-                "model_spec": {
+                "statistical_model_spec": {
                     "likelihoods": [],
                     "parameters": [
                         {
@@ -384,7 +391,7 @@ class TestStage4GroundingCompileOwnership:
                     ],
                 }
             },
-            causal_spec={},
+            causal_design={},
             current=None,
             data_for_model=None,
         )
@@ -394,9 +401,12 @@ class TestStage4GroundingCompileOwnership:
         assert calls == [False]
 
     def test_compile_feedback_aggregates_independent_prior_errors(
-        self, causal_spec, model_spec, priors
+        self, causal_design, statistical_model_spec, priors
     ):
-        current = {"model_spec": model_spec, "authored_priors": dict(priors)}
+        current = {
+            "statistical_model_spec": statistical_model_spec,
+            "authored_priors": dict(priors),
+        }
 
         output, feedback = _run_stage4_grounding(
             {
@@ -417,7 +427,7 @@ class TestStage4GroundingCompileOwnership:
                     },
                 }
             },
-            causal_spec,
+            causal_design,
             current=current,
             data_for_model=None,
         )
@@ -435,7 +445,7 @@ class TestStage4GroundingCompileOwnership:
         from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
         validation = AssemblyValidation(
-            normalized_model_spec={
+            normalized_statistical_model_spec={
                 "likelihoods": [],
                 "parameters": [
                     {
@@ -464,7 +474,7 @@ class TestStage4GroundingCompileOwnership:
             pp_valid=True,
         )
 
-        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+        def stub_validate_assembly(statistical_model_spec, *_args, **_kwargs):
             return validation
 
         monkeypatch.setattr(
@@ -476,7 +486,7 @@ class TestStage4GroundingCompileOwnership:
             lambda *_args, **_kwargs: [],
         )
 
-        current = {"model_spec": validation.normalized_model_spec}
+        current = {"statistical_model_spec": validation.normalized_statistical_model_spec}
         priors = {
             "beta_stress_sleep": {
                 "parameter": "beta_stress_sleep",
@@ -489,7 +499,7 @@ class TestStage4GroundingCompileOwnership:
 
         output, feedback = _run_stage4_grounding(
             {"priors": priors},
-            causal_spec={},
+            causal_design={},
             current=current,
             data_for_model=None,
             indicator_audits=None,
@@ -504,7 +514,7 @@ class TestStage4GroundingCompileOwnership:
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         accepted_state = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [
                     {"variable": "mood_score", "distribution": "gaussian", "link": "identity"}
                 ],
@@ -513,12 +523,12 @@ class TestStage4GroundingCompileOwnership:
                 ],
             },
             "validation": AssemblyValidation(
-                normalized_model_spec={"likelihoods": [], "parameters": []},
+                normalized_statistical_model_spec={"likelihoods": [], "parameters": []},
                 compile_ok=True,
             ),
         }
         rejected_state = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [{"variable": "mood_score", "distribution": "gamma", "link": "log"}],
                 "parameters": [
                     {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
@@ -534,7 +544,7 @@ class TestStage4GroundingCompileOwnership:
                 }
             },
             "validation": AssemblyValidation(
-                normalized_model_spec={"likelihoods": [], "parameters": []},
+                normalized_statistical_model_spec={"likelihoods": [], "parameters": []},
                 compile_ok=False,
                 compile_error="support mismatch",
             ),
@@ -568,17 +578,17 @@ class TestStage4GroundingCompileOwnership:
             capture.update(second.stage_output)
 
         assert capture == first_capture
-        assert capture["model_spec"]["likelihoods"][0]["distribution"] == "gaussian"
+        assert capture["statistical_model_spec"]["likelihoods"][0]["distribution"] == "gaussian"
 
     def test_capture_uses_explicit_status_not_feedback_prefixes(self):
         accepted = make_stage4_grounding_result(
-            stage_output={"model_spec": {"parameters": []}},
+            stage_output={"statistical_model_spec": {"parameters": []}},
             status="accepted_pending_priors",
             feedback="COMPILE ERROR:\nthis text is intentionally misleading",
             capture_stage_output=True,
         )
         rejected = make_stage4_grounding_result(
-            stage_output={"model_spec": {"parameters": ["bad"]}},
+            stage_output={"statistical_model_spec": {"parameters": ["bad"]}},
             status="compile_error",
             feedback="MODEL STATE SAVED:\nthis text is intentionally misleading",
             capture_stage_output=False,
@@ -589,7 +599,7 @@ class TestStage4GroundingCompileOwnership:
 
     def test_schema_error_keeps_valid_priors_and_model_state(self):
         current = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [
                     {"variable": "mood_score", "distribution": "gaussian", "link": "identity"}
                 ],
@@ -619,7 +629,7 @@ class TestStage4GroundingCompileOwnership:
         }
 
         output, feedback = _run_stage4_grounding(
-            data, causal_spec={}, current=current, data_for_model=None
+            data, causal_design={}, current=current, data_for_model=None
         )
 
         assert output is not None
@@ -666,12 +676,14 @@ class TestStage4SearchTool:
             "beta_sleep_stress": "stress sleep effect size meta-analysis",
         }
 
-    def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, model_spec):
+    def test_statistical_model_spec_can_be_saved_before_all_priors_arrive(
+        self, monkeypatch, statistical_model_spec
+    ):
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
-        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+        def stub_validate_assembly(statistical_model_spec, *_args, **_kwargs):
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=True,
             )
 
@@ -681,22 +693,24 @@ class TestStage4SearchTool:
         )
 
         output, feedback = _run_stage4_grounding(
-            {"model_spec": model_spec},
-            causal_spec={},
+            {"statistical_model_spec": statistical_model_spec},
+            causal_design={},
             current=None,
             data_for_model=None,
         )
 
         assert output is not None
-        assert output["model_spec"]["parameters"][0]["name"] == "rho_stress"
+        assert output["statistical_model_spec"]["parameters"][0]["name"] == "rho_stress"
         assert output["validation"].compile_ok is True
         assert "MODEL STATE SAVED" in feedback
         assert "missing priors" in feedback
 
-    def test_model_spec_lock_does_not_require_default_initial_state_priors(self, monkeypatch):
+    def test_statistical_model_spec_lock_does_not_require_default_initial_state_priors(
+        self, monkeypatch
+    ):
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -727,9 +741,9 @@ class TestStage4SearchTool:
             ],
         }
 
-        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+        def stub_validate_assembly(statistical_model_spec, *_args, **_kwargs):
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=True,
             )
 
@@ -739,8 +753,8 @@ class TestStage4SearchTool:
         )
 
         output, feedback = _run_stage4_grounding(
-            {"model_spec": model_spec},
-            causal_spec={},
+            {"statistical_model_spec": statistical_model_spec},
+            causal_design={},
             current=None,
             data_for_model=None,
         )
@@ -752,7 +766,7 @@ class TestStage4SearchTool:
     def test_rejects_mixed_model_and_prior_updates(self):
         output, feedback = _run_stage4_grounding(
             {
-                "model_spec": {"likelihoods": [], "parameters": []},
+                "statistical_model_spec": {"likelihoods": [], "parameters": []},
                 "priors": {
                     "rho_mood": {
                         "parameter": "rho_mood",
@@ -763,7 +777,7 @@ class TestStage4SearchTool:
                     }
                 },
             },
-            causal_spec={},
+            causal_design={},
             current=None,
             data_for_model=None,
         )
@@ -777,9 +791,9 @@ class TestStage4GroundingBatches:
     def test_accepts_large_prior_batches(self, monkeypatch):
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
-        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+        def stub_validate_assembly(statistical_model_spec, *_args, **_kwargs):
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=True,
                 compiled_ssm={"compiled": True},
             )
@@ -797,7 +811,7 @@ class TestStage4GroundingBatches:
         )
 
         current = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [],
                 "parameters": [
                     {"name": f"rho_{idx}", "role": "ar_coefficient", "constraint": "unit_interval"}
@@ -818,7 +832,7 @@ class TestStage4GroundingBatches:
 
         output, feedback = _run_stage4_grounding(
             {"priors": priors},
-            causal_spec={},
+            causal_design={},
             current=current,
             data_for_model=None,
         )
@@ -833,7 +847,7 @@ class TestStage4GroundingBatches:
 
     def test_rejects_redundant_prior_updates(self):
         current = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [],
                 "parameters": [
                     {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"}
@@ -852,7 +866,7 @@ class TestStage4GroundingBatches:
 
         output, feedback = _run_stage4_grounding(
             {"priors": dict(current["authored_priors"])},
-            causal_spec={},
+            causal_design={},
             current=current,
             data_for_model=None,
         )
@@ -864,9 +878,9 @@ class TestStage4GroundingBatches:
     def test_ignores_redundant_priors_when_submission_contains_real_changes(self, monkeypatch):
         from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
-        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+        def stub_validate_assembly(statistical_model_spec, *_args, **_kwargs):
             return AssemblyValidation(
-                normalized_model_spec=model_spec,
+                normalized_statistical_model_spec=statistical_model_spec,
                 compile_ok=True,
                 compiled_ssm={"compiled": True},
             )
@@ -884,7 +898,7 @@ class TestStage4GroundingBatches:
         )
 
         current = {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [],
                 "parameters": [
                     {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"},
@@ -914,7 +928,7 @@ class TestStage4GroundingBatches:
                     },
                 }
             },
-            causal_spec={},
+            causal_design={},
             current=current,
             data_for_model=None,
         )
@@ -948,10 +962,10 @@ class TestStage4GroundingBatches:
                 "Observation support check failed:\n"
                 "- 'outcome_score' uses gamma emission but 1/10 observations are outside support"
             ),
-            suggested_adjustment="Fix model_spec or priors to enable model construction",
+            suggested_adjustment="Fix statistical_model_spec or priors to enable model construction",
         )
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "outcome_score",
@@ -971,15 +985,15 @@ class TestStage4GroundingBatches:
         }
 
         validation = AssemblyValidation(
-            normalized_model_spec=model_spec,
+            normalized_statistical_model_spec=statistical_model_spec,
             compile_ok=True,
             pp_checked=True,
             pp_valid=False,
             diagnostics=[global_failure],
         )
 
-        payload = build_validation_payload(validation, model_spec)
+        payload = build_validation_payload(validation, statistical_model_spec)
         assert payload["is_valid"] is False
         assert len(payload["issues"]) == 1
         assert "global issue" in payload["issues"][0]
-        assert "model_spec issue" in payload["issues"][0]
+        assert "statistical_model_spec issue" in payload["issues"][0]

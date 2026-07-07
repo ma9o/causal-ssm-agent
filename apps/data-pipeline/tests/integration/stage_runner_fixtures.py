@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from nof1_causal_lab.flows.stages.stage1b.assemble import build_causal_spec
+from nof1_causal_lab.flows.stages.stage1b.assemble import build_causal_design
 from nof1_causal_lab.machine.artifact_files import (
     json_filename,
     parquet_filename,
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.store import ArtifactStore
 
 
-def latent_model() -> dict[str, Any]:
+def latent_structure() -> dict[str, Any]:
     return {
         "constructs": [
             {
@@ -48,7 +48,7 @@ def latent_model() -> dict[str, Any]:
     }
 
 
-def measurement_model(*, extraction_mode: str = "computed") -> dict[str, Any]:
+def measurement_structure(*, extraction_mode: str = "computed") -> dict[str, Any]:
     return {
         "model_clock": "1d",
         "indicators": [
@@ -90,10 +90,10 @@ def identifiability_status() -> dict[str, Any]:
     }
 
 
-def causal_spec(*, extraction_mode: str = "computed") -> dict[str, Any]:
-    return build_causal_spec(
-        latent_model(),
-        measurement_model(extraction_mode=extraction_mode),
+def causal_design(*, extraction_mode: str = "computed") -> dict[str, Any]:
+    return build_causal_design(
+        latent_structure(),
+        measurement_structure(extraction_mode=extraction_mode),
         identifiability_status(),
     )
 
@@ -200,7 +200,7 @@ def validation_report() -> dict[str, Any]:
     }
 
 
-def model_spec() -> dict[str, Any]:
+def statistical_model_spec() -> dict[str, Any]:
     return {
         "likelihoods": [
             {
@@ -242,7 +242,7 @@ def authored_priors() -> dict[str, Any]:
 def stage4_report() -> dict[str, Any]:
     priors = authored_priors()
     return {
-        "model_spec": model_spec(),
+        "statistical_model_spec": statistical_model_spec(),
         "authored_priors": priors,
         "resolved_priors": list(priors.values()),
         "prior_predictive_samples": {"stress_score": [0.1, 0.2], "sleep_score": [0.0, 0.1]},
@@ -307,33 +307,41 @@ def seed_raw_data(store: ArtifactStore) -> ArtifactVersionInfo:
     )
 
 
-def seed_constructs(store: ArtifactStore, *, question_version: int = 1) -> ArtifactVersionInfo:
+def seed_latent_structure(
+    store: ArtifactStore, *, question_version: int = 1
+) -> ArtifactVersionInfo:
     return store.write_version(
-        "constructs",
+        "latent_structure",
         provenance="computed",
         derived_from={"question": question_version},
         produced_by="stage-1a",
-        json_files={json_filename("constructs", "constructs"): {"latent_model": latent_model()}},
+        json_files={
+            json_filename("latent_structure", "latent_structure"): {
+                "latent_structure": latent_structure()
+            }
+        },
     )
 
 
-def seed_causal_spec(
+def seed_causal_design(
     store: ArtifactStore,
     *,
     question_version: int = 1,
     raw_data_version: int = 1,
-    constructs_version: int = 1,
+    latent_structure_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
-        "causal_spec",
+        "causal_design",
         provenance="computed",
         derived_from={
             "question": question_version,
             "raw_data": raw_data_version,
-            "constructs": constructs_version,
+            "latent_structure": latent_structure_version,
         },
         produced_by="stage-1b",
-        json_files={json_filename("causal_spec", "causal_spec"): {"causal_spec": causal_spec()}},
+        json_files={
+            json_filename("causal_design", "causal_design"): {"causal_design": causal_design()}
+        },
     )
 
 
@@ -342,7 +350,7 @@ def seed_identification_report(
     *,
     question_version: int = 1,
     raw_data_version: int = 1,
-    constructs_version: int = 1,
+    latent_structure_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "identification_report",
@@ -350,7 +358,7 @@ def seed_identification_report(
         derived_from={
             "question": question_version,
             "raw_data": raw_data_version,
-            "constructs": constructs_version,
+            "latent_structure": latent_structure_version,
         },
         produced_by="stage-1b",
         json_files={
@@ -366,7 +374,7 @@ def seed_model_data(
     *,
     question_version: int = 1,
     raw_data_version: int = 1,
-    causal_spec_version: int = 1,
+    causal_design_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "model_data",
@@ -374,7 +382,7 @@ def seed_model_data(
         derived_from={
             "question": question_version,
             "raw_data": raw_data_version,
-            "causal_spec": causal_spec_version,
+            "causal_design": causal_design_version,
         },
         produced_by="stage-2",
         parquet_files={parquet_filename("model_data", "model_data"): model_data_frame()},
@@ -384,14 +392,14 @@ def seed_model_data(
 def seed_validation_report(
     store: ArtifactStore,
     *,
-    causal_spec_version: int = 1,
+    causal_design_version: int = 1,
     model_data_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
         "validation_report",
         provenance="computed",
         derived_from={
-            "causal_spec": causal_spec_version,
+            "causal_design": causal_design_version,
             "model_data": model_data_version,
         },
         produced_by="stage-3",
@@ -403,7 +411,7 @@ def seed_compiled_ssm(
     store: ArtifactStore,
     *,
     question_version: int = 1,
-    causal_spec_version: int = 1,
+    causal_design_version: int = 1,
     identification_report_version: int = 1,
     model_data_version: int = 1,
     validation_report_version: int = 1,
@@ -413,7 +421,7 @@ def seed_compiled_ssm(
         provenance="computed",
         derived_from={
             "question": question_version,
-            "causal_spec": causal_spec_version,
+            "causal_design": causal_design_version,
             "identification_report": identification_report_version,
             "model_data": model_data_version,
             "validation_report": validation_report_version,

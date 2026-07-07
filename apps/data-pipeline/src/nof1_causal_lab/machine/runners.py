@@ -49,11 +49,11 @@ def _question_text(store: ArtifactStore, pins: dict[ArtifactId, int]) -> str:
     )["text"]
 
 
-def _causal_spec_dict(store: ArtifactStore, pins: dict[ArtifactId, int]) -> dict[str, Any]:
+def _causal_design_dict(store: ArtifactStore, pins: dict[ArtifactId, int]) -> dict[str, Any]:
     payload = store.read_json_file(
-        "causal_spec", pins["causal_spec"], json_filename("causal_spec", "causal_spec")
+        "causal_design", pins["causal_design"], json_filename("causal_design", "causal_design")
     )
-    return payload["causal_spec"]
+    return payload["causal_design"]
 
 
 def _model_data_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
@@ -91,16 +91,16 @@ async def _run_stage1a(
     pins: dict[ArtifactId, int],
     options: ExecOptions,
 ) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.flows.stages.stage1a.flow import propose_latent_model
+    from nof1_causal_lab.flows.stages.stage1a.flow import propose_latent_structure
 
     del workspace_id, options
-    payload = await propose_latent_model(_question_text(store, pins))
+    payload = await propose_latent_structure(_question_text(store, pins))
     info = store.write_version(
-        "constructs",
+        "latent_structure",
         provenance="computed",
         derived_from=pins,
         produced_by="stage-1a",
-        json_files={json_filename("constructs", "constructs"): payload},
+        json_files={json_filename("latent_structure", "latent_structure"): payload},
     )
     return [info]
 
@@ -126,10 +126,12 @@ async def _run_stage1b(
     raw_df = store.read_parquet_file(
         "raw_data", pins["raw_data"], parquet_filename("raw_data", "raw")
     )
-    constructs = store.read_json_file(
-        "constructs", pins["constructs"], json_filename("constructs", "constructs")
+    latent_structure_payload = store.read_json_file(
+        "latent_structure",
+        pins["latent_structure"],
+        json_filename("latent_structure", "latent_structure"),
     )
-    latent_model = constructs["latent_model"]
+    latent_structure = latent_structure_payload["latent_structure"]
 
     column_descriptions = {
         column["name"]: column["description"] for column in profile.get("column_descriptions", [])
@@ -137,20 +139,20 @@ async def _run_stage1b(
     dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
     result = await propose_measurement_with_identifiability_fix(
         question,
-        latent_model,
+        latent_structure,
         [dataset_schema],
         dataset_summary=f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
     )
-    artifacts = split_stage1b_result(result, latent_model=latent_model)
+    artifacts = split_stage1b_result(result, latent_structure=latent_structure)
 
-    spec_payload = _filter_to_contract(Stage1bContract, artifacts.causal_spec_payload)
+    spec_payload = _filter_to_contract(Stage1bContract, artifacts.causal_design_payload)
     produced = [
         store.write_version(
-            "causal_spec",
+            "causal_design",
             provenance="computed",
             derived_from=pins,
             produced_by="stage-1b",
-            json_files={json_filename("causal_spec", "causal_spec"): spec_payload},
+            json_files={json_filename("causal_design", "causal_design"): spec_payload},
         )
     ]
     if artifacts.identification_report is not None:
@@ -184,16 +186,16 @@ async def _run_stage2(
     raw_df = store.read_parquet_file(
         "raw_data", pins["raw_data"], parquet_filename("raw_data", "raw")
     )
-    causal_spec = _causal_spec_dict(store, pins)
+    causal_design = _causal_design_dict(store, pins)
 
     result = await run_stage2_extraction(
         raw_df,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=workspace_id,
         max_windows=options.max_windows,
     )
-    materialized = materialize_stage2_outputs(result, causal_spec)
+    materialized = materialize_stage2_outputs(result, causal_design)
     data_for_model = materialized["data_for_model"]
     worker_statuses = materialized["worker_statuses"]
 
@@ -238,10 +240,10 @@ async def _run_stage3(
     )
 
     del workspace_id, options
-    causal_spec = _causal_spec_dict(store, pins)
+    causal_design = _causal_design_dict(store, pins)
     data_for_model = _model_data_df(store, pins)
 
-    audit_result = validate_extraction(causal_spec, [data_for_model])
+    audit_result = validate_extraction(causal_design, [data_for_model])
     if not audit_result:
         raise RuntimeError(
             "Stage 3 validate_extraction returned an empty audit result; "
@@ -279,7 +281,7 @@ async def _run_stage4(
     from nof1_causal_lab.utils.config import get_config
 
     question = _question_text(store, pins)
-    causal_spec = _causal_spec_dict(store, pins)
+    causal_design = _causal_design_dict(store, pins)
     data_for_model = _model_data_df(store, pins)
     validation_report = store.read_json_file(
         "validation_report",
@@ -293,7 +295,7 @@ async def _run_stage4(
         else get_config().stage4_prior_elicitation.literature_search.enabled
     )
     result = await stage4_agentic_flow(
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         question=question,
         data_for_model=data_for_model,
         indicator_audits=validation_report.get("indicators", {}),
@@ -376,7 +378,7 @@ async def _run_stage6(
     diagnostics = store.read_json_file(
         "posterior", pins["posterior"], json_filename("posterior", "diagnostics")
     )
-    causal_spec = _causal_spec_dict(store, pins)
+    causal_design = _causal_design_dict(store, pins)
     identification_report = store.read_json_file(
         "identification_report",
         pins["identification_report"],
@@ -390,7 +392,7 @@ async def _run_stage6(
         ),
     }
     stage1b_dict = {
-        "causal_spec": causal_spec,
+        "causal_design": causal_design,
         "_identified_treatments": identification_report["estimable_treatments"],
     }
     result = await run_stage6(stage5b_dict, stage1b_dict)

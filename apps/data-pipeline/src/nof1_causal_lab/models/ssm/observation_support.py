@@ -13,7 +13,7 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 NON_MANIFEST_COLUMNS = {"time"}

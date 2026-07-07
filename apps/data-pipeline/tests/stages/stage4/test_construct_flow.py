@@ -36,7 +36,7 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     ConstructContribution,
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
-from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
+from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 
 def _normal(mu: float, sigma: float) -> dict:
@@ -44,7 +44,7 @@ def _normal(mu: float, sigma: float) -> dict:
 
 
 def test_param_catalog_reflects_compiler_free_params():
-    catalog = ParamCatalog.from_causal_spec(_make_causal_spec_dict())
+    catalog = ParamCatalog.from_causal_design(_make_causal_design_dict())
     # X has two indicators → both measurement-noise + the free loading are authorable.
     assert "obs_sd_x1" in catalog.by_construct["X"]
     assert "lambda_x2_X" in catalog.by_construct["X"]
@@ -74,7 +74,7 @@ def test_param_catalog_reflects_compiler_free_params():
 
 def test_submit_construct_rejects_non_free_parameter():
     state = ConstructBuildState(
-        causal_spec=_make_causal_spec_dict(),
+        causal_design=_make_causal_design_dict(),
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -88,7 +88,7 @@ def test_submit_construct_rejects_non_free_parameter():
 
 
 def test_construct_parents_reads_the_dag():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     assert construct_parents(spec, "Y") == ["X"]
     assert construct_parents(spec, "Z") == ["Y"]
     assert construct_parents(spec, "X") == []
@@ -96,7 +96,7 @@ def test_construct_parents_reads_the_dag():
 
 def test_deferred_closing_edge_params_cover_feedback_cycles():
     """The cycle-closing edge's priors become authorable on the second member's turn."""
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
     spec["latent"]["edges"].append(dict(feedback))
     spec["estimation"]["edges"].append(dict(feedback))
@@ -112,7 +112,7 @@ def test_deferred_closing_edge_params_cover_feedback_cycles():
 
 
 def test_closing_edge_effects_detects_the_rechecked_member():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
     spec["estimation"]["edges"].append(dict(feedback))
     # Admitting Z with Y already admitted closes the Y<->Z loop → Y is the member to recheck.
@@ -122,7 +122,7 @@ def test_closing_edge_effects_detects_the_rechecked_member():
 
 
 def test_closed_loop_target_includes_the_closing_feedback_edge():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
     spec["estimation"]["edges"].append(dict(feedback))
     # Y was admitted open-loop with just X->Y; once Z closes the loop the priors also carry
@@ -142,7 +142,7 @@ def test_closed_loop_target_includes_the_closing_feedback_edge():
 
 
 def test_contribution_from_payload_linear_edge():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     payload = {
         "construct": "Y",
         "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
@@ -152,7 +152,7 @@ def test_contribution_from_payload_linear_edge():
             "beta_X_Y": _normal(0.3, 0.1),
         },
     }
-    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_spec(spec))
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_design(spec))
     assert contrib.name == "Y"
     assert [lik.variable for lik in contrib.likelihoods] == ["y1"]
     assert contrib.likelihoods[0].distribution == DistributionFamily.GAUSSIAN
@@ -163,7 +163,7 @@ def test_contribution_from_payload_linear_edge():
 
 
 def test_contribution_from_payload_hill_edge_and_self_limit():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     payload = {
         "construct": "Y",
         "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
@@ -175,7 +175,7 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
             "hill_n_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 2.0}},
         },
     }
-    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_spec(spec))
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_design(spec))
     assert contrib.edge_parents == ("X",)
     assert contrib.hill_parents == ("X",)
     self_limit = next(p for p in contrib.parameters if p.name == "self_limit_Y")
@@ -184,7 +184,7 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
 
 def test_submit_construct_rejects_out_of_order():
     state = ConstructBuildState(
-        causal_spec=_make_causal_spec_dict(),
+        causal_design=_make_causal_design_dict(),
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -218,9 +218,9 @@ def test_render_admission_feedback_lists_failed_checks():
 
 
 def test_build_construct_messages_surfaces_params_and_feedback():
-    spec = _make_causal_spec_dict()
+    spec = _make_causal_design_dict()
     state = ConstructBuildState(
-        causal_spec=spec,
+        causal_design=spec,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
         admission=AdmissionState(names=("X",)),
@@ -230,7 +230,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_spec=spec,
+        causal_design=spec,
         indicator_audits={},
     )
     assert "continuous-time latent state-space model" in system
@@ -251,7 +251,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_spec=spec,
+        causal_design=spec,
         indicator_audits={},
     )
     assert "Latest reachability feedback" in user2
@@ -279,7 +279,7 @@ def test_public_entrypoints_are_exposed():
     assert callable(run_stage4_construct_build)
     assert callable(build_design_info)
     state = ConstructBuildState(
-        causal_spec=_make_causal_spec_dict(), data_for_model=pl.DataFrame(), order=["X"]
+        causal_design=_make_causal_design_dict(), data_for_model=pl.DataFrame(), order=["X"]
     )
     tool = make_submit_construct_tool(state)
     assert tool.name == "submit_construct"

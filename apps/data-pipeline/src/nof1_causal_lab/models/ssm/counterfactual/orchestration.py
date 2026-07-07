@@ -86,7 +86,7 @@ def compute_interventions(
     treatments: list[str],
     outcome: str,
     latent_names: list[str],
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     manifest_names: list[str] | None = None,
     times: jnp.ndarray | None = None,
     shift_size: float = 1.0,
@@ -107,13 +107,13 @@ def compute_interventions(
         logger.warning("No posterior parameter samples for vector-field intervention")
         return [_skeleton(t) for t in treatments]
 
-    time_grid = _build_horizon_grid(causal_spec, times)
+    time_grid = _build_horizon_grid(causal_design, times)
 
     results: list[dict[str, Any]] = []
     for treatment_name in treatments:
         treat_idx = name_to_idx.get(treatment_name)
         if treat_idx is None:
-            logger.warning("'%s' not in latent model — skipping", treatment_name)
+            logger.warning("'%s' not in latent structure — skipping", treatment_name)
             results.append(_skeleton(treatment_name))
             continue
 
@@ -171,7 +171,7 @@ def compute_interventions(
 
 
 def _build_horizon_grid(
-    causal_spec: dict | None,
+    causal_design: dict | None,
     times: jnp.ndarray | None,
     horizon_days: float = 30.0,
 ) -> Array | None:
@@ -179,7 +179,7 @@ def _build_horizon_grid(
     median observation spacing. Returns ``None`` when no usable step size
     is available."""
     dt_days: float | None = None
-    model_clock_str = (causal_spec or {}).get("measurement", {}).get("model_clock")
+    model_clock_str = (causal_design or {}).get("measurement", {}).get("model_clock")
     if model_clock_str:
         from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 

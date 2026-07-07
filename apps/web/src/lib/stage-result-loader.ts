@@ -25,8 +25,9 @@ const STAGE_RESULT_LOADERS: Partial<Record<StageId, StageResultLoader>> = {
     ]);
     return deriveStage0Data(payload, raw.data);
   },
-  "stage-1a": (workspaceId) => readArtifactJson(workspaceId, "constructs", "constructs"),
-  "stage-1b": (workspaceId) => readArtifactJson(workspaceId, "causal_spec", "causal_spec"),
+  "stage-1a": (workspaceId) =>
+    readArtifactJson(workspaceId, "latent_structure", "latent_structure"),
+  "stage-1b": (workspaceId) => readArtifactJson(workspaceId, "causal_design", "causal_design"),
   "stage-2": async (workspaceId) => {
     const [payload, modelData] = await Promise.all([
       readArtifactJson<Stage2PersistedData>(workspaceId, "extraction_report", "extraction_report"),

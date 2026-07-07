@@ -37,7 +37,7 @@ _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS = (
 class AssemblyValidation:
     """Result of stage 4 assembly validation."""
 
-    normalized_model_spec: dict[str, Any] | None = None
+    normalized_statistical_model_spec: dict[str, Any] | None = None
     compile_ok: bool = True
     compile_error: str | None = None
     compiled_ssm: dict[str, Any] | None = None
@@ -60,11 +60,11 @@ class AssemblyValidation:
 
 
 def validate_assembly(
-    model_spec: dict,
+    statistical_model_spec: dict,
     authored_priors: dict | None,
     data_for_model: pl.DataFrame | None,
     indicator_audits: dict[str, dict[str, Any]] | None,
-    causal_spec: dict | None,
+    causal_design: dict | None,
     *,
     skip_ppc: bool = False,
 ) -> AssemblyValidation:
@@ -83,26 +83,28 @@ def validate_assembly(
     """
     from nof1_causal_lab.models.ssm.compile.artifact import (
         compile_ssm_artifact,
-        trial_compile_model_spec,
+        trial_compile_statistical_model_spec,
     )
 
-    candidate = _prepare_model_spec(model_spec)
+    candidate = _prepare_statistical_model_spec(statistical_model_spec)
     if authored_priors:
         try:
-            compiled_ssm = compile_ssm_artifact(candidate, authored_priors, causal_spec=causal_spec)
+            compiled_ssm = compile_ssm_artifact(
+                candidate, authored_priors, causal_design=causal_design
+            )
         except _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS as exc:
             return AssemblyValidation(
-                normalized_model_spec=candidate,
+                normalized_statistical_model_spec=candidate,
                 compile_ok=False,
                 compile_error=str(exc),
                 diagnostics=_collect_compile_failure_diagnostics(exc),
             )
         compile_diagnostics = _collect_compile_diagnostics(compiled_ssm)
     else:
-        compile_error = trial_compile_model_spec(candidate, causal_spec)
+        compile_error = trial_compile_statistical_model_spec(candidate, causal_design)
         if compile_error:
             return AssemblyValidation(
-                normalized_model_spec=candidate,
+                normalized_statistical_model_spec=candidate,
                 compile_ok=False,
                 compile_error=str(compile_error),
                 diagnostics=_collect_compile_failure_diagnostics(compile_error),
@@ -118,11 +120,11 @@ def validate_assembly(
             authored_priors,
             data_for_model,
             data_stats=_indicator_audit_scale_stats(indicator_audits),
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             compiled_ssm=compiled_ssm,
         )
         return AssemblyValidation(
-            normalized_model_spec=candidate,
+            normalized_statistical_model_spec=candidate,
             compiled_ssm=compiled_ssm,
             pp_checked=True,
             pp_valid=is_valid,
@@ -131,7 +133,7 @@ def validate_assembly(
         )
 
     return AssemblyValidation(
-        normalized_model_spec=candidate,
+        normalized_statistical_model_spec=candidate,
         diagnostics=compile_diagnostics,
         compiled_ssm=compiled_ssm,
     )
@@ -190,9 +192,9 @@ def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationRe
     return typed
 
 
-def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
-    """Normalize a Stage 4 model spec before any compile-time work."""
-    return deepcopy(model_spec)
+def _prepare_statistical_model_spec(statistical_model_spec: dict) -> dict[str, Any]:
+    """Normalize a Stage 4 statistical model spec before any compile-time work."""
+    return deepcopy(statistical_model_spec)
 
 
 def _collect_compile_diagnostics(compiled_ssm: dict[str, Any]) -> list[PriorValidationResult]:
@@ -272,7 +274,7 @@ def format_prior_proposal_errors(errors: dict[str, str]) -> str:
 
 def build_prior_predictive_samples(
     validation: AssemblyValidation,
-    model_spec: dict,
+    statistical_model_spec: dict,
 ) -> dict[str, list[float]]:
     """Forward-simulate per-variable prior predictive samples for the web payload."""
     if not validation.pp_valid or not validation.pp_raw_samples:
@@ -281,9 +283,13 @@ def build_prior_predictive_samples(
     try:
         import numpy as np
 
-        from nof1_causal_lab.artifacts.model_spec import ModelSpec
+        from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
 
-        spec = ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
+        spec = (
+            StatisticalModelSpec.model_validate(statistical_model_spec)
+            if isinstance(statistical_model_spec, dict)
+            else statistical_model_spec
+        )
         manifest_names = [lik.variable for lik in spec.likelihoods]
         if "observations" in validation.pp_raw_samples:
             y_np = np.asarray(validation.pp_raw_samples["observations"])
@@ -307,11 +313,11 @@ def build_prior_predictive_samples(
 
 def _safe_build_pp_samples(
     validation: AssemblyValidation,
-    model_spec: dict,
+    statistical_model_spec: dict,
 ) -> dict[str, list[float]]:
     """Build prior predictive samples, returning empty dict on failure."""
     try:
-        return build_prior_predictive_samples(validation, model_spec)
+        return build_prior_predictive_samples(validation, statistical_model_spec)
     except RuntimeError:
         logger.warning("Prior predictive samples unavailable for web payload", exc_info=True)
         return {}
@@ -319,12 +325,12 @@ def _safe_build_pp_samples(
 
 def build_validation_payload(
     validation: AssemblyValidation,
-    model_spec: dict,
+    statistical_model_spec: dict,
 ) -> dict[str, Any]:
     """Convert ``AssemblyValidation`` into the web-facing validation payload."""
     from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
-    payload_spec = validation.normalized_model_spec or model_spec
+    payload_spec = validation.normalized_statistical_model_spec or statistical_model_spec
     if not validation.compile_ok:
         return {
             "is_valid": False,
@@ -399,7 +405,7 @@ def _format_global_failure_summary(results: list) -> str:
     """Format a concise summary for global validation failures.
 
     Produces a single block instead of repeating the same error for every
-    parameter.  Also classifies whether the root cause is a model_spec issue
+    parameter.  Also classifies whether the root cause is a statistical_model_spec issue
     (e.g. likelihood family incompatible with data) vs a prior issue.
     """
     lines = ["Validation FAILED (global issue — affects all parameters):"]
@@ -432,12 +438,12 @@ def _format_global_failure_summary(results: list) -> str:
                 codes += f", +{len(r.supporting_codes) - 4} more"
             lines.append(f"  Supporting diagnostics: {codes}")
 
-    # Heuristic: observation-support errors are model_spec issues, not prior issues.
+    # Heuristic: observation-support errors are statistical_model_spec issues, not prior issues.
     issues_text = " ".join(r.issue or "" for r in results)
     if "support check" in issues_text.lower() or "outside support" in issues_text.lower():
         lines.append("")
         lines.append(
-            "NOTE: This is a model_spec issue (likelihood family incompatible "
+            "NOTE: This is a statistical_model_spec issue (likelihood family incompatible "
             "with observed data). Consider changing the distribution family "
             "rather than adjusting priors."
         )
@@ -552,10 +558,10 @@ def _format_validation_warnings(validation: AssemblyValidation) -> str:
 
 
 def compile_model_artifact(
-    model_spec: dict,
+    statistical_model_spec: dict,
     authored_priors: dict[str, dict],
     data_for_model: pl.DataFrame,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
@@ -564,9 +570,9 @@ def compile_model_artifact(
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
-            _prepare_model_spec(model_spec),
+            _prepare_statistical_model_spec(statistical_model_spec),
             authored_priors,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
     except _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS as exc:
         return {
@@ -597,11 +603,11 @@ def compile_model_artifact(
 
 def materialize_stage4_result(
     *,
-    model_spec: dict[str, Any],
+    statistical_model_spec: dict[str, Any],
     authored_priors: dict[str, dict],
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]] | None,
-    causal_spec: dict | None,
+    causal_design: dict | None,
     llm_trace: dict[str, Any] | None = None,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
@@ -617,20 +623,22 @@ def materialize_stage4_result(
     from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
     validation = validation or validate_assembly(
-        model_spec,
+        statistical_model_spec,
         authored_priors,
         data_for_model,
         indicator_audits,
-        causal_spec,
+        causal_design,
         skip_ppc=skip_ppc,
     )
-    normalized_model_spec = validation.normalized_model_spec or model_spec
-    validation_result = build_validation_payload(validation, normalized_model_spec)
+    normalized_statistical_model_spec = (
+        validation.normalized_statistical_model_spec or statistical_model_spec
+    )
+    validation_result = build_validation_payload(validation, normalized_statistical_model_spec)
     model_result = compile_model_artifact(
-        normalized_model_spec,
+        normalized_statistical_model_spec,
         authored_priors,
         data_for_model,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         compiled_ssm=validation.compiled_ssm,
     )
     compiled_ssm = model_result.pop("compiled_ssm", None)
@@ -641,12 +649,12 @@ def materialize_stage4_result(
     )
 
     result = {
-        "model_spec": normalized_model_spec,
+        "statistical_model_spec": normalized_statistical_model_spec,
         "authored_priors": authored_priors,
         "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
         "validation_warnings": validation_result.get("warnings") or None,
-        "_causal_spec": causal_spec,
+        "_causal_design": causal_design,
         "prior_predictive_samples": validation_result.get("prior_predictive_samples", {}),
     }
     if compiled_ssm is not None:
@@ -724,7 +732,7 @@ def format_validation_feedback(
             results=validation.prior_predictive_diagnostics,
             prior=authored_priors.get(param_name),
             data_stats=data_stats,
-            model_spec=validation.normalized_model_spec,
+            statistical_model_spec=validation.normalized_statistical_model_spec,
         )
         if fb:
             parts.append(fb)

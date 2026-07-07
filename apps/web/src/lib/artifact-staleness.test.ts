@@ -4,7 +4,7 @@ import { groupStaleArtifactsByStage, hasStaleArtifacts } from "./artifact-stalen
 
 function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactStatus {
   return {
-    artifact_id: "constructs",
+    artifact_id: "latent_structure",
     exists: true,
     stale: false,
     version: 1,
@@ -17,15 +17,15 @@ function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactSta
 describe("groupStaleArtifactsByStage", () => {
   it("groups stale existing artifacts by producing stage", () => {
     const report = [
-      artifact({ artifact_id: "constructs", stale: true, produced_by: "stage-1a" }),
-      artifact({ artifact_id: "causal_spec", stale: true, produced_by: "stage-1b" }),
+      artifact({ artifact_id: "latent_structure", stale: true, produced_by: "stage-1a" }),
+      artifact({ artifact_id: "causal_design", stale: true, produced_by: "stage-1b" }),
       artifact({ artifact_id: "identification_report", stale: true, produced_by: "stage-1b" }),
       artifact({ artifact_id: "model_data", stale: false, produced_by: "stage-2" }),
     ];
 
     expect(groupStaleArtifactsByStage(report)).toEqual({
-      "stage-1a": ["constructs"],
-      "stage-1b": ["causal_spec", "identification_report"],
+      "stage-1a": ["latent_structure"],
+      "stage-1b": ["causal_design", "identification_report"],
     });
   });
 

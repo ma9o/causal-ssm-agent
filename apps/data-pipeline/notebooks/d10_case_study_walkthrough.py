@@ -22,7 +22,7 @@ def imports():
     import numpy as np
 
     from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
-    from nof1_causal_lab.artifacts.model_spec import LikelihoodSpec, ParameterSpec
+    from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
     from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import ParamCatalog
     from nof1_causal_lab.models.ssm.construct_admission import (
         AdmissionState,
@@ -239,7 +239,7 @@ def dag_diagram(EDGES, ORDER, UNOBSERVED, mo, plt):
 
 
 @app.cell
-def causal_spec(EDGES, INDICATORS, ORDER):
+def causal_design(EDGES, INDICATORS, ORDER):
     _edges = [
         {"cause": _c, "effect": _e, "description": f"{_c} -> {_e}", "lagged": True}
         for _c, _e in EDGES
@@ -398,7 +398,7 @@ def elicitation(
     math,
     np,
 ):
-    _catalog = ParamCatalog.from_causal_spec(CAUSAL_SPEC)
+    _catalog = ParamCatalog.from_causal_design(CAUSAL_SPEC)
     _emission = {c: (ind, fam, link) for ind, c, _d, fam, link, _t in INDICATORS}
     _parents = {c["name"]: [] for c in CAUSAL_SPEC["latent"]["constructs"]}
     for _e in CAUSAL_SPEC["latent"]["edges"]:

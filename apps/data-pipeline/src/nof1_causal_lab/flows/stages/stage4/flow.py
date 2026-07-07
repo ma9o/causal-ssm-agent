@@ -1,4 +1,4 @@
-"""Stage 4: Model Specification & Prior Elicitation.
+"""Stage 4: Statistical Model Specification & Prior Elicitation.
 
 Thin wrapper around the gradual construct-by-construct admission loop. Manages
 config + the LLM stage runtime, then materializes the grounded result. The model
@@ -34,7 +34,7 @@ def _stage4_generate_config() -> GenerateConfig:
 
 
 async def stage4_agentic_flow(
-    causal_spec: dict,
+    causal_design: dict,
     question: str,
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict],
@@ -44,7 +44,7 @@ async def stage4_agentic_flow(
     """Stage 4 LLM flow: gradual construct admission → grounded result.
 
     Args:
-        causal_spec: Full CausalSpec dict.
+        causal_design: Full CausalDesign dict.
         question: Research question.
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support).
         indicator_audits: Per-indicator audit hints keyed by indicator name.
@@ -52,7 +52,7 @@ async def stage4_agentic_flow(
         workspace_id: When set, stream construct-admission telemetry for the live web view.
 
     Returns:
-        The full grounded Stage 4 result (``model_spec``, ``authored_priors``,
+        The full grounded Stage 4 result (``statistical_model_spec``, ``authored_priors``,
         ``resolved_priors``, ``_compiled_ssm``, …).
     """
     from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
@@ -77,7 +77,7 @@ async def stage4_agentic_flow(
     )
     async with open_llm_stage(config=runtime_config, logger=logger) as factory:
         result = await run_stage4_construct_build(
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             question=question,
             data_for_model=data_for_model,
             indicator_audits=indicator_audits,
@@ -86,11 +86,11 @@ async def stage4_agentic_flow(
             workspace_id=workspace_id,
         )
         materialized = materialize_stage4_result(
-            model_spec=result.model_spec,
+            statistical_model_spec=result.statistical_model_spec,
             authored_priors=result.authored_priors,
             data_for_model=data_for_model,
             indicator_audits=indicator_audits,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             validation=result.validation,
             search_queries=result.search_queries,
             skip_ppc=True,  # reachability battery already gated every construct

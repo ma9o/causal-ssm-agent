@@ -195,16 +195,16 @@ class EvalQuestion:
     # ── artifact checks ──
 
     @property
-    def has_latent_model(self) -> bool:
-        return (self.dir / "latent_model.json").exists()
+    def has_latent_structure(self) -> bool:
+        return (self.dir / "latent_structure.json").exists()
 
     @property
-    def has_causal_spec(self) -> bool:
-        return (self.dir / "causal_spec.json").exists()
+    def has_causal_design(self) -> bool:
+        return (self.dir / "causal_design.json").exists()
 
     @property
-    def has_model_spec(self) -> bool:
-        return (self.dir / "model_spec.json").exists()
+    def has_statistical_model_spec(self) -> bool:
+        return (self.dir / "statistical_model_spec.json").exists()
 
     @property
     def has_priors(self) -> bool:
@@ -212,8 +212,8 @@ class EvalQuestion:
 
     @property
     def has_full_spec(self) -> bool:
-        """Has model_spec + priors + causal_spec (all Stage 4 artifacts)."""
-        return self.has_model_spec and self.has_priors and self.has_causal_spec
+        """Has statistical_model_spec + priors + causal_design (all Stage 4 artifacts)."""
+        return self.has_statistical_model_spec and self.has_priors and self.has_causal_design
 
 
 def discover_questions() -> list[EvalQuestion]:
@@ -452,7 +452,7 @@ def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, 
     return {
         "workspace_id": resolved,
         "question": question,
-        "latent_model": constructs["latent_model"],
+        "latent_structure": constructs["latent_structure"],
         "chunks": [dataset_schema],
         "dataset_summary": f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
     }
@@ -470,12 +470,12 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     raw_df = store.read_parquet_file(
         "raw_data", _current_version(state, resolved, "raw_data"), "raw.parquet"
     )
-    causal_spec = store.read_json_file(
-        "causal_spec", _current_version(state, resolved, "causal_spec"), "causal_spec.json"
-    )["causal_spec"]
+    causal_design = store.read_json_file(
+        "causal_design", _current_version(state, resolved, "causal_design"), "causal_design.json"
+    )["causal_design"]
     semantic_inds = [
         indicator
-        for indicator in causal_spec.get("measurement", {}).get("indicators", [])
+        for indicator in causal_design.get("measurement", {}).get("indicators", [])
         if indicator.get("extraction_mode", "semantic") == "semantic"
     ]
     if not semantic_inds:
@@ -483,11 +483,11 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
 
     time_col = "timestamp"
     stage2_workers = get_config().stage2_workers
-    model_clock = causal_spec.get("measurement", {}).get("model_clock", "1d")
+    model_clock = causal_design.get("measurement", {}).get("model_clock", "1d")
     chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
         raw_df=raw_df,
         semantic_inds=semantic_inds,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         model_clock=model_clock,
         time_col=time_col,
         windows_per_chunk=stage2_workers.windows_per_chunk,
@@ -500,7 +500,7 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     return {
         "workspace_id": resolved,
         "question": question,
-        "causal_spec": causal_spec,
+        "causal_design": causal_design,
         "chunk_texts": chunk_texts,
         "chunk_window_starts": chunk_window_starts,
         "chunk_contexts": chunk_contexts,

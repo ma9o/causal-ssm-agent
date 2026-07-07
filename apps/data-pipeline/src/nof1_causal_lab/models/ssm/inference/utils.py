@@ -203,7 +203,7 @@ class UnconstrainedSiteTransform:
     Built from a site-info dict where each entry has ``transform``
     (numpyro Transform), ``value`` (a constrained draw used to fix ravel
     order), and ``distribution`` (numpyro Distribution for the prior
-    log-prob). Both call sites feed this builder; their model-specific
+    log-prob). Both call sites feed this builder; their statistical-model-specific
     layer (component-tuple shape, sample-resolver) sits on top.
     """
 
@@ -226,7 +226,7 @@ def build_unconstrained_site_transform(
       - ``"value"``: an initial constrained value (only its shape/dtype matter)
       - ``"distribution"``: a NumPyro ``Distribution`` for ``log_prob`` evaluation
 
-    Returns a closure-free dataclass; callers can add model-specific glue
+    Returns a closure-free dataclass; callers can add statistical-model-specific glue
     (component-layout reshaping, sample resolvers) on top without
     touching the bijection logic.
     """

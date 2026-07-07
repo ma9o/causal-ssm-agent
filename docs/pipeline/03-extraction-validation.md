@@ -4,13 +4,13 @@
 |---|---|---|
 | Computed | No | `IndicatorAudit` per indicator, dataset-level issues |
 
-Audits [Stage 2](02-indicator-extraction.md) observations against the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec), then computes an [empirical profile](#empiricalprofile) for each indicator that [Stage 4](04-model-specification-priors.md) uses to ground prior elicitation.
+Audits [Stage 2](02-indicator-extraction.md) observations against the [Stage 1b `CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign), then computes an [empirical profile](#empiricalprofile) for each indicator that [Stage 4](04-statistical-model-specification-priors.md) uses to ground prior elicitation.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `causal_spec` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with indicator and construct metadata, `model_clock` |
+| `causal_design` | [Stage 1b](01b-measurement-structure-identifiability.md) | [`CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign) with indicator and construct metadata, `model_clock` |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 
 ## Process
@@ -24,18 +24,18 @@ flowchart LR
     IR & DR --> R[Reduce & Profile] --> A([IndicatorAudit])
 ```
 
-**Context assembly:** Parses the [`model_clock`](01b-measurement-identifiability.md#observation_window-and-model_clock) from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) into hours, builds lookup tables for indicator and construct metadata, and validates the table loaded from Stage 2. For each indicator it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series.
+**Context assembly:** Parses the [`model_clock`](01b-measurement-structure-identifiability.md#observation_window-and-model_clock) from the [`CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign) into hours, builds lookup tables for indicator and construct metadata, and validates the table loaded from Stage 2. For each indicator it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series.
 
 **Indicator rules:** Nine rules run in sequence for each indicator. Each rule receives the indicator's data and context and returns zero or more `ValidationIssue`s:
 
 | Rule | Checks | Severity | Threshold |
 |---|---|---|---|
-| `missing` | Indicator declared in `CausalSpec` but absent from extracted data | warning | any absence |
+| `missing` | Indicator declared in `CausalDesign` but absent from extracted data | warning | any absence |
 | `no_numeric` | Rows exist but no values survived `Float64` coercion | error | zero numeric values |
 | `timestamps` | Observation-time parsing | error if 100% invalid; warning if >50% | fraction of `anchor_time` values that fail all ten timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
-| `dtype_range` | Values conform to declared [`measurement_dtype`](01b-measurement-identifiability.md#indicator) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |
+| `dtype_range` | Values conform to declared [`measurement_dtype`](01b-measurement-structure-identifiability.md#indicator) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |
 | `time_coverage` | Data span relative to model clock | warning | time span < 10 × `model_clock` hours; skipped for time-invariant constructs |
 | `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `model_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |
@@ -50,7 +50,7 @@ The `dtype_range` rule applies different logic per declared type:
 
 | Rule | Checks | Severity |
 |---|---|---|
-| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/measurement-model/assumptions.md#a1-reflective-measurement-model) | warning (when r < 0, with ≥10 aligned days) |
+| `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure) | warning (when r < 0, with ≥10 aligned days) |
 
 **Reduce & Profile:** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each metric key, the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Rules own threshold logic; the reducer only aggregates.
 
@@ -74,7 +74,7 @@ Contained in each `IndicatorAudit`.
 
 | Field | Type | Description |
 |---|---|---|
-| `measurement_dtype` | `str` ∣ `null` | Declared dtype from the [`CausalSpec`](01b-measurement-identifiability.md#causalspec) (`"binary"`, `"count"`, `"continuous"`, or `"ordinal"`) |
+| `measurement_dtype` | `str` ∣ `null` | Declared dtype from the [`CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign) (`"binary"`, `"count"`, `"continuous"`, or `"ordinal"`) |
 | `n_obs` | `int` | Number of non-null numeric observations |
 | `mean` | `float` ∣ `null` | Arithmetic mean |
 | `std` | `float` ∣ `null` | Standard deviation |

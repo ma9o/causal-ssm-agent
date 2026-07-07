@@ -38,7 +38,7 @@ def main() -> None:
     args = parser.parse_args()
 
     stage2_inputs = get_stage2_eval_chunks(args.n, args.seed or 42, args.workspace_id)
-    causal_spec = stage2_inputs["causal_spec"]
+    causal_design = stage2_inputs["causal_design"]
     chunks = stage2_inputs["sampled_chunk_texts"]
 
     print(f"Sampling from workspace: {stage2_inputs['workspace_id']}", file=sys.stderr)
@@ -50,8 +50,8 @@ def main() -> None:
         if args.prompt:
             user_prompt = USER.format(
                 question=stage2_inputs["question"],
-                outcome_description=_get_outcome_description(causal_spec),
-                indicators=_format_indicators(causal_spec),
+                outcome_description=_get_outcome_description(causal_design),
+                indicators=_format_indicators(causal_design),
                 chunk=chunk,
             )
             output_parts.append(f"--- CHUNK {i} SYSTEM ---\n{SYSTEM}\n")

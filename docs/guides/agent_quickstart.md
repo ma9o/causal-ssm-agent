@@ -1,8 +1,8 @@
 # Agent Quickstart
 
-The service is headless: an external LLM agent (Claude Code, claude.ai, or
-anything MCP-speaking) navigates the episode machine, and the web viewer
-renders what the journal records. This guide is the agent-side setup.
+The service is headless: an external LLM agent navigates the episode machine
+over HTTP, and the web viewer renders what the journal records. This guide is
+the agent-side setup.
 
 ## Start the service
 
@@ -18,51 +18,35 @@ for details.
 LLM-backed stages read the ambient `OPENROUTER_API_KEY` from the service's
 environment — credentials are infra config, never per-move parameters.
 
-## Register the MCP gateway
+## Drive the machine
 
-```bash
-claude mcp add nof1 -- uv run --project apps/data-pipeline nof1-mcp
-```
+The interface is plain HTTP — the same tool server the web viewer uses
+(`TOOL_SERVER_URL`, default `http://localhost:8100`). There is no SDK and no MCP
+server; an agent navigates entirely with `curl`.
 
-The gateway is a thin stdio adapter over the HTTP facade
-(`TOOL_SERVER_URL`, default `http://localhost:8100`) — the agent drives the
-exact surface the viewer and curl users see.
+An agent working in this repo gets the `nof1-episode-api` skill automatically —
+Claude Code loads it from `.claude/skills/` (a symlink) and Codex from
+`.agents/skills/`. Its [`SKILL.md`](../../.agents/skills/nof1-episode-api/SKILL.md)
+is the full reference: every endpoint, its body shape, and a copy-ready `curl`
+line, generated from the tool server's
+[OpenAPI spec](../../packages/api-types/schemas/openapi.json) so it never drifts
+from the API. The loop in brief:
 
-### Tools
-
-- `describe_machine` — the artifact graph: what each stage consumes/produces,
-  plus its execution class (`deterministic` / `batch_llm` / `judgment`).
-- `get_episode` / `get_timeline` / `get_events` — state + freshness report +
-  legal moves; the transition journal (including rejections and typed stage
-  errors); intra-stage telemetry.
-- `read_artifact` — an artifact version's meta (provenance, `derived_from`
-  pins) and JSON payloads.
-- `start_episode`, `run_stage`, `write_artifact`, `start_auto_run` — the
-  moves. Writes are schema-validated against the artifact contracts and
-  journaled with `llm` provenance.
-- `list_stage_tools` / `invoke_stage_tool` — per-stage validation and query
-  tools (e.g. stage-6 `simulate`), executed against pinned store versions
-  with stale-provenance hard-flags.
-
-### Navigation loop
-
-1. `describe_machine` once, then `get_episode(workspace_id)`.
-2. Propose moves: `run_stage` for compute, `write_artifact` for judgment
-   (constructs, causal spec, priors, narrative — you can author these
-   directly instead of running the in-service stage).
-3. Long stages (stage-4, stage-5b) can outlive client tool timeouts: prefer
-   `start_auto_run` + `get_episode` polling.
-4. Read what happened from `get_timeline` — a `raised` transition carries the
-   typed error; state is unchanged, and re-running is just proposing again.
+1. `GET /api/machine` once for the artifact graph and creation classes, then
+   `GET /api/episodes/{workspace_id}` for the live state and legal moves.
+2. Propose moves at `POST /api/episodes/{workspace_id}/moves`: `run` a stage for
+   compute, or `write` a judgment artifact (latent structure, causal design, priors,
+   narrative) directly instead of running the in-service stage.
+3. Long stages (stage-4, stage-5b) can outlive a client timeout: prefer
+   `POST /api/episodes/{workspace_id}/auto`, then poll
+   `GET /api/episodes/{workspace_id}`.
+4. Read outcomes from `GET /api/episodes/{workspace_id}/timeline` — a `raised`
+   transition carries the typed error; state is unchanged, so re-running is just
+   proposing again.
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
-running stage-0.
-
-## curl instead of MCP
-
-Every tool maps 1:1 onto the facade; see the
-[integration testing guide](agentic_integration_testing.md) for the curl
-forms of the same flows.
+running stage-0. The [integration testing guide](agentic_integration_testing.md)
+has end-to-end curl walkthroughs of the same flows.
 
 ## Publishing a workspace
 

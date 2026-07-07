@@ -153,12 +153,12 @@ export interface Stage0ColumnDescriptionContract {
 }
 export interface Stage1AContract {
   llm_trace?: LLMTrace | null;
-  latent_model: LatentModel;
+  latent_structure: LatentStructure;
 }
 /**
  * Theoretical causal structure over constructs.
  */
-export interface LatentModel {
+export interface LatentStructure {
   /**
    * Theoretical constructs in the model
    */
@@ -231,14 +231,14 @@ export interface EdgeSource {
 }
 export interface Stage1BContract {
   llm_trace?: LLMTrace | null;
-  causal_spec: CausalSpec;
+  causal_design: CausalDesign;
 }
 /**
- * Complete causal specification combining latent and measurement models.
+ * Complete causal design combining latent and measurement structures.
  */
-export interface CausalSpec {
-  latent: LatentModel;
-  measurement: MeasurementModel;
+export interface CausalDesign {
+  latent: LatentStructure;
+  measurement: MeasurementStructure;
   /**
    * Identifiability status of target causal effects
    */
@@ -251,7 +251,7 @@ export interface CausalSpec {
 /**
  * Operationalization of constructs into observed indicators.
  */
-export interface MeasurementModel {
+export interface MeasurementStructure {
   /**
    * Observed indicators, each measuring a construct
    */
@@ -283,7 +283,7 @@ export interface Indicator {
    */
   measurement_dtype: string;
   /**
-   * Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-model support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var
+   * Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var
    */
   aggregation: string;
   /**
@@ -491,7 +491,7 @@ export interface ValidationIssueContract {
 }
 export interface Stage4Contract {
   llm_trace?: LLMTrace | null;
-  model_spec: ModelSpec;
+  statistical_model_spec: StatisticalModelSpec;
   authored_priors: {
     [k: string]: PriorProposal | undefined;
   };
@@ -507,7 +507,7 @@ export interface Stage4Contract {
 /**
  * Complete statistical model specification.
  */
-export interface ModelSpec {
+export interface StatisticalModelSpec {
   /**
    * Likelihood specifications for each observed indicator
    */

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from nof1_causal_lab.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     InitializationPolicy,
     ObservationInterceptPolicy,
 )
 from nof1_causal_lab.models.model_semantics import indicator_requires_observation_intercept
 
 
-def parameter_is_active_for_model_spec(
+def parameter_is_active_for_statistical_model_spec(
     parameter: dict[str, Any],
     chosen_likelihood_by_variable: dict[str, dict[str, Any]],
     *,

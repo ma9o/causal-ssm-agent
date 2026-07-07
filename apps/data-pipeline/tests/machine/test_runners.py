@@ -30,16 +30,16 @@ def test_run_stage4_raises_model_compile_error_when_spec_does_not_compile(worksp
         json_files={"question.json": {"text": "does stress affect sleep?"}},
     )
     store.write_version(
-        "causal_spec",
+        "causal_design",
         provenance="llm",
         derived_from={"question": 1},
         produced_by="stage-1b",
-        json_files={"causal_spec.json": {"causal_spec": {"latent": {}}}},
+        json_files={"causal_design.json": {"causal_design": {"latent": {}}}},
     )
     store.write_version(
         "model_data",
         provenance="computed",
-        derived_from={"causal_spec": 1},
+        derived_from={"causal_design": 1},
         produced_by="stage-2",
         parquet_files={"model_data.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
     )
@@ -52,11 +52,14 @@ def test_run_stage4_raises_model_compile_error_when_spec_does_not_compile(worksp
     )
 
     async def fake_stage4_agentic_flow(**_kwargs):
-        return {"model_spec": {"likelihoods": [], "parameters": []}, "authored_priors": {}}
+        return {
+            "statistical_model_spec": {"likelihoods": [], "parameters": []},
+            "authored_priors": {},
+        }
 
     monkeypatch.setattr(stage4_flow, "stage4_agentic_flow", fake_stage4_agentic_flow)
 
-    pins = {"question": 1, "causal_spec": 1, "model_data": 1, "validation_report": 1}
+    pins = {"question": 1, "causal_design": 1, "model_data": 1, "validation_report": 1}
     with pytest.raises(ModelCompileError) as excinfo:
         _run(_run_stage4(workspace, store, pins, ExecOptions(enable_literature=False)))
 

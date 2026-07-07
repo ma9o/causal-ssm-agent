@@ -41,7 +41,6 @@ dependencies = [
 ]
 
 [project.scripts]
-nof1-mcp = "nof1_causal_lab.mcp_gateway:main"
 nof1-publish = "nof1_causal_lab.publish:main"
 
 [build-system]

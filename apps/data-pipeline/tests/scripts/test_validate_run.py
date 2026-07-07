@@ -27,7 +27,7 @@ def test_source_column_rules_use_raw_parquet_schema_when_descriptions_are_absent
         stages={
             "stage-0": {"column_descriptions": []},
             "stage-1b": {
-                "causal_spec": {
+                "causal_design": {
                     "measurement": {
                         "indicators": [
                             {"name": "observed_value", "source_columns": ["value"]},
@@ -49,7 +49,7 @@ def test_source_column_rules_use_raw_parquet_schema_when_descriptions_are_absent
         stages={
             **ctx.stages,
             "stage-1b": {
-                "causal_spec": {
+                "causal_design": {
                     "measurement": {
                         "indicators": [
                             {"name": "missing_value", "source_columns": ["missing"]},
@@ -75,7 +75,7 @@ def test_stage6_treatments_must_be_explicitly_identified() -> None:
         workspace_id="ws",
         stages={
             "stage-1b": {
-                "causal_spec": {
+                "causal_design": {
                     "identifiability": {
                         "identifiable_treatments": {"identified_treatment": {}},
                         "non_identifiable_treatments": {"blocked_treatment": {}},
@@ -108,7 +108,7 @@ def test_stage6_treatments_fail_when_identifiability_verdicts_are_missing() -> N
     ctx = validate_run.RunContext(
         workspace_id="ws",
         stages={
-            "stage-1b": {"causal_spec": {}},
+            "stage-1b": {"causal_design": {}},
             "stage-6": {"intervention_results": [{"treatment": "treatment"}]},
         },
         stage_paths={},
@@ -127,7 +127,7 @@ def test_indicators_in_model_data_ignores_future_stage2_artifacts() -> None:
         workspace_id="ws",
         stages={
             "stage-1b": {
-                "causal_spec": {
+                "causal_design": {
                     "measurement": {
                         "indicators": [{"name": "declared_indicator"}],
                     },
@@ -159,7 +159,7 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
 
     class FakeState:
         def get(self, artifact_id: str) -> FakeInfo | None:
-            present = {"raw_data", "constructs", "causal_spec"}
+            present = {"raw_data", "latent_structure", "causal_design"}
             return FakeInfo() if artifact_id in present else None
 
     class FakeJournal:

@@ -19,8 +19,8 @@ from tests.helpers import make_mock_session_factory
 from tests.helpers import run_async as _run
 
 
-def _causal_spec():
-    """Minimal CausalSpec for testing."""
+def _causal_design():
+    """Minimal CausalDesign for testing."""
     return {
         "latent": {
             "constructs": [
@@ -63,7 +63,7 @@ def _causal_spec():
 
 class TestFormatIndicators:
     def test_basic_formatting(self):
-        result = _format_indicators(_causal_spec())
+        result = _format_indicators(_causal_design())
         assert "pss_score" in result
         assert "sleep_hours" in result
         assert "continuous" in result
@@ -119,7 +119,7 @@ class TestFormatIndicators:
 
 class TestGetOutcomeDescription:
     def test_returns_description(self):
-        result = _get_outcome_description(_causal_spec())
+        result = _get_outcome_description(_causal_design())
         assert "Sleep quality" in result
 
     def test_no_outcome(self):
@@ -155,7 +155,7 @@ class TestWorkerMessages:
     def test_user_message_contains_context(self):
         wm = WorkerMessages(
             question="Does stress affect sleep?",
-            causal_spec=_causal_spec(),
+            causal_design=_causal_design(),
             window_text=self._sample_window_text(),
             n_windows=1,
         )
@@ -168,7 +168,7 @@ class TestWorkerMessages:
     def test_indicators_in_prompt(self):
         wm = WorkerMessages(
             question="test",
-            causal_spec=_causal_spec(),
+            causal_design=_causal_design(),
             window_text=self._sample_window_text(),
             n_windows=1,
         )
@@ -206,7 +206,7 @@ class TestRunWorkerExtraction:
                     window_text=self._sample_window_text(),
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
-                    causal_spec=_causal_spec(),
+                    causal_design=_causal_design(),
                     session_factory=factory,
                     logger=logger,
                 )
@@ -239,7 +239,7 @@ class TestRunWorkerExtraction:
                     window_text=self._sample_window_text(),
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
-                    causal_spec=_causal_spec(),
+                    causal_design=_causal_design(),
                     session_factory=factory,
                     logger=logger,
                     call_label="stage2 chunk=3 windows=1 events=1",

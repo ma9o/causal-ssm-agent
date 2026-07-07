@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.predictive_simulation import (
     sample_predictive_observations_from_linear_predictors,
 )

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.priors import (
     PriorDistributionFamily,
     PriorSpec,

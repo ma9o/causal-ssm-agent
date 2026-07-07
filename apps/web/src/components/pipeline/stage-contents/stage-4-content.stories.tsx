@@ -7,14 +7,14 @@ import {
   stageStoryDecorators,
 } from "../stage-story-helpers";
 import Stage4Content from "./stage-4-content";
-import { stage4Data } from "@/components/stages/model-spec/__fixtures__/model-spec-fixtures";
+import { stage4Data } from "@/components/stages/statistical-model-spec/__fixtures__/statistical-model-spec-fixtures";
 import stage1bFixture from "../../__fixtures__/demo-run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
-const indicators = (stage1bFixture as unknown as Stage1bData).causal_spec.measurement.indicators;
+const indicators = (stage1bFixture as unknown as Stage1bData).causal_design.measurement.indicators;
 
 const meta = {
-  title: "Pipeline/Stages/4 – Model Specification/Panel",
+  title: "Pipeline/Stages/4 – Statistical Model Specification/Panel",
   component: Stage4Content,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage4Content>;

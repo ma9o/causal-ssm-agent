@@ -12,11 +12,11 @@
 
 | Artifact or concept | Owning doc |
 |---|---|
-| `LatentModel` | [pipeline/01a-latent-model.md](pipeline/01a-latent-model.md) |
-| `MeasurementModel`, `Indicator`, `CausalSpec`, `IdentifiabilityStatus` | [pipeline/01b-measurement-identifiability.md](pipeline/01b-measurement-identifiability.md) |
+| `LatentStructure` | [pipeline/01a-latent-structure.md](pipeline/01a-latent-structure.md) |
+| `MeasurementStructure`, `Indicator`, `CausalDesign`, `IdentifiabilityStatus` | [pipeline/01b-measurement-structure-identifiability.md](pipeline/01b-measurement-structure-identifiability.md) |
 | `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/02-indicator-extraction.md](pipeline/02-indicator-extraction.md) |
 | `IndicatorAudit` and validation findings | [pipeline/03-extraction-validation.md](pipeline/03-extraction-validation.md) |
-| `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, `PriorProposal` | [pipeline/04-model-specification-priors.md](pipeline/04-model-specification-priors.md) |
+| `StatisticalModelSpec`, `LikelihoodSpec`, `ParameterSpec`, `PriorProposal` | [pipeline/04-statistical-model-specification-priors.md](pipeline/04-statistical-model-specification-priors.md) |
 | `FittedArtifact` and post-fit diagnostics | [pipeline/05b-inference-diagnostics.md](pipeline/05b-inference-diagnostics.md) |
 | `TreatmentEffect` and intervention tools | [pipeline/06-intervention-analysis.md](pipeline/06-intervention-analysis.md) |
 
@@ -28,8 +28,8 @@
 | Compilation from Stage 4 outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
 | Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
-| High-level map of the Stage 4 reducer and repair loop | [reference/model-spec/state-machine.md](reference/model-spec/state-machine.md) |
-| How Stage 4 constrains LLM model-form and prior decisions | [reference/model-spec/llm-driven-specification.md](reference/model-spec/llm-driven-specification.md) |
+| High-level map of the Stage 4 reducer and repair loop | [reference/statistical-model-spec/state-machine.md](reference/statistical-model-spec/state-machine.md) |
+| How Stage 4 constrains LLM model-form and prior decisions | [reference/statistical-model-spec/llm-driven-specification.md](reference/statistical-model-spec/llm-driven-specification.md) |
 
 ## Guides
 

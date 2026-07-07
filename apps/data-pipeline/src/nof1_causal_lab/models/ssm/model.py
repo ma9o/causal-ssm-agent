@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         T0CholBlockSpec,
     )
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -451,7 +451,7 @@ class SSMModel:
         """Initialize state-space model.
 
         Args:
-            spec: Model specification
+            spec: Statistical model specification
             priors: Prior registry (uses compiler defaults if None)
         """
         self.spec = spec

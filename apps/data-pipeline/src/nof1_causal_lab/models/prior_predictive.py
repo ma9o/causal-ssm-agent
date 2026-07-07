@@ -16,7 +16,10 @@ import numpy as np
 import polars as pl
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, ModelSpec
+from nof1_causal_lab.artifacts.statistical_model_spec import (
+    DistributionFamily,
+    StatisticalModelSpec,
+)
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
 from nof1_causal_lab.workers.schemas_prior import (
@@ -104,17 +107,17 @@ def _pp_result(
 
 
 def _indicator_to_construct_lookup(
-    model_spec: dict[str, Any] | None,
+    statistical_model_spec: dict[str, Any] | None,
     *,
-    causal_spec: dict[str, Any] | None = None,
+    causal_design: dict[str, Any] | None = None,
     indicator_to_construct: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Return the construct name implied by each manifest indicator."""
     lookup: dict[str, str] = dict(indicator_to_construct or {})
-    if causal_spec:
-        from nof1_causal_lab.utils.causal_spec import get_indicators
+    if causal_design:
+        from nof1_causal_lab.utils.causal_design import get_indicators
 
-        for indicator in get_indicators(causal_spec):
+        for indicator in get_indicators(causal_design):
             if not isinstance(indicator, dict):
                 continue
             indicator_name = indicator.get("name")
@@ -122,7 +125,7 @@ def _indicator_to_construct_lookup(
             if isinstance(indicator_name, str) and isinstance(construct_name, str):
                 lookup.setdefault(indicator_name, construct_name)
 
-    for parameter in (model_spec or {}).get("parameters") or ():
+    for parameter in (statistical_model_spec or {}).get("parameters") or ():
         if not isinstance(parameter, dict):
             continue
         indicator_name = parameter.get("indicator")
@@ -132,11 +135,13 @@ def _indicator_to_construct_lookup(
     return lookup
 
 
-def _indicator_likelihood_lookup(model_spec: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+def _indicator_likelihood_lookup(
+    statistical_model_spec: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
     """Index active likelihood metadata by manifest indicator."""
     return {
         str(likelihood["variable"]): dict(likelihood)
-        for likelihood in (model_spec or {}).get("likelihoods") or ()
+        for likelihood in (statistical_model_spec or {}).get("likelihoods") or ()
         if isinstance(likelihood, dict) and isinstance(likelihood.get("variable"), str)
     }
 
@@ -243,9 +248,9 @@ def _observation_intercept_controls_scale(
 
 def resolve_scale_target_parameters(
     indicator_name: str,
-    model_spec: dict[str, Any] | None,
+    statistical_model_spec: dict[str, Any] | None,
     *,
-    causal_spec: dict[str, Any] | None = None,
+    causal_design: dict[str, Any] | None = None,
     indicator_to_construct: dict[str, str] | None = None,
 ) -> list[str]:
     """Return the active authored parameters most able to change one indicator's scale.
@@ -257,19 +262,19 @@ def resolve_scale_target_parameters(
     """
     parameters = [
         parameter
-        for parameter in (model_spec or {}).get("parameters") or ()
+        for parameter in (statistical_model_spec or {}).get("parameters") or ()
         if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
     ]
     if not parameters:
         return []
 
     indicator_to_construct_lookup = _indicator_to_construct_lookup(
-        model_spec,
-        causal_spec=causal_spec,
+        statistical_model_spec,
+        causal_design=causal_design,
         indicator_to_construct=indicator_to_construct,
     )
     construct_name = indicator_to_construct_lookup.get(indicator_name)
-    likelihood_lookup = _indicator_likelihood_lookup(model_spec)
+    likelihood_lookup = _indicator_likelihood_lookup(statistical_model_spec)
     likelihood = likelihood_lookup.get(indicator_name)
     distribution = str((likelihood or {}).get("distribution") or "").lower()
     indicator_names = {
@@ -426,25 +431,25 @@ def compute_data_stats(
 
 
 def _ordered_latent_sccs(
-    causal_spec: dict | None,
+    causal_design: dict | None,
     latent_names: list[str],
 ) -> list[tuple[str, ...]]:
     """Return latent SCCs in estimation order for deterministic repair scoping."""
-    if causal_spec is None or not latent_names:
+    if causal_design is None or not latent_names:
         return []
 
-    from nof1_causal_lab.utils.causal_spec import get_estimation_edges, get_estimation_state_order
+    from nof1_causal_lab.utils.causal_design import get_estimation_edges, get_estimation_state_order
 
     latent_name_set = set(latent_names)
     construct_order = [
-        name for name in get_estimation_state_order(causal_spec) if name in latent_name_set
+        name for name in get_estimation_state_order(causal_design) if name in latent_name_set
     ]
     if not construct_order:
         return []
 
     graph = nx.DiGraph()
     graph.add_nodes_from(construct_order)
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause")
         effect = edge.get("effect")
         if cause in latent_name_set and effect in latent_name_set:
@@ -465,10 +470,10 @@ def _infer_dynamics_repair_scope(
     unstable_indices: list[int],
     *,
     compiled_ssm: dict | None,
-    causal_spec: dict | None,
+    causal_design: dict | None,
 ) -> PriorRepairScope | None:
     """Bound global drift instability to the smallest SCC-level repair scope."""
-    if not unstable_indices or compiled_ssm is None or causal_spec is None:
+    if not unstable_indices or compiled_ssm is None or causal_design is None:
         logger.debug("Skipping dynamics repair-scope attribution (missing inputs)")
         return None
 
@@ -489,7 +494,7 @@ def _infer_dynamics_repair_scope(
     if not latent_names:
         return None
 
-    sccs = _ordered_latent_sccs(causal_spec, latent_names)
+    sccs = _ordered_latent_sccs(causal_design, latent_names)
     if not sccs:
         return None
 
@@ -617,12 +622,12 @@ def _dummy_values_for_distribution(distribution: DistributionFamily, n_rows: int
 
 
 def _make_support_compatible_dummy_wide_data(
-    model_spec: ModelSpec,
+    statistical_model_spec: StatisticalModelSpec,
     n_rows: int = 10,
 ) -> pl.DataFrame:
     """Build minimal wide data that satisfy each likelihood family's support."""
     cols: dict[str, pl.Series] = {"time": pl.Series("time", list(range(n_rows)), dtype=pl.Float64)}
-    for lik in model_spec.likelihoods:
+    for lik in statistical_model_spec.likelihoods:
         cols[lik.variable] = pl.Series(
             lik.variable,
             _dummy_values_for_distribution(lik.distribution, n_rows),
@@ -724,9 +729,9 @@ def _check_scale_plausibility(
     data_stats: dict[str, dict],
     manifest_names: list[str],
     *,
-    model_spec: dict[str, Any] | None = None,
+    statistical_model_spec: dict[str, Any] | None = None,
     compiled_ssm: dict | None = None,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     n_subsample: int = 50,
     ratio_threshold: float = 100.0,
 ) -> list[PriorValidationResult]:
@@ -829,7 +834,7 @@ def _check_scale_plausibility(
                 drift_samples,
                 sorted_unstable_indices,
                 compiled_ssm=compiled_ssm,
-                causal_spec=causal_spec,
+                causal_design=causal_design,
             )
             related_parameters, supporting_codes = _supporting_compile_context(
                 compiled_ssm,
@@ -910,8 +915,8 @@ def _check_scale_plausibility(
                     suggested_adjustment=("Adjust diffusion/drift priors to match data scale"),
                     related_parameters=resolve_scale_target_parameters(
                         name,
-                        model_spec,
-                        causal_spec=causal_spec,
+                        statistical_model_spec,
+                        causal_design=causal_design,
                     ),
                     failure_stage="observation_sample",
                 )
@@ -923,7 +928,7 @@ def _check_scale_plausibility(
 def _check_lagged_response_plausibility(
     samples: dict[str, jnp.ndarray],
     compiled_ssm: dict | None,
-    causal_spec: dict | None,
+    causal_design: dict | None,
     *,
     n_subsample: int = 50,
     weak_response_cutoff: float = 0.02,
@@ -935,7 +940,7 @@ def _check_lagged_response_plausibility(
     draws and the full transition matrix ``exp(A * dt)`` instead of treating a
     single off-diagonal drift mean as the edge timescale.
     """
-    if compiled_ssm is None or causal_spec is None or _AFFINE_DRIFT_VIEW not in samples:
+    if compiled_ssm is None or causal_design is None or _AFFINE_DRIFT_VIEW not in samples:
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
@@ -943,7 +948,7 @@ def _check_lagged_response_plausibility(
         deserialize_edge_lag_days,
         deserialize_ssm_spec,
     )
-    from nof1_causal_lab.utils.causal_spec import get_estimation_edges
+    from nof1_causal_lab.utils.causal_design import get_estimation_edges
 
     try:
         spec_payload = compiled_ssm.get("spec")
@@ -967,7 +972,7 @@ def _check_lagged_response_plausibility(
 
     latent_index = {name: idx for idx, name in enumerate(latent_names)}
     try:
-        edges = get_estimation_edges(causal_spec)
+        edges = get_estimation_edges(causal_design)
     except (ValueError, KeyError, TypeError) as exc:
         logger.info(
             "Skipping lagged-response plausibility check (invalid estimation edges): %s", exc
@@ -1045,13 +1050,13 @@ def _check_lagged_response_plausibility(
 
 
 def validate_prior_predictive(
-    model_spec: ModelSpec | dict,
+    statistical_model_spec: StatisticalModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
     data_for_model: pl.DataFrame | None = None,
     data_stats: dict[str, dict] | None = None,
     n_samples: int = 500,
     constraint_tolerance: float = 0.05,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     compiled_ssm: dict | None = None,
 ) -> tuple[bool, list[PriorValidationResult], dict]:
     """Validate priors via prior predictive sampling.
@@ -1066,14 +1071,14 @@ def validate_prior_predictive(
        matrix over the model lag interval
 
     Args:
-        model_spec: Model specification
+        statistical_model_spec: Statistical model specification
         priors: Prior proposals for each parameter
         data_for_model: Raw timestamped data (optional, for scale plausibility check)
         data_stats: Optional precomputed per-indicator stats for scale checks
         n_samples: Number of prior predictive samples
         constraint_tolerance: Fraction of positive-constraint violations to
             tolerate before flagging failure (default 5%).
-        causal_spec: CausalSpec dict for DAG-constrained masks
+        causal_design: CausalDesign dict for DAG-constrained masks
         compiled_ssm: Optional precompiled artifact to reuse within a Stage 4
             validation pass and avoid recompiling identical inputs.
 
@@ -1098,23 +1103,23 @@ def validate_prior_predictive(
 
     priors_dict = dump_prior_payloads(priors)
 
-    # Parse model_spec for manifest names
-    if isinstance(model_spec, dict):
-        spec_obj = ModelSpec.model_validate(model_spec)
+    # Parse statistical_model_spec for manifest names
+    if isinstance(statistical_model_spec, dict):
+        spec_obj = StatisticalModelSpec.model_validate(statistical_model_spec)
     else:
-        spec_obj = model_spec
+        spec_obj = statistical_model_spec
 
     manifest_names = [lik.variable for lik in spec_obj.likelihoods]
     spec_payload = (
-        model_spec
-        if isinstance(model_spec, dict)
+        statistical_model_spec
+        if isinstance(statistical_model_spec, dict)
         else spec_obj.model_dump(mode="python", exclude_none=True)
     )
 
     # 1. Build model
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
-            model_spec, priors_dict, causal_spec=causal_spec
+            statistical_model_spec, priors_dict, causal_design=causal_design
         )
         if data_for_model is not None and not data_for_model.is_empty():
             runtime = prepare_model_runtime(data_for_model, compiled_ssm=artifact)
@@ -1134,7 +1139,7 @@ def validate_prior_predictive(
                     is_valid=False,
                     code="model_build",
                     issue=f"Model build failed: {e}",
-                    suggested_adjustment="Fix model_spec or priors to enable model construction",
+                    suggested_adjustment="Fix statistical_model_spec or priors to enable model construction",
                     failure_stage="model_build",
                 )
             ],
@@ -1236,14 +1241,14 @@ def validate_prior_predictive(
                 samples,
                 scale_reference_stats,
                 manifest_names,
-                model_spec=spec_payload,
+                statistical_model_spec=spec_payload,
                 compiled_ssm=artifact,
-                causal_spec=causal_spec,
+                causal_design=causal_design,
             )
         )
 
     # Check 5: full-system lagged response plausibility (warning-only)
-    results.extend(_check_lagged_response_plausibility(samples, artifact, causal_spec))
+    results.extend(_check_lagged_response_plausibility(samples, artifact, causal_design))
 
     is_valid = all(r.is_valid for r in results)
 
@@ -1290,7 +1295,7 @@ def format_parameter_feedback(
     results: list[PriorValidationResult],
     prior: dict | None = None,
     data_stats: dict[str, dict] | None = None,
-    model_spec: dict[str, Any] | None = None,
+    statistical_model_spec: dict[str, Any] | None = None,
 ) -> str:
     """Format per-parameter validation feedback for LLM re-elicitation.
 
@@ -1320,7 +1325,7 @@ def format_parameter_feedback(
         scale_targets = (
             resolve_scale_target_parameters(
                 result.parameter.removeprefix("scale_"),
-                model_spec,
+                statistical_model_spec,
             )
             if result_parameter.startswith("scale_")
             else []
@@ -1385,25 +1390,25 @@ def format_parameter_feedback(
 def get_failed_parameters(
     results: list[PriorValidationResult],
     parameter_names: list[str],
-    causal_spec: dict | None = None,
-    model_spec: dict[str, Any] | None = None,
+    causal_design: dict | None = None,
+    statistical_model_spec: dict[str, Any] | None = None,
 ) -> list[str]:
     """Extract parameter names that contributed to validation failure.
 
     Maps validation result parameter names (which may be SSM site names like
-    'vf_0_decay' or 'scale_mood') back to ModelSpec parameter names.
+    'vf_0_decay' or 'scale_mood') back to StatisticalModelSpec parameter names.
 
-    When ``causal_spec`` is provided, scale mismatch failures are targeted
+    When ``causal_design`` is provided, scale mismatch failures are targeted
     to the construct whose indicator triggered the mismatch rather than
     re-eliciting all parameters.
 
     Args:
         results: Validation results from prior predictive check
-        parameter_names: All ModelSpec parameter names
-        causal_spec: Optional CausalSpec dict for targeted re-elicitation
+        parameter_names: All StatisticalModelSpec parameter names
+        causal_design: Optional CausalDesign dict for targeted re-elicitation
 
     Returns:
-        List of ModelSpec parameter names that need re-elicitation
+        List of StatisticalModelSpec parameter names that need re-elicitation
     """
     failed_results = [r for r in results if not r.is_valid]
     if not failed_results:
@@ -1419,12 +1424,12 @@ def get_failed_parameters(
     if any(r.parameter in GLOBAL_FAILURE_SITES for r in failed_results):
         return list(parameter_names)
 
-    # Build indicator→construct lookup from causal_spec
+    # Build indicator→construct lookup from causal_design
     indicator_to_construct: dict[str, str] = {}
-    if causal_spec:
-        from nof1_causal_lab.utils.causal_spec import get_indicators
+    if causal_design:
+        from nof1_causal_lab.utils.causal_design import get_indicators
 
-        for ind in get_indicators(causal_spec):
+        for ind in get_indicators(causal_design):
             ind_name = ind.get("name") if isinstance(ind, dict) else ind.name
             construct = ind.get("construct_name") if isinstance(ind, dict) else ind.construct_name
             if ind_name and construct:
@@ -1438,7 +1443,7 @@ def get_failed_parameters(
         if result_param in NUISANCE_SITES:
             logger.info(
                 "Skipping nuisance site '%s' in failed parameter mapping "
-                "(not in ModelSpec, uses fixed default prior)",
+                "(not in StatisticalModelSpec, uses fixed default prior)",
                 r.parameter,
             )
             continue
@@ -1459,12 +1464,12 @@ def get_failed_parameters(
         # Scale mismatch (scale_<indicator>) -> targeted or blanket
         if result_param.startswith("scale_"):
             indicator_name = r.parameter.removeprefix("scale_")
-            if model_spec:
+            if statistical_model_spec:
                 failed_params.update(
                     resolve_scale_target_parameters(
                         indicator_name,
-                        model_spec,
-                        causal_spec=causal_spec,
+                        statistical_model_spec,
+                        causal_design=causal_design,
                     )
                 )
             else:
@@ -1475,9 +1480,9 @@ def get_failed_parameters(
                         if construct in param_name.lower():
                             failed_params.add(param_name)
                 else:
-                    # No causal_spec or no match → fall back to all
+                    # No causal_design or no match → fall back to all
                     failed_params.update(parameter_names)
-            if model_spec:
+            if statistical_model_spec:
                 continue
 
     return list(failed_params) if failed_params else list(parameter_names)

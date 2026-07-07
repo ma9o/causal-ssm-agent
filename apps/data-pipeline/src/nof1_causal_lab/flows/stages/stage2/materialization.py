@@ -7,10 +7,10 @@ from typing import Any, cast
 import polars as pl
 
 
-def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[str, Any]:
+def materialize_stage2_outputs(stage2_result: dict, causal_design: dict) -> dict[str, Any]:
     """Materialize the Stage 2 observation table from a serialized extraction result."""
     from nof1_causal_lab.utils.aggregations import _encode_non_continuous
-    from nof1_causal_lab.utils.causal_spec import get_indicator_dtypes, get_indicators
+    from nof1_causal_lab.utils.causal_design import get_indicator_dtypes, get_indicators
     from nof1_causal_lab.utils.data import ObservationRecord, observation_row_schema
 
     observation_dicts = cast("list[ObservationRecord]", stage2_result.get("observation_rows", []))
@@ -20,10 +20,10 @@ def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[s
         data_for_model = pl.DataFrame(schema=observation_row_schema())
 
     if len(data_for_model) > 0:
-        dtype_lookup = get_indicator_dtypes(causal_spec)
+        dtype_lookup = get_indicator_dtypes(causal_design)
         ordinal_levels_lookup: dict[str, list[str]] = {
             ind["name"]: ind["ordinal_levels"]
-            for ind in get_indicators(causal_spec)
+            for ind in get_indicators(causal_design)
             if ind.get("ordinal_levels")
         }
         data_for_model = _encode_non_continuous(data_for_model, dtype_lookup, ordinal_levels_lookup)

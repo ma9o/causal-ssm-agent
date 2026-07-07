@@ -1,29 +1,33 @@
-"""Stage 1b causal-spec assembly."""
+"""Stage 1b causal-design assembly."""
 
-from nof1_causal_lab.artifacts.causal_spec import CausalSpec, EstimationSpec, IdentifiabilityStatus
-from nof1_causal_lab.artifacts.latent_model import LatentModel
-from nof1_causal_lab.artifacts.measurement_model import MeasurementModel
+from nof1_causal_lab.artifacts.causal_design import (
+    CausalDesign,
+    EstimationSpec,
+    IdentifiabilityStatus,
+)
+from nof1_causal_lab.artifacts.latent_structure import LatentStructure
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
 
 
-def build_causal_spec(
-    latent_model: dict,
-    measurement_model: dict,
+def build_causal_design(
+    latent_structure: dict,
+    measurement_structure: dict,
     identifiability_status: dict | None = None,
     known_inputs: list[dict] | None = None,
 ) -> dict:
-    """Combine latent and measurement models into a full CausalSpec with identifiability."""
+    """Combine latent and measurement structures into a full CausalDesign with identifiability."""
     from nof1_causal_lab.utils.estimation_projection import build_estimation_projection
 
     estimation = build_estimation_projection(
-        latent_model,
-        measurement_model,
+        latent_structure,
+        measurement_structure,
         identifiability_status,
         known_inputs=known_inputs,
     )
 
-    causal_spec = CausalSpec(
-        latent=LatentModel.model_validate(latent_model),
-        measurement=MeasurementModel.model_validate(measurement_model),
+    causal_design = CausalDesign(
+        latent=LatentStructure.model_validate(latent_structure),
+        measurement=MeasurementStructure.model_validate(measurement_structure),
         identifiability=(
             IdentifiabilityStatus.model_validate(identifiability_status)
             if identifiability_status
@@ -31,4 +35,4 @@ def build_causal_spec(
         ),
         estimation=EstimationSpec.model_validate(estimation) if estimation is not None else None,
     )
-    return causal_spec.model_dump()
+    return causal_design.model_dump()

@@ -2,10 +2,10 @@
 
 Tests that:
 1. dynamics_support constrains off-diagonal sampling to causal edges only
-2. lambda_support + template constrains factor loadings to measurement model
+2. lambda_support + template constrains factor loadings to measurement structure
 3. Per-element priors align with mask positions
-4. Builder constructs structural support from CausalSpec
-5. Pipeline threading passes causal_spec through
+4. Builder constructs structural support from CausalDesign
+5. Pipeline threading passes causal_design through
 """
 
 import jax.numpy as jnp
@@ -80,8 +80,8 @@ def _make_3latent_spec(
     )
 
 
-def _make_causal_spec_dict() -> dict:
-    """Minimal CausalSpec dict: X→Y, Y→Z, 4 indicators."""
+def _make_causal_design_dict() -> dict:
+    """Minimal CausalDesign dict: X→Y, Y→Z, 4 indicators."""
     return {
         "latent": {
             "constructs": [
@@ -462,22 +462,22 @@ class TestPerElementPriors:
 
 
 class TestRuntimeStructuralSupport:
-    """Test that compilation constructs correct block support from CausalSpec."""
+    """Test that compilation constructs correct block support from CausalDesign."""
 
-    def test_build_structural_support_from_causal_spec(self):
-        """Compilation constructs dynamics/lambda support from CausalSpec."""
+    def test_build_structural_support_from_causal_design(self):
+        """Compilation constructs dynamics/lambda support from CausalDesign."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_spec,
+            build_structural_support_from_causal_design,
         )
 
-        causal_spec = _make_causal_spec_dict()
+        causal_design = _make_causal_design_dict()
 
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
         dynamics_support, _input_effect_support, lambda_mat, lambda_support, _edge_lag_days = (
-            build_structural_support_from_causal_spec(
-                latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
+            build_structural_support_from_causal_design(
+                latent_names, manifest_cols, 3, 4, causal_design=causal_design
             )
         )
 
@@ -503,14 +503,14 @@ class TestRuntimeStructuralSupport:
         assert not lambda_support[0, 0]  # x1→X is fixed
         assert not lambda_support[2, 1]  # y1→Y is fixed
 
-    def test_no_causal_spec_materializes_explicit_default_masks(self):
-        """Without causal_spec, structural defaults are still explicit."""
+    def test_no_causal_design_materializes_explicit_default_masks(self):
+        """Without causal_design, structural defaults are still explicit."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_spec,
+            build_structural_support_from_causal_design,
         )
 
         dynamics_support, input_effect_support, _lambda_mat, lambda_support, _edge_lag_days = (
-            build_structural_support_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
+            build_structural_support_from_causal_design(None, ["x1"], 1, 1, causal_design=None)
         )
         np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
         np.testing.assert_array_equal(input_effect_support, np.zeros((1, 0), dtype=bool))
@@ -519,10 +519,10 @@ class TestRuntimeStructuralSupport:
     def test_known_input_edge_compiles_to_input_effect_support(self):
         """Known inputs are transition drivers, not latent dynamics columns."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_spec,
+            build_structural_support_from_causal_design,
         )
 
-        causal_spec = {
+        causal_design = {
             "latent": {
                 "constructs": [
                     {
@@ -591,12 +591,12 @@ class TestRuntimeStructuralSupport:
         }
 
         dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days = (
-            build_structural_support_from_causal_spec(
+            build_structural_support_from_causal_design(
                 ["mood"],
                 ["mood_rating"],
                 1,
                 1,
-                causal_spec=causal_spec,
+                causal_design=causal_design,
             )
         )
 
@@ -733,11 +733,11 @@ class TestRuntimeStructuralSupport:
                 ),
             )
 
-    def test_model_build_rejects_direct_ssm_spec_plus_causal_spec(self):
+    def test_model_build_rejects_direct_ssm_spec_plus_causal_design(self):
         """Direct specs may not carry a causal graph unless already translated."""
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        causal_spec = _make_causal_spec_dict()
+        causal_design = _make_causal_design_dict()
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -748,14 +748,16 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        with pytest.raises(ValueError, match="Do not pass causal_spec alongside a direct SSMSpec"):
-            build_ssm_model(X, ssm_spec=_make_3latent_spec(), causal_spec=causal_spec)
+        with pytest.raises(
+            ValueError, match="Do not pass causal_design alongside a direct SSMSpec"
+        ):
+            build_ssm_model(X, ssm_spec=_make_3latent_spec(), causal_design=causal_design)
 
-    def test_model_build_rejects_autodetect_when_causal_spec_present(self):
+    def test_model_build_rejects_autodetect_when_causal_design_present(self):
         """Auto-detected specs may not bypass causal-structure translation."""
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        causal_spec = _make_causal_spec_dict()
+        causal_design = _make_causal_design_dict()
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -766,8 +768,8 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        with pytest.raises(ValueError, match="requires either model_spec or ssm_spec"):
-            build_ssm_model(X, causal_spec=causal_spec)
+        with pytest.raises(ValueError, match="requires either statistical_model_spec or ssm_spec"):
+            build_ssm_model(X, causal_design=causal_design)
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
         """Initial-state confounders should compile to low-rank baseline factors."""
@@ -775,14 +777,14 @@ class TestRuntimeStructuralSupport:
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_spec = {
+        causal_design = {
             "latent": {
                 "constructs": [
                     {
@@ -843,7 +845,7 @@ class TestRuntimeStructuralSupport:
                 ],
             },
         }
-        model_spec = ModelSpec(
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
                     variable="stress_score",
@@ -868,7 +870,7 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
 
         np.testing.assert_array_equal(spec.static_state_sd_block.free_support, np.array([True]))
         np.testing.assert_allclose(np.asarray(spec.static_state_sd_block.template), np.zeros(1))
@@ -890,12 +892,12 @@ class TestRuntimeStructuralSupport:
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_spec = _make_causal_spec_dict()
-        model_spec = ModelSpec(
+        causal_design = _make_causal_design_dict()
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
                     variable="x1",
@@ -925,7 +927,7 @@ class TestRuntimeStructuralSupport:
             parameters=[],
         )
 
-        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
 
         assert spec.manifest_centered == [True, True, True, True]
 
@@ -935,15 +937,15 @@ class TestRuntimeStructuralSupport:
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_spec = _make_causal_spec_dict()
-        model_spec = ModelSpec(
+        causal_design = _make_causal_design_dict()
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
                     variable="x1",
@@ -1028,7 +1030,7 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
 
         assert isinstance(spec.manifest_chol_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
@@ -1037,21 +1039,21 @@ class TestRuntimeStructuralSupport:
         )
         np.testing.assert_allclose(np.asarray(spec.manifest_chol_block.template), np.zeros((4, 4)))
 
-    def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_spec(self):
+    def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_design(self):
         """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
         from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_spec = _make_causal_spec_dict()
-        model_spec = ModelSpec(
+        causal_design = _make_causal_design_dict()
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
                     variable="x1",
@@ -1092,23 +1094,23 @@ class TestRuntimeStructuralSupport:
             ValueError,
             match="no longer accepts INITIAL_STATE_CORRELATION parameters",
         ):
-            translate_spec(model_spec, causal_spec=causal_spec)
+            translate_spec(statistical_model_spec, causal_design=causal_design)
 
-    def test_translate_spec_rejects_self_initial_state_correlation_with_causal_spec(self):
-        """Even self-pairs are rejected once causal-spec compilation is active."""
+    def test_translate_spec_rejects_self_initial_state_correlation_with_causal_design(self):
+        """Even self-pairs are rejected once causal-design compilation is active."""
         from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_spec = _make_causal_spec_dict()
-        model_spec = ModelSpec(
+        causal_design = _make_causal_design_dict()
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
                     variable="x1",
@@ -1149,19 +1151,19 @@ class TestRuntimeStructuralSupport:
             ValueError,
             match="no longer accepts INITIAL_STATE_CORRELATION parameters",
         ):
-            translate_spec(model_spec, causal_spec=causal_spec)
+            translate_spec(statistical_model_spec, causal_design=causal_design)
 
     def test_model_build_end_to_end(self):
-        """Model construction with causal_spec produces masked spec."""
+        """Model construction with causal_design produces masked spec."""
 
         from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
@@ -1173,7 +1175,7 @@ class TestRuntimeStructuralSupport:
                 reasoning="test",
             )
 
-        model_spec = ModelSpec(
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[_lik("x1"), _lik("x2"), _lik("y1"), _lik("z1")],
             parameters=[
                 ParameterSpec(
@@ -1245,7 +1247,7 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        causal_spec = _make_causal_spec_dict()
+        causal_design = _make_causal_design_dict()
 
         # Minimal wide data
         X = pl.DataFrame(
@@ -1258,7 +1260,9 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        model = build_ssm_model(X, model_spec=model_spec, priors={}, causal_spec=causal_spec)
+        model = build_ssm_model(
+            X, statistical_model_spec=statistical_model_spec, priors={}, causal_design=causal_design
+        )
         spec = model.spec
 
         dynamics_sites = [
@@ -1420,19 +1424,19 @@ def _lik_gaussian(var: str):
 
 
 class TestGradualBuildComponents:
-    """Quartic self-limitation and Hill edges materialize from the ModelSpec."""
+    """Quartic self-limitation and Hill edges materialize from the StatisticalModelSpec."""
 
     def test_quartic_freed_only_for_self_limiting_construct(self):
         from nof1_causal_lab.artifacts import (
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
         from nof1_causal_lab.models.ssm.dynamics.spec import NodePotentialSpec
 
-        model_spec = ModelSpec(
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
                 ParameterSpec(
@@ -1443,7 +1447,7 @@ class TestGradualBuildComponents:
                 ),
             ],
         )
-        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
 
         wells = {
             c.target: c for c in spec.dynamics_spec.components if isinstance(c, NodePotentialSpec)
@@ -1455,10 +1459,10 @@ class TestGradualBuildComponents:
 
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts import (
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
         from nof1_causal_lab.models.ssm.dynamics.spec import HillEdgeSpec, LinearEdgeSpec
@@ -1471,7 +1475,7 @@ class TestGradualBuildComponents:
                 description="hill",
             )
 
-        model_spec = ModelSpec(
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
                 _hill_param("hill_emax_X_Y"),
@@ -1479,7 +1483,7 @@ class TestGradualBuildComponents:
                 _hill_param("hill_n_X_Y"),
             ],
         )
-        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
 
         edges = [
             c
@@ -1500,14 +1504,14 @@ class TestGradualBuildComponents:
         import numpyro.handlers as handlers
 
         from nof1_causal_lab.artifacts import (
-            ModelSpec,
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+            StatisticalModelSpec,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        model_spec = ModelSpec(
+        statistical_model_spec = StatisticalModelSpec(
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
                 ParameterSpec(
@@ -1524,7 +1528,7 @@ class TestGradualBuildComponents:
                 ),
             ],
         )
-        spec, _ = translate_spec(model_spec, causal_spec=_make_causal_spec_dict())
+        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
         model = SSMModel(spec)
 
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(

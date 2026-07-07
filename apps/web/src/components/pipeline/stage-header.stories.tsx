@@ -34,7 +34,7 @@ export const Pending: Story = {
 export const Running: Story = {
   args: {
     number: "1a",
-    title: "Latent Model",
+    title: "Latent Structure",
     status: "running",
     context: "LLM is proposing a causal DAG...",
   },
@@ -65,6 +65,6 @@ export const Stale: Story = {
     title: "Measurement & Nonparametric Identification",
     status: "completed",
     context: "Maps latent constructs to observable indicators.",
-    staleArtifactIds: ["causal_spec", "identification_report"],
+    staleArtifactIds: ["causal_design", "identification_report"],
   },
 };

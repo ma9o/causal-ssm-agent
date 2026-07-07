@@ -24,7 +24,7 @@ import numpy as np
 from jax import core as jax_core
 
 import nof1_causal_lab.models.ssm.inference.targets.emissions as emission_math
-from nof1_causal_lab.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,

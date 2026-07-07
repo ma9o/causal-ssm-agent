@@ -47,17 +47,17 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
   ],
   "stage-1a": [
     {
-      name: "validate_latent_model",
-      description: "Tool for validating latent model JSON (Stage 1a).",
-      parameters: {"additionalProperties":false,"properties":{"structure_json":{"description":"The JSON string containing the latent model to validate.","title":"Structure Json","type":"string"}},"required":["structure_json"],"title":"ValidateLatentModelInput","type":"object"},
+      name: "validate_latent_structure",
+      description: "Tool for validating latent structure JSON (Stage 1a).",
+      parameters: {"additionalProperties":false,"properties":{"structure_json":{"description":"The JSON string containing the latent structure to validate.","title":"Structure Json","type":"string"}},"required":["structure_json"],"title":"ValidateLatentStructureInput","type":"object"},
       result: null,
     },
   ],
   "stage-1b": [
     {
-      name: "validate_measurement_model",
-      description: "Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
-      parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement model to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementModelInput","type":"object"},
+      name: "validate_measurement_structure",
+      description: "Validate measurement structure JSON, check compiler constraints, and verify causal identifiability.",
+      parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement structure to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementStructureInput","type":"object"},
       result: null,
     },
   ],
@@ -77,9 +77,9 @@ export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {
       result: null,
     },
     {
-      name: "submit_model_spec",
-      description: "Submit the full Stage 4 ModelSpec for compile-only locking and validation.",
-      parameters: {"additionalProperties":false,"properties":{"model_spec_json":{"description":"The JSON string containing the complete ModelSpec to lock for Stage 4.","title":"Model Spec Json","type":"string"}},"required":["model_spec_json"],"title":"SubmitModelSpecInput","type":"object"},
+      name: "submit_statistical_model_spec",
+      description: "Submit the full Stage 4 StatisticalModelSpec for compile-only locking and validation.",
+      parameters: {"additionalProperties":false,"properties":{"statistical_model_spec_json":{"description":"The JSON string containing the complete StatisticalModelSpec to lock for Stage 4.","title":"Statistical Model Spec Json","type":"string"}},"required":["statistical_model_spec_json"],"title":"SubmitStatisticalModelSpecInput","type":"object"},
       result: null,
     },
     {

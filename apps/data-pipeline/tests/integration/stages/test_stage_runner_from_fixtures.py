@@ -89,8 +89,8 @@ def _produced(effects, artifact_id: str):
 def _assert_contract(store: ArtifactStore, artifact_id: str, version: int, stage_id: str) -> dict:
     key_by_stage = {
         "stage-0": ("raw_data", "profile"),
-        "stage-1a": ("constructs", "constructs"),
-        "stage-1b": ("causal_spec", "causal_spec"),
+        "stage-1a": ("latent_structure", "latent_structure"),
+        "stage-1b": ("causal_design", "causal_design"),
         "stage-2": ("extraction_report", "extraction_report"),
         "stage-3": ("validation_report", "validation_report"),
         "stage-4": ("compiled_ssm", "report"),
@@ -212,7 +212,7 @@ def test_stage0_ingests_uploaded_file_through_runner(
     assert raw.shape == (2, 3)
 
 
-def test_stage1a_reads_question_and_persists_constructs(
+def test_stage1a_reads_question_and_persists_latent_structure(
     integration_workspace: str,
     artifact_store: ArtifactStore,
     install_scripted_stage_factory,
@@ -220,7 +220,7 @@ def test_stage1a_reads_question_and_persists_constructs(
     question = fx.seed_question(artifact_store)
 
     async def handler(tools: list[Any], _user_message: str) -> str:
-        await tools[0](structure_json=json.dumps(fx.latent_model()))
+        await tools[0](structure_json=json.dumps(fx.latent_structure()))
         return ""
 
     install_scripted_stage_factory(handler)
@@ -228,10 +228,10 @@ def test_stage1a_reads_question_and_persists_constructs(
 
     effects = _run_stage(integration_workspace, state, "stage-1a")
 
-    info = _produced(effects, "constructs")
+    info = _produced(effects, "latent_structure")
     assert info.derived_from == {"question": question.version}
-    payload = _assert_contract(artifact_store, "constructs", info.version, "stage-1a")
-    assert payload["latent_model"]["constructs"][1]["is_outcome"] is True
+    payload = _assert_contract(artifact_store, "latent_structure", info.version, "stage-1a")
+    assert payload["latent_structure"]["constructs"][1]["is_outcome"] is True
 
 
 def test_stage1b_reads_upstream_artifacts_and_persists_identification(
@@ -241,29 +241,29 @@ def test_stage1b_reads_upstream_artifacts_and_persists_identification(
 ) -> None:
     question = fx.seed_question(artifact_store)
     raw_data = fx.seed_raw_data(artifact_store)
-    constructs = fx.seed_constructs(artifact_store, question_version=question.version)
+    latent_structure = fx.seed_latent_structure(artifact_store, question_version=question.version)
 
     async def handler(tools: list[Any], _user_message: str) -> str:
-        await tools[0](measurement_json=json.dumps(fx.measurement_model()))
+        await tools[0](measurement_json=json.dumps(fx.measurement_structure()))
         return ""
 
     install_scripted_stage_factory(handler)
-    state = fx.state_from(question, raw_data, constructs)
+    state = fx.state_from(question, raw_data, latent_structure)
 
     effects = _run_stage(integration_workspace, state, "stage-1b")
 
     produced_ids = {info.artifact_id for info in effects.produced}
-    assert produced_ids == {"causal_spec", "identification_report"}
-    spec_info = _produced(effects, "causal_spec")
+    assert produced_ids == {"causal_design", "identification_report"}
+    spec_info = _produced(effects, "causal_design")
     id_info = _produced(effects, "identification_report")
     expected_pins = {
         "question": question.version,
         "raw_data": raw_data.version,
-        "constructs": constructs.version,
+        "latent_structure": latent_structure.version,
     }
     assert spec_info.derived_from == expected_pins
     assert id_info.derived_from == expected_pins
-    _assert_contract(artifact_store, "causal_spec", spec_info.version, "stage-1b")
+    _assert_contract(artifact_store, "causal_design", spec_info.version, "stage-1b")
     id_payload = artifact_store.read_json_file(
         "identification_report",
         id_info.version,
@@ -278,12 +278,12 @@ def test_stage2_runs_computed_extraction_from_seeded_artifacts(
 ) -> None:
     question = fx.seed_question(artifact_store)
     raw_data = fx.seed_raw_data(artifact_store)
-    causal_spec = fx.seed_causal_spec(
+    causal_design = fx.seed_causal_design(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
     )
-    state = fx.state_from(question, raw_data, causal_spec)
+    state = fx.state_from(question, raw_data, causal_design)
 
     effects = _run_stage(integration_workspace, state, "stage-2")
 
@@ -294,7 +294,7 @@ def test_stage2_runs_computed_extraction_from_seeded_artifacts(
     expected_pins = {
         "question": question.version,
         "raw_data": raw_data.version,
-        "causal_spec": causal_spec.version,
+        "causal_design": causal_design.version,
     }
     assert report_info.derived_from == expected_pins
     assert model_data_info.derived_from == expected_pins
@@ -309,15 +309,15 @@ def test_stage3_validates_seeded_model_data_through_runner(
     integration_workspace: str,
     artifact_store: ArtifactStore,
 ) -> None:
-    causal_spec = fx.seed_causal_spec(artifact_store)
-    model_data = fx.seed_model_data(artifact_store, causal_spec_version=causal_spec.version)
-    state = fx.state_from(causal_spec, model_data)
+    causal_design = fx.seed_causal_design(artifact_store)
+    model_data = fx.seed_model_data(artifact_store, causal_design_version=causal_design.version)
+    state = fx.state_from(causal_design, model_data)
 
     effects = _run_stage(integration_workspace, state, "stage-3")
 
     info = _produced(effects, "validation_report")
     assert info.derived_from == {
-        "causal_spec": causal_spec.version,
+        "causal_design": causal_design.version,
         "model_data": model_data.version,
     }
     payload = _assert_contract(
@@ -341,28 +341,28 @@ def test_stage4_persists_compiled_ssm_from_seeded_artifacts(
 
     question = fx.seed_question(artifact_store)
     raw_data = fx.seed_raw_data(artifact_store)
-    constructs = fx.seed_constructs(artifact_store, question_version=question.version)
-    causal_spec = fx.seed_causal_spec(
+    latent_structure = fx.seed_latent_structure(artifact_store, question_version=question.version)
+    causal_design = fx.seed_causal_design(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
-        constructs_version=constructs.version,
+        latent_structure_version=latent_structure.version,
     )
     identification_report = fx.seed_identification_report(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
-        constructs_version=constructs.version,
+        latent_structure_version=latent_structure.version,
     )
     model_data = fx.seed_model_data(
         artifact_store,
         question_version=question.version,
         raw_data_version=raw_data.version,
-        causal_spec_version=causal_spec.version,
+        causal_design_version=causal_design.version,
     )
     validation_report = fx.seed_validation_report(
         artifact_store,
-        causal_spec_version=causal_spec.version,
+        causal_design_version=causal_design.version,
         model_data_version=model_data.version,
     )
 
@@ -384,7 +384,7 @@ def test_stage4_persists_compiled_ssm_from_seeded_artifacts(
     install_scripted_stage_factory(handler)
     state = fx.state_from(
         question,
-        causal_spec,
+        causal_design,
         identification_report,
         model_data,
         validation_report,
@@ -400,7 +400,7 @@ def test_stage4_persists_compiled_ssm_from_seeded_artifacts(
     info = _produced(effects, "compiled_ssm")
     assert info.derived_from == {
         "question": question.version,
-        "causal_spec": causal_spec.version,
+        "causal_design": causal_design.version,
         "identification_report": identification_report.version,
         "model_data": model_data.version,
         "validation_report": validation_report.version,
@@ -471,7 +471,7 @@ def test_stage6_persists_baseline_ranking_from_seeded_posterior(
 ) -> None:
     from nof1_causal_lab.flows.stages.stage6 import flow as stage6_flow
 
-    causal_spec = fx.seed_causal_spec(artifact_store)
+    causal_design = fx.seed_causal_design(artifact_store)
     identification_report = fx.seed_identification_report(artifact_store)
     posterior = fx.seed_posterior(artifact_store, fitted_artifact={"fixture": "fit"})
 
@@ -487,14 +487,14 @@ def test_stage6_persists_baseline_ranking_from_seeded_posterior(
         return "Stress has the strongest positive estimated effect."
 
     install_scripted_stage_factory(handler)
-    state = fx.state_from(posterior, causal_spec, identification_report)
+    state = fx.state_from(posterior, causal_design, identification_report)
 
     effects = _run_stage(integration_workspace, state, "stage-6")
 
     info = _produced(effects, "baseline_ranking")
     assert info.derived_from == {
         "posterior": posterior.version,
-        "causal_spec": causal_spec.version,
+        "causal_design": causal_design.version,
         "identification_report": identification_report.version,
     }
     payload = _assert_contract(artifact_store, "baseline_ranking", info.version, "stage-6")

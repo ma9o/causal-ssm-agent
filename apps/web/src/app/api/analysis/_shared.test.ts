@@ -98,7 +98,7 @@ describe("buildAnalysisManifest", () => {
           move: { kind: "run", stage_id: "stage-1a" },
           status: "raised",
           error_type: "SchemaValidationError",
-          error_message: "constructs payload failed validation",
+          error_message: "latent_structure payload failed validation",
         }),
         transition({
           seq: 4,

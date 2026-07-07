@@ -80,8 +80,8 @@ export default meta;
 
 type Story = StoryObj<typeof StructureDag>;
 
-/** Stage 1a — latent model: clickable constructs, no indicators or statuses. */
-export const Stage1aLatentModel: Story = {
+/** Stage 1a — latent structure: clickable constructs, no indicators or statuses. */
+export const Stage1aLatentStructure: Story = {
   render: () => {
     const [selected, setSelected] = useState<string | null>(null);
     return (

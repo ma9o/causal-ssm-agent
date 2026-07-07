@@ -35,16 +35,16 @@ class IdentificationScenario(Scenario):
 
     name: str
     capability: Capability
-    latent_model: dict[str, Any]
-    measurement_model: dict[str, Any]
+    latent_structure: dict[str, Any]
+    measurement_structure: dict[str, Any]
     expected: dict[str, bool]  # treatment -> identifiable?
     iv_allowed: bool = True
     kind: Kind = Kind.DIAGNOSTIC
 
     def inputs(self) -> dict[str, Any]:
         return {
-            "latent_model": self.latent_model,
-            "measurement_model": self.measurement_model,
+            "latent_structure": self.latent_structure,
+            "measurement_structure": self.measurement_structure,
             "iv_allowed": self.iv_allowed,
         }
 
@@ -58,11 +58,11 @@ class IdentificationScenario(Scenario):
 DIRECT_EFFECT = IdentificationScenario(
     name="id_direct_effect",
     capability=Capability.IDENTIFICATION,
-    latent_model={
+    latent_structure={
         "constructs": [_construct("X"), _construct("Y", is_outcome=True)],
         "edges": [_edge("X", "Y")],
     },
-    measurement_model=_observe("X", "Y"),
+    measurement_structure=_observe("X", "Y"),
     expected={"X": True},
 )
 
@@ -71,7 +71,7 @@ DIRECT_EFFECT = IdentificationScenario(
 BOW_ARC = IdentificationScenario(
     name="id_bow_arc",
     capability=Capability.IDENTIFICATION,
-    latent_model={
+    latent_structure={
         "constructs": [
             _construct("X"),
             _construct("Y", is_outcome=True),
@@ -79,7 +79,7 @@ BOW_ARC = IdentificationScenario(
         ],
         "edges": [_edge("X", "Y"), _edge("U", "X"), _edge("U", "Y")],
     },
-    measurement_model=_observe("X", "Y"),  # U unobserved
+    measurement_structure=_observe("X", "Y"),  # U unobserved
     expected={"X": False},
     iv_allowed=True,
 )
@@ -89,7 +89,7 @@ BOW_ARC = IdentificationScenario(
 FRONT_DOOR = IdentificationScenario(
     name="id_front_door",
     capability=Capability.IDENTIFICATION,
-    latent_model={
+    latent_structure={
         "constructs": [
             _construct("X"),
             _construct("M"),
@@ -103,7 +103,7 @@ FRONT_DOOR = IdentificationScenario(
             _edge("U", "Y"),
         ],
     },
-    measurement_model=_observe("X", "M", "Y"),
+    measurement_structure=_observe("X", "M", "Y"),
     expected={"X": True},
 )
 
@@ -112,7 +112,7 @@ FRONT_DOOR = IdentificationScenario(
 INSTRUMENT = IdentificationScenario(
     name="id_instrument",
     capability=Capability.IDENTIFICATION,
-    latent_model={
+    latent_structure={
         "constructs": [
             _construct("X"),
             _construct("Y", is_outcome=True),
@@ -126,7 +126,7 @@ INSTRUMENT = IdentificationScenario(
             _edge("U", "Y"),
         ],
     },
-    measurement_model=_observe("X", "Y", "Z"),
+    measurement_structure=_observe("X", "Y", "Z"),
     expected={"X": True},
     iv_allowed=True,
 )

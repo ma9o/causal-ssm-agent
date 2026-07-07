@@ -85,7 +85,7 @@ export async function deriveStage4Data(
   return {
     ...payload,
     likelihood_diagnostics: buildStage4LikelihoodDiagnostics({
-      likelihoods: payload.model_spec.likelihoods,
+      likelihoods: payload.statistical_model_spec.likelihoods,
       indicatorAudits: stage3.indicators,
       observations,
     }),

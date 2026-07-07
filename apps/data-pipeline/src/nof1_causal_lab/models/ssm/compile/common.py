@@ -55,12 +55,12 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "dynamics_stability": ["rho", "ar", "beta", "sigma", "sd"],
 }
 
-# SSM parameters with fixed default priors that are not in ModelSpec and
+# SSM parameters with fixed default priors that are not in StatisticalModelSpec and
 # cannot be re-elicited.  Used to filter validation failures before mapping
 # them back to user-facing parameter names.
 NUISANCE_SITES: frozenset[str] = frozenset({"t0_means", "t0_cov"})
 
-# Validation failure parameters that are global (affect all ModelSpec params).
+# Validation failure parameters that are global (affect all StatisticalModelSpec params).
 GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(
     {"prior_predictive", "dynamics_stability", "model_build", "prior_sampling"}
 )

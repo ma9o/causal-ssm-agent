@@ -15,7 +15,7 @@ def run_interventions(
     fitted_artifact: FittedArtifact,
     treatments: list[str],
     outcome: str,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size."""
     from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
@@ -52,7 +52,7 @@ def run_interventions(
         treatments=treatments,
         outcome=outcome,
         latent_names=latent_names,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         manifest_names=manifest_names,
         times=fitted_artifact.times,
         lambda_mean=lambda_mean,

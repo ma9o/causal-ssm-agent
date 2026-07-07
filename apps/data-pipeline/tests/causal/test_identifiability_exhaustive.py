@@ -5,7 +5,7 @@ by testing against classic causal inference scenarios, complex graph topologies,
 and edge cases. All tests are derived from Pearl's do-calculus literature and
 the y0 package's identification algorithms.
 
-Most cases share the same shape: build a latent + measurement model, call
+Most cases share the same shape: build a latent + measurement structure, call
 ``check_identifiability``, then assert facts about the result. They are
 expressed as a data table driving a single parametrized test
 (``test_identification``). Tests using other entry points
@@ -34,8 +34,8 @@ from nof1_causal_lab.utils.identifiability import (
 # =============================================================================
 
 
-def make_latent_model(constructs: list[dict], edges: list[dict]) -> dict:
-    """Create a latent model dict with sensible defaults."""
+def make_latent_structure(constructs: list[dict], edges: list[dict]) -> dict:
+    """Create a latent structure dict with sensible defaults."""
     processed_constructs = []
     for c in constructs:
         construct = {"name": c["name"], "role": c.get("role", "endogenous")}
@@ -55,8 +55,8 @@ def make_latent_model(constructs: list[dict], edges: list[dict]) -> dict:
     return {"constructs": processed_constructs, "edges": processed_edges}
 
 
-def make_measurement_model(observed_constructs: list[str]) -> dict:
-    """Create a measurement model with one indicator per observed construct."""
+def make_measurement_structure(observed_constructs: list[str]) -> dict:
+    """Create a measurement structure with one indicator per observed construct."""
     return {
         "indicators": [
             {"name": f"{c.lower()}_ind", "construct_name": c, "how_to_measure": "test"}
@@ -1465,9 +1465,9 @@ IDENTIFICATION_CASES: list[dict] = [
 @pytest.mark.parametrize("case", IDENTIFICATION_CASES, ids=lambda c: c["id"])
 def test_identification(case):
     """Run check_identifiability against a graph and assert the listed checks."""
-    latent_model = make_latent_model(case["constructs"], case["edges"])
-    measurement_model = make_measurement_model(case["observed"])
-    result = check_identifiability(latent_model, measurement_model)
+    latent_structure = make_latent_structure(case["constructs"], case["edges"])
+    measurement_structure = make_measurement_structure(case["observed"])
+    result = check_identifiability(latent_structure, measurement_structure)
     _run_checks(result, case["checks"])
 
 
@@ -1587,10 +1587,10 @@ MARGINALIZATION_CASES: list[dict] = [
 @pytest.mark.parametrize("case", MARGINALIZATION_CASES, ids=lambda c: c["id"])
 def test_marginalization(case):
     """Run analyze_unobserved_constructs and assert classification of each unobserved."""
-    latent_model = make_latent_model(case["constructs"], case["edges"])
-    measurement_model = make_measurement_model(case["observed"])
-    id_result = check_identifiability(latent_model, measurement_model)
-    analysis = analyze_unobserved_constructs(latent_model, measurement_model, id_result)
+    latent_structure = make_latent_structure(case["constructs"], case["edges"])
+    measurement_structure = make_measurement_structure(case["observed"])
+    id_result = check_identifiability(latent_structure, measurement_structure)
+    analysis = analyze_unobserved_constructs(latent_structure, measurement_structure, id_result)
 
     for check in case["checks"]:
         kind = check[0]
@@ -1622,7 +1622,7 @@ def test_marginalization(case):
 
 
 def _ar1_obs_xy() -> tuple[dict, set[str]]:
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1650,7 +1650,7 @@ def test_unroll_ar1_edges():
 
 def test_unroll_ar1_not_added_for_unobserved():
     """AR(1) edges only on observed time-varying constructs (so projection is correct)."""
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "U", "temporal_status": "time_varying"},
@@ -1680,7 +1680,7 @@ def test_unroll_mirrored_contemporaneous():
 
 
 def test_unroll_lagged_edges():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1692,7 +1692,7 @@ def test_unroll_lagged_edges():
 
 
 def test_unroll_time_invariant_single_node():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1707,7 +1707,7 @@ def test_unroll_time_invariant_single_node():
 
 
 def test_unroll_time_invariant_affects_both_timesteps():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1721,7 +1721,7 @@ def test_unroll_time_invariant_affects_both_timesteps():
 
 
 def test_unroll_hidden_labels_correct():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "U", "temporal_status": "time_varying"},
@@ -1746,7 +1746,7 @@ def test_unroll_hidden_labels_correct():
 
 
 def test_admg_bidirected_from_contemporaneous_confounder():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1765,7 +1765,7 @@ def test_admg_bidirected_from_contemporaneous_confounder():
 
 
 def test_admg_bidirected_from_lagged_confounder():
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1784,7 +1784,7 @@ def test_admg_bidirected_from_lagged_confounder():
 
 def test_admg_no_bidirected_single_child():
     """Unobserved with a single observed child should not become a confounder."""
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying", "is_outcome": True},
@@ -1806,7 +1806,7 @@ def test_admg_no_bidirected_single_child():
 
 def test_find_blocking_confounders_via_latent_chain():
     """U has only one direct observed child (X) but creates X<-U->V->Y backdoor."""
-    latent = make_latent_model(
+    latent = make_latent_structure(
         constructs=[
             {"name": "U"},
             {"name": "V"},

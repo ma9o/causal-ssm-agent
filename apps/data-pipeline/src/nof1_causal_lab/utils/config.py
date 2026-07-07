@@ -159,7 +159,7 @@ class ParaphrasingConfig:
 
 @dataclass(frozen=True)
 class Stage4Config:
-    """Stage 4: Model Specification & Prior Elicitation."""
+    """Stage 4: Statistical Model Specification & Prior Elicitation."""
 
     llm: StageLLMConfig
     max_tool_turns: int = 40

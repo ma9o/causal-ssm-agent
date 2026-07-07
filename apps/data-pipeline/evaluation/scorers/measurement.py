@@ -1,21 +1,21 @@
-"""Measurement-model (Stage 1b) scoring with the identifiability bonus.
+"""Measurement-structure (Stage 1b) scoring with the identifiability bonus.
 
 Lifted out of the Inspect Stage 1b eval so the scoring is a single source shared
-by the eval and any registry measurement row. ``score_measurement_model`` is the
-core logic; ``MeasurementModelScorer`` is the registry-shaped wrapper.
+by the eval and any registry measurement row. ``score_measurement_structure`` is the
+core logic; ``MeasurementStructureScorer`` is the registry-shaped wrapper.
 
-``result`` is duck-typed to the Stage 1b result (``.measurement_model``,
-``.identifiability_status``); ``latent`` is the proposed :class:`LatentModel`.
+``result`` is duck-typed to the Stage 1b result (``.measurement_structure``,
+``.identifiability_status``); ``latent`` is the proposed :class:`LatentStructure`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from nof1_causal_lab.artifacts.measurement_model import MeasurementModel
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
 
 
-def score_measurement_model(result: Any, latent: Any) -> dict[str, Any]:
+def score_measurement_structure(result: Any, latent: Any) -> dict[str, Any]:
     """Score a Stage 1b result.
 
     Scoring rules:
@@ -29,9 +29,9 @@ def score_measurement_model(result: Any, latent: Any) -> dict[str, Any]:
     total = 0.0
 
     try:
-        measurement = MeasurementModel.model_validate(result.measurement_model)
+        measurement = MeasurementStructure.model_validate(result.measurement_structure)
     except Exception as e:  # noqa: BLE001
-        return {"total": 0.0, "breakdown": f"Invalid measurement model: {e}", "error": True}
+        return {"total": 0.0, "breakdown": f"Invalid measurement structure: {e}", "error": True}
 
     construct_names = {c.name for c in latent.constructs}
     indicators_per_construct: dict[str, int] = {}

@@ -19,7 +19,7 @@ from nof1_causal_lab.flows.stages.stage3.rules import (
 
 
 def validate_extraction(
-    causal_spec: dict,
+    causal_design: dict,
     dataframes: list[pl.DataFrame],
 ) -> dict:
     """Validate semantic properties of extracted data.
@@ -28,7 +28,7 @@ def validate_extraction(
     into a keyed indicator audit map plus dataset-level issues.
 
     Args:
-        causal_spec: The full causal spec with measurement model
+        causal_design: The full causal design with measurement structure
         dataframes: List of DataFrames with columns (indicator, value, anchor_time)
 
     Returns:
@@ -46,16 +46,16 @@ def validate_extraction(
     if combined.is_empty():
         return no_data_validation_result()
 
-    from nof1_causal_lab.utils.causal_spec import get_constructs, get_indicators
+    from nof1_causal_lab.utils.causal_design import get_constructs, get_indicators
 
-    indicators = get_indicators(causal_spec)
+    indicators = get_indicators(causal_design)
     indicator_names: set[str] = {ind["name"] for ind in indicators if ind.get("name")}
     indicator_lookup = {ind["name"]: ind for ind in indicators if ind.get("name")}
 
-    constructs = get_constructs(causal_spec)
+    constructs = get_constructs(causal_design)
     construct_lookup = {c["name"]: c for c in constructs if c.get("name")}
 
-    model_clock_str = causal_spec.get("measurement", {}).get("model_clock")
+    model_clock_str = causal_design.get("measurement", {}).get("model_clock")
     model_clock_hours: float | None = None
     if model_clock_str:
         import contextlib

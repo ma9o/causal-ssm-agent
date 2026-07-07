@@ -47,7 +47,7 @@ def resume_env(monkeypatch, tmp_path):
         runners_module._STAGE_RUNNERS, "stage-0", _fake_runner(("raw_data", "stage-0"))
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS, "stage-1a", _fake_runner(("constructs", "stage-1a"))
+        runners_module._STAGE_RUNNERS, "stage-1a", _fake_runner(("latent_structure", "stage-1a"))
     )
     return f"ws-{uuid.uuid4().hex[:8]}"
 
@@ -130,7 +130,7 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                 stage1a = await propose(resumed, RunStage(stage_id="stage-1a"))
                 assert stage1a.status == "applied"
                 assert stage1a.seq == seed_seq + 1
-                assert stage1a.state.has("constructs")
+                assert stage1a.state.has("latent_structure")
         finally:
             await env.shutdown()
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )

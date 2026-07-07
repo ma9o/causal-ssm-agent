@@ -46,13 +46,13 @@ class TestArtifactStore:
     def test_meta_roundtrip(self, workspace):
         store = ArtifactStore(workspace)
         info = store.write_version(
-            "causal_spec",
+            "causal_design",
             provenance="computed",
-            derived_from={"question": 1, "raw_data": 2, "constructs": 1},
+            derived_from={"question": 1, "raw_data": 2, "latent_structure": 1},
             produced_by="stage-1b",
-            json_files={"causal_spec.json": {"latent": {}}},
+            json_files={"causal_design.json": {"latent": {}}},
         )
-        loaded = store.read_meta("causal_spec", info.version)
+        loaded = store.read_meta("causal_design", info.version)
         assert loaded == info
         assert loaded.derived_from["raw_data"] == 2
         assert loaded.created_at
@@ -97,7 +97,7 @@ class TestEpisodeJournal:
                 2,
                 RunStage(stage_id="stage-1b"),
                 status="rejected",
-                reason="stage-1b requires artifacts that do not exist: raw_data, constructs",
+                reason="stage-1b requires artifacts that do not exist: raw_data, latent_structure",
             )
         )
         journal.append(

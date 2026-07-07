@@ -54,7 +54,7 @@ function writeOrCheck(outputPath: string, content: string): void {
  * Pydantic emits `{"$ref": "#/$defs/Foo", "description": "..."}` for
  * fields with doc-strings. The sibling `description` (or `title`, `default`,
  * etc.) next to `$ref` causes json-schema-to-typescript to treat it as a
- * distinct anonymous type — generating duplicates like `LatentModel1`.
+ * distinct anonymous type — generating duplicates like `LatentStructure1`.
  * Per JSON Schema 2020-12, `$ref` siblings are valid but the TS codegen
  * library doesn't handle them well, so we strip them.
  */

@@ -13,18 +13,18 @@ import jax.numpy as jnp
 import numpy as np
 from pydantic import BaseModel
 
-from nof1_causal_lab.artifacts.latent_model import LatentModel
-from nof1_causal_lab.artifacts.measurement_model import (
-    MeasurementModel,
+from nof1_causal_lab.artifacts.latent_structure import LatentStructure
+from nof1_causal_lab.artifacts.measurement_structure import (
+    MeasurementStructure,
     check_semantic_collisions,
-    validate_measurement_model,
+    validate_measurement_structure,
 )
-from nof1_causal_lab.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LinkFunction,
-    ModelSpec,
     ParameterRole,
-    validate_model_spec_dict,
+    StatisticalModelSpec,
+    validate_statistical_model_spec_dict,
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
@@ -297,14 +297,14 @@ def _normalize_measurement_instruction(text: str) -> str:
 
 
 def _collect_measurement_compile_errors(
-    measurement: MeasurementModel,
-    latent: LatentModel,
+    measurement: MeasurementStructure,
+    latent: LatentStructure,
 ) -> list[str]:
     """Collect deterministic measurement checks best handled at compile time."""
     errors: list[str] = []
 
     if not measurement.indicators:
-        errors.append("Measurement model must include at least one indicator.")
+        errors.append("Measurement structure must include at least one indicator.")
         return errors
 
     outcome_names = [construct.name for construct in latent.constructs if construct.is_outcome]
@@ -343,15 +343,17 @@ def _collect_measurement_compile_errors(
     return errors
 
 
-def validate_measurement_model_for_compilation(
-    measurement_model: dict,
-    latent_model: LatentModel | dict,
-) -> tuple[MeasurementModel | None, list[str]]:
+def validate_measurement_structure_for_compilation(
+    measurement_structure: dict,
+    latent_structure: LatentStructure | dict,
+) -> tuple[MeasurementStructure | None, list[str]]:
     """Validate measurement output against schema and compile-time constraints."""
     latent = (
-        LatentModel.model_validate(latent_model) if isinstance(latent_model, dict) else latent_model
+        LatentStructure.model_validate(latent_structure)
+        if isinstance(latent_structure, dict)
+        else latent_structure
     )
-    measurement, errors = validate_measurement_model(measurement_model, latent)
+    measurement, errors = validate_measurement_structure(measurement_structure, latent)
     if measurement is None:
         return None, errors
 
@@ -362,24 +364,24 @@ def validate_measurement_model_for_compilation(
     return measurement, []
 
 
-def trial_compile_measurement_model(
-    measurement_model: MeasurementModel | dict,
-    latent_model: LatentModel | dict,
+def trial_compile_measurement_structure(
+    measurement_structure: MeasurementStructure | dict,
+    latent_structure: LatentStructure | dict,
 ) -> str | None:
-    """Try compiling a measurement model and return a feedback string on failure."""
+    """Try compiling a measurement structure and return a feedback string on failure."""
     measurement_data = (
-        measurement_model.model_dump(mode="json")
-        if isinstance(measurement_model, BaseModel)
-        else measurement_model
+        measurement_structure.model_dump(mode="json")
+        if isinstance(measurement_structure, BaseModel)
+        else measurement_structure
     )
-    _, errors = validate_measurement_model_for_compilation(measurement_data, latent_model)
+    _, errors = validate_measurement_structure_for_compilation(measurement_data, latent_structure)
     if errors:
         return "\n".join(errors)
     return None
 
 
 def collect_estimation_projection_compile_errors(
-    causal_spec: dict,
+    causal_design: dict,
     *,
     manifest_names: Sequence[str] | None = None,
 ) -> list[str]:
@@ -389,20 +391,20 @@ def collect_estimation_projection_compile_errors(
     supported by at least one manifest channel, and the loading matrix must be
     able to reach full column rank.
     """
-    from nof1_causal_lab.utils.causal_spec import (
+    from nof1_causal_lab.utils.causal_design import (
         get_estimation_state_order,
         get_manifest_indicators,
     )
 
     errors: list[str] = []
     try:
-        latent_states = get_estimation_state_order(causal_spec)
+        latent_states = get_estimation_state_order(causal_design)
     except ValueError as exc:
         return [str(exc)]
     if not latent_states:
-        return ["causal_spec.estimation.state_order is empty"]
+        return ["causal_design.estimation.state_order is empty"]
 
-    indicators = get_manifest_indicators(causal_spec)
+    indicators = get_manifest_indicators(causal_design)
     indicator_lookup = {
         indicator["name"]: indicator
         for indicator in indicators
@@ -437,26 +439,28 @@ def collect_estimation_projection_compile_errors(
     return errors
 
 
-def _collect_model_spec_compile_errors(
-    model_spec: ModelSpec,
-    causal_spec: dict | None = None,
+def _collect_statistical_model_spec_compile_errors(
+    statistical_model_spec: StatisticalModelSpec,
+    causal_design: dict | None = None,
 ) -> list[str]:
-    """Collect deterministic ModelSpec checks that the compiler owns."""
+    """Collect deterministic StatisticalModelSpec checks that the compiler owns."""
     errors: list[str] = []
-    if causal_spec is not None:
-        manifest_names = [likelihood.variable for likelihood in model_spec.likelihoods]
+    if causal_design is not None:
+        manifest_names = [likelihood.variable for likelihood in statistical_model_spec.likelihoods]
         return collect_estimation_projection_compile_errors(
-            causal_spec,
+            causal_design,
             manifest_names=manifest_names,
         )
 
-    n_manifest = len(model_spec.likelihoods)
+    n_manifest = len(statistical_model_spec.likelihoods)
 
-    ar_params = [p for p in model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT]
+    ar_params = [
+        p for p in statistical_model_spec.parameters if p.role == ParameterRole.AR_COEFFICIENT
+    ]
     if not ar_params:
         errors.append(
-            "No AR_COEFFICIENT parameters found in ModelSpec; "
-            "cannot infer latent dimensionality without causal_spec."
+            "No AR_COEFFICIENT parameters found in StatisticalModelSpec; "
+            "cannot infer latent dimensionality without causal_design."
         )
         return errors
 
@@ -470,26 +474,32 @@ def _collect_model_spec_compile_errors(
     return errors
 
 
-def validate_model_spec_for_compilation(
-    model_spec: ModelSpec | dict,
-    causal_spec: dict | None = None,
-) -> tuple[ModelSpec | None, list[str]]:
-    """Validate model-spec schema/domain rules plus compiler-owned invariants."""
+def validate_statistical_model_spec_for_compilation(
+    statistical_model_spec: StatisticalModelSpec | dict,
+    causal_design: dict | None = None,
+) -> tuple[StatisticalModelSpec | None, list[str]]:
+    """Validate statistical-model-spec schema/domain rules plus compiler-owned invariants."""
     indicators = None
-    if causal_spec is not None:
-        from nof1_causal_lab.utils.causal_spec import get_manifest_indicators
+    if causal_design is not None:
+        from nof1_causal_lab.utils.causal_design import get_manifest_indicators
 
-        indicators = get_manifest_indicators(causal_spec)
+        indicators = get_manifest_indicators(causal_design)
 
-    model_spec_data = (
-        model_spec.model_dump(mode="json") if isinstance(model_spec, ModelSpec) else model_spec
+    statistical_model_spec_data = (
+        statistical_model_spec.model_dump(mode="json")
+        if isinstance(statistical_model_spec, StatisticalModelSpec)
+        else statistical_model_spec
     )
 
-    spec_obj, errors = validate_model_spec_dict(model_spec_data, indicators=indicators)
+    spec_obj, errors = validate_statistical_model_spec_dict(
+        statistical_model_spec_data, indicators=indicators
+    )
     if spec_obj is None:
         return None, errors
 
-    compile_errors = _collect_model_spec_compile_errors(spec_obj, causal_spec=causal_spec)
+    compile_errors = _collect_statistical_model_spec_compile_errors(
+        spec_obj, causal_design=causal_design
+    )
     if compile_errors:
         return None, compile_errors
 
@@ -497,20 +507,22 @@ def validate_model_spec_for_compilation(
 
 
 def _compile_validated_ssm_artifact(
-    validated_model_spec: ModelSpec,
+    validated_statistical_model_spec: StatisticalModelSpec,
     raw_priors: dict[str, dict],
     *,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
 ) -> CompiledSSMArtifact:
-    """Compile an already-validated ``ModelSpec`` into a serialized SSM artifact."""
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model_spec
+    """Compile an already-validated ``StatisticalModelSpec`` into a serialized SSM artifact."""
+    from nof1_causal_lab.models.ssm.compile.inputs import (
+        compile_ssm_inputs_from_statistical_model_spec,
+    )
     from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
 
     spec, prior_registry, parameter_bindings, compile_diagnostics, edge_lag_days = (
-        compile_ssm_inputs_from_model_spec(
-            validated_model_spec,
+        compile_ssm_inputs_from_statistical_model_spec(
+            validated_statistical_model_spec,
             raw_priors,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
     )
 
@@ -527,64 +539,66 @@ def _compile_validated_ssm_artifact(
 
 
 def compile_ssm_artifact_with_default_priors(
-    model_spec: ModelSpec | dict,
-    causal_spec: dict | None = None,
+    statistical_model_spec: StatisticalModelSpec | dict,
+    causal_design: dict | None = None,
 ) -> CompiledSSMArtifact:
-    """Compile a ModelSpec using compiler-owned default priors for warmup paths."""
+    """Compile a StatisticalModelSpec using compiler-owned default priors for warmup paths."""
     from nof1_causal_lab.workers.prior_research import get_default_prior
 
-    validated_model_spec, errors = validate_model_spec_for_compilation(
-        model_spec,
-        causal_spec=causal_spec,
+    validated_statistical_model_spec, errors = validate_statistical_model_spec_for_compilation(
+        statistical_model_spec,
+        causal_design=causal_design,
     )
     if errors:
-        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+        raise ValueError("StatisticalModelSpec failed compiler validation:\n" + "\n".join(errors))
 
-    assert validated_model_spec is not None
+    assert validated_statistical_model_spec is not None
     default_priors = {
         parameter.name: get_default_prior(parameter).model_dump()
-        for parameter in validated_model_spec.parameters
+        for parameter in validated_statistical_model_spec.parameters
     }
     return _compile_validated_ssm_artifact(
-        validated_model_spec,
+        validated_statistical_model_spec,
         default_priors,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
     )
 
 
-def trial_compile_model_spec(
-    model_spec: ModelSpec | dict,
-    causal_spec: dict | None = None,
+def trial_compile_statistical_model_spec(
+    statistical_model_spec: StatisticalModelSpec | dict,
+    causal_design: dict | None = None,
 ) -> str | None:
-    """Try compiling a ModelSpec with default priors to catch structural errors early.
+    """Try compiling a StatisticalModelSpec with default priors to catch structural errors early.
 
     Returns None on success, or an error message string on failure.
     """
     try:
-        compile_ssm_artifact_with_default_priors(model_spec, causal_spec=causal_spec)
+        compile_ssm_artifact_with_default_priors(
+            statistical_model_spec, causal_design=causal_design
+        )
     except (ValueError, KeyError, TypeError, RuntimeError) as e:
         return str(e)
     return None
 
 
 def compile_ssm_artifact(
-    model_spec: ModelSpec | dict,
+    statistical_model_spec: StatisticalModelSpec | dict,
     priors: dict[str, PriorProposal] | dict[str, dict],
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
 ) -> CompiledSSMArtifact:
     """Compile user-facing specs into an executable, serializable SSM artifact."""
-    validated_model_spec, errors = validate_model_spec_for_compilation(
-        model_spec, causal_spec=causal_spec
+    validated_statistical_model_spec, errors = validate_statistical_model_spec_for_compilation(
+        statistical_model_spec, causal_design=causal_design
     )
     if errors:
-        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+        raise ValueError("StatisticalModelSpec failed compiler validation:\n" + "\n".join(errors))
 
-    assert validated_model_spec is not None
+    assert validated_statistical_model_spec is not None
     raw_priors = dump_prior_payloads(priors)
     return _compile_validated_ssm_artifact(
-        validated_model_spec,
+        validated_statistical_model_spec,
         raw_priors,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
     )
 
 

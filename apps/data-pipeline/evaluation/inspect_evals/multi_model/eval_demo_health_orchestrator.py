@@ -39,7 +39,7 @@ from nof1_causal_lab.flows.stages.stage1a.run import Stage1aResult, run_stage1a
 from nof1_causal_lab.flows.stages.stage1b.run import Stage1bResult, run_stage1b
 from nof1_causal_lab.flows.stages.stage2.flow import run_stage2_extraction_core
 from nof1_causal_lab.flows.stages.stage2.materialization import materialize_stage2_outputs
-from nof1_causal_lab.utils.causal_spec import get_outcome_name
+from nof1_causal_lab.utils.causal_design import get_outcome_name
 from nof1_causal_lab.utils.config import get_config
 from nof1_causal_lab.utils.demo_health_fixture import (
     FIXTURE_USER_ID,
@@ -161,7 +161,7 @@ def _make_eval_semantic_chunk_runner(worker_model_id: str, chunk_timeout_seconds
                                 window_text=chunk_texts[idx],
                                 window_starts=chunk_window_starts[idx],
                                 question=question,
-                                causal_spec=chunk_contexts[idx],
+                                causal_design=chunk_contexts[idx],
                                 session_factory=factory,
                                 logger=LOGGER,
                                 call_label=f"eval stage2 chunk={idx}",
@@ -237,7 +237,7 @@ async def _run_orchestrator_candidate(
     async with make_eval_session_factory("stage-1b", model_id) as factory_1b:
         stage1b_result = await run_stage1b(
             question=fixture.question,
-            latent_model=stage1a_result.latent_model,
+            latent_structure=stage1a_result.latent_structure,
             chunks=[dataset_schema],
             session_factory=factory_1b,
             dataset_summary=_dataset_summary(fixture.stage0),
@@ -246,18 +246,18 @@ async def _run_orchestrator_candidate(
     stage2_result = await run_stage2_extraction_core(
         raw_df=fixture.stage0,
         question=fixture.question,
-        causal_spec=stage1b_result.causal_spec,
+        causal_design=stage1b_result.causal_design,
         stage2_workers=stage2_workers,
         semantic_chunk_runner=_make_eval_semantic_chunk_runner(
             worker_model_id,
             chunk_timeout_seconds,
         ),
     )
-    materialized = materialize_stage2_outputs(stage2_result, stage1b_result.causal_spec)
+    materialized = materialize_stage2_outputs(stage2_result, stage1b_result.causal_design)
 
     data_for_model = materialized["data_for_model"]
     comparison = compare_demo_health_outputs(
-        causal_spec=stage1b_result.causal_spec,
+        causal_design=stage1b_result.causal_design,
         stage0=fixture.stage0,
         data_for_model=data_for_model,
         expected_model=fixture.expected_model,
@@ -273,7 +273,9 @@ async def _run_orchestrator_candidate(
 
 
 def _format_candidate_report(candidate: CandidateRun) -> str:
-    outcome_name = get_outcome_name(candidate.stage1a_result.latent_model) or "[missing outcome]"
+    outcome_name = (
+        get_outcome_name(candidate.stage1a_result.latent_structure) or "[missing outcome]"
+    )
     indicators = ", ".join(candidate.comparison.stage1b_indicators)
     return "\n".join(
         [

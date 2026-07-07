@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker measurement instruction adherence.
 
 Uses a judge model to evaluate how well competing worker models follow
-the measurement instructions from the CausalSpec schema. The judge
+the measurement instructions from the CausalDesign schema. The judge
 ranks outputs without knowing model names and returns the winner.
 
 Uses the same core logic as production (via run_worker_extraction) for generating
@@ -103,7 +103,7 @@ async def generate_worker_output(
     model_id: str,
     chunk: str,
     question: str,
-    causal_spec: dict,
+    causal_design: dict,
 ) -> str:
     """Generate worker output for a single model using core logic.
 
@@ -115,7 +115,7 @@ async def generate_worker_output(
     result = await run_worker_extraction(
         chunk=chunk,
         question=question,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         generate=generate,
     )
 
@@ -143,9 +143,9 @@ def create_eval_dataset(
         MemoryDataset with samples
     """
     stage2_inputs = get_stage2_eval_chunks(n_chunks, seed, workspace_id)
-    causal_spec = stage2_inputs["causal_spec"]
-    indicators_text = _format_indicators(causal_spec)
-    outcome_description = _get_outcome_description(causal_spec)
+    causal_design = stage2_inputs["causal_design"]
+    indicators_text = _format_indicators(causal_design)
+    outcome_description = _get_outcome_description(causal_design)
 
     samples = []
     for i, chunk in enumerate(stage2_inputs["sampled_chunk_texts"]):
@@ -165,7 +165,7 @@ def create_eval_dataset(
                     "question": stage2_inputs["question"],
                     "chunk": chunk,
                     "chunk_index": i,
-                    "causal_spec": causal_spec,
+                    "causal_design": causal_design,
                     "worker_system_prompt": SYSTEM,
                     "worker_user_prompt": worker_user_prompt,
                 },
@@ -195,7 +195,7 @@ def judge_solver(
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
-            causal_spec = state.metadata["causal_spec"]
+            causal_design = state.metadata["causal_design"]
             question_text = state.metadata["question"]
             chunk = state.metadata["chunk"]
             worker_system_prompt = state.metadata["worker_system_prompt"]
@@ -206,7 +206,7 @@ def judge_solver(
                 """Generate with error handling and timeout, returns (model_id, result)."""
                 try:
                     result = await asyncio.wait_for(
-                        generate_worker_output(model_id, chunk, question_text, causal_spec),
+                        generate_worker_output(model_id, chunk, question_text, causal_design),
                         timeout=worker_timeout,
                     )
                     return model_id, result

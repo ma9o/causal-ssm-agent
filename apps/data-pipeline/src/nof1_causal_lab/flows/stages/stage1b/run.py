@@ -1,4 +1,4 @@
-"""Stage 1b: Measurement Model with Identifiability."""
+"""Stage 1b: Measurement Structure with Identifiability."""
 
 from __future__ import annotations
 
@@ -17,22 +17,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Stage1bResult:
-    """Result of Stage 1b: measurement model with identifiability status."""
+    """Result of Stage 1b: measurement structure with identifiability status."""
 
-    measurement_model: dict
+    measurement_structure: dict
     identifiability_status: dict
-    causal_spec: dict
+    causal_design: dict
 
 
 def _build_stage1b_user_prompt(
     question: str,
-    latent_model: dict,
+    latent_structure: dict,
     chunks: list[str],
     dataset_summary: str,
 ) -> str:
     return templates.USER.format(
         question=question,
-        latent_model_json=json.dumps(latent_model, indent=2),
+        latent_structure_json=json.dumps(latent_structure, indent=2),
         dataset_summary=dataset_summary or "Not provided",
         chunks="\n".join(chunks),
     )
@@ -40,12 +40,12 @@ def _build_stage1b_user_prompt(
 
 async def run_stage1b(
     question: str,
-    latent_model: dict,
+    latent_structure: dict,
     chunks: list[str],
     session_factory: StageSessionFactory,
     dataset_summary: str = "",
 ) -> Stage1bResult:
-    """Run the Stage 1b flow: measurement model + identifiability check.
+    """Run the Stage 1b flow: measurement structure + identifiability check.
 
     The fat validation tool checks structural validity and causal
     identifiability together. When identifiability fails, the tool
@@ -56,14 +56,14 @@ async def run_stage1b(
     from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
     tool, capture = make_stage_tool(
-        name="validate_measurement_model",
+        name="validate_measurement_structure",
         description=(
-            "Validate measurement model JSON, check compiler constraints, "
+            "Validate measurement structure JSON, check compiler constraints, "
             "and verify causal identifiability."
         ),
         param_name="measurement_json",
-        param_description="The JSON string containing the measurement model.",
-        compute_fn=lambda data: stage1b_grounding(data, latent_model),
+        param_description="The JSON string containing the measurement structure.",
+        compute_fn=lambda data: stage1b_grounding(data, latent_structure),
     )
 
     async with session_factory.open(
@@ -72,16 +72,16 @@ async def run_stage1b(
         log_label="stage-1b",
     ) as session:
         await session.turn(
-            _build_stage1b_user_prompt(question, latent_model, chunks, dataset_summary)
+            _build_stage1b_user_prompt(question, latent_structure, chunks, dataset_summary)
         )
         await session.turn(templates.REVIEW)
 
-    causal_spec = capture.get("causal_spec")
-    if causal_spec is None:
-        raise ValueError("No valid measurement model produced")
+    causal_design = capture.get("causal_design")
+    if causal_design is None:
+        raise ValueError("No valid measurement structure produced")
 
-    measurement = causal_spec.get("measurement", {})
-    id_info = causal_spec.get("identifiability") or {}
+    measurement = causal_design.get("measurement", {})
+    id_info = causal_design.get("identifiability") or {}
     id_status = {
         "identifiable_treatments": id_info.get("identifiable_treatments", {}),
         "non_identifiable_treatments": id_info.get("non_identifiable_treatments", {}),
@@ -91,7 +91,7 @@ async def run_stage1b(
         id_status["graph_info"] = graph_info
 
     return Stage1bResult(
-        measurement_model=measurement,
+        measurement_structure=measurement,
         identifiability_status=id_status,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
     )

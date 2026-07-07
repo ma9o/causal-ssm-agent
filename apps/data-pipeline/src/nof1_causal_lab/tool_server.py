@@ -26,6 +26,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.episode_api import (
+    capabilities_router,
+    machine_router,
+)
+from nof1_causal_lab.episode_api import router as episode_router
 from nof1_causal_lab.flows.stage_contracts import STAGE_TOOLS
 from nof1_causal_lab.flows.stages.stage1a.grounding import stage1a_grounding
 from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
@@ -33,10 +38,10 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_search_literature as _execute_search_literature,
 )
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
-    execute_public_submit_model_spec as _execute_submit_model_spec,
+    execute_public_submit_priors as _execute_submit_priors,
 )
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
-    execute_public_submit_priors as _execute_submit_priors,
+    execute_public_submit_statistical_model_spec as _execute_submit_statistical_model_spec,
 )
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.models.ssm import SSMModel
@@ -52,7 +57,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     posterior_dynamics_from_result,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
-from nof1_causal_lab.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_design import (
     get_estimation_constructs,
     get_estimation_state_order,
     get_indicators,
@@ -61,7 +66,64 @@ from nof1_causal_lab.utils.causal_spec import (
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Tool Server", docs_url="/api/tools/docs")
+_API_DESCRIPTION = """\
+The episode machine is the single interface to an N-of-1 causal analysis. An
+external agent drives it entirely over this HTTP API — the same surface the web
+viewer uses. There is no SDK and no MCP server: `curl` is the interface.
+
+## Orientation
+
+Call `GET /api/machine` once. It returns the static artifact graph — every stage
+with what it consumes, produces, optionally co-produces, and derives — plus each
+stage's creation class:
+
+- `deterministic` — pure compute, no credentials (e.g. identification).
+- `batch_llm` — bulk LLM compute on the service's ambient key. You trigger it
+  with a `run` move; you never supply a key.
+- `judgment` — proposal work you can do yourself by writing the produced
+  artifact directly. These stages are flagged `writable`.
+
+## The loop
+
+1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live
+   state: per-artifact freshness, the legal moves, and whether an auto-run is
+   active.
+2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
+   `{"move": {"kind": "run", "stage_id": "stage-1a"}}` to run a stage, or
+   `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance": "llm"}, "payload": {...}}`
+   to author a judgment artifact directly.
+3. Long stages (stage-4, stage-5b — minutes to hours) can outlive a client
+   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
+   that runs enabled stages in dependency order) and poll the state.
+4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,
+   `rejected` (illegal, state unchanged), or `raised` (typed stage error).
+
+## Staleness
+
+A `write` becomes a new provenance root and marks everything downstream stale
+until re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag
+stale provenance chains in their warnings — never report numbers past those
+flags.
+
+## Data in, results out
+
+Raw data enters by placing files under `data/{workspace_id}/input/` before
+running stage-0. Read artifact payloads at
+`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
+(parquet, pickle) are served individually from `.../files/{filename}`.
+
+## Read-only deployments
+
+The hosted viewer's backend serves these same read endpoints against a published
+store with no move plane. `GET /api/capabilities` reports `moves_enabled`; every
+move returns 403 when it is `false`.
+"""
+
+app = FastAPI(
+    title="nof1-causal-lab episode API",
+    description=_API_DESCRIPTION,
+    docs_url="/api/tools/docs",
+)
 
 app.add_middleware(
     cast("Any", CORSMiddleware),
@@ -70,11 +132,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from nof1_causal_lab.episode_api import capabilities_router  # noqa: E402
-from nof1_causal_lab.episode_api import router as episode_router  # noqa: E402
-
 app.include_router(episode_router)
 app.include_router(capabilities_router)
+app.include_router(machine_router)
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -120,11 +180,11 @@ def _extract_observation_timestamps(observation_data: Any) -> list[datetime]:
 
 
 def _stage6_time_config(
-    causal_spec: dict[str, Any],
+    causal_design: dict[str, Any],
     times: Any,
     horizon_days: int,
 ) -> tuple[float, int]:
-    model_clock = ((causal_spec or {}).get("measurement") or {}).get("model_clock")
+    model_clock = ((causal_design or {}).get("measurement") or {}).get("model_clock")
     dt_days: float | None = None
     if model_clock:
         dt_days = parse_duration_to_hours(model_clock) / 24.0
@@ -297,11 +357,11 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "model_data", model_data_pin, parquet_filename("model_data", "model_data")
     )
 
-    spec_info = state.get("causal_spec")
+    spec_info = state.get("causal_design")
     if spec_info is None:
-        raise HTTPException(404, f"No causal_spec for workspace {workspace_id}")
+        raise HTTPException(404, f"No causal_design for workspace {workspace_id}")
     stage1b = store.read_json_file(
-        "causal_spec", spec_info.version, json_filename("causal_spec", "causal_spec")
+        "causal_design", spec_info.version, json_filename("causal_design", "causal_design")
     )
 
     compiled_info = state.get("compiled_ssm")
@@ -343,13 +403,13 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     )
     fitted_artifact.observation_support = runtime.observation_support
 
-    causal_spec = stage1b.get("causal_spec", {})
-    outcome_name = get_outcome_name(causal_spec)
+    causal_design = stage1b.get("causal_design", {})
+    outcome_name = get_outcome_name(causal_design)
 
     serving_chain = (
         "posterior",
         "baseline_ranking",
-        "causal_spec",
+        "causal_design",
         "identification_report",
         "compiled_ssm",
     )
@@ -379,7 +439,7 @@ class Stage6SimulationSetup:
     fitted_artifact: Any
     runtime: Any
     samples: dict[str, Any]
-    causal_spec: dict[str, Any]
+    causal_design: dict[str, Any]
     query: dict[str, Any]
     clamps: list[ClampSpec]
     outcome: str
@@ -425,7 +485,7 @@ def _prepare_stage6_simulation(
         return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
     samples = fitted_artifact.result.get_samples() or {}
 
-    causal_spec = ctx["stage-1b"].get("causal_spec", {})
+    causal_design = ctx["stage-1b"].get("causal_design", {})
     outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
     spec = fitted_artifact.spec
     latent_names = list(spec.latent_names or [])
@@ -433,7 +493,7 @@ def _prepare_stage6_simulation(
     name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
     if outcome_idx is None:
-        return None, _tool_error_result("Outcome not present in fitted latent model.")
+        return None, _tool_error_result("Outcome not present in fitted latent structure.")
 
     raw_clamps = list(args.get("clamps") or [])
     if not raw_clamps:
@@ -450,7 +510,7 @@ def _prepare_stage6_simulation(
         index = name_to_idx.get(variable)
         if index is None:
             return None, _tool_error_result(
-                f"Clamp target '{variable}' is not present in the fitted latent model."
+                f"Clamp target '{variable}' is not present in the fitted latent structure."
             )
         values = raw.get("values")
         clamps.append(
@@ -469,7 +529,7 @@ def _prepare_stage6_simulation(
 
     query = dict(args.get("query") or {})
     dt_days, horizon_steps = _stage6_time_config(
-        causal_spec,
+        causal_design,
         runtime.times,
         int(query.get("horizon_days") or 30),
     )
@@ -486,7 +546,7 @@ def _prepare_stage6_simulation(
             fitted_artifact=fitted_artifact,
             runtime=runtime,
             samples=samples,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             query=query,
             clamps=clamps,
             outcome=outcome,
@@ -638,19 +698,21 @@ def _run_compute(
     return {"result": feedback, "stage_output": stage_output}
 
 
-def _execute_validate_latent_model(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _execute_validate_latent_structure(
+    _ctx: dict[str, Any], args: dict[str, Any]
+) -> dict[str, Any]:
     return _run_compute(args, "structure_json", stage1a_grounding)
 
 
-def _execute_validate_measurement_model(
+def _execute_validate_measurement_structure(
     ctx: dict[str, Any], args: dict[str, Any]
 ) -> dict[str, Any]:
     stage1a = ctx.get("stage-1a", {})
-    latent_model = stage1a["latent_model"]
+    latent_structure = stage1a["latent_structure"]
     return _run_compute(
         args,
         "measurement_json",
-        lambda data: stage1b_grounding(data, latent_model),
+        lambda data: stage1b_grounding(data, latent_structure),
     )
 
 
@@ -674,13 +736,13 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     stage6 = ctx.get("stage-6", {})
     runtime = ctx["_prepared_runtime"]
     fitted_artifact = ctx["_fitted_artifact"]
-    causal_spec = stage1b.get("causal_spec", {})
-    measurement = causal_spec.get("measurement") or {}
-    retained_state_names = set(get_estimation_state_order(causal_spec))
-    constructs = get_estimation_constructs(causal_spec)
+    causal_design = stage1b.get("causal_design", {})
+    measurement = causal_design.get("measurement") or {}
+    retained_state_names = set(get_estimation_state_order(causal_design))
+    constructs = get_estimation_constructs(causal_design)
     indicators = [
         indicator
-        for indicator in get_indicators(causal_spec)
+        for indicator in get_indicators(causal_design)
         if indicator.get("construct_name") in retained_state_names
     ]
 
@@ -742,7 +804,8 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         payload["identifiability"] = {
             "identifiable_treatments": ctx["_identifiable_treatments"],
             "non_identifiable_treatments": (
-                (causal_spec.get("identifiability") or {}).get("non_identifiable_treatments") or {}
+                (causal_design.get("identifiability") or {}).get("non_identifiable_treatments")
+                or {}
             ),
         }
     if "diagnostics" in sections:
@@ -885,10 +948,10 @@ def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, An
 
 # Registry: (stage_id, tool_name) → implementation function
 _TOOL_IMPLS: dict[tuple[str, str], Any] = {
-    ("stage-1a", "validate_latent_model"): _execute_validate_latent_model,
-    ("stage-1b", "validate_measurement_model"): _execute_validate_measurement_model,
+    ("stage-1a", "validate_latent_structure"): _execute_validate_latent_structure,
+    ("stage-1b", "validate_measurement_structure"): _execute_validate_measurement_structure,
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
-    ("stage-4", "submit_model_spec"): _execute_submit_model_spec,
+    ("stage-4", "submit_statistical_model_spec"): _execute_submit_statistical_model_spec,
     ("stage-4", "submit_priors"): _execute_submit_priors,
     ("stage-4", "search_literature"): _execute_search_literature,
     ("stage-6", "get_model_info"): _execute_get_model_info,
@@ -911,22 +974,22 @@ def _load_stage_context_result(workspace_id: str, stage_id: str) -> dict[str, An
     state = EpisodeJournal(workspace_id).latest_state()
     store = ArtifactStore(workspace_id)
     if stage_id == "stage-1a":
-        info = state.get("constructs")
+        info = state.get("latent_structure")
         if info is None:
-            raise HTTPException(404, f"No constructs for workspace {workspace_id}")
+            raise HTTPException(404, f"No latent_structure for workspace {workspace_id}")
         return store.read_json_file(
-            "constructs",
+            "latent_structure",
             info.version,
-            json_filename("constructs", "constructs"),
+            json_filename("latent_structure", "latent_structure"),
         )
     if stage_id == "stage-1b":
-        info = state.get("causal_spec")
+        info = state.get("causal_design")
         if info is None:
-            raise HTTPException(404, f"No causal_spec for workspace {workspace_id}")
+            raise HTTPException(404, f"No causal_design for workspace {workspace_id}")
         return store.read_json_file(
-            "causal_spec",
+            "causal_design",
             info.version,
-            json_filename("causal_spec", "causal_spec"),
+            json_filename("causal_design", "causal_design"),
         )
     raise KeyError(f"No canonical tool context loader for {stage_id}")
 
@@ -958,7 +1021,13 @@ class ToolCallRequest(BaseModel):
 
 @app.get("/api/tools/{stage_id}")
 def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
-    """Return tool definitions for a stage (name, description, JSON Schema parameters/results)."""
+    """List a stage's validation/query tools — the same tools the in-service LLM loops use.
+
+    Each entry is `{name, description, parameters, result}` where `parameters`
+    and `result` are JSON Schemas. Fetch this first to learn a tool's argument
+    shape, then call `POST /api/tools/{stage_id}/{tool_name}`. Examples:
+    stage-6 `simulate` / `get_model_info`, stage-4 `submit_statistical_model_spec`.
+    """
     contracts = STAGE_TOOLS.get(stage_id)
     if contracts is None:
         raise HTTPException(404, f"No tools defined for stage {stage_id}")
@@ -975,7 +1044,13 @@ def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
 
 @app.post("/api/tools/{stage_id}/{tool_name}")
 async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) -> dict[str, Any]:
-    """Execute a pipeline tool and return its result."""
+    """Execute a stage tool against the workspace's current artifact-store versions.
+
+    Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
+    tool's `parameters` schema from `GET /api/tools/{stage_id}`; 422 on a schema
+    violation. Numeric tools hard-flag stale provenance chains in their result
+    warnings — do not report numbers past those flags.
+    """
     contract = _get_tool_contract(stage_id, tool_name)
     if contract is None:
         raise HTTPException(404, f"No tool contract for tool {tool_name!r} in stage {stage_id!r}")

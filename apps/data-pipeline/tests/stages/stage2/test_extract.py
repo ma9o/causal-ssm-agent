@@ -107,7 +107,7 @@ def test_collect_worker_results_records_failures():
 
 
 def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
-    import nof1_causal_lab.utils.causal_spec as causal_spec_mod
+    import nof1_causal_lab.utils.causal_design as causal_design_mod
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.core as worker_core
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
@@ -141,9 +141,9 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
         ),
     )
     monkeypatch.setattr(
-        causal_spec_mod,
+        causal_design_mod,
         "get_indicators",
-        lambda _causal_spec: [{"name": "indicator_a"}, {"name": "indicator_b"}],
+        lambda _causal_design: [{"name": "indicator_a"}, {"name": "indicator_b"}],
     )
 
     async def fake_run_worker_extraction(**kwargs):
@@ -167,7 +167,7 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
                 window_starts=window_starts,
                 chunk_idx=3,
                 question="Does treatment affect outcome?",
-                causal_spec={"measurement": {"model_clock": "1d", "indicators": []}},
+                causal_design={"measurement": {"model_clock": "1d", "indicators": []}},
             )
         )
 
@@ -186,7 +186,9 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
     assert worker_kwargs["window_text"] == window_text
     assert worker_kwargs["window_starts"] == window_starts
     assert worker_kwargs["question"] == "Does treatment affect outcome?"
-    assert worker_kwargs["causal_spec"] == {"measurement": {"model_clock": "1d", "indicators": []}}
+    assert worker_kwargs["causal_design"] == {
+        "measurement": {"model_clock": "1d", "indicators": []}
+    }
     assert worker_kwargs["logger"] is stage2_extract.logger
     factory = worker_kwargs["session_factory"]
     assert isinstance(factory, StageSessionFactory)
@@ -199,7 +201,7 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
 
 
 def test_extract_window_chunk_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
-    import nof1_causal_lab.utils.causal_spec as causal_spec_mod
+    import nof1_causal_lab.utils.causal_design as causal_design_mod
     import nof1_causal_lab.utils.config as config_mod
     import nof1_causal_lab.workers.core as worker_core
     from nof1_causal_lab.utils.config import (
@@ -230,9 +232,9 @@ def test_extract_window_chunk_emits_running_stage2_worker_and_snapshot_events(mo
         ),
     )
     monkeypatch.setattr(
-        causal_spec_mod,
+        causal_design_mod,
         "get_indicators",
-        lambda _causal_spec: [{"name": "indicator_a"}],
+        lambda _causal_design: [{"name": "indicator_a"}],
     )
 
     async def fake_run_worker_extraction(**_kwargs):
@@ -276,7 +278,7 @@ def test_extract_window_chunk_emits_running_stage2_worker_and_snapshot_events(mo
             window_starts=["2024-01-01"],
             chunk_idx=7,
             question="Q",
-            causal_spec={"measurement": {"model_clock": "1d", "indicators": []}},
+            causal_design={"measurement": {"model_clock": "1d", "indicators": []}},
             workspace_id="ws-123",
         )
     )
@@ -369,7 +371,7 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
         captured_runner.update(kwargs)
         return [], [], 0, None
 
-    causal_spec = {
+    causal_design = {
         "latent": {"constructs": [], "edges": []},
         "measurement": {
             "model_clock": "1d",
@@ -397,7 +399,7 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
         stage2_extract.run_stage2_extraction_core(
             raw_df=raw_df,
             question="Does stress affect sleep?",
-            causal_spec=causal_spec,
+            causal_design=causal_design,
             stage2_workers=SimpleNamespace(
                 windows_per_chunk=8,
                 max_events_per_window=50,
@@ -454,10 +456,10 @@ def test_run_semantic_chunks_asyncio_emits_stage2_plan_worker_and_snapshot_event
         window_starts,
         chunk_idx,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=None,
     ):
-        del window_starts, question, causal_spec, workspace_id
+        del window_starts, question, causal_design, workspace_id
         extracted_texts.append(window_text)
         if chunk_idx == 0:
             return {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
@@ -600,17 +602,17 @@ def test_run_stage2_extraction_buckets_semantic_indicators_by_observation_window
         window_starts,
         chunk_idx,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=None,
     ):
         del window_starts, question, workspace_id
         captured_texts[chunk_idx] = window_text
-        captured_contexts[chunk_idx] = causal_spec
+        captured_contexts[chunk_idx] = causal_design
         return {"dataframe": [], "n_extractions": 0, "status": "completed"}
 
     monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
-    causal_spec = {
+    causal_design = {
         "latent": {"constructs": [], "edges": []},
         "measurement": {
             "model_clock": "1d",
@@ -638,7 +640,7 @@ def test_run_stage2_extraction_buckets_semantic_indicators_by_observation_window
         stage2_extract.run_stage2_extraction(
             raw_df,
             "Does stress affect sleep?",
-            causal_spec,
+            causal_design,
         )
     )
 
@@ -686,10 +688,10 @@ def test_run_stage2_extraction_annotates_medical_imaging_monthly_summary_support
         window_starts,
         chunk_idx,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id
+        del chunk_idx, question, causal_design, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -706,7 +708,7 @@ def test_run_stage2_extraction_annotates_medical_imaging_monthly_summary_support
 
     monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
-    causal_spec = {
+    causal_design = {
         "latent": {"constructs": [], "edges": []},
         "measurement": {
             "model_clock": "1d",
@@ -731,7 +733,7 @@ def test_run_stage2_extraction_annotates_medical_imaging_monthly_summary_support
         stage2_extract.run_stage2_extraction(
             raw_df,
             "How do imaging findings evolve over time?",
-            causal_spec,
+            causal_design,
         )
     )
 
@@ -778,10 +780,10 @@ def test_run_stage2_extraction_annotates_semantic_rows_into_canonical_observatio
         window_starts,
         chunk_idx,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id
+        del chunk_idx, question, causal_design, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -798,7 +800,7 @@ def test_run_stage2_extraction_annotates_semantic_rows_into_canonical_observatio
 
     monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
-    causal_spec = {
+    causal_design = {
         "latent": {"constructs": [], "edges": []},
         "measurement": {
             "model_clock": "1d",
@@ -828,7 +830,7 @@ def test_run_stage2_extraction_annotates_semantic_rows_into_canonical_observatio
         stage2_extract.run_stage2_extraction(
             raw_df,
             "Does stress affect mood?",
-            causal_spec,
+            causal_design,
         )
     )
 
@@ -891,10 +893,10 @@ def test_run_stage2_extraction_merges_computed_rule_rows_with_semantic_rows(monk
         window_starts,
         chunk_idx,
         question,
-        causal_spec,
+        causal_design,
         workspace_id=None,
     ):
-        del chunk_idx, question, causal_spec, workspace_id
+        del chunk_idx, question, causal_design, workspace_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -911,7 +913,7 @@ def test_run_stage2_extraction_merges_computed_rule_rows_with_semantic_rows(monk
 
     monkeypatch.setattr(stage2_extract, "extract_window_chunk", fake_extract_window_chunk)
 
-    causal_spec = {
+    causal_design = {
         "latent": {"constructs": [], "edges": []},
         "measurement": {
             "model_clock": "1d",
@@ -944,7 +946,7 @@ def test_run_stage2_extraction_merges_computed_rule_rows_with_semantic_rows(monk
         stage2_extract.run_stage2_extraction(
             raw_df,
             "Does oxygen saturation affect mood?",
-            causal_spec,
+            causal_design,
         )
     )
 

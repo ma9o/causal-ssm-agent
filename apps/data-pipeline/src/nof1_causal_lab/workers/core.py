@@ -11,7 +11,7 @@ from typing import Any
 import polars as pl
 
 from nof1_causal_lab.utils.agent_session import StageSessionFactory
-from nof1_causal_lab.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_design import (
     get_indicators,
     get_outcome_construct,
 )
@@ -34,15 +34,15 @@ class WorkerResult:
     raw_completion: str
 
 
-def _format_indicators(causal_spec: dict) -> str:
+def _format_indicators(causal_design: dict) -> str:
     """Format indicators for the worker prompt.
 
     Shows: name, dtype, operator, support kind, window, how_to_measure.
     Omits anchor_policy (internal SSM plumbing the worker doesn't need).
     """
     lines = []
-    model_clock = causal_spec.get("measurement", {}).get("model_clock", "")
-    for ind in get_indicators(causal_spec):
+    model_clock = causal_design.get("measurement", {}).get("model_clock", "")
+    for ind in get_indicators(causal_design):
         name = ind.get("name", "unknown")
         how_to_measure = ind.get("how_to_measure", "")
         dtype = ind.get("measurement_dtype", "")
@@ -63,9 +63,9 @@ def _format_indicators(causal_spec: dict) -> str:
     return "\n".join(lines)
 
 
-def _get_outcome_description(causal_spec: dict) -> str:
+def _get_outcome_description(causal_design: dict) -> str:
     """Get the description of the outcome variable."""
-    outcome = get_outcome_construct(causal_spec)
+    outcome = get_outcome_construct(causal_design)
     if outcome:
         return outcome.get("description", outcome.get("name", "outcome"))
     return "Not specified"
@@ -76,14 +76,14 @@ class WorkerMessages:
     """Message builders for worker prompts."""
 
     question: str
-    causal_spec: dict
+    causal_design: dict
     window_text: str
     n_windows: int
 
     def extraction_messages(self) -> list[dict]:
         """Build messages for worker extraction."""
-        indicators_text = _format_indicators(self.causal_spec)
-        outcome_description = _get_outcome_description(self.causal_spec)
+        indicators_text = _format_indicators(self.causal_design)
+        outcome_description = _get_outcome_description(self.causal_design)
 
         return [
             {"role": "system", "content": SYSTEM},
@@ -104,7 +104,7 @@ async def run_worker_extraction(
     window_text: str,
     window_starts: list[str],
     question: str,
-    causal_spec: dict,
+    causal_design: dict,
     session_factory: StageSessionFactory,
     logger: Any | None = None,
     call_label: str | None = None,
@@ -115,7 +115,7 @@ async def run_worker_extraction(
     sends the extraction prompt, and returns the tool-captured result.
     """
     active_logger = logger or logging.getLogger(__name__)
-    msgs = WorkerMessages(question, causal_spec, window_text, n_windows=len(window_starts))
+    msgs = WorkerMessages(question, causal_design, window_text, n_windows=len(window_starts))
 
     extraction_msgs = msgs.extraction_messages()
     from nof1_causal_lab.workers.schemas import validate_worker_output
@@ -125,7 +125,7 @@ async def run_worker_extraction(
         description="Validate worker extraction output JSON.",
         param_name="output_json",
         param_description="The JSON string containing the worker output.",
-        validator=lambda data: validate_worker_output(data, causal_spec, window_starts),
+        validator=lambda data: validate_worker_output(data, causal_design, window_starts),
         capture_key="output",
     )
     tools = [tool]
@@ -146,7 +146,7 @@ async def run_worker_extraction(
             "Prepared worker prompt with %d windows, %d indicators, %d text chars",
         ),
         len(window_starts),
-        len(get_indicators(causal_spec)),
+        len(get_indicators(causal_design)),
         len(window_text),
     )
     active_logger.info(scoped_log(call_label, "Using worker tools: %s"), tool_names)

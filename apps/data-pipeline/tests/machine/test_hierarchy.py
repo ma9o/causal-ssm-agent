@@ -98,13 +98,13 @@ def test_action_legality_is_artifact_state_only():
     assert "nav.state" in empty
     assert "episode.create" in empty
     assert "episode.ingest_data" in empty
-    assert "specify.constructs" not in empty
+    assert "specify.latent_structure" not in empty
     assert "specify.edit" not in empty
     assert "analyze.save" not in empty
     assert "fit.compile" not in empty
 
     with_question = set(legal_action_ids(_state(_version("question", provenance="human"))))
-    assert "specify.constructs" in with_question
+    assert "specify.latent_structure" in with_question
     assert "specify.model" not in with_question
 
     with_posterior = set(legal_action_ids(_state(_version("posterior", produced_by="stage-5b"))))
@@ -115,8 +115,8 @@ def test_identification_gate_is_visible_at_action_level():
     state = _state(
         _version("question", provenance="human"),
         _version("raw_data", produced_by="stage-0"),
-        _version("constructs", produced_by="stage-1a"),
-        _version("causal_spec", produced_by="stage-1b"),
+        _version("latent_structure", produced_by="stage-1a"),
+        _version("causal_design", produced_by="stage-1b"),
         _version("extraction_report", produced_by="stage-2"),
         _version("model_data", produced_by="stage-2"),
         _version("validation_report", produced_by="stage-3"),
@@ -138,7 +138,7 @@ def test_writable_surface_is_roots_plus_writable_transitions():
     assert set(WRITABLE_ARTIFACTS) == set(ROOT_ARTIFACTS) | writable_produced
     assert set(ROOT_ARTIFACTS).issubset(WRITABLE_ARTIFACTS)
 
-    # identification_report is derived from causal_spec, never written directly.
+    # identification_report is derived from causal_design, never written directly.
     assert "identification_report" not in WRITABLE_ARTIFACTS
     assert stage_spec("stage-1b").derives == ("identification_report",)
 
@@ -163,5 +163,5 @@ def test_registry_descriptions_are_json_ready():
     }
     edit = next(entry for entry in action_payload if entry["action_id"] == "specify.edit")
     assert edit["derives"] == ["identification_report"]
-    assert action_spec("fit.compile").lower_context_id == "stage-4.model-spec"
-    assert context_spec("stage-4.model-spec").runtime_state
+    assert action_spec("fit.compile").lower_context_id == "stage-4.statistical-model-spec"
+    assert context_spec("stage-4.statistical-model-spec").runtime_state

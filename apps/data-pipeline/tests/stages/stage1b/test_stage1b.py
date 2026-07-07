@@ -1,7 +1,7 @@
-"""Test Stage 1b: Measurement Model with Identifiability.
+"""Test Stage 1b: Measurement Structure with Identifiability.
 
 Tests the unified flow:
-1. Measurement model proposal via fat validation tool
+1. Measurement structure proposal via fat validation tool
 2. Identifiability checking within the tool
 3. Marginalization analysis (deterministic post-processing)
 """
@@ -11,14 +11,14 @@ import json
 
 import pytest
 
-from nof1_causal_lab.artifacts import CausalSpec
-from nof1_causal_lab.flows.stages.stage1b.flow import build_causal_spec
+from nof1_causal_lab.artifacts import CausalDesign
+from nof1_causal_lab.flows.stages.stage1b.flow import build_causal_design
 from nof1_causal_lab.flows.stages.stage1b.run import (
     Stage1bResult,
     run_stage1b,
 )
-from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_model
-from nof1_causal_lab.utils.causal_spec import get_outcome_name
+from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_structure
+from nof1_causal_lab.utils.causal_design import get_outcome_name
 from tests.helpers import make_mock_session_factory
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -32,8 +32,8 @@ class TestMeasurementCompiler:
     def test_valid_measurement_returns_none(
         self, stage1b_simple_latent, stage1b_measurement_all_observed
     ):
-        """A valid measurement model compiles cleanly."""
-        result = trial_compile_measurement_model(
+        """A valid measurement structure compiles cleanly."""
+        result = trial_compile_measurement_structure(
             stage1b_measurement_all_observed, stage1b_simple_latent
         )
         assert result is None
@@ -51,7 +51,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "Outcome construct 'Outcome'" in result
@@ -76,7 +76,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "duplicate indicator operationalizations" in result
@@ -100,7 +100,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_model(measurement, stage1b_simple_latent)
+        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "Semantic collision" in result
@@ -114,11 +114,11 @@ class TestMeasurementCompiler:
 class TestStage1bGrounding:
     """Test the grounding function directly."""
 
-    def test_build_causal_spec_round_trips_schema(
+    def test_build_causal_design_round_trips_schema(
         self, stage1b_simple_latent, stage1b_measurement_all_observed
     ):
-        """build_causal_spec() returns a valid CausalSpec with the expected outcome."""
-        spec = build_causal_spec(
+        """build_causal_design() returns a valid CausalDesign with the expected outcome."""
+        spec = build_causal_design(
             stage1b_simple_latent,
             stage1b_measurement_all_observed,
             identifiability_status={
@@ -134,7 +134,7 @@ class TestStage1bGrounding:
             },
         )
 
-        validated = CausalSpec.model_validate(spec)
+        validated = CausalDesign.model_validate(spec)
         assert len(validated.latent.constructs) == 2
         assert len(validated.measurement.indicators) == 2
         assert validated.estimation is not None
@@ -151,7 +151,7 @@ class TestStage1bGrounding:
 
         assert feedback == "VALID"
         assert output is not None
-        assert "causal_spec" in output
+        assert "causal_design" in output
 
     def test_valid_not_identifiable(
         self, stage1b_confounded_latent, stage1b_measurement_all_observed
@@ -164,8 +164,8 @@ class TestStage1bGrounding:
         )
 
         assert output is not None  # stage_output set even when not identifiable
-        assert "causal_spec" in output
-        assert output["causal_spec"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
+        assert "causal_design" in output
+        assert output["causal_design"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
         assert feedback != "VALID"
         assert "NOT fully identifiable" in feedback
         assert "proxy" in feedback.lower()
@@ -174,7 +174,7 @@ class TestStage1bGrounding:
         """Lagged X->Y effects are checked as X_{t-1}->Y_t, not X_t->Y_t."""
         from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
-        latent_model = {
+        latent_structure = {
             "constructs": [
                 {
                     "name": "Sleep",
@@ -217,7 +217,7 @@ class TestStage1bGrounding:
                 },
             ],
         }
-        measurement_model = {
+        measurement_structure = {
             "model_clock": "1d",
             "indicators": [
                 {
@@ -241,11 +241,11 @@ class TestStage1bGrounding:
             ],
         }
 
-        output, feedback = stage1b_grounding(measurement_model, latent_model)
+        output, feedback = stage1b_grounding(measurement_structure, latent_structure)
 
         assert output is not None
         assert feedback != "VALID"
-        non_identifiable = output["causal_spec"]["identifiability"]["non_identifiable_treatments"]
+        non_identifiable = output["causal_design"]["identifiability"]["non_identifiable_treatments"]
         assert non_identifiable["Sleep"]["confounders"] == ["Chronotype"]
 
     def test_invalid_schema(self, stage1b_simple_latent):
@@ -263,7 +263,7 @@ class TestStage1bGrounding:
         """Latent-only constructs should not remain in the executable state vector."""
         from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
-        latent_model = {
+        latent_structure = {
             "constructs": [
                 {
                     "name": "Treatment",
@@ -298,7 +298,7 @@ class TestStage1bGrounding:
                 },
             ],
         }
-        measurement_model = {
+        measurement_structure = {
             "model_clock": "1d",
             "indicators": [
                 {
@@ -328,12 +328,12 @@ class TestStage1bGrounding:
             },
         )
 
-        output, feedback = stage1b_grounding(measurement_model, latent_model)
+        output, feedback = stage1b_grounding(measurement_structure, latent_structure)
 
         assert output is not None
         assert feedback == "VALID"
-        assert output["causal_spec"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
-        assert output["causal_spec"]["estimation"]["edges"] == []
+        assert output["causal_design"]["estimation"]["state_order"] == ["Treatment", "Outcome"]
+        assert output["causal_design"]["estimation"]["edges"] == []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -356,7 +356,7 @@ class TestStage1bFlow:
         result = asyncio.run(
             run_stage1b(
                 question="Does treatment improve outcome?",
-                latent_model=stage1b_simple_latent,
+                latent_structure=stage1b_simple_latent,
                 chunks=stage1b_dummy_chunks,
                 session_factory=factory,
             )
@@ -380,7 +380,7 @@ class TestStage1bFlow:
         result = asyncio.run(
             run_stage1b(
                 question="Does treatment improve outcome?",
-                latent_model=stage1b_confounded_latent,
+                latent_structure=stage1b_confounded_latent,
                 chunks=stage1b_dummy_chunks,
                 session_factory=factory,
             )

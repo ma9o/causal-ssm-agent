@@ -9,7 +9,7 @@ import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 
 function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
-  const spec = data.causal_spec;
+  const spec = data.causal_design;
   return useMemo(() => {
     const statuses: Record<string, ConstructStatus> = {};
 
@@ -47,7 +47,7 @@ function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
 }
 
 export default function Stage1bContent({ data }: { data: Stage1bData }) {
-  const spec = data.causal_spec;
+  const spec = data.causal_design;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
   const nodeStatuses = useNodeStatuses(data);

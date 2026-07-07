@@ -22,7 +22,7 @@ from tests.stages.stage4._support import (
     _make_polars_data,
     _stage4_generate_config,
     _with_positive_indicator_polarity,
-    compile_ssm_inputs_from_model_spec,
+    compile_ssm_inputs_from_statistical_model_spec,
     compile_ssm_priors,
     get_failed_parameters,
     np,
@@ -142,13 +142,15 @@ def test_stage4_generate_config_sets_stage4_timeout(monkeypatch):
 class TestSSMModelConstruction:
     """Test SSM model building."""
 
-    def test_build_ssm_model_creates_model(self, simple_model_spec, simple_priors, simple_data):
+    def test_build_ssm_model_creates_model(
+        self, simple_statistical_model_spec, simple_priors, simple_data
+    ):
         """Runtime construction creates an SSMModel with correct dimensions."""
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         model = build_ssm_model(
             pl.from_pandas(simple_data),
-            model_spec=simple_model_spec,
+            statistical_model_spec=simple_statistical_model_spec,
             priors=simple_priors,
         )
         assert model.spec.n_manifest == 1  # mood_score only
@@ -166,11 +168,11 @@ class TestSSMModelConstruction:
 class TestPriorPredictiveValidation:
     """Test prior predictive validation end-to-end."""
 
-    def test_valid_priors_pass(self, simple_model_spec, simple_priors):
+    def test_valid_priors_pass(self, simple_statistical_model_spec, simple_priors):
         """Simple spec + priors + polars data -> is_valid=True with all checks passing."""
         data_for_model = _make_polars_data()
         is_valid, results, _samples = validate_prior_predictive(
-            simple_model_spec, simple_priors, data_for_model, n_samples=10
+            simple_statistical_model_spec, simple_priors, data_for_model, n_samples=10
         )
         assert is_valid is True
         assert len(results) > 0
@@ -222,7 +224,7 @@ class TestPriorPredictiveValidation:
 
     def test_no_data_uses_support_compatible_dummy_build_data(self):
         """Support-restricted likelihoods should still validate without raw data."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "screen_gap",
@@ -255,7 +257,7 @@ class TestPriorPredictiveValidation:
             return_value={"vf_0_decay": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
-                model_spec, priors, None, n_samples=2
+                statistical_model_spec, priors, None, n_samples=2
             )
 
         assert is_valid is True
@@ -263,7 +265,7 @@ class TestPriorPredictiveValidation:
 
     def test_materialize_stage4_result_persists_validation_warnings(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Final Stage 4 artifacts should carry non-fatal validation warnings."""
@@ -273,7 +275,7 @@ class TestPriorPredictiveValidation:
         )
 
         validation = AssemblyValidation(
-            normalized_model_spec=simple_model_spec,
+            normalized_statistical_model_spec=simple_statistical_model_spec,
             compile_ok=True,
             diagnostics=[
                 PriorValidationResult(
@@ -310,11 +312,11 @@ class TestPriorPredictiveValidation:
             ),
         ):
             result = materialize_stage4_result(
-                model_spec=simple_model_spec,
+                statistical_model_spec=simple_statistical_model_spec,
                 authored_priors=simple_priors,
                 data_for_model=_make_polars_data(),
                 indicator_audits=None,
-                causal_spec=None,
+                causal_design=None,
                 validation=validation,
             )
 
@@ -324,7 +326,7 @@ class TestPriorPredictiveValidation:
 
     def test_validate_assembly_reuses_compiled_artifact_for_prior_checks(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Stage 4 should compile once per validation attempt and pass that artifact through."""
@@ -348,7 +350,7 @@ class TestPriorPredictiveValidation:
             ),
         ):
             validation = validate_assembly(
-                simple_model_spec,
+                simple_statistical_model_spec,
                 simple_priors,
                 _make_polars_data(),
                 None,
@@ -361,7 +363,7 @@ class TestPriorPredictiveValidation:
 
     def test_validate_assembly_keeps_lagged_prior_mismatches_as_warnings(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Lagged DT/CT heuristics should surface as warnings, not compile errors."""
@@ -398,7 +400,7 @@ class TestPriorPredictiveValidation:
             ) as pp_mock,
         ):
             validation = validate_assembly(
-                simple_model_spec,
+                simple_statistical_model_spec,
                 simple_priors,
                 _make_polars_data(),
                 None,
@@ -426,7 +428,7 @@ class TestPriorPredictiveValidation:
 
     def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Explicit compiled_ssm should bypass compile_ssm_artifact entirely."""
@@ -461,7 +463,7 @@ class TestPriorPredictiveValidation:
             ),
         ):
             is_valid, results, _samples = validate_prior_predictive(
-                simple_model_spec,
+                simple_statistical_model_spec,
                 simple_priors,
                 _make_polars_data(),
                 n_samples=3,
@@ -473,7 +475,7 @@ class TestPriorPredictiveValidation:
 
     def test_validate_prior_predictive_reports_log_link_mean_overflow(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Prior predictive should surface predictive-mean overflow as a typed diagnostic."""
@@ -505,7 +507,7 @@ class TestPriorPredictiveValidation:
             ),
         ):
             is_valid, results, _samples = validate_prior_predictive(
-                simple_model_spec,
+                simple_statistical_model_spec,
                 simple_priors,
                 _make_polars_data(),
                 n_samples=3,
@@ -618,7 +620,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_preserves_authored_metadata_for_lossy_bindings(
         self,
-        simple_model_spec,
+        simple_statistical_model_spec,
         simple_priors,
     ):
         """Resolved public priors should retain authored semantics when compilation is lossy."""
@@ -627,7 +629,7 @@ class TestPriorPredictiveValidation:
             resolve_prior_proposals,
         )
 
-        compiled_ssm = compile_ssm_artifact(simple_model_spec, simple_priors)
+        compiled_ssm = compile_ssm_artifact(simple_statistical_model_spec, simple_priors)
         resolved = {
             prior["parameter"]: prior
             for prior in resolve_prior_proposals(compiled_ssm, authored_priors=simple_priors)
@@ -824,8 +826,8 @@ class TestPriorPredictiveValidation:
 class TestFailedParameters:
     """Test failed parameter localization."""
 
-    def test_scale_mismatch_with_causal_spec_targets_construct(self):
-        """Scale mismatch with causal_spec targets only the affected construct."""
+    def test_scale_mismatch_with_causal_design_targets_construct(self):
+        """Scale mismatch with causal_design targets only the affected construct."""
         results = [
             PriorValidationResult(
                 parameter="scale_mood_score",
@@ -834,7 +836,7 @@ class TestFailedParameters:
                 suggested_adjustment=None,
             ),
         ]
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "measurement": {
                     "model_clock": "1d",
@@ -846,7 +848,7 @@ class TestFailedParameters:
             }
         )
         all_params = ["rho_mood", "sigma_mood", "rho_stress", "sigma_stress", "beta_stress_mood"]
-        failed = get_failed_parameters(results, all_params, causal_spec=causal_spec)
+        failed = get_failed_parameters(results, all_params, causal_design=causal_design)
         # Only mood-related params should be re-elicited
         assert "rho_mood" in failed
         assert "sigma_mood" in failed
@@ -861,7 +863,7 @@ class TestFailedParameters:
 class TestSSMPriorConversion:
     """Test that priors with non-Normal distributions convert correctly."""
 
-    def test_beta_prior_converts_to_mu_sigma(self, simple_model_spec):
+    def test_beta_prior_converts_to_mu_sigma(self, simple_statistical_model_spec):
         """Beta(2,2) AR prior converts via AR-to-dynamics transform."""
         import math
 
@@ -877,7 +879,7 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            simple_model_spec,
+            simple_statistical_model_spec,
             ssm_spec=ssm_spec,
         )
 
@@ -889,7 +891,9 @@ class TestSSMPriorConversion:
         sigma_val = _positive_prior_sd_for_parameter(ssm_priors, index_maps, "rho_mood")
         assert sigma_val > 0.4  # delta method sigma
 
-    def test_structured_prior_requires_structural_binding_for_residual_sd(self, simple_model_spec):
+    def test_structured_prior_requires_structural_binding_for_residual_sd(
+        self, simple_statistical_model_spec
+    ):
         """Structured priors should fail without a translated SSM binding."""
         priors = {
             "sigma_mood": {
@@ -901,20 +905,28 @@ class TestSSMPriorConversion:
             },
         }
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
-            compile_ssm_priors(priors, simple_model_spec, ssm_spec=None)
+            compile_ssm_priors(priors, simple_statistical_model_spec, ssm_spec=None)
 
-    def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
+    def test_compile_ssm_inputs_validates_dict_once(
+        self, simple_statistical_model_spec, simple_priors
+    ):
         """Compilation should validate a dict spec once, then pass the parsed object through."""
-        from nof1_causal_lab.artifacts import ModelSpec
+        from nof1_causal_lab.artifacts import StatisticalModelSpec
 
-        with patch.object(ModelSpec, "model_validate", wraps=ModelSpec.model_validate) as validate:
-            compile_ssm_inputs_from_model_spec(simple_model_spec, simple_priors)
+        with patch.object(
+            StatisticalModelSpec, "model_validate", wraps=StatisticalModelSpec.model_validate
+        ) as validate:
+            compile_ssm_inputs_from_statistical_model_spec(
+                simple_statistical_model_spec, simple_priors
+            )
 
         assert validate.call_count == 1
 
-    def test_structured_prior_requires_structural_binding_for_loading(self, simple_model_spec):
+    def test_structured_prior_requires_structural_binding_for_loading(
+        self, simple_statistical_model_spec
+    ):
         """Loading priors should fail without a translated SSM binding."""
-        spec = dict(simple_model_spec)
+        spec = dict(simple_statistical_model_spec)
         spec["parameters"] = [
             {
                 "name": "lambda_mood",
@@ -935,21 +947,21 @@ class TestSSMPriorConversion:
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
             compile_ssm_priors(priors, spec, ssm_spec=None)
 
-    def test_unbound_prior_name_fails_without_model_spec(self):
-        """Semantic prior compilation should fail fast when model_spec is missing."""
+    def test_unbound_prior_name_fails_without_statistical_model_spec(self):
+        """Semantic prior compilation should fail fast when statistical_model_spec is missing."""
         priors = {
             "rho_x": {
                 "distribution": "Normal",
                 "params": {"mu": -0.3, "sigma": 0.5},
             },
         }
-        with pytest.raises(ValueError, match="requires model_spec"):
+        with pytest.raises(ValueError, match="requires statistical_model_spec"):
             compile_ssm_priors(priors, {}, ssm_spec=None)
 
     def test_compile_priors_aggregates_independent_prior_errors(self):
         """Independent prior compile failures should be reported together."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood",
@@ -980,7 +992,7 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="Prior compilation failed") as exc_info:
-            compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
+            compile_ssm_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
 
         message = str(exc_info.value)
         assert "Prior compilation failed" in message
@@ -989,10 +1001,10 @@ class TestSSMPriorConversion:
         assert "bogus_param" in message
 
     def test_compile_ssm_artifact_aggregates_strict_binding_errors(self):
-        """Strict causal-spec binding errors should be reported together."""
+        """Strict causal-design binding errors should be reported together."""
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1036,7 +1048,7 @@ class TestSSMPriorConversion:
                 },
             }
         )
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1097,7 +1109,7 @@ class TestSSMPriorConversion:
         }
 
         with pytest.raises(ValueError, match="Prior index binding failed") as exc_info:
-            compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
+            compile_ssm_artifact(statistical_model_spec, priors, causal_design=causal_design)
 
         message = str(exc_info.value)
         assert "Prior index binding failed" in message
@@ -1108,7 +1120,7 @@ class TestSSMPriorConversion:
         """Multiple AR params map to separate dynamics-decay entries."""
         import math
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1145,7 +1157,7 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
         )
 
@@ -1173,7 +1185,7 @@ class TestSSMPriorConversion:
         """Hourly construct → dt=1/24, producing larger dynamics magnitude."""
         import math
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {"variable": "hr", "distribution": "gaussian", "link": "identity", "reasoning": ""},
             ],
@@ -1189,7 +1201,7 @@ class TestSSMPriorConversion:
         priors = {
             "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
         }
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1206,9 +1218,9 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
@@ -1221,7 +1233,7 @@ class TestSSMPriorConversion:
     def test_beta_prior_dt_to_ct_transform(self):
         """FIXED_EFFECT beta priors are converted via element-wise beta/dt scaling."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1272,7 +1284,7 @@ class TestSSMPriorConversion:
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1284,7 +1296,7 @@ class TestSSMPriorConversion:
     def test_dt_ct_warning_uses_full_matrix_logm(self):
         """Cross-lag diagnostics should use logm(Phi)/dt, not beta/dt."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1334,7 +1346,7 @@ class TestSSMPriorConversion:
 
         _ssm_priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1353,7 +1365,7 @@ class TestSSMPriorConversion:
     def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
         """Lagged-edge diagnostics should mention the default authored interval semantics."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "sleep",
@@ -1399,7 +1411,7 @@ class TestSSMPriorConversion:
 
         _priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1416,7 +1428,7 @@ class TestSSMPriorConversion:
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "sleep",
@@ -1463,7 +1475,7 @@ class TestSSMPriorConversion:
 
         _priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1479,7 +1491,7 @@ class TestSSMPriorConversion:
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {"variable": "hr", "distribution": "gaussian", "link": "identity", "reasoning": ""},
                 {
@@ -1518,7 +1530,7 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
         }
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1547,9 +1559,9 @@ class TestSSMPriorConversion:
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
@@ -1563,7 +1575,7 @@ class TestSSMPriorConversion:
         assert abs(mu_val - expected_mu) < 0.5
 
     def test_compile_ssm_inputs_attaches_direct_writer_to_dt_ct_warning(self):
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "hr",
@@ -1626,7 +1638,7 @@ class TestSSMPriorConversion:
             "sigma_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
             "sigma_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1667,10 +1679,10 @@ class TestSSMPriorConversion:
         )
 
         _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days = (
-            compile_ssm_inputs_from_model_spec(
-                model_spec,
+            compile_ssm_inputs_from_statistical_model_spec(
+                statistical_model_spec,
                 priors,
-                causal_spec=causal_spec,
+                causal_design=causal_design,
             )
         )
 
@@ -1687,18 +1699,18 @@ class TestSSMPriorConversion:
 
 
 class TestTrialCompile:
-    """Test trial_compile_model_spec catches structural errors early."""
+    """Test trial_compile_statistical_model_spec catches structural errors early."""
 
-    def test_valid_spec_returns_none(self, simple_model_spec):
+    def test_valid_spec_returns_none(self, simple_statistical_model_spec):
         """A well-formed spec compiles successfully with default priors."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
-        result = trial_compile_model_spec(simple_model_spec)
+        result = trial_compile_statistical_model_spec(simple_statistical_model_spec)
         assert result is None
 
     def test_compile_failure_returns_error(self):
         """When compilation raises, trial_compile returns the error string."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
         spec = {
             "likelihoods": [
@@ -1722,13 +1734,13 @@ class TestTrialCompile:
             "nof1_causal_lab.models.ssm.compile.artifact._compile_validated_ssm_artifact",
             side_effect=ValueError("dimension mismatch in dynamics matrix"),
         ):
-            result = trial_compile_model_spec(spec)
+            result = trial_compile_statistical_model_spec(spec)
         assert result is not None
         assert "dimension mismatch" in result
 
     def test_role_constraint_mismatch_returns_error(self):
         """Compiler should reject parameter-role constraint mismatches."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
         spec = {
             "likelihoods": [
@@ -1755,14 +1767,14 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_model_spec(spec)
+        result = trial_compile_statistical_model_spec(spec)
 
         assert result is not None
         assert "constraint 'none' unexpected for role 'residual_sd'" in result
 
     def test_missing_ar_parameters_returns_error(self):
-        """Compiler should reject ModelSpecs with no latent dimensionality signal."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        """Compiler should reject StatisticalModelSpecs with no latent dimensionality signal."""
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
         spec = {
             "likelihoods": [
@@ -1783,14 +1795,14 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_model_spec(spec)
+        result = trial_compile_statistical_model_spec(spec)
 
         assert result is not None
         assert "No AR_COEFFICIENT parameters found" in result
 
     def test_rank_deficient_structure_returns_error(self):
-        """Compiler should reject model specs with fewer manifests than latents."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        """Compiler should reject statistical model specs with fewer manifests than latents."""
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
         spec = {
             "likelihoods": [
@@ -1810,7 +1822,7 @@ class TestTrialCompile:
                 }
             ],
         }
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1850,16 +1862,16 @@ class TestTrialCompile:
             }
         )
 
-        result = trial_compile_model_spec(spec, causal_spec)
+        result = trial_compile_statistical_model_spec(spec, causal_design)
 
         assert result is not None
         assert "Loading matrix is rank-deficient" in result
 
     def test_trial_compile_aggregates_initial_state_translation_errors(self):
         """Translation should report multiple initial-state correlation errors together."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
 
-        causal_spec = _with_positive_indicator_polarity(
+        causal_design = _with_positive_indicator_polarity(
             {
                 "latent": {
                     "constructs": [
@@ -1948,7 +1960,7 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_model_spec(spec, causal_spec)
+        result = trial_compile_statistical_model_spec(spec, causal_design)
 
         assert result is not None
         assert "no longer accepts INITIAL_STATE_CORRELATION parameters" in result

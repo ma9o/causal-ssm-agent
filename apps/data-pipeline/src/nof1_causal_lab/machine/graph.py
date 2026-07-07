@@ -8,12 +8,12 @@ three ways:
 - **written** directly (roots, and produced artifacts flagged ``writable``),
 - **derived** — a deterministic milestone recomputed whenever its parent
   artifact is (re)created, by run *or* by write (``identification_report`` from
-  ``causal_spec``). A derived artifact has no independent producer and is never
+  ``causal_design``). A derived artifact has no independent producer and is never
   written directly.
 
 Run legality is a pure existence check over a transition's ``consumes`` — no
 content predicates. The epistemic gate ("numeric claims only when
-identification supports them") emerges structurally: ``causal_spec`` derives
+identification supports them") emerges structurally: ``causal_design`` derives
 ``identification_report`` only when at least one treatment is explicitly
 identifiable, and ``compiled_ssm`` consumes that milestone, so fitting and
 interventions are simply never enabled without it.
@@ -85,21 +85,21 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition(
         stage_id="stage-1a",
         consumes=("question",),
-        produces=("constructs",),
+        produces=("latent_structure",),
         creation_class="judgment",
         writable=True,
     ),
     Transition(
         stage_id="stage-1b",
-        consumes=("question", "raw_data", "constructs"),
-        produces=("causal_spec",),
+        consumes=("question", "raw_data", "latent_structure"),
+        produces=("causal_design",),
         creation_class="judgment",
         derives=("identification_report",),
         writable=True,
     ),
     Transition(
         stage_id="stage-2",
-        consumes=("question", "raw_data", "causal_spec"),
+        consumes=("question", "raw_data", "causal_design"),
         produces=("extraction_report",),
         creation_class="batch_llm",
         produces_optional=("model_data",),
@@ -107,7 +107,7 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     ),
     Transition(
         stage_id="stage-3",
-        consumes=("causal_spec", "model_data"),
+        consumes=("causal_design", "model_data"),
         produces=("validation_report",),
         creation_class="deterministic",
         writable=True,
@@ -116,7 +116,7 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
         stage_id="stage-4",
         consumes=(
             "question",
-            "causal_spec",
+            "causal_design",
             "identification_report",
             "model_data",
             "validation_report",
@@ -132,7 +132,7 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     ),
     Transition(
         stage_id="stage-6",
-        consumes=("posterior", "causal_spec", "identification_report"),
+        consumes=("posterior", "causal_design", "identification_report"),
         produces=("baseline_ranking",),
         creation_class="judgment",
         writable=True,

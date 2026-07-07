@@ -5,7 +5,7 @@ import stage1bFixture from "../../__fixtures__/demo-run/stage-1b.json";
 const stage1a = stage1aFixture as unknown as Stage1aData;
 const stage1b = stage1bFixture as unknown as Stage1bData;
 
-export const constructs = stage1a.latent_model.constructs;
-export const edges = stage1a.latent_model.edges;
-const spec = stage1b.causal_spec;
+export const constructs = stage1a.latent_structure.constructs;
+export const edges = stage1a.latent_structure.edges;
+const spec = stage1b.causal_design;
 export const indicators = spec.measurement.indicators;

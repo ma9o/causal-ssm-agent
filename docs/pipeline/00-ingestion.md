@@ -13,7 +13,7 @@ Normalizes the latest uploaded raw export into one typed Polars dataframe.
 | File upload | User | Single file or a zip bundle containing the raw data |
 | `workspace_id` | Pipeline request | Identifies the workspace. Stage 0 scans `data/{workspace_id}/input/` and selects the most recent non-hidden file. |
 
-The ingestion agent can normalize most tabular or semi-structured formats as long as the data has a time dimension. Other columns can feed either [computed or semantic](01b-measurement-identifiability.md#extraction-modes) indicators downstream.
+The ingestion agent can normalize most tabular or semi-structured formats as long as the data has a time dimension. Other columns can feed either [computed or semantic](01b-measurement-structure-identifiability.md#extraction-modes) indicators downstream.
 
 ## Process
 

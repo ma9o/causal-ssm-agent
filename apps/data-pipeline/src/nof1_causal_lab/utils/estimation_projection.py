@@ -6,7 +6,7 @@ from collections import defaultdict
 from itertools import combinations
 from typing import Any
 
-from nof1_causal_lab.artifacts.latent_model import Role, TemporalStatus
+from nof1_causal_lab.artifacts.latent_structure import Role, TemporalStatus
 from nof1_causal_lab.utils.identifiability import (
     analyze_unobserved_constructs,
     get_observed_constructs,
@@ -14,8 +14,8 @@ from nof1_causal_lab.utils.identifiability import (
 
 
 def build_estimation_projection(
-    latent_model: dict,
-    measurement_model: dict,
+    latent_structure: dict,
+    measurement_structure: dict,
     identifiability_result: dict | None,
     known_inputs: list[dict] | None = None,
 ) -> dict[str, Any]:
@@ -39,28 +39,28 @@ def build_estimation_projection(
     identifiability = identifiability_result or {}
     construct_lookup = {
         construct["name"]: construct
-        for construct in latent_model.get("constructs", [])
+        for construct in latent_structure.get("constructs", [])
         if isinstance(construct, dict) and isinstance(construct.get("name"), str)
     }
 
     parents_by_construct: dict[str, set[str]] = defaultdict(set)
     children_by_construct: dict[str, set[str]] = defaultdict(set)
-    for edge in latent_model.get("edges", []):
+    for edge in latent_structure.get("edges", []):
         cause = edge.get("cause")
         effect = edge.get("effect")
         if isinstance(cause, str) and isinstance(effect, str):
             parents_by_construct[effect].add(cause)
             children_by_construct[cause].add(effect)
 
-    observed_constructs = get_observed_constructs(measurement_model)
+    observed_constructs = get_observed_constructs(measurement_structure)
     known_input_payloads = [dict(item) for item in (known_inputs or [])]
     known_input_names = {
         item["construct"] for item in known_input_payloads if isinstance(item.get("construct"), str)
     }
 
     analysis = analyze_unobserved_constructs(
-        latent_model,
-        measurement_model,
+        latent_structure,
+        measurement_structure,
         identifiability,
     )
     can_marginalize = set(analysis.get("can_marginalize", set()))
@@ -80,11 +80,11 @@ def build_estimation_projection(
         marginalizable_roots.add(name)
 
     retained_names = set(observed_constructs) - known_input_names
-    state_order = _build_state_order(latent_model, retained_names)
+    state_order = _build_state_order(latent_structure, retained_names)
 
     retained_edges = [
         edge
-        for edge in latent_model.get("edges", [])
+        for edge in latent_structure.get("edges", [])
         if edge.get("effect") in retained_names
         and edge.get("cause") in (retained_names | known_input_names)
     ]
@@ -133,13 +133,13 @@ def build_estimation_projection(
 
 
 def _build_state_order(
-    latent_model: dict,
+    latent_structure: dict,
     retained_names: set[str],
 ) -> list[str]:
     """Canonical state ordering: retained time-varying, then retained time-invariant."""
     time_varying: list[str] = []
     time_invariant: list[str] = []
-    for construct in latent_model.get("constructs", []):
+    for construct in latent_structure.get("constructs", []):
         name = construct.get("name")
         if not isinstance(name, str) or name not in retained_names:
             continue

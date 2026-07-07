@@ -2,8 +2,8 @@
 
 | File | Current pipeline area | What it tests |
 |------|-----------------------|---------------|
-| `evals/single_model/eval1a_latent_model.py` | Stage 1a | Latent model proposal (orchestrator) |
-| `evals/single_model/eval1b_measurement_model.py` | Stage 1b | Measurement model proposal |
+| `evals/single_model/eval1a_latent_structure.py` | Stage 1a | Latent structure proposal (orchestrator) |
+| `evals/single_model/eval1b_measurement_structure.py` | Stage 1b | Measurement structure proposal |
 | `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
 | `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
 | `evals/multi_model/eval_demo_health_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `DEMO` fixture |
@@ -43,7 +43,7 @@ uv run python evals/scripts/run_parallel_evals.py -q 1,3
 uv run inspect eval <eval_file> --model <model> [-T workspace_id=<WS>]
 
 # Example: Stage 1a with a specific model
-uv run inspect eval evals/single_model/eval1a_latent_model.py \
+uv run inspect eval evals/single_model/eval1a_latent_structure.py \
     --model openrouter/anthropic/claude-opus-4.6
 
 # DEMO fixture eval (multi-model, no --model flag)

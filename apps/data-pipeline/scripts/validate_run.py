@@ -31,9 +31,10 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from nof1_causal_lab.machine.artifacts import ArtifactId
+
 from nof1_causal_lab.flows.run_store import load_parquet
 from nof1_causal_lab.flows.stage_contracts import STAGE_CONTRACTS
-from nof1_causal_lab.machine.artifacts import ArtifactId
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import topological_stage_order
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, current_artifact_file
@@ -64,8 +65,8 @@ class RunContext:
 
 STAGE_RESULT_ARTIFACTS: dict[str, tuple[ArtifactId, str]] = {
     "stage-0": ("raw_data", "profile"),
-    "stage-1a": ("constructs", "constructs"),
-    "stage-1b": ("causal_spec", "causal_spec"),
+    "stage-1a": ("latent_structure", "latent_structure"),
+    "stage-1b": ("causal_design", "causal_design"),
     "stage-2": ("extraction_report", "extraction_report"),
     "stage-3": ("validation_report", "validation_report"),
     "stage-4": ("compiled_ssm", "report"),
@@ -157,7 +158,7 @@ def _outcome_name(latent: dict[str, Any]) -> str | None:
 
 
 def _stage1b_indicators(stage_1b: dict[str, Any]) -> list[dict[str, Any]]:
-    indicators = stage_1b.get("causal_spec", {}).get("measurement", {}).get("indicators", [])
+    indicators = stage_1b.get("causal_design", {}).get("measurement", {}).get("indicators", [])
     return [i for i in indicators if isinstance(i, dict)]
 
 
@@ -232,9 +233,9 @@ def rule_stage0_columns_match_raw_parquet(ctx: RunContext) -> list[LineageIssue]
 def rule_constructs_stable_1a_1b(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages:
         return []
-    names_1a = set(_construct_names(ctx.stages["stage-1a"].get("latent_model", {})))
+    names_1a = set(_construct_names(ctx.stages["stage-1a"].get("latent_structure", {})))
     names_1b = set(
-        _construct_names(ctx.stages["stage-1b"].get("causal_spec", {}).get("latent", {}))
+        _construct_names(ctx.stages["stage-1b"].get("causal_design", {}).get("latent", {}))
     )
     issues: list[LineageIssue] = []
     if only_1a := names_1a - names_1b:
@@ -261,8 +262,8 @@ def rule_constructs_stable_1a_1b(ctx: RunContext) -> list[LineageIssue]:
 def rule_construct_attributes_stable(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages:
         return []
-    map_1a = _construct_map(ctx.stages["stage-1a"].get("latent_model", {}))
-    map_1b = _construct_map(ctx.stages["stage-1b"].get("causal_spec", {}).get("latent", {}))
+    map_1a = _construct_map(ctx.stages["stage-1a"].get("latent_structure", {}))
+    map_1b = _construct_map(ctx.stages["stage-1b"].get("causal_design", {}).get("latent", {}))
     attrs = ("role", "temporal_status", "is_outcome")
     issues: list[LineageIssue] = []
     for name in sorted(map_1a.keys() & map_1b.keys()):
@@ -283,8 +284,8 @@ def rule_construct_attributes_stable(ctx: RunContext) -> list[LineageIssue]:
 def rule_outcome_stable(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages:
         return []
-    outcome_1a = _outcome_name(ctx.stages["stage-1a"].get("latent_model", {}))
-    outcome_1b = _outcome_name(ctx.stages["stage-1b"].get("causal_spec", {}).get("latent", {}))
+    outcome_1a = _outcome_name(ctx.stages["stage-1a"].get("latent_structure", {}))
+    outcome_1b = _outcome_name(ctx.stages["stage-1b"].get("causal_design", {}).get("latent", {}))
     if outcome_1a is None:
         return [
             LineageIssue(
@@ -319,9 +320,9 @@ def _edge_tuples(edges: list[dict[str, Any]]) -> set[tuple[str, str, bool]]:
 def rule_stage1b_edges_monotonic_1a(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages:
         return []
-    e1a = _edge_tuples(ctx.stages["stage-1a"].get("latent_model", {}).get("edges") or [])
+    e1a = _edge_tuples(ctx.stages["stage-1a"].get("latent_structure", {}).get("edges") or [])
     e1b = _edge_tuples(
-        ctx.stages["stage-1b"].get("causal_spec", {}).get("latent", {}).get("edges") or []
+        ctx.stages["stage-1b"].get("causal_design", {}).get("latent", {}).get("edges") or []
     )
     invented = e1b - e1a
     if not invented:
@@ -343,7 +344,7 @@ def rule_stage1b_edges_monotonic_1a(ctx: RunContext) -> list[LineageIssue]:
 def rule_outcome_has_indicator(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages:
         return []
-    outcome = _outcome_name(ctx.stages["stage-1a"].get("latent_model", {}))
+    outcome = _outcome_name(ctx.stages["stage-1a"].get("latent_structure", {}))
     if outcome is None:
         return []  # rule-outcome-stable owns this case
     indicators_for_outcome = [
@@ -437,7 +438,7 @@ def rule_likelihood_variables_in_1b_indicators(ctx: RunContext) -> list[LineageI
     if "stage-1b" not in ctx.stages or "stage-4" not in ctx.stages:
         return []
     indicators = _stage1b_indicator_names(ctx.stages["stage-1b"])
-    likelihoods = ctx.stages["stage-4"].get("model_spec", {}).get("likelihoods") or []
+    likelihoods = ctx.stages["stage-4"].get("statistical_model_spec", {}).get("likelihoods") or []
     used = {lk.get("variable") for lk in likelihoods if isinstance(lk, dict) and lk.get("variable")}
     unknown = used - indicators
     if not unknown:
@@ -458,7 +459,7 @@ def rule_likelihood_variables_in_1b_indicators(ctx: RunContext) -> list[LineageI
 def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-1b" not in ctx.stages or "stage-4" not in ctx.stages:
         return []
-    outcome = _outcome_name(ctx.stages["stage-1a"].get("latent_model", {}))
+    outcome = _outcome_name(ctx.stages["stage-1a"].get("latent_structure", {}))
     if outcome is None:
         return []
     outcome_indicators = {
@@ -468,7 +469,7 @@ def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIss
     }
     if not outcome_indicators:
         return []  # rule-outcome-has-indicator owns this case
-    likelihoods = ctx.stages["stage-4"].get("model_spec", {}).get("likelihoods") or []
+    likelihoods = ctx.stages["stage-4"].get("statistical_model_spec", {}).get("likelihoods") or []
     likelihood_vars = {
         lk.get("variable") for lk in likelihoods if isinstance(lk, dict) and lk.get("variable")
     }
@@ -489,15 +490,15 @@ def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIss
 
 
 def rule_stage4_priors_target_params(ctx: RunContext) -> list[LineageIssue]:
-    # Only ``authored_priors`` is constrained to ``model_spec.parameters``.
+    # Only ``authored_priors`` is constrained to ``statistical_model_spec.parameters``.
     # ``resolved_priors`` is intentionally a superset: the SSM compiler adds
     # implicit ``t0_mean_<latent>`` / ``t0_sd_<latent>`` rows for every latent
     # construct via ``_build_compiled_initial_state_priors``, regardless of
-    # whether the parameter is tracked in ``model_spec.parameters``.
+    # whether the parameter is tracked in ``statistical_model_spec.parameters``.
     if "stage-4" not in ctx.stages:
         return []
     payload = ctx.stages["stage-4"]
-    params = payload.get("model_spec", {}).get("parameters", []) or []
+    params = payload.get("statistical_model_spec", {}).get("parameters", []) or []
     param_names = {p["name"] for p in params if isinstance(p, dict) and "name" in p}
     authored = set((payload.get("authored_priors") or {}).keys())
     unknown = authored - param_names
@@ -516,7 +517,7 @@ def rule_stage4_priors_target_params(ctx: RunContext) -> list[LineageIssue]:
 def rule_stage5b_posterior_covers_stage4_params(ctx: RunContext) -> list[LineageIssue]:
     if "stage-4" not in ctx.stages or "stage-5b" not in ctx.stages:
         return []
-    params = ctx.stages["stage-4"].get("model_spec", {}).get("parameters") or []
+    params = ctx.stages["stage-4"].get("statistical_model_spec", {}).get("parameters") or []
     param_names = {p["name"] for p in params if isinstance(p, dict) and "name" in p}
     marginals = ctx.stages["stage-5b"].get("posterior_marginals") or []
     posterior_names = {
@@ -583,7 +584,7 @@ def rule_stage5b_posterior_pairs_in_marginals(ctx: RunContext) -> list[LineageIs
 def rule_stage6_treatments_known(ctx: RunContext) -> list[LineageIssue]:
     if "stage-1a" not in ctx.stages or "stage-6" not in ctx.stages:
         return []
-    constructs = set(_construct_names(ctx.stages["stage-1a"].get("latent_model", {})))
+    constructs = set(_construct_names(ctx.stages["stage-1a"].get("latent_structure", {})))
     treatments = {
         ir.get("treatment")
         for ir in (ctx.stages["stage-6"].get("intervention_results") or [])
@@ -612,7 +613,7 @@ def rule_stage6_treatments_identifiable(ctx: RunContext) -> list[LineageIssue]:
     }
     if not treatments:
         return []
-    ident = ctx.stages["stage-1b"].get("causal_spec", {}).get("identifiability")
+    ident = ctx.stages["stage-1b"].get("causal_design", {}).get("identifiability")
     if not isinstance(ident, dict):
         return [
             LineageIssue(

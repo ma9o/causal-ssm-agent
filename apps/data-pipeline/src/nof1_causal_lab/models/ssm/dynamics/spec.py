@@ -327,7 +327,7 @@ class NodePotentialSpec:
         if self.fixed_stiffness is None:
             # Stiffness is the relaxation rate (the decay): expose it through the
             # same persistence (``rho_``) / decay (``decay_``) authoring contract
-            # as StateDecay, so causal-spec priors resolve identically.
+            # as StateDecay, so causal-design priors resolve identically.
             stiffness_site = self.decay_site_name(prefix)
             yield SemanticBinding(
                 parameter_name=f"rho_{latent_name}",

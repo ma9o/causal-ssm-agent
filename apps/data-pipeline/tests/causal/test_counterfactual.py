@@ -356,7 +356,7 @@ class TestComputeInterventions:
             treatments=["A"],
             outcome="B",
             latent_names=["A", "B"],
-            causal_spec={"measurement": {"model_clock": "1d"}},
+            causal_design={"measurement": {"model_clock": "1d"}},
             manifest_names=["sleep_problem_search_count"],
             lambda_mean=jnp.mean(lambda_draws, axis=0),
         )

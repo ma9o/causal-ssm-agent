@@ -39,6 +39,49 @@
       "title": "AnchorPolicy",
       "type": "string"
     },
+    "CausalDesign": {
+      "description": "Complete causal design combining latent and measurement structures.",
+      "properties": {
+        "latent": {
+          "$ref": "#/$defs/LatentStructure",
+          "description": "Theoretical causal structure (topological)"
+        },
+        "measurement": {
+          "$ref": "#/$defs/MeasurementStructure",
+          "description": "Operationalization into indicators"
+        },
+        "identifiability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentifiabilityStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identifiability status of target causal effects"
+        },
+        "estimation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EstimationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deterministic estimation-time projection consumed by downstream fitting"
+        }
+      },
+      "required": [
+        "latent",
+        "measurement"
+      ],
+      "title": "CausalDesign",
+      "type": "object"
+    },
     "CausalEdge": {
       "description": "A directed causal relationship between constructs.",
       "properties": {
@@ -80,49 +123,6 @@
         "sources"
       ],
       "title": "CausalEdge",
-      "type": "object"
-    },
-    "CausalSpec": {
-      "description": "Complete causal specification combining latent and measurement models.",
-      "properties": {
-        "latent": {
-          "$ref": "#/$defs/LatentModel",
-          "description": "Theoretical causal structure (topological)"
-        },
-        "measurement": {
-          "$ref": "#/$defs/MeasurementModel",
-          "description": "Operationalization into indicators"
-        },
-        "identifiability": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/IdentifiabilityStatus"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Identifiability status of target causal effects"
-        },
-        "estimation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EstimationSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Deterministic estimation-time projection consumed by downstream fitting"
-        }
-      },
-      "required": [
-        "latent",
-        "measurement"
-      ],
-      "title": "CausalSpec",
       "type": "object"
     },
     "ComputedRule": {
@@ -417,7 +417,7 @@
           "type": "string"
         },
         "aggregation": {
-          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-model support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
+          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
           "title": "Aggregation",
           "type": "string"
         },
@@ -1044,7 +1044,7 @@
       "title": "LOODiagnostics",
       "type": "object"
     },
-    "LatentModel": {
+    "LatentStructure": {
       "description": "Theoretical causal structure over constructs.",
       "properties": {
         "constructs": {
@@ -1068,7 +1068,7 @@
         "constructs",
         "edges"
       ],
-      "title": "LatentModel",
+      "title": "LatentStructure",
       "type": "object"
     },
     "LikelihoodSource": {
@@ -1358,7 +1358,7 @@
       "title": "MCMCParamDiagnostic",
       "type": "object"
     },
-    "MeasurementModel": {
+    "MeasurementStructure": {
       "description": "Operationalization of constructs into observed indicators.",
       "properties": {
         "indicators": {
@@ -1379,53 +1379,7 @@
         "indicators",
         "model_clock"
       ],
-      "title": "MeasurementModel",
-      "type": "object"
-    },
-    "ModelSpec": {
-      "description": "Complete statistical model specification.",
-      "properties": {
-        "likelihoods": {
-          "description": "Likelihood specifications for each observed indicator",
-          "items": {
-            "$ref": "#/$defs/LikelihoodSpec"
-          },
-          "title": "Likelihoods",
-          "type": "array"
-        },
-        "parameters": {
-          "description": "All parameters requiring priors",
-          "items": {
-            "$ref": "#/$defs/ParameterSpec"
-          },
-          "title": "Parameters",
-          "type": "array"
-        },
-        "initialization_policy": {
-          "$ref": "#/$defs/InitializationPolicy",
-          "default": "stationary",
-          "description": "Whether dynamic-state initial conditions are stationary-derived or free"
-        },
-        "observation_intercept_policy": {
-          "$ref": "#/$defs/ObservationInterceptPolicy",
-          "default": "free",
-          "description": "Whether eligible manifest intercepts remain free or are fixed"
-        },
-        "equilibrium_forcing": {
-          "default": false,
-          "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
-          "title": "Equilibrium Forcing",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "equilibrium_forcing",
-        "initialization_policy",
-        "likelihoods",
-        "observation_intercept_policy",
-        "parameters"
-      ],
-      "title": "ModelSpec",
+      "title": "MeasurementStructure",
       "type": "object"
     },
     "NonIdentifiableTreatmentStatus": {
@@ -2200,12 +2154,12 @@
           ],
           "default": null
         },
-        "latent_model": {
-          "$ref": "#/$defs/LatentModel"
+        "latent_structure": {
+          "$ref": "#/$defs/LatentStructure"
         }
       },
       "required": [
-        "latent_model"
+        "latent_structure"
       ],
       "title": "Stage1aContract",
       "type": "object"
@@ -2224,12 +2178,12 @@
           ],
           "default": null
         },
-        "causal_spec": {
-          "$ref": "#/$defs/CausalSpec"
+        "causal_design": {
+          "$ref": "#/$defs/CausalDesign"
         }
       },
       "required": [
-        "causal_spec"
+        "causal_design"
       ],
       "title": "Stage1bContract",
       "type": "object"
@@ -2306,8 +2260,8 @@
           ],
           "default": null
         },
-        "model_spec": {
-          "$ref": "#/$defs/ModelSpec"
+        "statistical_model_spec": {
+          "$ref": "#/$defs/StatisticalModelSpec"
         },
         "authored_priors": {
           "additionalProperties": {
@@ -2374,8 +2328,8 @@
       },
       "required": [
         "authored_priors",
-        "model_spec",
-        "resolved_priors"
+        "resolved_priors",
+        "statistical_model_spec"
       ],
       "title": "Stage4Contract",
       "type": "object"
@@ -2513,6 +2467,52 @@
         "intervention_results"
       ],
       "title": "Stage6Contract",
+      "type": "object"
+    },
+    "StatisticalModelSpec": {
+      "description": "Complete statistical model specification.",
+      "properties": {
+        "likelihoods": {
+          "description": "Likelihood specifications for each observed indicator",
+          "items": {
+            "$ref": "#/$defs/LikelihoodSpec"
+          },
+          "title": "Likelihoods",
+          "type": "array"
+        },
+        "parameters": {
+          "description": "All parameters requiring priors",
+          "items": {
+            "$ref": "#/$defs/ParameterSpec"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "initialization_policy": {
+          "$ref": "#/$defs/InitializationPolicy",
+          "default": "stationary",
+          "description": "Whether dynamic-state initial conditions are stationary-derived or free"
+        },
+        "observation_intercept_policy": {
+          "$ref": "#/$defs/ObservationInterceptPolicy",
+          "default": "free",
+          "description": "Whether eligible manifest intercepts remain free or are fixed"
+        },
+        "equilibrium_forcing": {
+          "default": false,
+          "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
+          "title": "Equilibrium Forcing",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "equilibrium_forcing",
+        "initialization_policy",
+        "likelihoods",
+        "observation_intercept_policy",
+        "parameters"
+      ],
+      "title": "StatisticalModelSpec",
       "type": "object"
     },
     "SummaryOperator": {

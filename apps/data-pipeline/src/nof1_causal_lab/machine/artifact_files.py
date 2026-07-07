@@ -32,8 +32,8 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
         json={"profile": "profile.json"},
         parquet={"raw": "raw.parquet"},
     ),
-    "constructs": ArtifactFileSpec(json={"constructs": "constructs.json"}),
-    "causal_spec": ArtifactFileSpec(json={"causal_spec": "causal_spec.json"}),
+    "latent_structure": ArtifactFileSpec(json={"latent_structure": "latent-structure.json"}),
+    "causal_design": ArtifactFileSpec(json={"causal_design": "causal_design.json"}),
     "identification_report": ArtifactFileSpec(
         json={"identification_report": "identification_report.json"}
     ),

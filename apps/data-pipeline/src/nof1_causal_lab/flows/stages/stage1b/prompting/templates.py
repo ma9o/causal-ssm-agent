@@ -1,4 +1,4 @@
-"""Stage 1b prompts: Measurement Model (data-driven operationalization)."""
+"""Stage 1b prompts: Measurement Structure (data-driven operationalization)."""
 
 SYSTEM = """\
 You are a measurement specialist. Given a theoretical causal structure and an ingested dataset, propose how to operationalize constructs as observable indicators using the available data columns.
@@ -6,21 +6,21 @@ You are a measurement specialist. Given a theoretical causal structure and an in
 ## Context
 
 You are given:
-1. A latent model with theoretical constructs and causal edges (from Stage 1a)
+1. A latent structure with theoretical constructs and causal edges (from Stage 1a)
 2. A structured dataset with named columns (already parsed from the user's data)
 
 Your job is to propose INDICATORS that operationalize constructs using the available data columns. Each indicator gets a semantic `name` (it does NOT need to match a column name). The `how_to_measure` field must describe exactly how to derive the indicator value from the raw data columns - worker LLMs will follow these instructions to extract values.
 
-Prefer a parsimonious, source-faithful measurement model:
+Prefer a parsimonious, source-faithful measurement structure:
 - Start from raw columns that already directly express the construct.
 - If a direct deterministic measurement exists, operationalize that first.
 - Reuse deterministic computed operationalizations instead of inventing broader semantic proxies for the same construct.
 - Do not introduce wider support windows or weak proxy indicators unless the data genuinely requires them.
 - Do not keep dead measurement baggage. If an indicator has no real support in the available data, remove the indicator. If that leaves a construct with no viable indicators, remove the construct and all incident edges rather than keeping an unmeasured latent.
 
-## Reflective Measurement Model (A1)
+## Reflective Measurement Structure (A1)
 
-We use a REFLECTIVE measurement model: the latent construct CAUSES its indicators.
+We use a REFLECTIVE measurement structure: the latent construct CAUSES its indicators.
 
 ```
 Latent Construct -> Indicator₁
@@ -78,7 +78,7 @@ This field is used downstream to orient the latent factor. Do not leave it impli
 
 How to collapse measurements within each indicator's support window.
 
-Only these aggregation operators are currently supported by the measurement model:
+Only these aggregation operators are currently supported by the measurement structure:
 - `first`: first value in the support window, anchored at the window start
 - `last`: last value in the support window, anchored at the window end
 - `sum`: interval total over the support window
@@ -94,7 +94,7 @@ The aggregated value should reflect the construct's state at that granularity. A
 
 ### observation_window
 
-`model_clock` is the latent-model discretization and the default support window for indicators. Most indicators should omit `observation_window`, which means they summarize one `model_clock` bucket at a time.
+`model_clock` is the latent-structure discretization and the default support window for indicators. Most indicators should omit `observation_window`, which means they summarize one `model_clock` bucket at a time.
 
 Set `observation_window` only when an indicator intentionally summarizes a wider interval than `model_clock`.
 
@@ -181,13 +181,13 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 ## Constraints
 
 1. Every **time-varying** construct MUST have at least one indicator-constructs without indicators are unobserved, and causal effects through them may not be identifiable
-2. Indicators can only reference constructs from the latent model
+2. Indicators can only reference constructs from the latent structure
 3. You CANNOT add new causal edges-only operationalize existing constructs
 5. No direct causal edges between indicators (pure indicators assumption)
 
 ## Refinement Rule
 
-When revising an existing measurement model after validation or downstream extraction feedback:
+When revising an existing measurement structure after validation or downstream extraction feedback:
 - First remove indicators that are unsupported, constant, unusable, or otherwise not genuinely measured by the dataset.
 - Then check construct coverage again.
 - If a construct has no viable indicators left after that cleanup, remove the construct and all of its incident edges.
@@ -231,7 +231,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 ## Validation Tool
 
-You have access to `validate_measurement_model` tool. It checks:
+You have access to `validate_measurement_structure` tool. It checks:
 1. Schema and compiler-level measurement constraints
 2. **Causal identifiability** - whether treatment effects can be estimated from the proposed indicators
 
@@ -243,7 +243,7 @@ If the tool reports identifiability issues, it will tell you:
 - Which treatment effects are blocked and by which unobserved confounders
 - Which confounders need proxy indicators
 
-To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement model (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder - add it as a new indicator with the confounder as its `construct_name`.
+To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement structure (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder - add it as a new indicator with the confounder as its `construct_name`.
 
 If no suitable strong proxy exists in the available data columns, proceed anyway - those effects will remain non-identifiable and be flagged in downstream analysis. Do not invent speculative semantic proxies from sparse incidental text just to satisfy identifiability.
 
@@ -253,9 +253,9 @@ IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validat
 USER = """\
 Question: {question}
 
-## Latent Model (from Stage 1a)
+## Latent Structure (from Stage 1a)
 
-{latent_model_json}
+{latent_structure_json}
 
 ## Dataset Overview
 
@@ -289,7 +289,7 @@ Think very hard.
 """
 
 REVIEW = """\
-Review your proposed measurement model for operationalization coherence.
+Review your proposed measurement structure for operationalization coherence.
 
 ## Check for:
 

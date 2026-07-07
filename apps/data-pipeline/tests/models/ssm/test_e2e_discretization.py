@@ -1,6 +1,6 @@
-"""End-to-end tests: CausalSpec → Model Spec → Prior Conversion → Discretization.
+"""End-to-end tests: CausalDesign -> StatisticalModelSpec -> Prior Conversion -> Discretization.
 
-These tests verify the full chain from a realistic causal specification
+These tests verify the full chain from a realistic causal design
 through DT→CT prior conversion and CT→DT discretization, checking that
 the mathematical roundtrip is consistent.
 
@@ -65,15 +65,15 @@ def _block_spec_with_edge_support(
     )
 
 
-def _with_estimation_projection(causal_spec: dict) -> dict:
-    causal_spec = deepcopy(causal_spec)
-    measurement = causal_spec.get("measurement", {})
+def _with_estimation_projection(causal_design: dict) -> dict:
+    causal_design = deepcopy(causal_design)
+    measurement = causal_design.get("measurement", {})
     indicators = measurement.get("indicators", [])
     for indicator in indicators:
         if isinstance(indicator, dict) and "construct_polarity" not in indicator:
             indicator["construct_polarity"] = "positive"
-    latent = causal_spec.get("latent", {})
-    causal_spec["estimation"] = {
+    latent = causal_design.get("latent", {})
+    causal_design["estimation"] = {
         "state_order": [
             construct["name"]
             for construct in latent.get("constructs", [])
@@ -82,27 +82,27 @@ def _with_estimation_projection(causal_spec: dict) -> dict:
         "edges": deepcopy(latent.get("edges", [])),
         "induced_dependencies": [],
     }
-    return causal_spec
+    return causal_design
 
 
-def _translate_spec_for_test(model_spec: dict, causal_spec: dict | None = None):
-    return translate_ssm_spec(model_spec, causal_spec=causal_spec)
+def _translate_spec_for_test(statistical_model_spec: dict, causal_design: dict | None = None):
+    return translate_ssm_spec(statistical_model_spec, causal_design=causal_design)
 
 
 def _compile_priors_for_test(
     priors: dict[str, dict],
-    model_spec: dict,
+    statistical_model_spec: dict,
     *,
     ssm_spec: SSMSpec | None = None,
-    causal_spec: dict | None = None,
+    causal_design: dict | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
         priors,
-        model_spec,
+        statistical_model_spec,
         ssm_spec,
         edge_lag_days=edge_lag_days,
-        causal_spec=causal_spec,
+        causal_design=causal_design,
     )
     return prior_registry, index_maps
 
@@ -233,8 +233,8 @@ def _mean_dynamics_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
 
 
 @pytest.fixture
-def two_construct_causal_spec() -> dict:
-    """Realistic 2-construct causal spec: stress → mood.
+def two_construct_causal_design() -> dict:
+    """Realistic 2-construct causal design: stress → mood.
 
     - Both constructs are daily time-varying
     - 3 indicators: mood_rating, stress_self_report, stress_cortisol
@@ -298,8 +298,8 @@ def two_construct_causal_spec() -> dict:
 
 
 @pytest.fixture
-def two_construct_model_spec() -> dict:
-    """ModelSpec matching the 2-construct causal spec."""
+def two_construct_statistical_model_spec() -> dict:
+    """StatisticalModelSpec matching the 2-construct causal design."""
     return {
         "likelihoods": [
             {
@@ -462,13 +462,15 @@ def weekly_study_priors() -> dict[str, dict]:
 
 
 class TestE2ESpecToDiscretization:
-    """End-to-end: CausalSpec → SSMSpec → PriorRegistry → discretize → roundtrip."""
+    """End-to-end: CausalDesign → SSMSpec → PriorRegistry → discretize → roundtrip."""
 
-    def test_ssm_spec_structure_from_dag(self, two_construct_causal_spec, two_construct_model_spec):
+    def test_ssm_spec_structure_from_dag(
+        self, two_construct_causal_design, two_construct_statistical_model_spec
+    ):
         """Compilation produces correct SSMSpec from DAG structure."""
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # Dimensions
@@ -493,9 +495,9 @@ class TestE2ESpecToDiscretization:
         stress_latent_idx = spec.latent_names.index("stress")
         assert spec.lambda_block.free_support[stress_cortisol_idx, stress_latent_idx]
 
-    def test_causal_spec_owns_latent_identity(self):
-        """Latent identity comes from causal_spec, not from AR parameter count."""
-        causal_spec = _with_estimation_projection(
+    def test_causal_design_owns_latent_identity(self):
+        """Latent identity comes from causal_design, not from AR parameter count."""
+        causal_design = _with_estimation_projection(
             {
                 "latent": {
                     "constructs": [
@@ -556,7 +558,7 @@ class TestE2ESpecToDiscretization:
                 },
             }
         )
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_rating",
@@ -604,12 +606,12 @@ class TestE2ESpecToDiscretization:
             "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
         }
 
-        spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
+        spec, _elags = _translate_spec_for_test(statistical_model_spec, causal_design=causal_design)
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
@@ -628,7 +630,7 @@ class TestE2ESpecToDiscretization:
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
         """Time-invariant states should not expose dynamics, diffusion, or cint support."""
-        causal_spec = _with_estimation_projection(
+        causal_design = _with_estimation_projection(
             {
                 "latent": {
                     "constructs": [
@@ -695,7 +697,7 @@ class TestE2ESpecToDiscretization:
                 },
             }
         )
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_rating",
@@ -750,7 +752,7 @@ class TestE2ESpecToDiscretization:
             ],
         }
 
-        spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
+        spec, _elags = _translate_spec_for_test(statistical_model_spec, causal_design=causal_design)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         np.testing.assert_array_equal(_decay_support(spec), [True, True, False])
@@ -769,11 +771,11 @@ class TestE2ESpecToDiscretization:
             ],
         )
 
-    def test_builder_rejects_parameter_names_not_grounded_in_causal_spec(
-        self, two_construct_causal_spec
+    def test_builder_rejects_parameter_names_not_grounded_in_causal_design(
+        self, two_construct_causal_design
     ):
         """Bad parameter names should fail instead of compiling a different model."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_rating",
@@ -815,20 +817,20 @@ class TestE2ESpecToDiscretization:
         }
 
         spec, _elags = _translate_spec_for_test(
-            model_spec,
-            causal_spec=two_construct_causal_spec,
+            statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
 
         with pytest.raises(ValueError, match="does not correspond to a free dynamics decay"):
             _compile_priors_for_test(
                 priors,
-                model_spec,
+                statistical_model_spec,
                 ssm_spec=spec,
-                causal_spec=two_construct_causal_spec,
+                causal_design=two_construct_causal_design,
             )
 
     def test_compiled_artifact_roundtrips_grounded_structure(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
         from nof1_causal_lab.models.ssm.compile.artifact import (
@@ -838,9 +840,9 @@ class TestE2ESpecToDiscretization:
         from nof1_causal_lab.utils.data import pivot_to_wide
 
         compiled = compile_ssm_artifact(
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             weekly_study_priors,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         assert compiled["schema_version"] == 1
@@ -917,7 +919,7 @@ class TestE2ESpecToDiscretization:
         assert model.parameter_bindings == compiled["parameter_bindings"]
 
     def test_residual_sd_priors_are_construct_specific(
-        self, two_construct_causal_spec, two_construct_model_spec
+        self, two_construct_causal_design, two_construct_statistical_model_spec
     ):
         """Construct-specific sigma priors compile to per-latent diffusion scales."""
         priors = {
@@ -933,20 +935,20 @@ class TestE2ESpecToDiscretization:
         }
 
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         assert _prior_params(ssm_priors, "diffusion_diag_free") == {"sigma": [0.1, 0.9]}
 
     def test_dt_to_ct_uses_reference_interval_days(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """Priors with reference_interval_days use that dt.
 
@@ -955,14 +957,14 @@ class TestE2ESpecToDiscretization:
         beta_stress_mood has reference_interval_days=7 → dt=7
         """
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
@@ -996,18 +998,18 @@ class TestE2ESpecToDiscretization:
         )
 
     def test_ct_dynamics_is_stable(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """The CT dynamics matrix from converted priors has all eigenvalues with Re < 0."""
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         dynamics = np.asarray(_mean_dynamics_from_priors(spec, ssm_priors))
@@ -1018,18 +1020,18 @@ class TestE2ESpecToDiscretization:
         assert max_real < 0, f"Dynamics matrix is unstable: max Re(eigenvalue) = {max_real}"
 
     def test_first_order_roundtrip_ar(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """Resolved AR persistence follows component-owned decay rates."""
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         dynamics = _mean_dynamics_from_priors(spec, ssm_priors)
@@ -1066,7 +1068,7 @@ class TestE2ESpecToDiscretization:
         )
 
     def test_first_order_roundtrip_cross_lag(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """DT→CT→DT roundtrip for cross-lagged coefficient.
 
@@ -1075,14 +1077,14 @@ class TestE2ESpecToDiscretization:
         (first-order approximation; exact requires matrix exponential)
         """
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # Build dynamics matrix
@@ -1115,18 +1117,18 @@ class TestE2ESpecToDiscretization:
         )
 
     def test_discretize_produces_valid_system(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """discretize_system produces valid F, Q, c from converted priors."""
         spec, _elags = _translate_spec_for_test(
-            two_construct_model_spec,
-            causal_spec=two_construct_causal_spec,
+            two_construct_statistical_model_spec,
+            causal_design=two_construct_causal_design,
         )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_model_spec,
+            two_construct_statistical_model_spec,
             ssm_spec=spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # Build dynamics and diffusion at prior means
@@ -1162,7 +1164,7 @@ class TestE2ESpecToDiscretization:
         assert jnp.all(jnp.isfinite(c)), "c contains NaN/Inf"
 
     def test_prior_predictive_produces_finite_samples(
-        self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
+        self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
         """Prior predictive sampling produces finite, bounded outputs."""
         import polars as pl
@@ -1181,9 +1183,9 @@ class TestE2ESpecToDiscretization:
         )
         model = build_ssm_model(
             mock_data,
-            model_spec=two_construct_model_spec,
+            statistical_model_spec=two_construct_statistical_model_spec,
             priors=weekly_study_priors,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # Sample from prior predictive
@@ -1204,14 +1206,16 @@ class TestE2ESpecToDiscretization:
         for key in [name for name in dynamics_keys if name.endswith("_decay")]:
             assert jnp.all(samples[key] > 0), f"{key} has non-positive decay draws"
 
-    def test_different_intervals_produce_different_rates(self, two_construct_model_spec):
+    def test_different_intervals_produce_different_rates(
+        self, two_construct_statistical_model_spec
+    ):
         """Same DT beta at different study intervals → different CT rates.
 
         beta=0.3 from weekly (dt=7) → CT rate ≈ 0.043
         beta=0.3 from daily  (dt=1) → CT rate ≈ 0.300
         This is the Kuiper & Ryan (2018) sign-reversal effect in action.
         """
-        causal_spec = _with_estimation_projection(
+        causal_design = _with_estimation_projection(
             {
                 "latent": {
                     "constructs": [
@@ -1242,7 +1246,7 @@ class TestE2ESpecToDiscretization:
             }
         )
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_score",
@@ -1310,16 +1314,16 @@ class TestE2ESpecToDiscretization:
 
         ssm_priors_w, _idx = _compile_priors_for_test(
             priors_weekly,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         ssm_priors_d, _idx = _compile_priors_for_test(
             priors_daily,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
-            causal_spec=causal_spec,
+            causal_design=causal_design,
         )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
@@ -1557,9 +1561,11 @@ class TestExactMatrixLogConversion:
             f"Shorter interval should have less decay: |eigs(F1)|={eigs_1}, |eigs(F2)|={eigs_2}"
         )
 
-    def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_causal_spec):
+    def test_compile_keeps_elementwise_priors_when_intervals_match(
+        self, two_construct_causal_design
+    ):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_rating",
@@ -1625,9 +1631,9 @@ class TestExactMatrixLogConversion:
 
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         dynamics_decay = _decay_means(ssm_spec, ssm_priors)
@@ -1637,18 +1643,18 @@ class TestExactMatrixLogConversion:
         assert abs(dynamics_decay[1] - (-math.log(0.5) / 7.0)) < 0.01
         assert abs(linear_edge_weight - (0.3 / 7.0)) < 0.01
 
-    def test_edge_lag_days_populated(self, two_construct_causal_spec):
-        """Compilation stores edge lag metadata from causal spec during support building."""
+    def test_edge_lag_days_populated(self, two_construct_causal_design):
+        """Compilation stores edge lag metadata from causal design during support building."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_spec,
+            build_structural_support_from_causal_design,
         )
 
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_design(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
             2,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
 
         # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
@@ -1657,11 +1663,11 @@ class TestExactMatrixLogConversion:
         assert (0, 1) in edge_lag_days
         assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
 
-    def test_dynamics_lag_consistency_warns(self, two_construct_causal_spec, caplog):
+    def test_dynamics_lag_consistency_warns(self, two_construct_causal_design, caplog):
         """Compilation warns when CT dynamics implies timescale far from edge lag."""
         import logging
 
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood_rating",
@@ -1715,22 +1721,22 @@ class TestExactMatrixLogConversion:
             edge_support=edge_support,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_spec,
+            build_structural_support_from_causal_design,
         )
 
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_design(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
             2,
-            causal_spec=two_construct_causal_spec,
+            causal_design=two_construct_causal_design,
         )
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.models.ssm.compile.inputs"):
             _compile_priors_for_test(
                 priors,
-                model_spec,
+                statistical_model_spec,
                 ssm_spec=ssm_spec,
-                causal_spec=two_construct_causal_spec,
+                causal_design=two_construct_causal_design,
                 edge_lag_days=edge_lag_days,
             )
 

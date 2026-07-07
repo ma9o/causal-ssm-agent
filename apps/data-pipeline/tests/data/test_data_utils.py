@@ -20,7 +20,7 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_spec = {
+        causal_design = {
             "measurement": {
                 "model_clock": "1d",
                 "indicators": [
@@ -33,7 +33,7 @@ class TestAnnotateObservationRows:
             }
         }
 
-        annotated = annotate_observation_rows(raw, causal_spec)
+        annotated = annotate_observation_rows(raw, causal_design)
 
         assert "timestamp" not in annotated.columns
         assert annotated["anchor_time"][0] == "2024-01-02T00:00:00"
@@ -53,7 +53,7 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_spec = {
+        causal_design = {
             "measurement": {
                 "model_clock": "1d",
                 "indicators": [
@@ -67,7 +67,7 @@ class TestAnnotateObservationRows:
             }
         }
 
-        annotated = annotate_observation_rows(raw, causal_spec)
+        annotated = annotate_observation_rows(raw, causal_design)
 
         assert "timestamp" not in annotated.columns
         assert annotated["anchor_time"][0] == "2024-02-01T00:00:00"
@@ -85,7 +85,7 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        causal_spec = {
+        causal_design = {
             "measurement": {
                 "model_clock": "1d",
                 "indicators": [
@@ -98,7 +98,7 @@ class TestAnnotateObservationRows:
             }
         }
 
-        annotated = annotate_observation_rows(raw, causal_spec)
+        annotated = annotate_observation_rows(raw, causal_design)
 
         assert annotated["support_kind"][0] == "point"
         assert annotated["summary_operator"][0] == "last"

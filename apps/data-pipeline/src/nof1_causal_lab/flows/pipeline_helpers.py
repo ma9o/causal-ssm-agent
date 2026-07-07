@@ -17,7 +17,7 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
     """Format a DataFrame schema and sample for LLM consumption.
 
     Used by Stage 1b so the LLM can see what columns are available
-    when proposing the measurement model.
+    when proposing the measurement structure.
     """
     lines = ["## Dataset Schema\n"]
     lines.append("| Column | Type | Description |")

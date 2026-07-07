@@ -12,13 +12,13 @@ Materializes numeric indicator values from raw data by routing each indicator th
 |---|---|---|
 | `question` | User | Original research question—provides temporal and semantic context for LLM workers |
 | `raw_dataframe` | [Stage 0](00-ingestion.md) | Ingested dataframe (wide-format parquet) plus column descriptions |
-| `causal_spec` | [Stage 1b](01b-measurement-identifiability.md) | [`CausalSpec`](01b-measurement-identifiability.md#causalspec) with indicators and extraction modes |
+| `causal_design` | [Stage 1b](01b-measurement-structure-identifiability.md) | [`CausalDesign`](01b-measurement-structure-identifiability.md#causaldesign) with indicators and extraction modes |
 
 Stage 1b specified *what* to measure and *how*; Stage 2 carries out those instructions against the raw data. This is the first point where indicator definitions are evaluated over actual values.
 
 ## Process
 
-Indicators are split by [`extraction_mode`](01b-measurement-identifiability.md#indicator) and processed concurrently.
+Indicators are split by [`extraction_mode`](01b-measurement-structure-identifiability.md#indicator) and processed concurrently.
 
 ```mermaid
 flowchart LR
@@ -35,7 +35,7 @@ flowchart LR
     end
 ```
 
-Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-identifiability.md#observation_window-and-model_clock), then materializing every support-window bucket between the first and last observed tick, including buckets with no raw rows. They diverge in how values are extracted from each bucket.
+Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-structure-identifiability.md#observation_window-and-model_clock), then materializing every support-window bucket between the first and last observed tick, including buckets with no raw rows. They diverge in how values are extracted from each bucket.
 
 **Computed path:** The indicator's aggregation function is applied within each window group via Polars. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups. Windows with no raw rows emit `null`; count aggregations emit `0` only when raw rows are present and the counted source or condition is absent.
 
@@ -45,13 +45,13 @@ Both paths begin by [truncating the raw time column to each indicator's observat
 
 *Fan-out:* Each chunk is dispatched to a parallel LLM worker via Prefect's `.map()`, respecting configurable concurrency and rate limits. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It interprets events against those instructions and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
 
-- *Indicator names* exist in the `CausalSpec`
+- *Indicator names* exist in the `CausalDesign`
 - *Support-window starts* match the expected boundaries for this chunk
 - *Dtype conformance:* extracted values match the indicator's `measurement_dtype` (continuous, binary, count, ordinal, categorical)
 - *No duplicate `(window_start, indicator)` pairs* within the chunk
 - *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
 
-**Merge & Annotate:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalSpec` to produce the canonical [`ObservationRecord`](#observationrecord).
+**Merge & Annotate:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalDesign` to produce the canonical [`ObservationRecord`](#observationrecord).
 
 ### Example
 
@@ -68,7 +68,7 @@ For a study of classroom interventions and student learning where Stage 1b defin
 
 | Field | Type | Description |
 |---|---|---|
-| `indicator` | `str` | Indicator name, referencing the [measurement model](01b-measurement-identifiability.md#measurementmodel) |
+| `indicator` | `str` | Indicator name, referencing the [measurement structure](01b-measurement-structure-identifiability.md#measurementstructure) |
 | `value` | `Float64` | Extracted value (numerically encoded; non-continuous types label-encoded) |
 | `anchor_time` | `datetime` | Latent-grid attachment time—the timestamp downstream models use for this observation |
 | `support_kind` | `"point"` \| `"interval"` | Whether the measurement is point-local (`first`/`last`) or an interval summary (`sum`/`count`/`mean`/`std`) |
@@ -78,4 +78,4 @@ For a study of classroom interventions and student learning where Stage 1b defin
 | `support_start` | `datetime` | Start of the realized support window |
 | `support_end` | `datetime` | End of the realized support window (`support_start` + `observation_window`) |
 
-`support_kind`, `summary_operator`, and `anchor_policy` are [derived deterministically](01b-measurement-identifiability.md#derived-observation-semantics) from the measurement model; they are not free parameters.
+`support_kind`, `summary_operator`, and `anchor_policy` are [derived deterministically](01b-measurement-structure-identifiability.md#derived-observation-semantics) from the measurement structure; they are not free parameters.

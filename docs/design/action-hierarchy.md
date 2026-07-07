@@ -74,9 +74,9 @@ An artifact enters the store exactly one of three ways — this is the whole rul
 
 | Creation kind | What it is | Examples |
 |---|---|---|
-| **Produced** | A `run(transition)` computes it from its inputs. A transition is named by the primary artifact it produces; `stage_id` is only its execution/runner label. | `raw_data`, `constructs`, `causal_spec`, `posterior` |
-| **Written** | A caller supplies the payload directly (`write(artifact)`), schema-validated and provenance-stamped `human`/`llm`. Includes roots (no producing transition) and writable produced artifacts. | roots: `question`, `saved_scenarios`; writable: `constructs`, `causal_spec`, … |
-| **Derived** | A deterministic milestone recomputed whenever its parent artifact is (re)created — by run *or* by write. It has no independent producer and is never written directly. | `identification_report` from `causal_spec` |
+| **Produced** | A `run(transition)` computes it from its inputs. A transition is named by the primary artifact it produces; `stage_id` is only its execution/runner label. | `raw_data`, `latent_structure`, `causal_design`, `posterior` |
+| **Written** | A caller supplies the payload directly (`write(artifact)`), schema-validated and provenance-stamped `human`/`llm`. Includes roots (no producing transition) and writable produced artifacts. | roots: `question`, `saved_scenarios`; writable: `latent_structure`, `causal_design`, … |
+| **Derived** | A deterministic milestone recomputed whenever its parent artifact is (re)created — by run *or* by write. It has no independent producer and is never written directly. | `identification_report` from `causal_design` |
 
 Each produced artifact's transition declares:
 
@@ -102,13 +102,13 @@ flowchart LR
     Upload -.-> S0(("run: raw_data"))
     S0 --> RD["raw_data"]
 
-    Q --> S1A(("run: constructs"))
-    S1A --> C["constructs"]
+    Q --> S1A(("run: latent_structure"))
+    S1A --> C["latent_structure"]
 
-    Q --> S1B(("run: causal_spec"))
+    Q --> S1B(("run: causal_design"))
     RD --> S1B
     C --> S1B
-    S1B --> CS["causal_spec"]
+    S1B --> CS["causal_design"]
     CS -. derives .-> IR["identification_report"]
 
     Q --> S2(("run: extraction_report"))
@@ -140,8 +140,8 @@ flowchart LR
     P -. pinned by .-> SS
 ```
 
-`identification_report` has a single origin — it is *derived from* `causal_spec` — whether that
-`causal_spec` arrived by a `run` (Stage 1b) or by a direct `write`/edit. There is no second
+`identification_report` has a single origin — it is *derived from* `causal_design` — whether that
+`causal_design` arrived by a `run` (Stage 1b) or by a direct `write`/edit. There is no second
 producer and no directly-writable `identification_report`; the epistemic gate ("numeric claims
 only when identification supports them") is exactly the presence of this derived milestone, and it
 tracks the spec automatically.
@@ -162,7 +162,7 @@ splits a build into a *rebuilder* (what is out of date) and a *scheduler* (what 
 
 | Mechanism | Restriction |
 |---|---|
-| Guards on `run` | A transition runs only when every `consumes` artifact exists. `compiled_ssm` is impossible until `question`, `causal_spec`, `identification_report`, `model_data`, and `validation_report` exist — so it is unreachable without an identification milestone. |
+| Guards on `run` | A transition runs only when every `consumes` artifact exists. `compiled_ssm` is impossible until `question`, `causal_design`, `identification_report`, `model_data`, and `validation_report` exist — so it is unreachable without an identification milestone. |
 | `write` legality | A write must be schema-valid and provenance-stamped `human`/`llm`. It installs a new version and, for roots with `write_pins`, stamps the pinned inputs. |
 | Optional milestones | `produces_optional` artifacts appear only when the finding is nonempty; absence disables downstream consumers. |
 | Derived milestones | `derives` artifacts are recomputed on every creation of their parent and retracted when the finding goes empty — the parent and its derivation move together. |
@@ -181,7 +181,7 @@ agent can shortcut the run by writing the artifact itself:
 - `deterministic` — needs no credentials (`validation_report`, `posterior`).
 - `batch_llm` — bulk LLM compute on the service's ambient key (`raw_data`, `extraction_report`).
 - `judgment` — proposal work an external agent can do itself, so these transitions are also
-  `writable` (`constructs`, `causal_spec`, `baseline_ranking`).
+  `writable` (`latent_structure`, `causal_design`, `baseline_ranking`).
 
 Creation class and writability are declared independently rather than inferred from one another,
 because the correspondence is not total: `compiled_ssm` is `judgment`-shaped but not hand-writable
@@ -208,7 +208,7 @@ navigator. Affordance may be stricter than legality:
 
 - `analyze.save` compiles to `write(saved_scenarios)`, which is always machine-legal, but is only
   worth offering once a `posterior` exists.
-- `specify.refine` compiles to `write(causal_spec)` — always machine-legal — but is only a
+- `specify.refine` compiles to `write(causal_design)` — always machine-legal — but is only a
   sensible affordance once `model_data` and `validation_report` exist to refine against. That
   extra condition is an affordance guard, not a machine gate; the machine still accepts the write
   on its own terms.
@@ -229,7 +229,7 @@ things by stage.
 | Ingest data | Auto-run or manual run invokes Stage 0 | `episode.ingest_data` | `run` producing `raw_data` |
 | Run / recompute | `POST /api/episodes/{workspace}/auto` starts the default driver | `episode.refresh` | Scheduler policy: proposes legal `run` moves for missing or stale outputs |
 | Inspect state | Episode status, artifact payloads, timeline, and runtime events | `nav.state`, `nav.get`, `nav.timeline`, `nav.events` | Read-only |
-| Edit a result artifact | Web edits or harness proposals write a replacement artifact version | `specify.edit`, `analyze.save` | `write(constructs)`, `write(causal_spec)`, `write(saved_scenarios)`, etc. |
+| Edit a result artifact | Web edits or harness proposals write a replacement artifact version | `specify.edit`, `analyze.save` | `write(latent_structure)`, `write(causal_design)`, `write(saved_scenarios)`, etc. |
 | Simulate from a fitted model | `POST /api/tools/dispatch` invokes the Stage 6 `simulate` tool | `analyze.simulate` | Derived query over fresh artifact versions; no artifact mutation unless saved later |
 
 This table is the public surface we should preserve while renaming it by intent. The redesign
@@ -256,7 +256,7 @@ flowchart TB
     MACH -->|"run: raw_data"| ST0["ingestion context\nfile/code/submit loop"]
     ST0 --> ST0T["list_files\nread_file_sample\nexecute_python\nsubmit_table"]
 
-    MACH -->|"run: compiled_ssm"| ST4["model-spec context\nplan/cursor/repair loop"]
+    MACH -->|"run: compiled_ssm"| ST4["statistical-model-spec context\nplan/cursor/repair loop"]
     ST4 --> ST4T["submit_model_configuration\nsubmit_indicator_choice\nsubmit_prior_block\nrepair barriers"]
 
     MACH -->|"run: extraction_report"| ST2["measurement context\nindicator extraction fan-out"]
@@ -277,17 +277,17 @@ a hard flag when the provenance chain is stale.
 | Outer operation | Machine move | Lower context state | Lower operations | Exit condition |
 |---|---|---|---|---|
 | `episode.ingest_data` | `run` → `raw_data` | Prepared input directory, sandbox, latest `result_df`, column descriptions | `list_files`, `read_file_sample`, `execute_python`, `submit_table` | `submit_table` validates a single timestamped Polars table, producing `raw_data` |
-| `specify.constructs` | `run` → `constructs` or `write(constructs)` | Question-focused construct proposal context | propose constructs, revise descriptions, submit construct set | `constructs` version exists |
-| `specify.model` | `run` → `causal_spec` or `write(causal_spec)` | DAG, indicators, observed set, identification check | inspect columns, propose indicators, set nodes/edges, mark observed/latent, submit model | `causal_spec` exists; `identification_report` derives only if at least one treatment is identified |
+| `specify.latent_structure` | `run` → `latent_structure` or `write(latent_structure)` | Question-focused latent-structure proposal context | propose constructs, revise descriptions, submit construct set | `latent_structure` version exists |
+| `specify.model` | `run` → `causal_design` or `write(causal_design)` | DAG, indicators, observed set, identification check | inspect columns, propose indicators, set nodes/edges, mark observed/latent, submit model | `causal_design` exists; `identification_report` derives only if at least one treatment is identified |
 | `measure.extract` | `run` → `extraction_report` | Indicator extraction plan and worker fan-out | define extraction, run computed extraction, run semantic extraction, submit values | `extraction_report` exists; `model_data` co-produced only if measurement yielded usable data |
-| `analyze.validate` | `run` → `validation_report` | Measured-data diagnostics over `causal_spec` and `model_data` | coverage checks, degeneracy checks, construct observability checks | `validation_report` exists |
+| `analyze.validate` | `run` → `validation_report` | Measured-data diagnostics over `causal_design` and `model_data` | coverage checks, degeneracy checks, construct observability checks | `validation_report` exists |
 | `fit.compile` | `run` → `compiled_ssm` | Stage 4 skeleton, immutable plan, runtime cursor, accepted state, repair campaign | block submissions, model lock, prior authoring, deterministic repair routing, barrier validation | `compiled_ssm` exists |
 | `fit.infer` | `run` → `posterior` | Long-running inference job | fit exact nonlinear SSM engines, emit progress | `posterior` exists |
 | `analyze.rank` | `run` → `baseline_ranking` | Baseline causal-query context over a fresh posterior | rank identified effects | `baseline_ranking` exists |
 | `analyze.simulate` | Derived query tool | Current fitted model and scenario input | Stage 6 `simulate` | Returns a scenario result; saving it is a later `write(saved_scenarios)` |
 
 `compiled_ssm`'s transition is the clearest nested state machine. The outer operation is just
-`fit.compile`; inside that composite state, the reducer owns a cursor (`block`, `model_spec_lock`,
+`fit.compile`; inside that composite state, the reducer owns a cursor (`block`, `statistical_model_spec_lock`,
 `repair_barrier`, `done`), block statuses (`pending`, `accepted`, `reopened`, `inactive`), accepted
 state, and deterministic repair routing. The machine does not know about those prompt blocks. It
 only knows whether the run eventually produced `compiled_ssm`, raised an error, or left state
@@ -303,7 +303,7 @@ notebooks.
 |---|---|---|---|
 | `nav` | Observe state and history | `state`, `timeline`, `events`, `get`, `versions`, `diff` | Read journal/artifact store |
 | `episode` | Lifecycle and roots | `create`, `attach_data`, `ingest_data`, `refresh` | `write(question)`, staged upload, `run` → `raw_data`, scheduler policy |
-| `specify` | Design causal and measurement structure | `constructs`, `model`, `edit`, `identify`, `refine` | `run` → `constructs`/`causal_spec`, `write(causal_spec)`, derived checks |
+| `specify` | Design causal and measurement structure | `latent_structure`, `model`, `edit`, `identify`, `refine` | `run` → `latent_structure`/`causal_design`, `write(causal_design)`, derived checks |
 | `measure` | Execute measurement | `extract` | `run` → `extraction_report` |
 | `fit` | Compile and estimate | `compile`, `infer`, `check` | `run` → `compiled_ssm`/`posterior`, derived diagnostics |
 | `analyze` | Validate and query | `validate`, `rank`, `simulate`, `counterfactual`, `ppc`, `save` | `run` → `validation_report`/`baseline_ranking`, derived tools, `write(saved_scenarios)` |
@@ -335,16 +335,16 @@ plus freshness warnings when the input provenance chain is not fresh.
 3. `specify.refine` opens a scoped refinement context. It recomputes the measured observed set
    from `model_data`, drops the degenerate indicators, marks one now-unmeasured construct latent,
    drops another construct whose causal query is blocked, and re-runs identification.
-4. The machine applies the resulting `write(causal_spec)` as a new `causal_spec` version;
+4. The machine applies the resulting `write(causal_design)` as a new `causal_design` version;
    `identification_report` is re-derived or retracted according to the finding, in the same move.
 5. Version pins make `compiled_ssm`, `posterior`, and `baseline_ranking` stale if they still exist.
-6. `nav.diff(causal_spec, v1, v2)` shows the exact structural change.
+6. `nav.diff(causal_design, v1, v2)` shows the exact structural change.
 7. `fit.compile` becomes a useful affordance only if its required inputs exist, including an
    `identification_report`.
 8. `fit.infer` and `analyze.rank` become useful only after `compiled_ssm` and then `posterior`
    are fresh.
 
-The revision is one `causal_spec` lineage with multiple versions. The timeline scrubber follows
+The revision is one `causal_design` lineage with multiple versions. The timeline scrubber follows
 artifact versions; it does not invent a separate workflow state.
 
 ## Why Not One Action Per Stage
@@ -376,7 +376,7 @@ cannot express.
   one, or use a deterministic core with optional LLM review.
 - **Checks: stored artifacts or pure derived views?** `validation_report` is stored today, but
   conceptually it is a derived view. `identification_report` has already moved to a derived
-  milestone of `causal_spec`; whether `validation_report` should follow (turning fit enabledness
+  milestone of `causal_design`; whether `validation_report` should follow (turning fit enabledness
   from existence into a content predicate) is still open.
 - **One registry, three transports.** Confirm that MCP tools, RPC endpoints, and SDK methods are
   generated from one action registry, aligned with the existing `packages/api-types` codegen.

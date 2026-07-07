@@ -11,13 +11,13 @@ from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
 
 # ---------------------------------------------------------------------------
-# Stage 4: Model grounding (model spec + priors, unified)
+# Stage 4: Model grounding (statistical model spec + priors, unified)
 # ---------------------------------------------------------------------------
 
 
 def stage4_grounding(
     data: dict,
-    causal_spec: dict,
+    causal_design: dict,
     current: dict | None = None,
     data_for_model: Any = None,
     indicator_audits: dict[str, dict[str, Any]] | None = None,
@@ -27,7 +27,7 @@ def stage4_grounding(
     """Ground stage 4 proposals: validate, compile, optionally run prior predictive.
 
     ``data`` contains the proposed changes — any combination of:
-    - ``model_spec``: complete ModelSpec dict
+    - ``statistical_model_spec``: complete StatisticalModelSpec dict
     - ``priors``: partial dict mapping parameter names to prior proposals
 
     The function merges proposals with ``current`` (existing stage-4 state),
@@ -52,27 +52,27 @@ def stage4_grounding(
     state = dict(current or {})
     output: dict = {}
 
-    new_model_spec = data.get("model_spec")
+    new_statistical_model_spec = data.get("statistical_model_spec")
     new_priors = data.get("priors")
     changed_parameters: tuple[str, ...] = ()
 
-    if new_model_spec is None and new_priors is None:
+    if new_statistical_model_spec is None and new_priors is None:
         return make_stage4_grounding_result(
             stage_output=None,
             status="validation_error",
-            feedback="VALIDATION ERRORS:\n- data must contain 'model_spec' and/or 'priors'",
+            feedback="VALIDATION ERRORS:\n- data must contain 'statistical_model_spec' and/or 'priors'",
             retain_for_next_prompt=True,
             capture_stage_output=False,
         )
 
-    if new_model_spec is not None and new_priors is not None:
+    if new_statistical_model_spec is not None and new_priors is not None:
         return make_stage4_grounding_result(
             stage_output=None,
             status="update_rejected",
             feedback=(
                 "UPDATE TOO BROAD:\n"
                 "- submit model decisions and priors in separate calls\n"
-                "- lock the model spec first, then add priors in later calls\n\n"
+                "- lock the statistical model spec first, then add priors in later calls\n\n"
                 "Previously accepted state is retained. Resubmit only the fields you changed."
             ),
             state_retained=True,
@@ -80,13 +80,15 @@ def stage4_grounding(
             capture_stage_output=False,
         )
 
-    if new_model_spec is not None and new_model_spec == state.get("model_spec"):
+    if new_statistical_model_spec is not None and new_statistical_model_spec == state.get(
+        "statistical_model_spec"
+    ):
         return make_stage4_grounding_result(
             stage_output=None,
             status="update_rejected",
             feedback=_format_redundant_stage4_update_feedback(
                 "model decisions",
-                _collect_model_spec_targets(new_model_spec),
+                _collect_statistical_model_spec_targets(new_statistical_model_spec),
             ),
             state_retained=True,
             retain_for_next_prompt=True,
@@ -113,10 +115,10 @@ def stage4_grounding(
             )
         changed_parameters = tuple(new_priors)
 
-    # --- Merge model_spec ---
-    if new_model_spec is not None:
-        state["model_spec"] = new_model_spec
-        output["model_spec"] = new_model_spec
+    # --- Merge statistical_model_spec ---
+    if new_statistical_model_spec is not None:
+        state["statistical_model_spec"] = new_statistical_model_spec
+        output["statistical_model_spec"] = new_statistical_model_spec
 
     # --- Validate & merge priors ---
     if new_priors is not None:
@@ -134,10 +136,10 @@ def stage4_grounding(
                 capture_stage_output=bool(output),
             )
 
-    model_spec = state.get("model_spec")
-    if model_spec is None:
+    statistical_model_spec = state.get("statistical_model_spec")
+    if statistical_model_spec is None:
         guidance = "Previously accepted state is retained. Submit only the missing model fields."
-        message = "COMPILE ERROR:\nNo model_spec available — submit model_spec first"
+        message = "COMPILE ERROR:\nNo statistical_model_spec available — submit statistical_model_spec first"
         feedback = f"{message}\n\n{guidance}" if output else message
         return make_stage4_grounding_result(
             stage_output=output or None,
@@ -149,21 +151,24 @@ def stage4_grounding(
         )
 
     authored_priors = state.get("authored_priors")
-    required_priors = _required_prior_names(model_spec)
+    required_priors = _required_prior_names(statistical_model_spec)
     missing_priors = [name for name in required_priors if name not in (authored_priors or {})]
 
-    # First lock in the model spec, then accumulate priors incrementally.
+    # First lock in the statistical model spec, then accumulate priors incrementally.
     validation = validate_assembly(
-        model_spec,
+        statistical_model_spec,
         authored_priors if not missing_priors else None,
         data_for_model,
         indicator_audits,
-        causal_spec,
+        causal_design,
         skip_ppc=skip_ppc,
     )
 
-    if new_model_spec is not None and validation.normalized_model_spec is not None:
-        output["model_spec"] = validation.normalized_model_spec
+    if (
+        new_statistical_model_spec is not None
+        and validation.normalized_statistical_model_spec is not None
+    ):
+        output["statistical_model_spec"] = validation.normalized_statistical_model_spec
     output["validation"] = validation
 
     if not validation.compile_ok:
@@ -245,11 +250,11 @@ def should_capture_stage4_output(result: Stage4GroundingResult) -> bool:
     return result.stage_output is not None and result.validation_packet.capture_stage_output
 
 
-def _required_prior_names(model_spec: dict | None) -> list[str]:
+def _required_prior_names(statistical_model_spec: dict | None) -> list[str]:
     """Return the parameter names that still need priors."""
     optional_roles = {"initial_state_mean", "initial_state_sd"}
     names: list[str] = []
-    for parameter in (model_spec or {}).get("parameters") or []:
+    for parameter in (statistical_model_spec or {}).get("parameters") or []:
         if not isinstance(parameter, dict):
             continue
         if parameter.get("role") in optional_roles:
@@ -259,18 +264,18 @@ def _required_prior_names(model_spec: dict | None) -> list[str]:
     return names
 
 
-def _collect_model_spec_targets(model_spec: dict | None) -> list[str]:
-    """Collect human-readable model decision targets from a full model spec."""
+def _collect_statistical_model_spec_targets(statistical_model_spec: dict | None) -> list[str]:
+    """Collect human-readable model decision targets from a full statistical model spec."""
     targets: list[str] = []
     seen: set[str] = set()
 
-    for likelihood in (model_spec or {}).get("likelihoods") or []:
+    for likelihood in (statistical_model_spec or {}).get("likelihoods") or []:
         variable = likelihood.get("variable") if isinstance(likelihood, dict) else None
         if isinstance(variable, str) and variable not in seen:
             seen.add(variable)
             targets.append(variable)
 
-    for parameter in (model_spec or {}).get("parameters") or []:
+    for parameter in (statistical_model_spec or {}).get("parameters") or []:
         if not isinstance(parameter, dict):
             continue
         if parameter.get("role") != "loading":

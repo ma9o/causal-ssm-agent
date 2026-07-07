@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,

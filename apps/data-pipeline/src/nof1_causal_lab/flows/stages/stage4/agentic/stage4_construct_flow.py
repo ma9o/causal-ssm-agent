@@ -8,7 +8,7 @@ parameter name); the cumulative partial model is compiled and gated by the
 (:mod:`nof1_causal_lab.models.ssm.construct_admission`). A construct that fails a
 hard check reopens for revision; a soft failure is a decision (revise, or accept
 the consequence via ``accept``). When every construct is admitted, the
-accumulated :class:`~nof1_causal_lab.artifacts.model_spec.ModelSpec` + priors are
+accumulated :class:`~nof1_causal_lab.artifacts.statistical_model_spec.StatisticalModelSpec` + priors are
 returned as a :class:`Stage4Result`, which the existing materialization turns into
 the ``compiled_ssm`` artifact unchanged.
 """
@@ -27,7 +27,7 @@ from nof1_causal_lab.artifacts import (
     ParameterConstraint,
     ParameterRole,
 )
-from nof1_causal_lab.artifacts.model_spec import LikelihoodSpec, ParameterSpec
+from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
 from nof1_causal_lab.flows.runtime_events import emit_stage4_admission_event
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
@@ -37,11 +37,11 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     admit_construct,
     build_construct_order,
     recheck_member,
-    restrict_causal_spec,
+    restrict_causal_design,
     trial_admission_state,
 )
 from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult
-from nof1_causal_lab.utils.causal_spec import get_estimation_edges
+from nof1_causal_lab.utils.causal_design import get_estimation_edges
 
 from .stage4_types import Stage4Result
 
@@ -95,10 +95,10 @@ class ParamCatalog:
     global_params: frozenset[str]
 
     @classmethod
-    def from_causal_spec(cls, causal_spec: dict) -> ParamCatalog:
+    def from_causal_design(cls, causal_design: dict) -> ParamCatalog:
         from .stage4_skeleton import derive_deterministic_spec
 
-        skeleton = derive_deterministic_spec(causal_spec)
+        skeleton = derive_deterministic_spec(causal_design)
         roles: dict[str, tuple[ParameterRole, ParameterConstraint]] = {}
         by_construct: dict[str, list[str]] = {}
         global_params: set[str] = set()
@@ -154,10 +154,10 @@ class ParamCatalog:
         return self.roles.get(name, _STRUCTURAL_ROLE)
 
 
-def construct_parents(causal_spec: dict, construct: str) -> list[str]:
+def construct_parents(causal_design: dict, construct: str) -> list[str]:
     """Direct causal parents of ``construct`` (edge sources into it)."""
     parents: list[str] = []
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if effect == construct and cause is not None and str(cause) not in parents:
@@ -166,11 +166,11 @@ def construct_parents(causal_spec: dict, construct: str) -> list[str]:
 
 
 def deferred_closing_edge_params(
-    causal_spec: dict, construct: str, admitted: Collection[str]
+    causal_design: dict, construct: str, admitted: Collection[str]
 ) -> set[str]:
     """Params for cycle-closing edges ``construct -> already-admitted effect``.
 
-    ``restrict_causal_spec`` keeps an edge only when both endpoints are kept,
+    ``restrict_causal_design`` keeps an edge only when both endpoints are kept,
     so a feedback edge out of ``construct`` into an earlier-admitted member
     first materializes during THIS construct's admission. Its weight prior
     must be authorable here: the effect construct was admitted without the
@@ -178,7 +178,7 @@ def deferred_closing_edge_params(
     from that turn's restricted model.
     """
     names: set[str] = set()
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause == construct and effect in admitted:
@@ -194,7 +194,7 @@ def deferred_closing_edge_params(
 
 
 def _closing_edge_effects(
-    causal_spec: dict, construct: str, prior_admitted: Collection[str]
+    causal_design: dict, construct: str, prior_admitted: Collection[str]
 ) -> list[str]:
     """Already-admitted effect(s) of feedback edges out of ``construct``.
 
@@ -202,7 +202,7 @@ def _closing_edge_effects(
     closes the loop — so they warrant a coupled recheck against the closed-loop model.
     """
     effects: list[str] = []
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause == construct and effect in prior_admitted and str(effect) not in effects:
@@ -211,7 +211,7 @@ def _closing_edge_effects(
 
 
 def _closed_loop_target(
-    member: ConstructContribution, causal_spec: dict, priors: Mapping[str, Any]
+    member: ConstructContribution, causal_design: dict, priors: Mapping[str, Any]
 ) -> ConstructContribution:
     """``member``'s contribution with its edge set recomputed on the closed loop.
 
@@ -219,7 +219,7 @@ def _closed_loop_target(
     ``hill_*`` prior is already in ``priors`` (authored during the loop-closing submission).
     """
     name = member.name
-    parents = construct_parents(causal_spec, name)
+    parents = construct_parents(causal_design, name)
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
@@ -233,7 +233,7 @@ def _closed_loop_target(
 
 
 def contribution_from_payload(
-    causal_spec: dict, payload: Mapping[str, Any], catalog: ParamCatalog
+    causal_design: dict, payload: Mapping[str, Any], catalog: ParamCatalog
 ) -> ConstructContribution:
     """Parse a ``submit_construct`` payload into a canonical construct contribution.
 
@@ -273,7 +273,7 @@ def contribution_from_payload(
         )
         for pn in priors
     )
-    parents = construct_parents(causal_spec, name)
+    parents = construct_parents(causal_design, name)
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
@@ -296,7 +296,7 @@ def contribution_from_payload(
 def build_design_info(
     state: AdmissionState,
     contribution: ConstructContribution,
-    causal_spec: dict,
+    causal_design: dict,
     data_for_model: pl.DataFrame,
     *,
     n_draws: int,
@@ -305,7 +305,7 @@ def build_design_info(
     """Reachability design for admitting ``contribution`` onto ``state`` (the trial model)."""
     return _design_for_state(
         trial_admission_state(state, contribution),
-        causal_spec,
+        causal_design,
         data_for_model,
         n_draws=n_draws,
         seed=seed,
@@ -314,7 +314,7 @@ def build_design_info(
 
 def _design_for_state(
     model_state: AdmissionState,
-    causal_spec: dict,
+    causal_design: dict,
     data_for_model: pl.DataFrame,
     *,
     n_draws: int,
@@ -334,9 +334,9 @@ def _design_for_state(
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
-    restricted = restrict_causal_spec(causal_spec, set(model_state.names))
+    restricted = restrict_causal_design(causal_design, set(model_state.names))
     compiled = compile_ssm_artifact(
-        model_state.model_spec(), dict(model_state.priors), causal_spec=restricted
+        model_state.statistical_model_spec(), dict(model_state.priors), causal_design=restricted
     )
 
     indicator_names = [lik.variable for lik in model_state.likelihoods]
@@ -403,16 +403,18 @@ def render_admission_feedback(report: AdmissionReport) -> str:
 # batch/test path (``workspace_id=None``) runs without any telemetry side effect.
 
 
-def _admission_plan_payload(causal_spec: dict, order: Sequence[str]) -> dict[str, Any]:
+def _admission_plan_payload(causal_design: dict, order: Sequence[str]) -> dict[str, Any]:
     """The static admission plan: constructs in admission order + the DAG edges among them."""
     order_set = set(order)
     edges: list[dict[str, str]] = []
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause in order_set and effect in order_set:
             edges.append({"cause": str(cause), "effect": str(effect)})
-    constructs = [{"name": name, "parents": construct_parents(causal_spec, name)} for name in order]
+    constructs = [
+        {"name": name, "parents": construct_parents(causal_design, name)} for name in order
+    ]
     return {"constructs": constructs, "edges": edges, "max_attempts": _MAX_ATTEMPTS_PER_CONSTRUCT}
 
 
@@ -479,7 +481,7 @@ def _admission_report_payload(
 class ConstructBuildState:
     """Mutable state driving the construct-by-construct admission loop."""
 
-    causal_spec: dict
+    causal_design: dict
     data_for_model: pl.DataFrame
     order: list[str]
     n_draws: int = 200
@@ -500,7 +502,7 @@ class ConstructBuildState:
 
     def __post_init__(self) -> None:
         if self.catalog is None:
-            self.catalog = ParamCatalog.from_causal_spec(self.causal_spec)
+            self.catalog = ParamCatalog.from_causal_design(self.causal_design)
 
     @property
     def current_construct(self) -> str | None:
@@ -524,9 +526,9 @@ class ConstructBuildState:
                 f"`{construct}`. Submit `{expected}` first."
             )
         assert self.catalog is not None  # set in __post_init__
-        parents = construct_parents(self.causal_spec, construct)
+        parents = construct_parents(self.causal_design, construct)
         closing = deferred_closing_edge_params(
-            self.causal_spec, construct, set(self.admission.names)
+            self.causal_design, construct, set(self.admission.names)
         )
         allowed = self.catalog.allowed_for(construct, parents) | closing
         unknown = [name for name in priors if name not in allowed]
@@ -551,7 +553,7 @@ class ConstructBuildState:
                 "— otherwise the compiler rejects the unbound edge site."
             )
         payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
-        contribution = contribution_from_payload(self.causal_spec, payload, self.catalog)
+        contribution = contribution_from_payload(self.causal_design, payload, self.catalog)
         if self.workspace_id:
             emit_stage4_admission_event(
                 self.workspace_id,
@@ -561,14 +563,14 @@ class ConstructBuildState:
         design = build_design_info(
             self.admission,
             contribution,
-            self.causal_spec,
+            self.causal_design,
             self.data_for_model,
             n_draws=self.n_draws,
             seed=self.seed,
         )
         prior_admitted = set(self.admission.names)
         new_state, report = admit_construct(
-            self.admission, contribution, self.causal_spec, design, accepted=dict(accept or {})
+            self.admission, contribution, self.causal_design, design, accepted=dict(accept or {})
         )
         self.last_report = report
         coupled_recheck: dict[str, Any] | None = None
@@ -605,14 +607,14 @@ class ConstructBuildState:
         """
         members = [
             m
-            for m in _closing_edge_effects(self.causal_spec, construct, prior_admitted)
+            for m in _closing_edge_effects(self.causal_design, construct, prior_admitted)
             if m in self.admitted_contributions
         ]
         if not members:
             return None
         design = _design_for_state(
             self.admission,
-            self.causal_spec,
+            self.causal_design,
             self.data_for_model,
             n_draws=self.n_draws,
             seed=self.seed,
@@ -620,11 +622,11 @@ class ConstructBuildState:
         results: list[dict[str, Any]] = []
         for member in members:
             target = _closed_loop_target(
-                self.admitted_contributions[member], self.causal_spec, self.admission.priors
+                self.admitted_contributions[member], self.causal_design, self.admission.priors
             )
             results.extend(
                 _check_result_payload(r)
-                for r in recheck_member(self.admission, target, self.causal_spec, design)
+                for r in recheck_member(self.admission, target, self.causal_design, design)
             )
         if not results:
             return None
@@ -729,7 +731,7 @@ SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
 
 async def run_stage4_construct_build(
     *,
-    causal_spec: dict,
+    causal_design: dict,
     question: str,
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]],
@@ -749,13 +751,13 @@ async def run_stage4_construct_build(
 
     from .stage4_construct_prompt import build_construct_messages
 
-    order = build_construct_order(causal_spec)
+    order = build_construct_order(causal_design)
     if workspace_id:
         emit_stage4_admission_event(
-            workspace_id, "plan", _admission_plan_payload(causal_spec, order)
+            workspace_id, "plan", _admission_plan_payload(causal_design, order)
         )
     state = ConstructBuildState(
-        causal_spec=causal_spec,
+        causal_design=causal_design,
         data_for_model=data_for_model,
         order=order,
         n_draws=n_draws,
@@ -783,7 +785,7 @@ async def run_stage4_construct_build(
                     state=state,
                     construct=construct,
                     question=question,
-                    causal_spec=causal_spec,
+                    causal_design=causal_design,
                     indicator_audits=indicator_audits,
                 )
                 async with session_factory.open(
@@ -815,9 +817,9 @@ async def run_stage4_construct_build(
     if workspace_id:
         emit_stage4_admission_event(workspace_id, "done", {})
 
-    model_spec = state.admission.model_spec().model_dump(mode="json")
+    statistical_model_spec = state.admission.statistical_model_spec().model_dump(mode="json")
     return Stage4Result(
-        model_spec=model_spec,
+        statistical_model_spec=statistical_model_spec,
         authored_priors=dict(state.admission.priors),
         search_queries=dict(state.search_queries),
         validation=None,

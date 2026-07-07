@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 const GITHUB_BASE = "https://github.com/ma9o/nof1-causal-lab/blob/master";
 
 /**
- * Detect file paths ending in .md (e.g. `docs/reference/model-spec/parameters-likelihoods-and-priors.md`)
+ * Detect file paths ending in .md (e.g. `docs/reference/statistical-model-spec/parameters-likelihoods-and-priors.md`)
  * and wrap them in links to the GitHub repo.
  */
 const MD_PATH_RE = /(?<!\S)((?:[\w.-]+\/)*[\w.-]+\.md)(?!\S)/g;

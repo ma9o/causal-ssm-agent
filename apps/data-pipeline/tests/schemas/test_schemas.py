@@ -1,8 +1,8 @@
-"""Tests for causal spec schema computed properties and utility functions.
+"""Tests for causal design schema computed properties and utility functions.
 
-Object-level construction validation (Construct, LatentModel, Indicator,
-MeasurementModel) is covered by test_schema_validators.py via dict validators.
-This file tests CausalSpec composition, computed properties, and utility
+Object-level construction validation (Construct, LatentStructure, Indicator,
+MeasurementStructure) is covered by test_schema_validators.py via dict validators.
+This file tests CausalDesign composition, computed properties, and utility
 functions that are not exercised through dict validation.
 """
 
@@ -11,12 +11,12 @@ from typing import Any
 import pytest
 
 from nof1_causal_lab.artifacts import (
+    CausalDesign,
     CausalEdge,
-    CausalSpec,
     ComputedRule,
     Construct,
-    LatentModel,
-    MeasurementModel,
+    LatentStructure,
+    MeasurementStructure,
     Role,
     TemporalStatus,
     check_semantic_collisions,
@@ -57,12 +57,12 @@ class TestConstruct:
             )
 
 
-class TestLatentModel:
-    """Tests for LatentModel validation."""
+class TestLatentStructure:
+    """Tests for LatentStructure validation."""
 
     def test_valid_simple_structure(self, construct_factory):
         """Simple valid structure passes validation."""
-        structure = LatentModel(
+        structure = LatentStructure(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -79,7 +79,7 @@ class TestLatentModel:
     def test_invalid_edge_cause_not_in_constructs(self, construct_factory):
         """Edge cause must exist in constructs."""
         with pytest.raises(ValueError, match="Edge cause 'unknown' not in constructs"):
-            LatentModel(
+            LatentStructure(
                 constructs=[construct_factory("mood", Role.ENDOGENOUS, is_outcome=True)],
                 edges=[CausalEdge(cause="unknown", effect="mood", description="Test edge")],
             )
@@ -87,7 +87,7 @@ class TestLatentModel:
     def test_invalid_edge_effect_not_in_constructs(self, construct_factory):
         """Edge effect must exist in constructs."""
         with pytest.raises(ValueError, match="Edge effect 'unknown' not in constructs"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("stress", Role.EXOGENOUS),
                     construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -98,7 +98,7 @@ class TestLatentModel:
     def test_invalid_exogenous_cannot_be_effect(self, construct_factory):
         """Exogenous construct cannot be an effect."""
         with pytest.raises(ValueError, match="Exogenous construct 'weather' cannot be an effect"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
                     construct_factory("weather", Role.EXOGENOUS),
@@ -112,7 +112,7 @@ class TestLatentModel:
 
     def test_valid_exogenous_to_endogenous_contemporaneous(self, construct_factory):
         """Exogenous → endogenous contemporaneous edge is valid."""
-        model = LatentModel(
+        model = LatentStructure(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -132,7 +132,7 @@ class TestLatentModel:
     def test_invalid_time_varying_to_time_invariant_edge(self, construct_factory):
         """Time-varying constructs cannot cause time-invariant constructs."""
         with pytest.raises(ValueError, match="cannot be a cause of time-invariant construct"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("habit", Role.ENDOGENOUS),
                     construct_factory(
@@ -154,7 +154,7 @@ class TestLatentModel:
     def test_invalid_outcome_no_incoming_edges(self, construct_factory):
         """Outcome must have at least one incoming causal edge."""
         with pytest.raises(ValueError, match="has no incoming causal edges"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("stress", Role.EXOGENOUS),
                     construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -165,7 +165,7 @@ class TestLatentModel:
     def test_invalid_no_outcome(self, construct_factory):
         """Structure must have exactly one outcome."""
         with pytest.raises(ValueError, match="Exactly one construct must have is_outcome=true"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("stress", Role.EXOGENOUS),
                     construct_factory("mood", Role.ENDOGENOUS),
@@ -176,7 +176,7 @@ class TestLatentModel:
     def test_invalid_multiple_outcomes(self, construct_factory):
         """Structure must have exactly one outcome."""
         with pytest.raises(ValueError, match="Only one outcome allowed"):
-            LatentModel(
+            LatentStructure(
                 constructs=[
                     construct_factory("stress", Role.ENDOGENOUS, is_outcome=True),
                     construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -457,12 +457,12 @@ class TestIndicator:
             )
 
 
-class TestMeasurementModel:
-    """Tests for MeasurementModel."""
+class TestMeasurementStructure:
+    """Tests for MeasurementStructure."""
 
     def test_get_indicators_for_construct(self):
         """get_indicators_for_construct returns correct indicators."""
-        model = MeasurementModel(
+        model = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 Indicator(
@@ -494,41 +494,41 @@ class TestMeasurementModel:
         assert all(i.construct_name == "mood" for i in mood_indicators)
 
 
-class TestCausalSpec:
-    """Tests for CausalSpec validation."""
+class TestCausalDesign:
+    """Tests for CausalDesign validation."""
 
-    def test_valid_causal_spec(self, construct_factory, indicator_factory):
-        """Valid CausalSpec passes validation."""
-        latent = LatentModel(
+    def test_valid_causal_design(self, construct_factory, indicator_factory):
+        """Valid CausalDesign passes validation."""
+        latent = LatentStructure(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
             ],
             edges=[CausalEdge(cause="stress", effect="mood", description="Stress affects mood")],
         )
-        measurement = MeasurementModel(
+        measurement = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 indicator_factory("stress_rating", "stress"),
                 indicator_factory("mood_rating", "mood"),
             ],
         )
-        causal_spec = CausalSpec(latent=latent, measurement=measurement)
-        assert len(causal_spec.latent.constructs) == 2
-        assert len(causal_spec.measurement.indicators) == 2
+        causal_design = CausalDesign(latent=latent, measurement=measurement)
+        assert len(causal_design.latent.constructs) == 2
+        assert len(causal_design.measurement.indicators) == 2
 
     def test_invalid_indicator_references_unknown_construct(
         self, construct_factory, indicator_factory
     ):
         """Indicator must reference a valid construct."""
-        latent = LatentModel(
+        latent = LatentStructure(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
             ],
             edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
         )
-        measurement = MeasurementModel(
+        measurement = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 indicator_factory("mood_rating", "mood"),
@@ -536,20 +536,20 @@ class TestCausalSpec:
             ],
         )
         with pytest.raises(ValueError, match="references unknown construct 'unknown'"):
-            CausalSpec(latent=latent, measurement=measurement)
+            CausalDesign(latent=latent, measurement=measurement)
 
     def test_latent_construct_without_indicator_is_valid(
         self, construct_factory, indicator_factory
     ):
         """Latent constructs without indicators are allowed (A2 deferred to y0)."""
-        latent = LatentModel(
+        latent = LatentStructure(
             constructs=[
                 construct_factory("stress", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
             ],
             edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
         )
-        measurement = MeasurementModel(
+        measurement = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 indicator_factory("mood_rating", "mood"),
@@ -557,15 +557,15 @@ class TestCausalSpec:
             ],
         )
         # This should now be valid - y0 will check identification in Stage 3
-        causal_spec = CausalSpec(latent=latent, measurement=measurement)
-        assert len(causal_spec.latent.constructs) == 2
-        assert len(causal_spec.measurement.indicators) == 1
+        causal_design = CausalDesign(latent=latent, measurement=measurement)
+        assert len(causal_design.latent.constructs) == 2
+        assert len(causal_design.measurement.indicators) == 1
 
     def test_confounder_kind_inconsistency_in_estimation_spec_rejected(
         self, construct_factory, indicator_factory
     ):
         """A single confounder cannot project to more than one covariance block."""
-        latent = LatentModel(
+        latent = LatentStructure(
             constructs=[
                 construct_factory("x", Role.ENDOGENOUS),
                 construct_factory("y", Role.ENDOGENOUS),
@@ -581,7 +581,7 @@ class TestCausalSpec:
                 CausalEdge(cause="x", effect="z", description="Treatment path"),
             ],
         )
-        measurement = MeasurementModel(
+        measurement = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 indicator_factory("x_obs", "x"),
@@ -606,7 +606,7 @@ class TestCausalSpec:
             ],
         }
         with pytest.raises(ValueError, match="inconsistent kinds"):
-            CausalSpec.model_validate(
+            CausalDesign.model_validate(
                 {
                     "latent": latent.model_dump(),
                     "measurement": measurement.model_dump(),
@@ -615,8 +615,8 @@ class TestCausalSpec:
             )
 
     def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
-        """CausalSpec.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
-        latent = LatentModel(
+        """CausalDesign.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
+        latent = LatentStructure(
             constructs=[
                 construct_factory("sleep", Role.EXOGENOUS),
                 construct_factory("mood", Role.ENDOGENOUS, is_outcome=True),
@@ -627,15 +627,15 @@ class TestCausalSpec:
                 )
             ],
         )
-        measurement = MeasurementModel(
+        measurement = MeasurementStructure(
             model_clock="1d",
             indicators=[
                 indicator_factory("sleep_hours", "sleep"),
                 indicator_factory("mood_rating", "mood"),
             ],
         )
-        causal_spec = CausalSpec(latent=latent, measurement=measurement)
-        lag = causal_spec.get_edge_lag_hours(latent.edges[0])
+        causal_design = CausalDesign(latent=latent, measurement=measurement)
+        lag = causal_design.get_edge_lag_hours(latent.edges[0])
         assert lag == 24  # 1 day
 
 
@@ -687,7 +687,7 @@ class TestParseDurationToHours:
 
     def test_fractional_days(self):
         """model_clock_days property converts correctly."""
-        m = MeasurementModel(
+        m = MeasurementStructure(
             model_clock="6h",
             indicators=[
                 Indicator(
@@ -702,10 +702,10 @@ class TestParseDurationToHours:
         assert m.model_clock_hours == 6.0
         assert m.model_clock_days == 0.25
 
-    def test_invalid_model_clock_on_measurement_model(self):
-        """MeasurementModel rejects invalid model_clock."""
+    def test_invalid_model_clock_on_measurement_structure(self):
+        """MeasurementStructure rejects invalid model_clock."""
         with pytest.raises(ValueError, match="Invalid duration"):
-            MeasurementModel(
+            MeasurementStructure(
                 model_clock="bad",
                 indicators=[
                     Indicator(
@@ -753,7 +753,7 @@ class TestDeriveObservationSemantics:
             derive_indicator_observation_semantics("mean", "ordinal")
 
     def test_unsupported_aggregations_fail_fast(self):
-        with pytest.raises(ValueError, match="not yet supported by the measurement model"):
+        with pytest.raises(ValueError, match="not yet supported by the measurement structure"):
             derive_indicator_observation_semantics("median", "continuous")
 
 
@@ -806,7 +806,7 @@ class TestIndicatorObservationSemantics:
         assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
 
     def test_unsupported_aggregation_is_rejected_on_indicator(self, indicator_factory):
-        with pytest.raises(ValueError, match="not yet supported by the measurement model"):
+        with pytest.raises(ValueError, match="not yet supported by the measurement structure"):
             indicator_factory("median_hr", "hr", aggregation="median", dtype="continuous")
 
     def test_ordinal_interval_summary_is_rejected_on_indicator(self, indicator_factory):

@@ -1,10 +1,10 @@
 """Latent-model (Stage 1a constructs) scoring.
 
-Lifted out of the deleted ``orchestrator.scoring`` so the rule-based latent-model
+Lifted out of the deleted ``orchestrator.scoring`` so the rule-based latent-structure
 score is a single source shared by the Inspect Stage 1a eval and any registry
 constructs row — not duplicated. ``count_rule_points`` is the core logic; the
-``score_latent_model*`` functions are the DSPy-metric interface; and
-``LatentModelScorer`` is the registry-shaped wrapper.
+``score_latent_structure*`` functions are the DSPy-metric interface; and
+``LatentStructureScorer`` is the registry-shaped wrapper.
 """
 
 from __future__ import annotations
@@ -14,12 +14,12 @@ import logging
 
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.latent_model import LatentModel, Role
+from nof1_causal_lab.artifacts.latent_structure import LatentStructure, Role
 
 _logger = logging.getLogger(__name__)
 
 
-def count_rule_points(structure: LatentModel) -> float:
+def count_rule_points(structure: LatentStructure) -> float:
     """Count points for each rule instance correctly applied.
 
     Points per construct: +1 valid role, +1 valid temporal_status.
@@ -44,8 +44,8 @@ def count_rule_points(structure: LatentModel) -> float:
     return points
 
 
-def score_latent_model(_example, pred, _trace=None) -> float:
-    """Score a latent model proposal (DSPy-metric compatible; usable standalone).
+def score_latent_structure(_example, pred, _trace=None) -> float:
+    """Score a latent structure proposal (DSPy-metric compatible; usable standalone).
 
     Returns 0 if any rule is violated, otherwise the sum of rule-instance points.
     """
@@ -62,7 +62,7 @@ def score_latent_model(_example, pred, _trace=None) -> float:
         return 0.0
 
     try:
-        structure = LatentModel(**data)
+        structure = LatentStructure(**data)
     except (ValidationError, ValueError, TypeError) as e:
         _logger.info("Prediction failed schema validation: %s", e)
         return 0.0
@@ -70,9 +70,9 @@ def score_latent_model(_example, pred, _trace=None) -> float:
     return count_rule_points(structure)
 
 
-def score_latent_model_normalized(example, pred, trace=None) -> float:
-    """Normalized (0-1) version of :func:`score_latent_model`."""
-    raw_score = score_latent_model(example, pred, trace)
+def score_latent_structure_normalized(example, pred, trace=None) -> float:
+    """Normalized (0-1) version of :func:`score_latent_structure`."""
+    raw_score = score_latent_structure(example, pred, trace)
     if raw_score == 0:
         return 0.0
 

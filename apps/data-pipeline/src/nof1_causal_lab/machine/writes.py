@@ -1,12 +1,12 @@
 """Write-move executors: schema-validated artifact writes.
 
 A ``write`` is how state enters the machine from outside a stage run —
-the user's question, an edited causal spec, saved scenarios. Payloads are
+the user's question, an edited causal design, saved scenarios. Payloads are
 validated against the artifact's contract (the old override adapters'
 coercion logic, kept as the schema boundary it always was), stamped with
 the caller's provenance, and journaled like any other transition.
 
-Writing ``causal_spec`` fans out: the positive ``identification_report`` is
+Writing ``causal_design`` fans out: the positive ``identification_report`` is
 recomputed from the spec's explicit identifiability status in the same write
 — otherwise an edited spec would leave downstream enabledness keyed to
 superseded findings.
@@ -55,22 +55,22 @@ def _write_question(
     return TransitionEffects(produced=[info])
 
 
-def _write_causal_spec(
+def _write_causal_design(
     store: ArtifactStore, payload: dict[str, Any], provenance: Provenance
 ) -> TransitionEffects:
     from nof1_causal_lab.flows.stage_contracts import Stage1bContract
     from nof1_causal_lab.flows.stages.stage1b.contracts import IdentificationReportContract
     from nof1_causal_lab.flows.stages.stage1b.result import derive_identification_report
 
-    validated = _validated("causal_spec", Stage1bContract, payload)
+    validated = _validated("causal_design", Stage1bContract, payload)
     spec_info = store.write_version(
-        "causal_spec",
+        "causal_design",
         provenance=provenance,
         derived_from={},
         produced_by=None,
-        json_files={json_filename("causal_spec", "causal_spec"): validated},
+        json_files={json_filename("causal_design", "causal_design"): validated},
     )
-    report = derive_identification_report(validated["causal_spec"])
+    report = derive_identification_report(validated["causal_design"])
     produced = [spec_info]
     retracted: list[ArtifactId] = []
     if report is not None:
@@ -78,7 +78,7 @@ def _write_causal_spec(
             store.write_version(
                 "identification_report",
                 provenance=provenance,
-                derived_from={"causal_spec": spec_info.version},
+                derived_from={"causal_design": spec_info.version},
                 produced_by=None,
                 json_files={
                     json_filename("identification_report", "identification_report"): (
@@ -126,10 +126,13 @@ def _write_saved_scenarios(
 
 _CONTRACT_WRITES: dict[ArtifactId, tuple[str, str]] = {
     # artifact -> (contract import name, payload filename). ``identification_report``
-    # is absent by design: it is a derived milestone of ``causal_spec`` (see
-    # ``_write_causal_spec``), recomputed on every spec creation, never written
+    # is absent by design: it is a derived milestone of ``causal_design`` (see
+    # ``_write_causal_design``), recomputed on every spec creation, never written
     # directly.
-    "constructs": ("Stage1aContract", json_filename("constructs", "constructs")),
+    "latent_structure": (
+        "Stage1aContract",
+        json_filename("latent_structure", "latent_structure"),
+    ),
     "extraction_report": (
         "Stage2Contract",
         json_filename("extraction_report", "extraction_report"),
@@ -161,8 +164,8 @@ def execute_write(
     store = ArtifactStore(workspace_id)
     if artifact_id == "question":
         return _write_question(store, payload, provenance)
-    if artifact_id == "causal_spec":
-        return _write_causal_spec(store, payload, provenance)
+    if artifact_id == "causal_design":
+        return _write_causal_design(store, payload, provenance)
     if artifact_id == "saved_scenarios":
         return _write_saved_scenarios(store, payload, provenance)
     if artifact_id in _CONTRACT_WRITES:

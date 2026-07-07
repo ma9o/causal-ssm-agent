@@ -51,7 +51,7 @@ class TestLegalMoves:
         }
         assert offered == set(WRITABLE_ARTIFACTS)
         assert "question" in offered
-        assert "causal_spec" in offered
+        assert "causal_design" in offered
         assert "raw_data" not in offered
 
     def test_no_identification_report_disables_fit_chain(self):
@@ -59,8 +59,8 @@ class TestLegalMoves:
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data", produced_by="stage-0"),
-            _version("constructs", produced_by="stage-1a"),
-            _version("causal_spec", produced_by="stage-1b"),
+            _version("latent_structure", produced_by="stage-1a"),
+            _version("causal_design", produced_by="stage-1b"),
             _version("extraction_report", produced_by="stage-2"),
             _version("model_data", produced_by="stage-2"),
             _version("validation_report", produced_by="stage-3"),
@@ -73,8 +73,8 @@ class TestLegalMoves:
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data"),
-            _version("constructs"),
-            _version("causal_spec"),
+            _version("latent_structure"),
+            _version("causal_design"),
             _version("identification_report"),
             _version("extraction_report"),
             _version("model_data"),
@@ -84,7 +84,7 @@ class TestLegalMoves:
 
     def test_stage6_does_not_require_question(self):
         state = _state(
-            _version("causal_spec"),
+            _version("causal_design"),
             _version("identification_report"),
             _version("posterior"),
         )
@@ -96,7 +96,7 @@ class TestValidateMove:
         reason = validate_move(EpisodeState(), RunStage(stage_id="stage-1b"))
         assert reason is not None
         assert "question" in reason
-        assert "constructs" in reason
+        assert "latent_structure" in reason
 
     def test_unknown_stage_rejected(self):
         reason = validate_move(EpisodeState(), RunStage(stage_id="stage-99"))
@@ -129,23 +129,23 @@ class TestApplyTransition:
         """A rerun of stage-1b that finds nothing estimable retracts the report."""
         spec = stage_spec("stage-1b")
         state = _state(
-            _version("causal_spec", version=1),
+            _version("causal_design", version=1),
             _version("identification_report", version=1),
         )
         produced = [
-            _version("causal_spec", version=2),
+            _version("causal_design", version=2),
         ]
         retracted = run_retractions(state, spec, produced)
         assert retracted == ["identification_report"]
         next_state = apply_transition(state, produced, retracted)
         assert not next_state.has("identification_report")
-        assert next_state.get("causal_spec").version == 2
+        assert next_state.get("causal_design").version == 2
 
     def test_no_retraction_when_optional_still_produced(self):
         spec = stage_spec("stage-1b")
         state = _state(_version("identification_report", version=1))
         produced = [
-            _version("causal_spec"),
+            _version("causal_design"),
             _version("identification_report", version=2),
         ]
         assert run_retractions(state, spec, produced) == []
@@ -155,15 +155,17 @@ class TestStaleness:
     def _fitted_chain(self):
         question = _version("question", provenance="human")
         raw = _version("raw_data", produced_by="stage-0")
-        constructs = _version("constructs", derived_from={"question": 1}, produced_by="stage-1a")
+        latent_structure = _version(
+            "latent_structure", derived_from={"question": 1}, produced_by="stage-1a"
+        )
         spec = _version(
-            "causal_spec",
-            derived_from={"question": 1, "raw_data": 1, "constructs": 1},
+            "causal_design",
+            derived_from={"question": 1, "raw_data": 1, "latent_structure": 1},
             produced_by="stage-1b",
         )
         model_data = _version(
             "model_data",
-            derived_from={"question": 1, "raw_data": 1, "causal_spec": 1},
+            derived_from={"question": 1, "raw_data": 1, "causal_design": 1},
             produced_by="stage-2",
         )
         posterior = _version(
@@ -173,22 +175,22 @@ class TestStaleness:
         )
         compiled = _version(
             "compiled_ssm",
-            derived_from={"causal_spec": 1, "model_data": 1},
+            derived_from={"causal_design": 1, "model_data": 1},
             produced_by="stage-4",
         )
-        return _state(question, raw, constructs, spec, model_data, compiled, posterior)
+        return _state(question, raw, latent_structure, spec, model_data, compiled, posterior)
 
     def test_fresh_chain_reports_fresh(self):
         state = self._fitted_chain()
         assert is_fresh(state, "posterior")
         assert not is_stale(state, "posterior")
 
-    def test_editing_causal_spec_stales_posterior_transitively(self):
+    def test_editing_causal_design_stales_posterior_transitively(self):
         """The scenario halt-on-fail used to (badly) protect against."""
         state = self._fitted_chain()
         state = apply_transition(
             state,
-            [_version("causal_spec", version=2, provenance="human")],
+            [_version("causal_design", version=2, provenance="human")],
         )
         assert is_stale(state, "model_data")
         assert is_stale(state, "compiled_ssm")
@@ -196,7 +198,7 @@ class TestStaleness:
         assert not is_fresh(state, "posterior")
         # Roots and untouched intermediates stay fresh.
         assert not is_stale(state, "question")
-        assert not is_stale(state, "constructs")
+        assert not is_stale(state, "latent_structure")
 
     def test_retracted_input_stales_dependents(self):
         state = self._fitted_chain()
@@ -208,14 +210,14 @@ class TestStaleness:
 
     def test_recompute_restores_freshness(self):
         state = self._fitted_chain()
-        state = apply_transition(state, [_version("causal_spec", version=2)])
+        state = apply_transition(state, [_version("causal_design", version=2)])
         state = apply_transition(
             state,
             [
                 _version(
                     "model_data",
                     version=2,
-                    derived_from={"question": 1, "raw_data": 1, "causal_spec": 2},
+                    derived_from={"question": 1, "raw_data": 1, "causal_design": 2},
                 )
             ],
         )
@@ -225,7 +227,7 @@ class TestStaleness:
                 _version(
                     "compiled_ssm",
                     version=2,
-                    derived_from={"causal_spec": 2, "model_data": 2},
+                    derived_from={"causal_design": 2, "model_data": 2},
                 )
             ],
         )

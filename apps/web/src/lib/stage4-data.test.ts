@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { collectStage4ObservationPriorTerms, collectStage4UiPriors } from "./stage4-data";
 
 const stage4Data = {
-  model_spec: {
+  statistical_model_spec: {
     likelihoods: [],
     parameters: [
       {

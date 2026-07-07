@@ -2,12 +2,12 @@
 
 The proposal becomes two artifacts:
 
-- ``causal_spec`` — the structural + measurement model (always)
+- ``causal_design`` — the structural + measurement structure (always)
 - ``identification_report`` — ONLY when at least one treatment is explicitly
   identifiable; its absence structurally disables fitting and interventions
 
 This module is also the derivation used when a human/LLM *writes* an edited
-``causal_spec`` directly: identification fan-out is pure computation over the
+``causal_design`` directly: identification fan-out is pure computation over the
 spec's explicit identifiability status.
 """
 
@@ -22,22 +22,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Stage1bArtifacts:
-    """Payloads for the artifacts a stage-1b run (or causal_spec write) yields."""
+    """Payloads for the artifacts a stage-1b run (or causal_design write) yields."""
 
-    causal_spec_payload: dict[str, Any]
+    causal_design_payload: dict[str, Any]
     identification_report: dict[str, Any] | None
 
 
 def derive_identification_report(
-    causal_spec: dict[str, Any],
+    causal_design: dict[str, Any],
     *,
-    latent_model: dict[str, Any] | None = None,
+    latent_structure: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Compute the positive identification report from a causal spec."""
-    from nof1_causal_lab.utils.causal_spec import get_outcome_name
+    """Compute the positive identification report from a causal design."""
+    from nof1_causal_lab.utils.causal_design import get_outcome_name
 
-    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(latent_model or {}) or ""
-    identifiability = causal_spec.get("identifiability", {}) or {}
+    outcome_name = get_outcome_name(causal_design) or get_outcome_name(latent_structure or {}) or ""
+    identifiability = causal_design.get("identifiability", {}) or {}
     identifiable = identifiability.get("identifiable_treatments", {}) or {}
     non_identifiable = identifiability.get("non_identifiable_treatments", {}) or {}
     treatments = list(identifiable.keys())
@@ -81,13 +81,13 @@ def derive_identification_report(
 def split_stage1b_result(
     result: dict[str, Any],
     *,
-    latent_model: dict[str, Any] | None = None,
+    latent_structure: dict[str, Any] | None = None,
 ) -> Stage1bArtifacts:
     """Split a raw stage-1b LLM result into machine artifacts."""
     payload = dict(result)
-    causal_spec = payload.get("causal_spec", {}) or {}
-    report = derive_identification_report(causal_spec, latent_model=latent_model)
+    causal_design = payload.get("causal_design", {}) or {}
+    report = derive_identification_report(causal_design, latent_structure=latent_structure)
     return Stage1bArtifacts(
-        causal_spec_payload=payload,
+        causal_design_payload=payload,
         identification_report=report,
     )

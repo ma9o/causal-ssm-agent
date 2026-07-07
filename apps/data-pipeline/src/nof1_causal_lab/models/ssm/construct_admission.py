@@ -5,7 +5,7 @@ Constructs are admitted along the causal DAG's topological order (parents before
 children). Each admission bundles the construct's contribution to the model —
 its self-dynamics parameters, its incoming edges (from already-admitted
 parents), and its emission(s) — into the growing :class:`~nof1_causal_lab.
-artifacts.ModelSpec`, compiles the *cumulative partial* model, runs the **exact**
+artifacts.StatisticalModelSpec`, compiles the *cumulative partial* model, runs the **exact**
 prior predictive (Diffrax over the true nonlinear drift, real emission
 families), and feeds the resulting arrays to the reachability battery
 (:mod:`nof1_causal_lab.models.ssm.reachability`).
@@ -13,7 +13,7 @@ families), and feeds the resulting arrays to the reachability battery
 Nothing here linearizes: the partial model is compiled and simulated through the
 same exact engine the fit uses (``sample_prior_predictive_from_runtime``). A
 partial sub-DAG compiles fine — the ``n_manifest >= n_latent`` rank guard lives
-only on the semantic-compile path used without a causal_spec, which this module
+only on the semantic-compile path used without a causal_design, which this module
 does not take, so latent-only constructs (no indicator yet) still admit.
 
 The verdict (admit / revise / accept) comes from :func:`reachability.
@@ -30,13 +30,13 @@ import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 
-from nof1_causal_lab.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     LikelihoodSpec,
     LinkFunction,
-    ModelSpec,
     ParameterSpec,
+    StatisticalModelSpec,
 )
-from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model_spec
+from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_statistical_model_spec
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     HillEdgeSpec,
     LinearEdgeSpec,
@@ -56,7 +56,7 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_scale,
     stage_outcome,
 )
-from nof1_causal_lab.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_design import (
     get_estimation_edges,
     get_estimation_state_order,
 )
@@ -76,7 +76,7 @@ if TYPE_CHECKING:
 class ConstructContribution:
     """One construct's contribution to the growing model.
 
-    ``likelihoods``/``parameters``/``priors`` are canonical ModelSpec fragments
+    ``likelihoods``/``parameters``/``priors`` are canonical StatisticalModelSpec fragments
     (the parameter names must match the semantic-binding contract, e.g.
     ``rho_<c>``, ``self_limit_<c>``, ``beta_<p>_<c>``, ``hill_emax_<p>_<c>``,
     ``lambda_<ind>_<c>``, ``obs_sd_<ind>``). ``edge_parents`` and ``hill_parents``
@@ -102,8 +102,10 @@ class AdmissionState:
     priors: Mapping[str, dict] = field(default_factory=dict)
     annotations: tuple[str, ...] = ()
 
-    def model_spec(self) -> ModelSpec:
-        return ModelSpec(likelihoods=list(self.likelihoods), parameters=list(self.parameters))
+    def statistical_model_spec(self) -> StatisticalModelSpec:
+        return StatisticalModelSpec(
+            likelihoods=list(self.likelihoods), parameters=list(self.parameters)
+        )
 
 
 @dataclass(frozen=True)
@@ -118,11 +120,11 @@ class AdmissionReport:
 
 
 # --------------------------------------------------------------------------- #
-# Planning + causal_spec restriction
+# Planning + causal_design restriction
 # --------------------------------------------------------------------------- #
 
 
-def build_construct_order(causal_spec: dict) -> list[str]:
+def build_construct_order(causal_design: dict) -> list[str]:
     """Construct order (parents before children) along the causal arrows.
 
     The universe is the estimation projection's ``state_order`` — constructs
@@ -132,17 +134,17 @@ def build_construct_order(causal_spec: dict) -> list[str]:
 
     Ties (independent roots) break by the state_order position for
     determinism. Time-invariant confounders, being edge sources, naturally sort
-    first. Lagged feedback loops are legal latent structure (the latent-model
+    first. Lagged feedback loops are legal latent structure (the latent-structure
     validator only forbids *contemporaneous* cycles), so the sort runs on the
     condensation: members of a feedback cycle are admitted back-to-back in
-    state_order, and restrict_causal_spec defers the closing edge until
+    state_order, and restrict_causal_design defers the closing edge until
     the whole cycle is admitted.
     """
-    constructs = get_estimation_state_order(causal_spec)
+    constructs = get_estimation_state_order(causal_design)
     order_index = {name: i for i, name in enumerate(constructs)}
     graph = nx.DiGraph()
     graph.add_nodes_from(constructs)
-    for edge in get_estimation_edges(causal_spec):
+    for edge in get_estimation_edges(causal_design):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause in order_index and effect in order_index:
@@ -158,14 +160,14 @@ def build_construct_order(causal_spec: dict) -> list[str]:
     return order
 
 
-def restrict_causal_spec(causal_spec: dict, keep: set[str]) -> dict:
-    """Restrict a causal_spec to the subset ``keep`` of constructs.
+def restrict_causal_design(causal_design: dict, keep: set[str]) -> dict:
+    """Restrict a causal_design to the subset ``keep`` of constructs.
 
     Every construct-indexed surface is filtered consistently so the partial model
     compiles: constructs, edges (both endpoints kept), indicators, and the
     estimation layout (state_order, edges, induced_dependencies, known_inputs).
     """
-    spec = copy.deepcopy(causal_spec)
+    spec = copy.deepcopy(causal_design)
     latent = spec.get("latent", {})
     latent["constructs"] = [c for c in latent.get("constructs", []) if c["name"] in keep]
     latent["edges"] = [
@@ -197,12 +199,14 @@ def restrict_causal_spec(causal_spec: dict, keep: set[str]) -> dict:
 
 def _compile_partial(
     state: AdmissionState,
-    causal_spec: dict,
+    causal_design: dict,
 ) -> tuple[SSMSpec, PriorRegistry]:
     """Compile the cumulative partial model to an SSMSpec + prior registry."""
-    restricted = restrict_causal_spec(causal_spec, set(state.names))
-    spec, registry, _bindings, _diagnostics, _edge_lag = compile_ssm_inputs_from_model_spec(
-        state.model_spec(), dict(state.priors), causal_spec=restricted
+    restricted = restrict_causal_design(causal_design, set(state.names))
+    spec, registry, _bindings, _diagnostics, _edge_lag = (
+        compile_ssm_inputs_from_statistical_model_spec(
+            state.statistical_model_spec(), dict(state.priors), causal_design=restricted
+        )
     )
     return spec, registry
 
@@ -317,13 +321,13 @@ def trial_admission_state(
 def admit_construct(
     state: AdmissionState,
     contribution: ConstructContribution,
-    causal_spec: dict,
+    causal_design: dict,
     design: DesignInfo,
     accepted: Mapping[str, str] | None = None,
 ) -> tuple[AdmissionState, AdmissionReport]:
     """Attempt to admit one construct; run the battery on the cumulative model."""
     trial = trial_admission_state(state, contribution)
-    spec, registry = _compile_partial(trial, causal_spec)
+    spec, registry = _compile_partial(trial, causal_design)
     pred = _sample_partial(spec, registry, design)
     results = _run_battery(spec, pred, design, contribution)
 
@@ -427,7 +431,7 @@ def _run_battery(
 def recheck_member(
     state: AdmissionState,
     target: ConstructContribution,
-    causal_spec: dict,
+    causal_design: dict,
     design: DesignInfo,
 ) -> tuple[CheckResult, ...]:
     """Re-run the battery on an already-admitted member against the closed-loop model.
@@ -437,7 +441,7 @@ def recheck_member(
     set (``edge_parents`` now include the feedback source). Informational: the caller
     surfaces the results as a coupled recheck; they do not gate the admission.
     """
-    spec, registry = _compile_partial(state, causal_spec)
+    spec, registry = _compile_partial(state, causal_design)
     pred = _sample_partial(spec, registry, design)
     return tuple(_run_battery(spec, pred, design, target))
 
@@ -533,7 +537,7 @@ def _resimulate_edge_off(
 
 
 def run_construct_build(
-    causal_spec: dict,
+    causal_design: dict,
     contributions: Mapping[str, ConstructContribution],
     design: DesignInfo,
     accepted: Mapping[str, Mapping[str, str]] | None = None,
@@ -544,15 +548,15 @@ def run_construct_build(
     A construct that is BLOCKED (hard failure) or NEEDS DECISION (unaccepted soft
     failure) halts the build — the caller revises its contribution (or accepts the
     consequence via ``accepted``) and re-runs. The final ``AdmissionState`` yields
-    the ModelSpec + priors to compile once every construct is admitted.
+    the StatisticalModelSpec + priors to compile once every construct is admitted.
     """
     accepted = accepted or {}
-    order = build_construct_order(causal_spec)
+    order = build_construct_order(causal_design)
     state = AdmissionState()
     reports: list[AdmissionReport] = []
     for name in order:
         state, report = admit_construct(
-            state, contributions[name], causal_spec, design, accepted.get(name)
+            state, contributions[name], causal_design, design, accepted.get(name)
         )
         reports.append(report)
         if not report.admitted:

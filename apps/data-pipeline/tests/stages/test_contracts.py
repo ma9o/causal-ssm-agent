@@ -25,7 +25,7 @@ def valid_stage_payloads() -> dict[str, dict]:
             ],
         },
         "stage-1a": {
-            "latent_model": {
+            "latent_structure": {
                 "constructs": [
                     {
                         "name": "Perf",
@@ -53,7 +53,7 @@ def valid_stage_payloads() -> dict[str, dict]:
             },
         },
         "stage-1b": {
-            "causal_spec": {
+            "causal_design": {
                 "latent": {
                     "constructs": [
                         {
@@ -150,7 +150,7 @@ def valid_stage_payloads() -> dict[str, dict]:
             "dataset_issues": [],
         },
         "stage-4": {
-            "model_spec": {
+            "statistical_model_spec": {
                 "likelihoods": [
                     {
                         "variable": "stress_score",

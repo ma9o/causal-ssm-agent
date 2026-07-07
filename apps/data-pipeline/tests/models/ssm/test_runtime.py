@@ -284,7 +284,7 @@ class TestSplitCompoundName:
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         """AR priors must stay on the DT persistence scale in (0, 1)."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood",
@@ -311,11 +311,11 @@ class TestBuilderPriorConversion:
         ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="DT persistence scale"):
-            compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+            compile_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
         """Initial-state correlations should compile to bounded correlation priors."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood",
@@ -362,7 +362,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, _index_maps, _diagnostics = compile_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
@@ -374,7 +374,7 @@ class TestBuilderPriorConversion:
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
         """Authored initial-state priors should compile to the t0 mean/diag sites."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood",
@@ -448,7 +448,7 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            priors, model_spec, ssm_spec=ssm_spec
+            priors, statistical_model_spec, ssm_spec=ssm_spec
         )
         t0_mean_prior = prior_registry.priors_by_site["t0_means_free"]
         t0_diag_prior = prior_registry.priors_by_site["t0_var_diag_free"]
@@ -471,7 +471,7 @@ class TestBuilderPriorConversion:
 
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         """Filtered initial-state pairs should not leave holes in prior arrays."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "a",
@@ -530,7 +530,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, index_maps, _diagnostics = compile_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
@@ -545,7 +545,7 @@ class TestBuilderPriorConversion:
 
     def test_component_dynamics_parameters_bind_to_component_sites(self):
         """Semantic priors should bind to component-owned dynamics sites."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "dose",
@@ -623,7 +623,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, index_maps, _diagnostics = compile_priors(
             priors,
-            model_spec,
+            statistical_model_spec,
             ssm_spec=ssm_spec,
         )
 
@@ -651,7 +651,7 @@ class TestBuilderPriorConversion:
 
     def test_cross_lag_prior_requires_resolved_interval_metadata(self):
         """Cross-lag priors should fail instead of silently defaulting to 1 day."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "mood",
@@ -699,10 +699,10 @@ class TestBuilderPriorConversion:
         )
 
         with pytest.raises(ValueError, match="could not resolve an authoring interval"):
-            compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+            compile_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
 
-    def test_compile_inputs_from_spec_requires_model_spec_for_semantic_priors(self):
-        """Direct SSMSpec compilation should reject raw semantic priors without model_spec."""
+    def test_compile_inputs_from_spec_requires_statistical_model_spec_for_semantic_priors(self):
+        """Direct SSMSpec compilation should reject raw semantic priors without statistical_model_spec."""
         ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         priors = {
             "rho_mood": {
@@ -711,7 +711,9 @@ class TestBuilderPriorConversion:
             }
         }
 
-        with pytest.raises(ValueError, match="requires model_spec to compile semantic prior"):
+        with pytest.raises(
+            ValueError, match="requires statistical_model_spec to compile semantic prior"
+        ):
             compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
 
     def test_prior_predictive_supports_hill_edge_spec(self):
@@ -809,7 +811,7 @@ class TestBuilderPriorConversion:
 class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
-        model_spec = {
+        statistical_model_spec = {
             "likelihoods": [
                 {
                     "variable": "screen_gap",
@@ -830,7 +832,7 @@ class TestObservationSupportValidation:
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
 
         with pytest.raises(ValueError, match="Observation support check failed"):
-            build_ssm_model(X, model_spec=model_spec, priors={})
+            build_ssm_model(X, statistical_model_spec=statistical_model_spec, priors={})
 
 
 class TestPrepareFitInputs:

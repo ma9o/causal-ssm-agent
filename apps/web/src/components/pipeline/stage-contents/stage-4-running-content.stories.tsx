@@ -20,7 +20,7 @@ import { Stage4AdmissionRunningView } from "./stage-4-running-content";
 const stage = STAGES.find((s) => s.id === "stage-4")!;
 
 const meta = {
-  title: "Pipeline/Stages/4 – Model Specification/Admission",
+  title: "Pipeline/Stages/4 – Statistical Model Specification/Admission",
   component: Stage4AdmissionRunningView,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage4AdmissionRunningView>;

@@ -187,7 +187,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
 
   it("hydrates stage 4 likelihood diagnostics from stage 3 + full stage 2 observations", async () => {
     const stage4 = {
-      model_spec: {
+      statistical_model_spec: {
         likelihoods: [],
         parameters: [],
       },

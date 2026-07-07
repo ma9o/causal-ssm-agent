@@ -59,13 +59,13 @@ def machine_env(monkeypatch, tmp_path):
         runners_module._STAGE_RUNNERS, "stage-0", _fake_runner(("raw_data", "stage-0"))
     )
     monkeypatch.setitem(
-        runners_module._STAGE_RUNNERS, "stage-1a", _fake_runner(("constructs", "stage-1a"))
+        runners_module._STAGE_RUNNERS, "stage-1a", _fake_runner(("latent_structure", "stage-1a"))
     )
     monkeypatch.setitem(
         runners_module._STAGE_RUNNERS,
         "stage-1b",
         _fake_runner(
-            ("causal_spec", "stage-1b"),
+            ("causal_design", "stage-1b"),
             ("identification_report", "stage-1b"),
         ),
     )
@@ -142,8 +142,8 @@ def test_episode_workflow_journey(machine_env):
                 )
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
-                assert "constructs" in stale
-                assert "causal_spec" in stale
+                assert "latent_structure" in stale
+                assert "causal_design" in stale
                 assert "raw_data" not in stale  # not derived from question
 
                 # 6. Journal recorded every attempt, including the rejection

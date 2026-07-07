@@ -163,7 +163,7 @@ function createStageDataAdapter<TData>(Component: ComponentType<{ data: TData }>
 
 function Stage4ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
-  return <Stage4Content data={data} indicators={stage1b?.causal_spec.measurement.indicators} />;
+  return <Stage4Content data={data} indicators={stage1b?.causal_design.measurement.indicators} />;
 }
 
 function Stage5bConnectedContent({
@@ -184,7 +184,8 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
   const { data: stage5b } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
 
   const outcomeName = useMemo(
-    () => stage1a?.latent_model.constructs.find((construct) => construct.is_outcome)?.name ?? null,
+    () =>
+      stage1a?.latent_structure.constructs.find((construct) => construct.is_outcome)?.name ?? null,
     [stage1a],
   );
   // Stage 6 visualizes the estimation projection — the retained latent states plus
@@ -194,16 +195,16 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
   // inputs render as exogenous (held drivers, no self-dynamics) since they leave the
   // latent state vector.
   const graph = useMemo(() => {
-    const estimation = stage1b?.causal_spec.estimation;
+    const estimation = stage1b?.causal_design.estimation;
     const stateOrder = new Set(estimation?.state_order ?? []);
     const knownInputs = new Set((estimation?.known_inputs ?? []).map((input) => input.construct));
-    const constructs = (stage1a?.latent_model.constructs ?? [])
+    const constructs = (stage1a?.latent_structure.constructs ?? [])
       .filter((c) => stateOrder.has(c.name) || knownInputs.has(c.name))
       .map((c) => (knownInputs.has(c.name) ? { ...c, role: "exogenous" as const } : c));
     return {
       constructs,
       edges: estimation?.edges ?? [],
-      indicators: stage1b?.causal_spec.measurement.indicators,
+      indicators: stage1b?.causal_design.measurement.indicators,
       edgePosteriors: buildEdgePosteriors({ stage1a, stage4, stage5b }),
     };
   }, [stage1a, stage1b, stage4, stage5b]);

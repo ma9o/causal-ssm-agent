@@ -38,16 +38,16 @@ export const STAGES: StageMeta[] = [
   },
   {
     id: "stage-1a",
-    label: "Latent Model",
+    label: "Latent Structure",
     number: "1a",
     loadingHint: "LLM is proposing a causal DAG...",
     description:
-      "Proposes a latent causal model based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
+      "Proposes a latent causal structure based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
     interactive: true,
   },
   {
     id: "stage-1b",
-    label: "Measurement & Nonparametric Identification",
+    label: "Measurement Structure & Identification",
     number: "1b",
     loadingHint: "Mapping indicators and checking identifiability...",
     description:
@@ -75,11 +75,11 @@ export const STAGES: StageMeta[] = [
   },
   {
     id: "stage-4",
-    label: "Model Specification",
+    label: "StatisticalModelSpec",
     number: "4",
-    loadingHint: "LLM is specifying priors and model parameters...",
+    loadingHint: "LLM is specifying the statistical model and priors...",
     description:
-      "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
+      "Specifies observation likelihoods, SSM parameters, and prior distributions using domain knowledge and empirical data.",
     interactive: true,
   },
   {

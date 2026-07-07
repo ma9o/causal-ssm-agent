@@ -11,8 +11,8 @@ vi.mock("@/lib/server/episode-runs", () => ({
     }
   },
   STAGE_EDIT_ARTIFACTS: {
-    "stage-1a": "constructs",
-    "stage-1b": "causal_spec",
+    "stage-1a": "latent_structure",
+    "stage-1b": "causal_design",
     "stage-6": "baseline_ranking",
   },
   proposeMove: vi.fn(),
@@ -71,7 +71,7 @@ describe("POST /api/replay", () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
     vi.mocked(startAutoRun).mockResolvedValue();
 
-    const stageData = { latent_model: { constructs: [] } };
+    const stageData = { latent_structure: { constructs: [] } };
     const response = await POST(
       makeRequest({ workspaceId: "user-1", stageId: "stage-1a", stageData }),
     );
@@ -80,7 +80,7 @@ describe("POST /api/replay", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, workspaceId: "user-1" });
     expect(proposeMove).toHaveBeenCalledWith(
       "user-1",
-      { kind: "write", artifact_id: "constructs", provenance: "human" },
+      { kind: "write", artifact_id: "latent_structure", provenance: "human" },
       stageData,
     );
     expect(startAutoRun).toHaveBeenCalledWith("user-1");
@@ -96,7 +96,7 @@ describe("POST /api/replay", () => {
     expect(proposeMove).toHaveBeenNthCalledWith(
       1,
       "user-1",
-      { kind: "write", artifact_id: "causal_spec", provenance: "human" },
+      { kind: "write", artifact_id: "causal_design", provenance: "human" },
       { a: 1 },
     );
     expect(proposeMove).toHaveBeenNthCalledWith(
@@ -130,7 +130,7 @@ describe("POST /api/replay", () => {
       ...appliedOutcome(),
       status: "raised",
       error_type: "SchemaValidationError",
-      error_message: "constructs payload failed validation",
+      error_message: "latent_structure payload failed validation",
     });
 
     const response = await POST(
@@ -139,7 +139,7 @@ describe("POST /api/replay", () => {
 
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "constructs payload failed validation",
+      error: "latent_structure payload failed validation",
     });
   });
 

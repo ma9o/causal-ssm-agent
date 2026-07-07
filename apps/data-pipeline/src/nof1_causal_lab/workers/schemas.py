@@ -5,7 +5,7 @@ from typing import Any
 import polars as pl
 from pydantic import BaseModel, Field, ValidationError
 
-from nof1_causal_lab.utils.causal_spec import get_indicator_info as _get_indicator_info
+from nof1_causal_lab.utils.causal_design import get_indicator_info as _get_indicator_info
 
 
 class WindowExtraction(BaseModel):
@@ -94,14 +94,14 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
 
 def validate_worker_output(
     data: dict,
-    causal_spec: dict,
+    causal_design: dict,
     expected_window_starts: list[str] | None = None,
 ) -> tuple[WorkerOutput | None, list[str]]:
     """Validate worker output dict, collecting ALL errors instead of failing on first.
 
     Args:
         data: Dictionary to validate as WorkerOutput
-        causal_spec: The CausalSpec dict to validate against
+        causal_design: The CausalDesign dict to validate against
         expected_window_starts: If provided, validate that extractions only
             reference these support-window starts.
 
@@ -121,7 +121,7 @@ def validate_worker_output(
         extractions = []
 
     # Build set of valid indicator names and their dtypes
-    indicator_info = _get_indicator_info(causal_spec)
+    indicator_info = _get_indicator_info(causal_design)
     expected_window_start_set = set(expected_window_starts) if expected_window_starts else None
 
     # Validate each extraction

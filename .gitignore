@@ -33,8 +33,9 @@ apps/data-pipeline/logs/
 # Local scratchpad
 scratchpad/**
 
-# Claude Code local state
-.claude/
+# Claude Code local state (but commit the shared skills symlink into .agents/skills/)
+.claude/*
+!.claude/skills/
 .local/
 
 repomix-output.xml

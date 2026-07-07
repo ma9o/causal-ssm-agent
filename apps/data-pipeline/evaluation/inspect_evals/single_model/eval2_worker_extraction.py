@@ -1,7 +1,7 @@
 """Inspect AI evaluation for worker data extraction.
 
 Evaluates smaller LLMs on their ability to extract indicator values from
-data chunks given a CausalSpec schema from the orchestrator.
+data chunks given a CausalDesign schema from the orchestrator.
 
 Uses the same core logic as production (via run_worker_extraction), just with
 a different model configuration.
@@ -38,9 +38,9 @@ from nof1_causal_lab.workers.schemas import _check_dtype_match, _get_indicator_i
 _CONFIG = load_eval_config()
 
 
-def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
+def _get_indicator_dtypes(causal_design: dict) -> dict[str, str]:
     """Get mapping of indicator names to their expected dtypes."""
-    indicator_info = _get_indicator_info(causal_spec)
+    indicator_info = _get_indicator_info(causal_design)
     return {name: info["dtype"] for name, info in indicator_info.items()}
 
 
@@ -49,7 +49,7 @@ def create_eval_dataset(
     seed: int = 42,
     workspace_id: str | None = None,
 ) -> MemoryDataset:
-    """Create evaluation dataset with chunks and the CausalSpec schema.
+    """Create evaluation dataset with chunks and the CausalDesign schema.
 
     Args:
         n_chunks: Number of chunks to include (each becomes a sample)
@@ -60,8 +60,8 @@ def create_eval_dataset(
         MemoryDataset with one sample per chunk
     """
     stage2_inputs = get_stage2_eval_chunks(n_chunks, seed, workspace_id)
-    causal_spec = stage2_inputs["causal_spec"]
-    indicator_dtypes = _get_indicator_dtypes(causal_spec)
+    causal_design = stage2_inputs["causal_design"]
+    indicator_dtypes = _get_indicator_dtypes(causal_design)
     n_indicators = len(indicator_dtypes)
     chunks = stage2_inputs["sampled_chunk_texts"]
 
@@ -76,7 +76,7 @@ def create_eval_dataset(
                     "chunk": chunk,
                     "workspace_id": stage2_inputs["workspace_id"],
                     "question": stage2_inputs["question"],
-                    "causal_spec": causal_spec,
+                    "causal_design": causal_design,
                     "n_indicators": n_indicators,
                     "indicator_dtypes": indicator_dtypes,
                 },
@@ -209,14 +209,14 @@ def worker_extraction_solver():
             # Get metadata
             question_text = state.metadata.get("question", "")
             chunk = state.metadata.get("chunk", "")
-            causal_spec = state.metadata.get("causal_spec", {})
+            causal_design = state.metadata.get("causal_design", {})
 
             # Run the SAME core logic as production
             try:
                 result = await run_worker_extraction(
                     chunk=chunk,
                     question=question_text,
-                    causal_spec=causal_spec,
+                    causal_design=causal_design,
                     generate=generate_fn,
                 )
 

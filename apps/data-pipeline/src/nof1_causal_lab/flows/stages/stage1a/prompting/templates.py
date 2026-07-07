@@ -1,4 +1,4 @@
-"""Stage 1a prompts: Latent Model (theory-driven, no data)."""
+"""Stage 1a prompts: Latent Structure (theory-driven, no data)."""
 
 SYSTEM = """\
 You are a causal inference expert. Given a research question, propose a THEORETICAL causal structure.
@@ -101,7 +101,7 @@ fabricate citations.
 
 ## Validation Tool
 
-You have access to `validate_latent_model` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
+You have access to `validate_latent_structure` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
 
 IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validated result is already saved by the tool. Any additional output will be ignored.
 """
@@ -109,7 +109,7 @@ IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validat
 USER = """\
 Question: {question}
 
-Propose a theoretical causal structure (latent model) for answering this question. Remember:
+Propose a theoretical causal structure (latent structure) for answering this question. Remember:
 - You will NOT see data - reason from domain knowledge only
 - Focus on WHAT constructs matter and HOW they relate causally
 
@@ -117,7 +117,7 @@ Think very hard.
 """
 
 REVIEW = """\
-Review your proposed latent model for theoretical coherence.
+Review your proposed latent structure for theoretical coherence.
 
 ## Check for:
 

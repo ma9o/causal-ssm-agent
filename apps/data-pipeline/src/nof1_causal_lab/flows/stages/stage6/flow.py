@@ -38,14 +38,14 @@ async def run_stage6(
     stage1b: dict,
 ) -> dict[str, Any]:
     """Run interventions and synthesize the Stage 6 commentary payload."""
-    from nof1_causal_lab.utils.causal_spec import get_outcome_name
+    from nof1_causal_lab.utils.causal_design import get_outcome_name
     from nof1_causal_lab.utils.config import get_config
 
     logger = logging.getLogger(__name__)
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
     treatments = stage1b["_identified_treatments"]
-    causal_spec = stage1b["causal_spec"]
-    outcome_name = get_outcome_name(causal_spec) or ""
+    causal_design = stage1b["causal_design"]
+    outcome_name = get_outcome_name(causal_design) or ""
 
     logger.info("=== Stage 6: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
@@ -54,7 +54,7 @@ async def run_stage6(
         fitted_artifact,
         treatments,
         outcome_name,
-        causal_spec,
+        causal_design,
     )
 
     if intervention_results:
@@ -91,7 +91,7 @@ async def run_stage6(
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
         "excluded_non_identifiable_treatments": sorted(
-            stage1b.get("causal_spec", {})
+            stage1b.get("causal_design", {})
             .get("identifiability", {})
             .get("non_identifiable_treatments", {})
             .keys()

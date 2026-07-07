@@ -11,7 +11,7 @@ import jax.random as random
 import numpy as np
 from jax import vmap
 
-from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_heterogeneous_observation_kernel,
     build_observation_kernel,
