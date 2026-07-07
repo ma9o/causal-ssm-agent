@@ -1,7 +1,7 @@
 """legal_moves / apply_transition / staleness / freshness semantics."""
 
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
-from nof1_causal_lab.machine.graph import stage_spec
+from nof1_causal_lab.machine.graph import WRITABLE_ARTIFACTS, stage_spec
 from nof1_causal_lab.machine.moves import (
     RunStage,
     WriteArtifact,
@@ -43,15 +43,16 @@ class TestLegalMoves:
         state = _state(_version("question", provenance="human"))
         assert _runnable(state) == {"stage-0", "stage-1a"}
 
-    def test_all_writes_always_offered(self):
+    def test_declared_writes_are_offered(self):
         offered = {
             move.artifact_id
             for move in legal_moves(EpisodeState())
             if isinstance(move, WriteArtifact)
         }
+        assert offered == set(WRITABLE_ARTIFACTS)
         assert "question" in offered
         assert "causal_spec" in offered
-        assert "saved_scenarios" in offered
+        assert "raw_data" not in offered
 
     def test_no_identification_report_disables_fit_chain(self):
         """The epistemic gate: identification produced nothing estimable."""

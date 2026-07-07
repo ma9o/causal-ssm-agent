@@ -6,6 +6,7 @@ engine-agnostic core:
 
 - :mod:`artifacts` — artifact taxonomy, versions, provenance stamps
 - :mod:`graph` — the artifact-level dependency DAG (stage specs)
+- :mod:`hierarchy` — public actions, contexts, execution classes, write effects
 - :mod:`moves` — ``legal_moves`` / ``apply_transition`` / staleness / freshness
 - :mod:`errors` — typed stage-execution exceptions
 
@@ -27,7 +28,25 @@ from nof1_causal_lab.machine.errors import (
     ModelFitError,
     StageExecutionError,
 )
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, StageSpec, stage_spec
+from nof1_causal_lab.machine.graph import (
+    ARTIFACT_GRAPH,
+    ROOTS,
+    WRITABLE_ARTIFACTS,
+    Root,
+    Transition,
+    stage_spec,
+)
+from nof1_causal_lab.machine.hierarchy import (
+    ACTIONS,
+    CONTEXTS,
+    ActionSpec,
+    ContextSpec,
+    action_spec,
+    context_spec,
+    legal_action_ids,
+    legal_actions,
+    primary_stage_action,
+)
 from nof1_causal_lab.machine.moves import (
     Move,
     RunStage,
@@ -42,23 +61,35 @@ from nof1_causal_lab.machine.moves import (
 
 __all__ = [
     "ARTIFACT_GRAPH",
+    "ACTIONS",
+    "ActionSpec",
     "ArtifactId",
     "ArtifactVersionInfo",
     "ArtifactWriteRejected",
+    "CONTEXTS",
+    "ContextSpec",
     "EpisodeState",
     "ModelCompileError",
     "ModelFitError",
     "Move",
     "Provenance",
+    "ROOTS",
+    "Root",
     "RunStage",
     "StageExecutionError",
-    "StageSpec",
+    "Transition",
+    "WRITABLE_ARTIFACTS",
     "WriteArtifact",
+    "action_spec",
     "apply_transition",
+    "context_spec",
     "freshness_report",
     "is_fresh",
     "is_stale",
+    "legal_action_ids",
+    "legal_actions",
     "legal_moves",
+    "primary_stage_action",
     "stage_spec",
     "validate_move",
 ]

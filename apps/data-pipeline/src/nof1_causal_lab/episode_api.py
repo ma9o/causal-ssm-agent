@@ -28,7 +28,7 @@ from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_stage_orde
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.graph import StageSpec
+    from nof1_causal_lab.machine.graph import Transition
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     Move,
@@ -318,7 +318,7 @@ async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
 _AUTO_DRIVERS: dict[str, asyncio.Task] = {}
 
 
-def _needs_run(state: EpisodeState, spec: StageSpec) -> bool:
+def _needs_run(state: EpisodeState, spec: Transition) -> bool:
     """Missing required outputs, or any existing output gone stale.
 
     An *absent optional* output with a fresh report is a standing negative

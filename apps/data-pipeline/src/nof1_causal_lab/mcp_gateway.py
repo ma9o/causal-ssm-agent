@@ -58,28 +58,38 @@ async def _request(
 
 @mcp.tool()
 async def describe_machine() -> dict[str, Any]:
-    """The static shape of the episode machine: stages (with the artifacts
-    they consume/produce and their execution class) and the artifact ids.
+    """The static shape of the episode machine: the artifact transitions (what
+    each consumes, produces, optionally co-produces, and derives, plus its
+    creation class and whether it is directly writable), the roots, and the
+    artifact ids.
 
-    Execution classes: "deterministic" stages need no credentials;
-    "batch_llm" stages run bulk LLM compute on the service's ambient key;
-    "judgment" stages are proposal work an external agent can do itself by
-    writing the produced artifacts directly (see write_artifact).
+    Creation classes: "deterministic" transitions need no credentials;
+    "batch_llm" transitions run bulk LLM compute on the service's ambient key;
+    "judgment" transitions are proposal work an external agent can do itself by
+    writing the produced artifact directly (see write_artifact) — those are the
+    ones flagged ``writable``.
     """
     from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
-    from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_stage_order
-    from nof1_causal_lab.machine.runners import STAGE_EXECUTION_CLASS
+    from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, ROOTS, topological_stage_order
+    from nof1_causal_lab.machine.hierarchy import describe_actions, describe_contexts
 
     return {
         "artifact_ids": list(ARTIFACT_IDS),
         "topological_stage_order": topological_stage_order(),
+        "contexts": describe_contexts(),
+        "actions": describe_actions(),
+        "roots": [
+            {"artifact_id": root.artifact_id, "write_pins": list(root.write_pins)} for root in ROOTS
+        ],
         "stages": [
             {
                 "stage_id": spec.stage_id,
                 "consumes": list(spec.consumes),
                 "produces": list(spec.produces),
                 "produces_optional": list(spec.produces_optional),
-                "execution_class": STAGE_EXECUTION_CLASS[spec.stage_id],
+                "derives": list(spec.derives),
+                "creation_class": spec.creation_class,
+                "writable": spec.writable,
             }
             for spec in ARTIFACT_GRAPH
         ],

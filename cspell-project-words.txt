@@ -11,6 +11,7 @@ cardiometabolic
 codegen
 compilability
 Corenflos
+Dagster
 Duolingo
 Dynamax
 elementwise
@@ -22,6 +23,7 @@ hessmc
 Langevin
 Lyapunov
 Megaprompt
+Mokhov
 nondegenerate
 Oura
 parameterizations
@@ -31,9 +33,11 @@ Pyro
 recentered
 reopenable
 reweights
+statecharts
 Strava
 Turso
 unmodeled
 vmap
 vmapped
 warmstart
+writability

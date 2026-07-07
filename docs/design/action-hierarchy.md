@@ -1,297 +1,385 @@
-# Action Hierarchy (design)
+# Action Hierarchy and State-Machine Contexts (design)
 
 Status: **proposal / RFC**. This is a forward-looking design, not the built system.
 
 ## Purpose
 
-Define the **verbs** a human+LLM (working inside a coding harness) use to drive the
-causal-modeling engine, exposed uniformly over MCP, curl/RPC, and an SDK. The engine's
-*state* already exists as the episode artifact machine ([`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py),
-[`machine/moves.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/moves.py)). This
-document is only about the *control surface* that sits on top of it.
+The engine's state is an **artifact machine**: the nodes are artifacts, and the only thing
+that changes state is a rule that *creates an artifact*. This document specifies that ruleset —
+which artifacts exist, how each one comes into being, when a creation is legal, and what becomes
+stale — plus the control and context hierarchy that sits above it.
 
-The main usage pattern is a coding harness: a human and an LLM collaborate, observe engine
-state, and issue actions — the same way one drives a REPL or a CLI. The bespoke web UI is a
-second consumer of the identical actions, not a privileged one.
+Read it as three nested layers:
 
-## Principles
+1. **Outer operations**: what a human, LLM navigator, web UI, script, or notebook can ask the
+   system to do.
+2. **Lower contexts**: the scoped loops opened by heavy operations, such as Stage 0 ingestion
+   exploration or the Stage 4 model/prior reducer.
+3. **Artifact machine**: the artifact-level ruleset that decides which creations are legal, what
+   changed, what became stale, and which numeric claims can still be served.
 
-The whole design follows from one distinction and seven consequences.
+The machine core lives in
+[`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py) (the artifact
+ruleset), [`machine/moves.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/moves.py)
+(legality, staleness, freshness), and
+[`machine/writes.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/writes.py) /
+[`machine/runners.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/runners.py) (the
+executors that realize a creation). This document specifies the model those files encode and the
+naming/context layer above them.
 
-- **Two planes.** The **state plane** is the artifact machine: versioned artifacts, `run`/`write`
-  moves, staleness, provenance. The **control plane** is this action hierarchy. Actions *compile
-  down to* moves; they never become a second state model.
-- **Scoping, not sequencing.** Grouping actions under coarse verbs is a scoping of *concerns*,
-  not an ordering of *steps*. An action is legal the instant its input artifacts exist — never
-  "only after the previous verb." Sequence lives *only* in the state plane, implicitly, as
-  staleness. This is what keeps the hierarchy from regressing into a Prefect pipeline.
-- **Observe-first.** The read surface is first-class and drives the loop. Every mutating action
-  returns a **state delta + affordances** (what changed, what is now stale, what to do next), so
-  observe→act→observe folds into one round-trip.
-- **Scoped delegation.** Heavy, self-contained actions spawn a sub-agent with a *restricted* MCP
-  (least privilege — the direct lesson of the Stage-4 thrash). Light structural edits and cheap
-  checks stay direct, close to the navigator, so the tight loops do not pay a handoff tax.
-- **Derived checks, not stored steps.** Identifiability, validation, reachability, and fit
-  diagnostics are *derived views* over the current artifacts. They can be recomputed at any
-  timeline position and are never "a stage you ran once."
-- **Incremental re-invocation.** Repeatable actions operate on the delta: re-extract only new
-  indicators, re-identify only affected treatments. "Never repeats" is a cost artifact, not a
-  principle — incremental re-invocation dissolves it.
-- **Transport-agnostic.** Each action is one contract with three faces: an MCP tool for the
-  LLM-in-harness, a curl/RPC endpoint for scripts and CI, and an SDK method for notebooks.
-  Generated from a single action registry.
-- **Versioned + scrubbable.** Every mutating action produces a new artifact *version* with
-  provenance. The read surface exposes lineage and diff — the substrate for a per-artifact
-  timeline scrubber.
+The main usage pattern is a coding harness: a human and an LLM collaborate, observe engine state,
+and issue actions the same way they drive a REPL or a CLI. The web UI is the default visual
+navigator over the same actions, not a privileged orchestration layer.
 
-## The two planes
-
-```text
-   human + LLM (coding harness)          <- drives
-        │
-        ▼
-   CONTROL PLANE  — actions (this doc)    <- MCP / curl / RPC / SDK
-        │  compile down to
-        ▼
-   STATE PLANE    — artifact machine      <- run/write moves, versions, staleness
-        │
-        ▼
-   store (versioned artifact content on disk)
-```
-
-An action reads pinned input artifact versions, does its work (directly or via a delegated
-sub-agent), and commits `run`/`write` moves that produce output versions. Humans and agents
-travel the identical action→move path, distinguished only by provenance (`human | llm |
-computed`).
-
-## Hierarchy overview
-
-Six namespaces. `nav` is cross-cutting (read-only). The other five are capability regions that
-partition the artifact graph and each own a slice of the workflow. The
-`specify` ↔ `measure` ↔ `analyze.validate` triangle is the iterative heart; `fit` and the rest
-of `analyze` are downstream.
-
-| Namespace | Concern | Owns artifacts | Execution character |
-|---|---|---|---|
-| `nav` | observe state + history | (none — reads all) | read |
-| `episode` | lifecycle + roots | `question`, `raw_data` | setup |
-| `specify` | design: structure + measurement + identifiability | `constructs`, `causal_spec`, `identification_report` | judgment + deterministic |
-| `measure` | execute measurement | `model_data`, `extraction_report` | batch LLM |
-| `fit` | estimate | `compiled_ssm`, `posterior` | judgment + deterministic + batch |
-| `analyze` | validate + query | `validation_report`, `baseline_ranking`, scenarios | deterministic |
+## Core Shape
 
 ```mermaid
-flowchart TD
-    H["Human + LLM — coding harness"]
-    H --> NAV
-    H --> CTRL
+flowchart TB
+    U["Web UI / coding harness / SDK / curl"]
+    U -->|"outer operation"| A["action registry"]
 
-    subgraph NAV["nav — observe (read-only, always legal)"]
-        n1["state"]
-        n2["timeline"]
-        n3["get"]
-        n4["versions"]
-        n5["diff"]
-    end
+    A -->|"read"| R["journal read model"]
+    A -->|"propose run/write"| M["artifact machine"]
+    A -->|"derived query"| Q["direct tool dispatch"]
 
-    subgraph CTRL["control plane — capability namespaces"]
-        subgraph EP["episode"]
-            e1["create"]
-            e2["attach_data"]
-        end
-        subgraph SP["specify"]
-            s1["constructs ✦"]
-            s2["model ✦"]
-            s3["edit"]
-            s4["identify · check"]
-            s5["refine ✦"]
-        end
-        subgraph ME["measure"]
-            m1["extract ✦"]
-        end
-        subgraph FT["fit"]
-            f1["compile ✦"]
-            f2["infer · async"]
-            f3["check"]
-        end
-        subgraph AN["analyze"]
-            a1["validate · check"]
-            a2["rank"]
-            a3["counterfactual"]
-            a4["ppc · check"]
-        end
-    end
+    M -->|"run(transition)"| C["delegated lower context"]
+    C -->|"TransitionEffects"| M
 
-    SP -. "causal_spec" .-> ME
-    ME -. "model_data" .-> AN
-    AN -. "validation_report" .-> SP
+    M -->|"current versions + journal"| R
+    Q -->|"reads fresh artifact versions"| R
 
-    CTRL ==>|"compile to run / write moves"| SM
-
-    subgraph SM["state plane — artifact machine"]
-        sm1[("versioned artifacts")]
-        sm2[("staleness + provenance")]
-    end
-
-    classDef deleg fill:#e8ecff,stroke:#333,stroke-width:2px;
-    class s1,s2,s5,m1,f1 deleg;
+    R -->|"state, artifacts, timeline, events"| U
 ```
 
-Legend: **✦** = delegated action (spawns a sub-agent with a restricted MCP — see
-[Delegated sub-contexts](#delegated-sub-contexts)); **· check** = derived verdict, no mutation;
-**· async** = returns a job handle. Dashed edges are the
-`specify ↔ measure ↔ analyze.validate` iteration loop; the bold arrow is the control→state
-compilation — every action ultimately becomes `run`/`write` moves on the artifact machine.
+The important separation is:
 
-## Actions
+- An **outer operation** is what the navigator is trying to accomplish, for example "ingest
+  uploaded data", "recompute stale outputs", "edit the causal model", or "simulate an
+  intervention".
+- A **lower context** is the restricted tool loop opened to complete one heavy operation, for
+  example the ingestion agent's file/code loop or the Stage 4 reducer's block/repair loop.
+- A **machine move** is the only mutating transition the machine accepts: `write(artifact)` or
+  `run(transition)`.
 
-Each action lists what it consumes and produces, its kind (`produce` mutates artifacts,
-`check` derives a verdict without mutating domain artifacts, `read` observes), and whether it is
-`direct` (executes in place) or `delegated` (spawns a scoped sub-agent — see
-[Delegated sub-contexts](#delegated-sub-contexts)).
+Outer operations compile to reads, derived queries, or machine moves. Lower-context tools never
+become public workflow steps; they are private to the scoped context that opened them.
 
-### `nav` — observe
+## The Artifact Machine
 
-| Action | Returns | Kind |
+The machine's state is a versioned artifact store. Every artifact version is immutable and records
+provenance plus the exact input artifact versions it was derived from (`derived_from`). That stamp
+is what makes staleness and freshness *derived* properties rather than stored flags.
+
+An artifact enters the store exactly one of three ways — this is the whole ruleset:
+
+| Creation kind | What it is | Examples |
 |---|---|---|
-| `nav.state` | per-artifact `{exists, stale, version, provenance, produced_by}` + legal actions | read |
-| `nav.timeline` | ordered move/version history (the provenance ribbon) | read |
-| `nav.get(artifact, version?)` | artifact content, or a compact LLM-legible view | read |
-| `nav.versions(artifact)` | the version lineage — the scrubber axis | read |
-| `nav.diff(artifact, a, b)` | structural/semantic diff between two versions | read |
+| **Produced** | A `run(transition)` computes it from its inputs. A transition is named by the primary artifact it produces; `stage_id` is only its execution/runner label. | `raw_data`, `constructs`, `causal_spec`, `posterior` |
+| **Written** | A caller supplies the payload directly (`write(artifact)`), schema-validated and provenance-stamped `human`/`llm`. Includes roots (no producing transition) and writable produced artifacts. | roots: `question`, `saved_scenarios`; writable: `constructs`, `causal_spec`, … |
+| **Derived** | A deterministic milestone recomputed whenever its parent artifact is (re)created — by run *or* by write. It has no independent producer and is never written directly. | `identification_report` from `causal_spec` |
 
-### `episode` — lifecycle + roots
+Each produced artifact's transition declares:
 
-| Action | Consumes → Produces | Kind | Mode |
-|---|---|---|---|
-| `episode.create(question)` | — → `question` | produce | direct |
-| `episode.attach_data(source)` | source → `raw_data` | produce | direct |
-| `episode.list` / `episode.select` | — | read | direct |
+- `consumes` — the inputs whose existence gates the run (the guard; see below).
+- `produces_optional` — substantive co-outputs withheld on a negative finding (e.g. `model_data`
+  when extraction yields nothing usable). Withholding one on a re-run **retracts** the stale
+  version.
+- `derives` — deterministic milestones (e.g. `identification_report`) recomputed on every
+  creation of the primary and retracted when the finding goes empty.
+- `creation_class` — `deterministic` | `batch_llm` | `judgment` (see [Creation classes](#creation-classes)).
+- `writable` — whether a caller may also supply the primary artifact directly via `write`.
 
-### `specify` — design plane
+Roots declare `write_pins`: the inputs a direct write should stamp into `derived_from` so the
+written artifact participates in staleness like any computed one. `saved_scenarios` pins the
+`posterior` it was simulated against; `question` pins nothing.
 
-| Action | Consumes → Produces | Kind | Mode |
-|---|---|---|---|
-| `specify.constructs` | `question` → `constructs` | produce | delegated |
-| `specify.model` | `question`, `raw_data`, `constructs` → `causal_spec` | produce | delegated |
-| `specify.edit` | `causal_spec` → `causal_spec'` (add/remove node·edge, mark latent/observed, add/drop indicator) | produce | direct |
-| `specify.identify` | `causal_spec` (+ observed-set) → identifiability verdict | check | direct |
-| `specify.refine` | `causal_spec`, `model_data`, `validation_report` → `causal_spec'` | produce | delegated |
+```mermaid
+flowchart LR
+    Upload[("uploaded input files\noutside artifact state")]
+    Q[["question\nroot write"]]
+    SS[["saved_scenarios\nroot write · pins posterior"]]
 
-`specify.identify` is the marginalize-where-possible / drop-where-blocking computation, run as a
-pure function of the DAG and an observed-set. `specify.refine` is the *same* computation driven
-by the **measured** observed-set: recompute which constructs are actually observable from
-`model_data`, drop degenerate indicators, cascade to constructs and incident edges, and
-re-identify — producing a new `causal_spec` version, not a parallel artifact.
+    Upload -.-> S0(("run: raw_data"))
+    S0 --> RD["raw_data"]
 
-### `measure` — data plane
+    Q --> S1A(("run: constructs"))
+    S1A --> C["constructs"]
 
-| Action | Consumes → Produces | Kind | Mode |
-|---|---|---|---|
-| `measure.extract` | `raw_data`, `causal_spec` → `model_data`, `extraction_report` | produce | delegated |
+    Q --> S1B(("run: causal_spec"))
+    RD --> S1B
+    C --> S1B
+    S1B --> CS["causal_spec"]
+    CS -. derives .-> IR["identification_report"]
 
-`measure.extract` is **incremental**: given a revised `causal_spec`, it extracts only the added
-or changed indicators rather than re-measuring everything.
+    Q --> S2(("run: extraction_report"))
+    RD --> S2
+    CS --> S2
+    S2 --> ER["extraction_report"]
+    S2 -. optional .-> MD["model_data"]
 
-### `fit` — estimation plane
+    CS --> S3(("run: validation_report"))
+    MD --> S3
+    S3 --> VR["validation_report"]
 
-| Action | Consumes → Produces | Kind | Mode |
-|---|---|---|---|
-| `fit.compile` | `causal_spec`, `identification_report`, `model_data`, `validation_report` → `compiled_ssm` | produce | delegated |
-| `fit.infer` | `compiled_ssm`, `model_data` → `posterior` | produce | direct (async) |
-| `fit.check` | `compiled_ssm` / `posterior` → reachability + fit diagnostics | check | direct |
+    Q --> S4(("run: compiled_ssm"))
+    CS --> S4
+    IR --> S4
+    MD --> S4
+    VR --> S4
+    S4 --> CSSM["compiled_ssm"]
 
-`fit.compile` is the current Stage-4 reducer (see the
-[Stage 4 State Machine](../reference/model-spec/state-machine.md)) as one delegated sub-context.
-`fit.infer` is long-running and returns a job handle; progress is observed through `nav.state`.
+    CSSM --> S5B(("run: posterior"))
+    MD --> S5B
+    S5B --> P["posterior"]
 
-### `analyze` — query plane
+    P --> S6(("run: baseline_ranking"))
+    CS --> S6
+    IR --> S6
+    S6 --> BR["baseline_ranking"]
 
-| Action | Consumes → Produces | Kind | Mode |
-|---|---|---|---|
-| `analyze.validate` | `causal_spec`, `model_data` → `validation_report` | check | direct |
-| `analyze.rank` | `posterior`, `causal_spec`, `identification_report` → `baseline_ranking` | produce | direct |
-| `analyze.counterfactual` | `posterior`, `causal_spec` → scenario result | produce | direct |
-| `analyze.ppc` | `posterior`, `model_data` → posterior-predictive report | check | direct |
+    P -. pinned by .-> SS
+```
 
-`analyze.validate` is the bridge that feeds `specify.refine`: it flags the measured-data
-problems (degeneracy, coverage) that refinement then acts on.
+`identification_report` has a single origin — it is *derived from* `causal_spec` — whether that
+`causal_spec` arrived by a `run` (Stage 1b) or by a direct `write`/edit. There is no second
+producer and no directly-writable `identification_report`; the epistemic gate ("numeric claims
+only when identification supports them") is exactly the presence of this derived milestone, and it
+tracks the spec automatically.
 
-## Delegated sub-contexts
+### How movement is restricted
 
-A delegated action opens a sub-agent whose MCP is exactly its job — no more. This is where the
-"restricted MCP under the hood" lives, and where the finer, task-specific tools stay quarantined
-from the navigator's context.
+Two questions the machine keeps strictly separate, following the build-systems literature that
+splits a build into a *rebuilder* (what is out of date) and a *scheduler* (what to run next):
 
-| Delegated action | Restricted sub-MCP (illustrative) |
+- **Legality (may I create this now?)** — a pure existence check, no content predicates. A
+  `run` is legal iff every `consumes` artifact exists. A `write` is legal for any writable
+  artifact/root, gated only by schema validation and a non-`computed` provenance. This is the
+  entire machine legality surface (`moves.validate_move`).
+- **Staleness (is an existing artifact still current?)** — derived from `derived_from`. An
+  artifact is stale iff any pinned input is absent, has moved past the pinned version, or is
+  itself transitively stale. Roots (empty `derived_from`) are never stale; a pinned root like a
+  saved scenario is stale when its pinned `posterior` moves.
+
+| Mechanism | Restriction |
 |---|---|
-| `specify.model` | `list_columns`, `preview_column`, `propose_indicator`, `set_node`, `set_edge`, `set_observed`, `submit_model` |
-| `measure.extract` | `list_sources`, `preview_column`, `define_extraction`, `run_computed`, `run_semantic`, `submit_values` |
-| `fit.compile` | `inspect_construct`, `set_family_link`, `author_prior`, `check_reachability`, `submit_construct`, `accept` |
-| `specify.refine` | `list_degenerate`, `drop_indicator`, `mark_latent`, `submit_refinement` |
+| Guards on `run` | A transition runs only when every `consumes` artifact exists. `compiled_ssm` is impossible until `question`, `causal_spec`, `identification_report`, `model_data`, and `validation_report` exist — so it is unreachable without an identification milestone. |
+| `write` legality | A write must be schema-valid and provenance-stamped `human`/`llm`. It installs a new version and, for roots with `write_pins`, stamps the pinned inputs. |
+| Optional milestones | `produces_optional` artifacts appear only when the finding is nonempty; absence disables downstream consumers. |
+| Derived milestones | `derives` artifacts are recomputed on every creation of their parent and retracted when the finding goes empty — the parent and its derivation move together. |
+| Retractions | Re-running a transition retracts an optional/derived artifact the new run withholds, so downstream enabledness reflects the new finding. |
+| Version pins + freshness gate | Every artifact pins the exact input versions it consumed. Numeric query surfaces must refuse or hard-flag results whose provenance chain is stale — a stale `posterior` is not a valid basis for reported causal numbers. |
 
-Direct actions (`nav.*`, `specify.edit`, `specify.identify`, `analyze.*`, `fit.infer`) do **not**
-spawn a sub-agent — they execute against the state plane and return. The rule of thumb: delegate
-when the work is heavy and self-contained; keep it direct when it is cheap or sits in a tight
-edit→check loop (a DAG edit followed by re-identification must not cost a context handoff).
+The auto-run driver is only a **scheduler policy** over this machine: it walks artifacts in
+dependency order and proposes the next legal `run` whose output is missing or stale. It adds no
+second legality model.
 
-## Return contract
+### Creation classes
 
-Every mutating action returns one envelope so the harness loop stays tight:
+`creation_class` describes *how* a produced artifact is computed, and therefore whether an external
+agent can shortcut the run by writing the artifact itself:
 
-- `produced` / `retracted`: the artifact versions the move changed.
-- `stale`: artifacts whose provenance chain was invalidated by this change (the cascade).
-- `next`: suggested affordances — the legal actions most relevant to the new state.
+- `deterministic` — needs no credentials (`validation_report`, `posterior`).
+- `batch_llm` — bulk LLM compute on the service's ambient key (`raw_data`, `extraction_report`).
+- `judgment` — proposal work an external agent can do itself, so these transitions are also
+  `writable` (`constructs`, `causal_spec`, `baseline_ranking`).
 
-This is why the human+LLM never has to poll separately after acting: the act *is* the next
-observation.
+Creation class and writability are declared independently rather than inferred from one another,
+because the correspondence is not total: `compiled_ssm` is `judgment`-shaped but not hand-writable
+(its payload is a compiled artifact), and some report artifacts are writable for override without
+being judgment work.
 
-## Worked example — the post-measurement revision loop
+## Borrowed Concepts (prior art)
 
-The degenerate-indicator failure, driven from the harness:
+This design deliberately reuses four established lineages. Each owns a different half of the
+problem; the mapping below is the rationale for the choices above.
 
-1. `nav.state` → sees `validation_report` present, `compiled_ssm` failed/stale.
-2. `nav.get(validation_report)` → five indicators with a single observed level.
-3. `specify.refine` → recomputes the observed-set from `model_data`, drops the five indicators,
-   marks one now-unmeasured construct latent (marginalized) and drops another (blocking),
-   re-identifies. Returns: `produced: causal_spec v2, identification_report v2`;
-   `stale: compiled_ssm, posterior, baseline_ranking`; `next: fit.compile`.
-4. `nav.diff(causal_spec, v1, v2)` → the human/LLM inspects exactly what the prune changed.
-5. `measure.extract` (only if refinement *added* a proxy) — incremental, skipped here.
-6. `fit.compile` → re-authors only the affected constructs → `compiled_ssm v2`.
-7. `fit.infer` → `posterior v2`; `analyze.rank` → `baseline_ranking v2`.
+| Lineage | What we take | Where it lands |
+|---|---|---|
+| **Artifact-centric BPM — Guard-Stage-Milestone (GSM) → OMG CMMN** (IBM Research; Hull et al.) | The artifact-first framing itself: model the business *artifact* and its lifecycle with declarative rules, not an imperative flow. **Sentries** → our `run` guards. **Milestones** (objectives that become true and can be invalidated) → our `produces_optional` / `derives` and their retraction. GSM stages nest sub-stages → our lower contexts. | The whole [Artifact Machine](#the-artifact-machine) section; guard/milestone vocabulary. |
+| **Dagster Software-Defined Assets** | The reframe from task-centric to asset-centric: an asset is `(key, op, upstream keys)` — the artifact is the identity, the transition an attribute. Their critique of task orchestration ("which process updated this asset? is it current?") is the critique of a stage-keyed surface. Observable-source-style pinning → `saved_scenarios` pinning `posterior`. Declarative Automation → the driver as per-artifact policy. | Transitions named by output; `write_pins`; the scheduler-as-policy stance. |
+| **Build Systems à la Carte / Salsa** (Mokhov et al.; rust-analyzer) | The *scheduler × rebuilder* split (kept strictly separate above). Verifying traces (our version-pinned `derived_from`). **Early cutoff** — stop the stale cascade when a recompute yields an unchanged value — is noted as a deferred extension (it requires content-hashed pins in the store). | [How movement is restricted](#how-movement-is-restricted); Open Decisions. |
+| **Harel statecharts / UML HSM** | Hierarchically nested states and **run-to-completion**: a composite state runs to completion before the parent sees the next event. Our heavy transitions are composite states whose private FSM (cursor, block statuses, repair loop) is invisible to the parent, which sees only the final `TransitionEffects`. Orthogonal regions → the DAG's independent branches and the Stage 2 worker fan-out. | [Context Hierarchy](#context-hierarchy); the "one operation, not a bag of tools" rule. |
 
-The revision is one `causal_spec` lineage with two versions — the exact substrate a per-artifact
-scrubber renders (`nav.versions(causal_spec)` → v1 pre-measurement, v2 post-measurement).
+## Legality vs Affordance
 
-## Why not one action per stage
+Machine **legality** (above) is existence-only and lives in the core. The action layer computes a
+strictly separate **affordance** set — which actions are worth *surfacing and ranking* for the
+navigator. Affordance may be stricter than legality:
+
+- `analyze.save` compiles to `write(saved_scenarios)`, which is always machine-legal, but is only
+  worth offering once a `posterior` exists.
+- `specify.refine` compiles to `write(causal_spec)` — always machine-legal — but is only a
+  sensible affordance once `model_data` and `validation_report` exist to refine against. That
+  extra condition is an affordance guard, not a machine gate; the machine still accepts the write
+  on its own terms.
+
+Keeping these apart means there is exactly one legality engine (`moves.validate_move`), and the
+richer per-action preconditions live where they belong — in the surfacing layer — instead of
+silently becoming a shadow legality model.
+
+## Current Web Operations as Outer Operations
+
+The web app already demonstrates the outer operation layer, even though it currently names many
+things by stage.
+
+| Outer operation | Current web/facade behavior | Target action name | Machine effect |
+|---|---|---|---|
+| Start an analysis | `POST /api/episodes` optionally writes the question | `episode.create` | `write(question)` |
+| Attach uploaded data | Files are placed under the workspace input directory | `episode.attach_data` | Staged upload, outside the artifact store until ingestion |
+| Ingest data | Auto-run or manual run invokes Stage 0 | `episode.ingest_data` | `run` producing `raw_data` |
+| Run / recompute | `POST /api/episodes/{workspace}/auto` starts the default driver | `episode.refresh` | Scheduler policy: proposes legal `run` moves for missing or stale outputs |
+| Inspect state | Episode status, artifact payloads, timeline, and runtime events | `nav.state`, `nav.get`, `nav.timeline`, `nav.events` | Read-only |
+| Edit a result artifact | Web edits or harness proposals write a replacement artifact version | `specify.edit`, `analyze.save` | `write(constructs)`, `write(causal_spec)`, `write(saved_scenarios)`, etc. |
+| Simulate from a fitted model | `POST /api/tools/dispatch` invokes the Stage 6 `simulate` tool | `analyze.simulate` | Derived query over fresh artifact versions; no artifact mutation unless saved later |
+
+This table is the public surface we should preserve while renaming it by intent. The redesign
+should not expose Stage 0's `list_files` or Stage 4's `submit_prior_block` as top-level actions.
+Those are lower-context operations.
+
+## Context Hierarchy
+
+Context means the local state, allowed tools, and authority visible to the active agent.
+
+| Layer | Scope | Owns | May mutate artifacts? |
+|---|---|---|---|
+| Navigator context | Human+LLM harness, web UI, SDK, curl | The current episode view, affordances, timeline, artifact diffs | Only by proposing machine moves |
+| Action registry | Transport-independent action contracts | Mapping from intent names to reads, queries, or moves | No; it routes to the machine |
+| Machine context | One serialized transition at a time | Current artifact versions, legal moves, staleness, journaled outcomes | Yes, by applying `write` or successful `run` effects |
+| Delegated transition context | One heavy operation (a composite state) | Transition-local runtime state, restricted tool set, repair loop | No direct mutation; returns produced/retracted artifacts to the machine |
+| Tool/sandbox context | One helper call inside a delegated context | File samples, sandbox execution, validation helpers, literature lookup | No |
+
+```mermaid
+flowchart TB
+    NAV["navigator context\nnav.*, high-level actions"]
+    NAV -->|"propose"| MACH["artifact machine\nlegal moves + staleness"]
+
+    MACH -->|"run: raw_data"| ST0["ingestion context\nfile/code/submit loop"]
+    ST0 --> ST0T["list_files\nread_file_sample\nexecute_python\nsubmit_table"]
+
+    MACH -->|"run: compiled_ssm"| ST4["model-spec context\nplan/cursor/repair loop"]
+    ST4 --> ST4T["submit_model_configuration\nsubmit_indicator_choice\nsubmit_prior_block\nrepair barriers"]
+
+    MACH -->|"run: extraction_report"| ST2["measurement context\nindicator extraction fan-out"]
+    ST2 --> ST2T["define extraction\nrun semantic/computed extraction\nsubmit values"]
+
+    NAV -->|"derived query"| SIM["simulate\nfreshness-checked numeric tool"]
+```
+
+A delegated context is a **composite state** with run-to-completion semantics: the navigator sees
+it as one operation with progress and trace events, not as a bag of public tools, and the machine
+sees only its final `TransitionEffects` — never its internal cursor or block states. Derived
+numeric queries (`simulate`, `counterfactual`, `ppc`) are **read surfaces**, not contexts and not
+machine moves: they read fresh artifact versions and are freshness-gated at serve time, returning
+a hard flag when the provenance chain is stale.
+
+## Lower Context Examples
+
+| Outer operation | Machine move | Lower context state | Lower operations | Exit condition |
+|---|---|---|---|---|
+| `episode.ingest_data` | `run` → `raw_data` | Prepared input directory, sandbox, latest `result_df`, column descriptions | `list_files`, `read_file_sample`, `execute_python`, `submit_table` | `submit_table` validates a single timestamped Polars table, producing `raw_data` |
+| `specify.constructs` | `run` → `constructs` or `write(constructs)` | Question-focused construct proposal context | propose constructs, revise descriptions, submit construct set | `constructs` version exists |
+| `specify.model` | `run` → `causal_spec` or `write(causal_spec)` | DAG, indicators, observed set, identification check | inspect columns, propose indicators, set nodes/edges, mark observed/latent, submit model | `causal_spec` exists; `identification_report` derives only if at least one treatment is identified |
+| `measure.extract` | `run` → `extraction_report` | Indicator extraction plan and worker fan-out | define extraction, run computed extraction, run semantic extraction, submit values | `extraction_report` exists; `model_data` co-produced only if measurement yielded usable data |
+| `analyze.validate` | `run` → `validation_report` | Measured-data diagnostics over `causal_spec` and `model_data` | coverage checks, degeneracy checks, construct observability checks | `validation_report` exists |
+| `fit.compile` | `run` → `compiled_ssm` | Stage 4 skeleton, immutable plan, runtime cursor, accepted state, repair campaign | block submissions, model lock, prior authoring, deterministic repair routing, barrier validation | `compiled_ssm` exists |
+| `fit.infer` | `run` → `posterior` | Long-running inference job | fit exact nonlinear SSM engines, emit progress | `posterior` exists |
+| `analyze.rank` | `run` → `baseline_ranking` | Baseline causal-query context over a fresh posterior | rank identified effects | `baseline_ranking` exists |
+| `analyze.simulate` | Derived query tool | Current fitted model and scenario input | Stage 6 `simulate` | Returns a scenario result; saving it is a later `write(saved_scenarios)` |
+
+`compiled_ssm`'s transition is the clearest nested state machine. The outer operation is just
+`fit.compile`; inside that composite state, the reducer owns a cursor (`block`, `model_spec_lock`,
+`repair_barrier`, `done`), block statuses (`pending`, `accepted`, `reopened`, `inactive`), accepted
+state, and deterministic repair routing. The machine does not know about those prompt blocks. It
+only knows whether the run eventually produced `compiled_ssm`, raised an error, or left state
+unchanged.
+
+## Target Action Names
+
+The public control surface is named by intent, not by stage number. Each action has one contract
+with three transport faces: MCP for the harness, RPC/curl for scripts and CI, and SDK methods for
+notebooks.
+
+| Namespace | Concern | Typical action names | Machine mapping |
+|---|---|---|---|
+| `nav` | Observe state and history | `state`, `timeline`, `events`, `get`, `versions`, `diff` | Read journal/artifact store |
+| `episode` | Lifecycle and roots | `create`, `attach_data`, `ingest_data`, `refresh` | `write(question)`, staged upload, `run` → `raw_data`, scheduler policy |
+| `specify` | Design causal and measurement structure | `constructs`, `model`, `edit`, `identify`, `refine` | `run` → `constructs`/`causal_spec`, `write(causal_spec)`, derived checks |
+| `measure` | Execute measurement | `extract` | `run` → `extraction_report` |
+| `fit` | Compile and estimate | `compile`, `infer`, `check` | `run` → `compiled_ssm`/`posterior`, derived diagnostics |
+| `analyze` | Validate and query | `validate`, `rank`, `simulate`, `counterfactual`, `ppc`, `save` | `run` → `validation_report`/`baseline_ranking`, derived tools, `write(saved_scenarios)` |
+
+The `specify` → `measure` → `analyze.validate` loop is the iterative design loop. `fit` and the
+rest of `analyze` are downstream because they require an identified, measured, validated, and
+compiled model.
+
+## Return Contract
+
+Every mutating action returns the same envelope, so the harness loop does not need to poll just to
+understand what happened.
+
+| Field | Meaning |
+|---|---|
+| `produced` | Artifact versions newly installed as current. |
+| `retracted` | Optional/derived artifacts removed from current because a new creation withheld them. |
+| `stale` | Existing artifacts whose provenance chain is no longer fresh after this move. |
+| `legal` | The new legal move set at this state. |
+| `next` | Suggested affordances, ranked for the current context. |
+
+Reads return the same state vocabulary without mutation. Derived query tools return their result
+plus freshness warnings when the input provenance chain is not fresh.
+
+## Worked Example: Degenerate Indicator Revision
+
+1. `nav.state` shows `validation_report` present and `compiled_ssm` missing or stale.
+2. `nav.get(validation_report)` shows five indicators with a single observed level.
+3. `specify.refine` opens a scoped refinement context. It recomputes the measured observed set
+   from `model_data`, drops the degenerate indicators, marks one now-unmeasured construct latent,
+   drops another construct whose causal query is blocked, and re-runs identification.
+4. The machine applies the resulting `write(causal_spec)` as a new `causal_spec` version;
+   `identification_report` is re-derived or retracted according to the finding, in the same move.
+5. Version pins make `compiled_ssm`, `posterior`, and `baseline_ranking` stale if they still exist.
+6. `nav.diff(causal_spec, v1, v2)` shows the exact structural change.
+7. `fit.compile` becomes a useful affordance only if its required inputs exist, including an
+   `identification_report`.
+8. `fit.infer` and `analyze.rank` become useful only after `compiled_ssm` and then `posterior`
+   are fresh.
+
+The revision is one `causal_spec` lineage with multiple versions. The timeline scrubber follows
+artifact versions; it does not invent a separate workflow state.
+
+## Why Not One Action Per Stage
 
 One action per stage is the tempting skeleton, but it is wrong as the public surface:
 
-- It leaks internal stage numbers into the API and couples callers to the graph's shape.
-- Some stages are a whole sub-hierarchy, not one action (`fit.compile` is the Stage-4 reducer).
-- Some essential actions are not stages at all — the light `write`-move edits (`specify.edit`)
-  and the derived checks (`specify.identify`).
-- The most-used surface in a coding harness — `nav.*` — has no stage at all.
-- It hides the delegation boundary, which is exactly the boundary that makes the surface safe.
+- It leaks internal stage numbers into the API and couples callers to the graph's current shape.
+- Some transitions contain a lower state machine, not one user-level action. The `compiled_ssm`
+  reducer is a composite state inside `fit.compile`.
+- Some essential operations are not transitions, including artifact edits, diffs, freshness
+  checks, and direct simulation queries.
+- The most-used harness surface is read navigation, which has no transition at all.
+- It hides the delegation boundary, which is exactly the boundary that keeps broad navigator
+  context separate from restricted lower contexts.
 
-The heavy `produce` actions do roughly align one-to-one with stages (`fit.compile` ≈ 4,
-`fit.infer` ≈ 5b, `measure.extract` ≈ 2) — but named by intent, and surrounded by the read,
-edit, check, and delegation structure that stages alone cannot express.
+The heavy produce actions still map to transitions internally. They are named by the modeling
+intent and surrounded by read, edit, check, and delegation structure that stage numbers alone
+cannot express.
 
-## Open decisions
+## Open Decisions
 
+- **Early cutoff.** Version-integer pins over-cascade: any re-run stales all descendants even on
+  byte-identical output. Content-hashed pins (Bazel/Salsa style) would add early cutoff, but touch
+  the store's write path — deferred to a follow-up rather than bundled into this reframe.
+- **Code-version staleness.** Editing a runner or prompt currently stales nothing downstream.
+  Dagster's `code_version` mechanism would close this, but is explicitly out of scope for now.
 - **`specify.refine`: deterministic gate vs LLM re-invocation.** The degeneracy is a mechanical
-  fact (deterministic), but drop-vs-keep-latent is the judgment the `specify.model` sub-agent
-  already makes. Choose one, or a deterministic core with optional LLM review.
-- **Checks: stored artifacts or pure derived views?** `identification_report` and
-  `validation_report` are stored today, but conceptually they are derived. Making them derived
-  turns the fit-gate (which currently keys off `identification_report` *existence*) into a
-  content predicate — a deliberate change to the graph's "pure existence, no content predicates"
-  rule.
-- **One registry, three transports.** Confirm we generate MCP tools, RPC endpoints, and the SDK
-  from a single action registry (aligns with the existing `packages/api-types` codegen).
-- **Async model.** `fit.infer` and `measure.extract` are long — confirm job handles observed via
-  `nav.state`, consistent with the polling-not-streaming stance.
-- **Namespace set.** Confirm the six namespaces, and whether `analyze.validate` should live under
-  `specify` (it drives refinement) or stay a standalone check.
+  fact, but drop-vs-keep-latent is a judgment the `specify.model` context already makes. Choose
+  one, or use a deterministic core with optional LLM review.
+- **Checks: stored artifacts or pure derived views?** `validation_report` is stored today, but
+  conceptually it is a derived view. `identification_report` has already moved to a derived
+  milestone of `causal_spec`; whether `validation_report` should follow (turning fit enabledness
+  from existence into a content predicate) is still open.
+- **One registry, three transports.** Confirm that MCP tools, RPC endpoints, and SDK methods are
+  generated from one action registry, aligned with the existing `packages/api-types` codegen.
+- **Async model.** Confirm that long operations such as `fit.infer` and possibly `measure.extract`
+  return job handles observed through `nav.state`, consistent with the polling-not-streaming
+  stance.

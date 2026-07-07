@@ -23,11 +23,11 @@ from nof1_causal_lab.machine.artifacts import (
     ArtifactVersionInfo,
     Provenance,
 )
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, stage_spec
+from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, WRITABLE_ARTIFACTS, stage_spec
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.graph import StageSpec
+    from nof1_causal_lab.machine.graph import Transition
 
 
 class RunStage(BaseModel):
@@ -75,15 +75,16 @@ def legal_moves(state: EpisodeState) -> list[Move]:
     """The full affordance set at ``state``.
 
     ``run`` moves require all consumed artifacts to exist — a pure existence
-    check, no content predicates. Every artifact is writable; content is
-    gated by schema validation at execution time, and ``write`` provenance
-    is whatever the caller declares (``computed`` is reserved for stages).
+    check, no content predicates. ``write`` moves are offered for artifacts
+    with declared write effects; content is gated by schema validation at
+    execution time, and ``write`` provenance is whatever the caller declares
+    (``computed`` is reserved for stages).
     """
     moves: list[Move] = []
     for spec in ARTIFACT_GRAPH:
         if all(state.has(artifact) for artifact in spec.consumes):
             moves.append(RunStage(stage_id=spec.stage_id))
-    moves.extend(WriteArtifact(artifact_id=aid) for aid in ARTIFACT_IDS)
+    moves.extend(WriteArtifact(artifact_id=aid) for aid in WRITABLE_ARTIFACTS)
     return moves
 
 
@@ -103,7 +104,7 @@ def validate_move(state: EpisodeState, move: Move) -> str | None:
     return None
 
 
-def input_pins(state: EpisodeState, spec: StageSpec) -> dict[ArtifactId, int]:
+def input_pins(state: EpisodeState, spec: Transition) -> dict[ArtifactId, int]:
     """The exact input versions a run of ``spec`` at ``state`` consumes."""
     pins: dict[ArtifactId, int] = {}
     for artifact in spec.consumes:
@@ -128,19 +129,19 @@ def apply_transition(
 
 def run_retractions(
     state: EpisodeState,
-    spec: StageSpec,
+    spec: Transition,
     produced: list[ArtifactVersionInfo],
 ) -> list[ArtifactId]:
-    """Optional artifacts to retract after a successful run of ``spec``.
+    """Optional/derived artifacts to retract after a successful run of ``spec``.
 
-    An optional artifact that the previous run produced but this run withheld
-    is a *changed negative finding* — it must leave ``current`` so downstream
-    enabledness reflects it.
+    An optional co-output or derived milestone that the previous run produced
+    but this run withheld is a *changed negative finding* — it must leave
+    ``current`` so downstream enabledness reflects it.
     """
     produced_ids = {info.artifact_id for info in produced}
     return [
         artifact
-        for artifact in spec.produces_optional
+        for artifact in (*spec.produces_optional, *spec.derives)
         if artifact not in produced_ids and state.has(artifact)
     ]
 

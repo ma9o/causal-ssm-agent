@@ -1,2 +1,1 @@
 """Pipeline integration tests."""
-

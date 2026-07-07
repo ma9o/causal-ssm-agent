@@ -125,12 +125,11 @@ def _write_saved_scenarios(
 
 
 _CONTRACT_WRITES: dict[ArtifactId, tuple[str, str]] = {
-    # artifact -> (contract import name, payload filename)
+    # artifact -> (contract import name, payload filename). ``identification_report``
+    # is absent by design: it is a derived milestone of ``causal_spec`` (see
+    # ``_write_causal_spec``), recomputed on every spec creation, never written
+    # directly.
     "constructs": ("Stage1aContract", json_filename("constructs", "constructs")),
-    "identification_report": (
-        "IdentificationReportContract",
-        json_filename("identification_report", "identification_report"),
-    ),
     "extraction_report": (
         "Stage2Contract",
         json_filename("extraction_report", "extraction_report"),

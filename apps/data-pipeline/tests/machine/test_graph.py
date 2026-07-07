@@ -31,8 +31,9 @@ def test_topological_order_respects_artifact_dependencies():
 
 
 def test_epistemic_gate_is_structural():
-    """identification_report is optional from stage-1b and required downstream."""
-    assert "identification_report" in stage_spec("stage-1b").produces_optional
+    """identification_report derives from causal_spec and is required downstream."""
+    assert "identification_report" in stage_spec("stage-1b").derives
+    assert "identification_report" not in stage_spec("stage-1b").produces_optional
     assert "identification_report" in stage_spec("stage-4").consumes
     assert "identification_report" in stage_spec("stage-6").consumes
 

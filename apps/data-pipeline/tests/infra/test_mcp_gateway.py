@@ -1,7 +1,7 @@
 """MCP gateway: static machine description stays in lockstep with the graph."""
 
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH
-from nof1_causal_lab.machine.runners import STAGE_EXECUTION_CLASS
+from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, ROOT_ARTIFACTS
+from nof1_causal_lab.machine.hierarchy import ACTIONS, CONTEXTS
 from nof1_causal_lab.mcp_gateway import describe_machine
 
 
@@ -11,8 +11,9 @@ def _run(coro):
     return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(coro)
 
 
-def test_execution_classes_cover_exactly_the_graph():
-    assert set(STAGE_EXECUTION_CLASS) == {spec.stage_id for spec in ARTIFACT_GRAPH}
+def test_every_transition_declares_a_creation_class():
+    valid = {"deterministic", "batch_llm", "judgment"}
+    assert all(spec.creation_class in valid for spec in ARTIFACT_GRAPH)
 
 
 def test_describe_machine_serves_graph_and_classes():
@@ -24,6 +25,16 @@ def test_describe_machine_serves_graph_and_classes():
         entry = stages[spec.stage_id]
         assert entry["consumes"] == list(spec.consumes)
         assert entry["produces"] == list(spec.produces)
-        assert entry["execution_class"] == STAGE_EXECUTION_CLASS[spec.stage_id]
+        assert entry["produces_optional"] == list(spec.produces_optional)
+        assert entry["derives"] == list(spec.derives)
+        assert entry["creation_class"] == spec.creation_class
+        assert entry["writable"] == spec.writable
     assert description["topological_stage_order"][0] == "stage-0"
     assert "question" in description["artifact_ids"]
+    assert {entry["action_id"] for entry in description["actions"]} == {
+        action.action_id for action in ACTIONS
+    }
+    assert {entry["context_id"] for entry in description["contexts"]} == {
+        context.context_id for context in CONTEXTS
+    }
+    assert {entry["artifact_id"] for entry in description["roots"]} == set(ROOT_ARTIFACTS)
