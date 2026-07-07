@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getAnalysisManifest, getEpisodeProgress, replayStageOverride } from "./analysis";
+import { getAnalysisManifest, getEpisodeProgress } from "./analysis";
 
 const originalFetch = globalThis.fetch;
 
@@ -44,28 +44,6 @@ describe("analysis api client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/analysis/user-1/progress?after=00000000000000000123-abc.json",
       expect.anything(),
-    );
-  });
-
-  it("posts stage overrides to the replay route", async () => {
-    const fetchMock = mockFetchJson({ ok: true, workspaceId: "user-1" });
-
-    await replayStageOverride({
-      workspaceId: "user-1",
-      stageId: "stage-1a",
-      stageData: { latent_model: {} },
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/replay",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          workspaceId: "user-1",
-          stageId: "stage-1a",
-          stageData: { latent_model: {} },
-        }),
-      }),
     );
   });
 });

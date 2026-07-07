@@ -22,6 +22,7 @@ from nof1_causal_lab.utils import storage
 
 STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"
 STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2"
+STAGE4_ADMISSION_EVENT_PREFIX = "nof1-causal-lab.stage4.admission"
 
 
 def events_dir(workspace_id: str) -> str:
@@ -125,13 +126,30 @@ def emit_stage2_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -
     )
 
 
+def emit_stage4_admission_event(workspace_id: str, event: str, payload: dict[str, Any]) -> None:
+    """Emit one Stage 4 construct-admission telemetry event.
+
+    ``event`` is the sub-name (``plan`` / ``construct_started`` / ``construct_checking`` /
+    ``construct_report`` / ``done`` / ``failed``); the web UI reduces the stream into the live
+    construct-admission view. Payloads are assembled by the admission flow, which owns the
+    translation of ``AdmissionReport``/``ConstructContribution`` into the UI contract.
+    """
+    emit_event(
+        workspace_id,
+        f"{STAGE4_ADMISSION_EVENT_PREFIX}.{event}",
+        {"stage_id": "stage-4", **payload},
+    )
+
+
 __all__ = [
     "STAGE2_EVENT_PREFIX",
+    "STAGE4_ADMISSION_EVENT_PREFIX",
     "STAGE_PROGRESS_EVENT_PREFIX",
     "emit_event",
     "emit_stage2_plan_event",
     "emit_stage2_snapshot_event",
     "emit_stage2_worker_event",
+    "emit_stage4_admission_event",
     "emit_stage_progress_event",
     "events_dir",
     "read_events",

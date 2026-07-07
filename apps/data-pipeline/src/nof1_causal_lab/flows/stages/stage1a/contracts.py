@@ -29,9 +29,3 @@ STAGE1A_TOOL_CONTRACTS: list[ToolContract] = [
 
 class Stage1aContract(LLMStageContract):
     latent_model: LatentModel
-
-    def summary_message(self) -> str:
-        return (
-            f"Stage 1a summary: constructs={len(self.latent_model.constructs)} "
-            f"edges={len(self.latent_model.edges)}"
-        )

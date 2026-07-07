@@ -157,6 +157,7 @@ FULL_CONFIG = textwrap.dedent("""\
         effort: medium
       codex:
         reasoning_effort: medium
+        service_tier: fast
 
     stage0_ingestion:
       max_tool_turns: 30
@@ -254,6 +255,8 @@ class TestLoadConfig:
         # Defaults for optional sections
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.llm.embedded.max_tokens == 65536
+        assert cfg.llm.codex.reasoning_effort == "xhigh"
+        assert cfg.llm.codex.service_tier == "fast"
 
         load_config.cache_clear()
 
@@ -308,6 +311,7 @@ class TestLoadConfig:
         assert cfg.llm.embedded.reasoning_effort == "low"
         assert cfg.llm.claude_code.effort == "medium"
         assert cfg.llm.codex.reasoning_effort == "medium"
+        assert cfg.llm.codex.service_tier == "fast"
 
         load_config.cache_clear()
 
@@ -402,6 +406,15 @@ class TestValidateConfig:
         )
         errors = validate_config(config)
         assert any(".effort" in e for e in errors)
+
+    def test_service_tier_only_valid_for_codex(self):
+        config = _make_pipeline_config(
+            stage0_ingestion=StageLLMConfig(
+                harness="none", model="openrouter/x", service_tier="fast"
+            ),
+        )
+        errors = validate_config(config)
+        assert any(".service_tier" in e for e in errors)
 
     def test_claude_code_rejects_reasoning_effort(self):
         config = _make_pipeline_config(

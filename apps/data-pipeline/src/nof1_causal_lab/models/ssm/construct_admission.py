@@ -324,75 +324,8 @@ def admit_construct(
     """Attempt to admit one construct; run the battery on the cumulative model."""
     trial = trial_admission_state(state, contribution)
     spec, registry = _compile_partial(trial, causal_spec)
-    bundle = build_prior_runtime_bundle(spec, registry)
-    pred = sample_prior_predictive_from_runtime(
-        spec,
-        bundle,
-        design.t_grid,
-        observation_support=design.observation_support,
-        transition_inputs=design.transition_inputs,
-        num_samples=design.n_draws,
-        seed=design.seed,
-    )
-
-    latent_names, manifest_names, manifest_links = _spec_names(spec)
-    d = latent_names.index(contribution.name)
-    x = np.asarray(pred["latents"][:, :, d])
-    dt = float(np.median(np.diff(np.asarray(design.t_grid))))
-    pooled = design.pooled_obs_index
-
-    results: list[CheckResult] = list(check_confinement(contribution.name, x, dt))
-
-    # C2 scale anchor + C5 coverage come from the construct's indicator(s).
-    anchor, anchor_src, anchor_detail = _scale_anchor(
-        manifest_names, manifest_links, contribution, design.values_by_indicator
-    )
-    results.append(check_scale(contribution.name, x, anchor, anchor_src, anchor_detail))
-
-    # C3 resolvability (only for dynamic constructs that own a potential well).
-    comp_idx = _node_potential_index(spec, d)
-    if comp_idx is not None:
-        decay_site = f"vf_{comp_idx}_decay"
-        if decay_site in pred:
-            tau = 1.0 / np.asarray(pred[decay_site])
-            results.append(check_resolvability(contribution.name, tau, design.cadence, design.span))
-
-    # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
-    if contribution.edge_parents:
-        edge_sites = _incoming_edge_sites(spec, contribution, latent_names, d)
-        x_off = _resimulate_edge_off(
-            spec, pred, design.t_grid, edge_sites, design.seed, design.transition_inputs
-        )[:, :, d]
-        results.extend(
-            check_edge_share(contribution.name, x[:, pooled], np.asarray(x_off)[:, pooled])
-        )
-
-    # C4c Hill saturation (per saturating parent).
-    for parent in contribution.hill_parents:
-        p_idx = latent_names.index(parent)
-        ec50_comp = _hill_ec50_index(spec, p_idx, d)
-        ec50_site = f"vf_{ec50_comp}_EC50"
-        if ec50_comp is not None and ec50_site in pred:
-            parent_vals = np.asarray(pred["latents"][:, pooled, p_idx])
-            results.append(
-                check_saturation(
-                    f"{parent}->{contribution.name}",
-                    np.asarray(pred[ec50_site]),
-                    parent_vals,
-                )
-            )
-
-    # C5a/C5b/C5c coverage per indicator of this construct (per-indicator obs grid).
-    for lik in contribution.likelihoods:
-        var = lik.variable
-        m = manifest_names.index(var)
-        oi = np.asarray(design.obs_index_by_indicator[var])
-        lp = np.asarray(pred["linear_predictors"][:, oi, m])
-        pp_y = np.asarray(pred["observations"][:, oi, m])
-        signal = _signal_from_linear_predictor(manifest_links[m], lp)
-        results.extend(
-            check_coverage(var, pp_y, signal, np.asarray(design.values_by_indicator[var]))
-        )
+    pred = _sample_partial(spec, registry, design)
+    results = _run_battery(spec, pred, design, contribution)
 
     outcome, annotations = stage_outcome(results, dict(accepted or {}))
     admitted = outcome.startswith("ADMITTED")
@@ -406,6 +339,107 @@ def admit_construct(
     if not admitted:
         return state, report
     return replace(trial, annotations=(*state.annotations, *annotations)), report
+
+
+def _sample_partial(spec: SSMSpec, registry: PriorRegistry, design: DesignInfo) -> dict:
+    """Exact prior-predictive draws for a compiled partial model on the design grid."""
+    bundle = build_prior_runtime_bundle(spec, registry)
+    return sample_prior_predictive_from_runtime(
+        spec,
+        bundle,
+        design.t_grid,
+        observation_support=design.observation_support,
+        transition_inputs=design.transition_inputs,
+        num_samples=design.n_draws,
+        seed=design.seed,
+    )
+
+
+def _run_battery(
+    spec: SSMSpec, pred: dict, design: DesignInfo, target: ConstructContribution
+) -> list[CheckResult]:
+    """Run the reachability battery on ``target``'s latent trajectory in a compiled model.
+
+    Generic over the construct being measured: admission runs it on the construct being
+    admitted; :func:`recheck_member` runs it on an already-admitted cycle member against the
+    closed-loop model, where ``target.edge_parents`` now include the just-closed feedback edge.
+    """
+    latent_names, manifest_names, manifest_links = _spec_names(spec)
+    d = latent_names.index(target.name)
+    x = np.asarray(pred["latents"][:, :, d])
+    dt = float(np.median(np.diff(np.asarray(design.t_grid))))
+    pooled = design.pooled_obs_index
+
+    results: list[CheckResult] = list(check_confinement(target.name, x, dt))
+
+    # C2 scale anchor + C5 coverage come from the construct's indicator(s).
+    anchor, anchor_src, anchor_detail = _scale_anchor(
+        manifest_names, manifest_links, target, design.values_by_indicator
+    )
+    results.append(check_scale(target.name, x, anchor, anchor_src, anchor_detail))
+
+    # C3 resolvability (only for dynamic constructs that own a potential well).
+    comp_idx = _node_potential_index(spec, d)
+    if comp_idx is not None:
+        decay_site = f"vf_{comp_idx}_decay"
+        if decay_site in pred:
+            tau = 1.0 / np.asarray(pred[decay_site])
+            results.append(check_resolvability(target.name, tau, design.cadence, design.span))
+
+    # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
+    if target.edge_parents:
+        edge_sites = _incoming_edge_sites(spec, target, latent_names, d)
+        x_off = _resimulate_edge_off(
+            spec, pred, design.t_grid, edge_sites, design.seed, design.transition_inputs
+        )[:, :, d]
+        results.extend(check_edge_share(target.name, x[:, pooled], np.asarray(x_off)[:, pooled]))
+
+    # C4c Hill saturation (per saturating parent).
+    for parent in target.hill_parents:
+        p_idx = latent_names.index(parent)
+        ec50_comp = _hill_ec50_index(spec, p_idx, d)
+        ec50_site = f"vf_{ec50_comp}_EC50"
+        if ec50_comp is not None and ec50_site in pred:
+            parent_vals = np.asarray(pred["latents"][:, pooled, p_idx])
+            results.append(
+                check_saturation(
+                    f"{parent}->{target.name}",
+                    np.asarray(pred[ec50_site]),
+                    parent_vals,
+                )
+            )
+
+    # C5a/C5b/C5c coverage per indicator of this construct (per-indicator obs grid).
+    for lik in target.likelihoods:
+        var = lik.variable
+        m = manifest_names.index(var)
+        oi = np.asarray(design.obs_index_by_indicator[var])
+        lp = np.asarray(pred["linear_predictors"][:, oi, m])
+        pp_y = np.asarray(pred["observations"][:, oi, m])
+        signal = _signal_from_linear_predictor(manifest_links[m], lp)
+        results.extend(
+            check_coverage(var, pp_y, signal, np.asarray(design.values_by_indicator[var]))
+        )
+
+    return results
+
+
+def recheck_member(
+    state: AdmissionState,
+    target: ConstructContribution,
+    causal_spec: dict,
+    design: DesignInfo,
+) -> tuple[CheckResult, ...]:
+    """Re-run the battery on an already-admitted member against the closed-loop model.
+
+    ``state`` is the cumulative state *after* a feedback loop closed (it already contains
+    ``target`` and the closing edge), and ``target`` carries the member's closed-loop edge
+    set (``edge_parents`` now include the feedback source). Informational: the caller
+    surfaces the results as a coupled recheck; they do not gate the admission.
+    """
+    spec, registry = _compile_partial(state, causal_spec)
+    pred = _sample_partial(spec, registry, design)
+    return tuple(_run_battery(spec, pred, design, target))
 
 
 def _scale_anchor(

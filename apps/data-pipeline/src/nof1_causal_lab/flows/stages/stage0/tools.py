@@ -267,7 +267,7 @@ def _safe_resolve(base: Path, user_path: str) -> Path:
     """Resolve a user-provided path safely within the base directory."""
     base_resolved = base.resolve()
     resolved = (base / user_path).resolve()
-    if not str(resolved).startswith(str(base_resolved)):
+    if not resolved.is_relative_to(base_resolved):
         raise ValueError(f"Path traversal blocked: {user_path}")
     return resolved
 

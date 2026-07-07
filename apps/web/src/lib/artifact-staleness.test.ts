@@ -31,7 +31,12 @@ describe("groupStaleArtifactsByStage", () => {
 
   it("ignores absent artifacts even when flagged stale", () => {
     const report = [
-      artifact({ artifact_id: "estimands", exists: false, stale: true, produced_by: "stage-1b" }),
+      artifact({
+        artifact_id: "identification_report",
+        exists: false,
+        stale: true,
+        produced_by: "stage-1b",
+      }),
     ];
 
     expect(groupStaleArtifactsByStage(report)).toEqual({});

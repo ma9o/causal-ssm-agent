@@ -6,10 +6,10 @@ validated against the artifact's contract (the old override adapters'
 coercion logic, kept as the schema boundary it always was), stamped with
 the caller's provenance, and journaled like any other transition.
 
-Writing ``causal_spec`` fans out: identification is pure computation over
-the spec, so the derived ``identification_report`` / ``estimands``
-artifacts are recomputed in the same write — otherwise an edited spec
-would leave downstream enabledness keyed to superseded findings.
+Writing ``causal_spec`` fans out: the positive ``identification_report`` is
+recomputed from the spec's explicit identifiability status in the same write
+— otherwise an edited spec would leave downstream enabledness keyed to
+superseded findings.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 
+from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
     Provenance,
@@ -49,7 +50,7 @@ def _write_question(
         provenance=provenance,
         derived_from={},
         produced_by=None,
-        json_files={"question.json": {"text": text.strip()}},
+        json_files={json_filename("question", "question"): {"text": text.strip()}},
     )
     return TransitionEffects(produced=[info])
 
@@ -58,11 +59,8 @@ def _write_causal_spec(
     store: ArtifactStore, payload: dict[str, Any], provenance: Provenance
 ) -> TransitionEffects:
     from nof1_causal_lab.flows.stage_contracts import Stage1bContract
-    from nof1_causal_lab.flows.stages.stage1b.contracts import (
-        EstimandsContract,
-        IdentificationReportContract,
-    )
-    from nof1_causal_lab.flows.stages.stage1b.result import derive_identification_artifacts
+    from nof1_causal_lab.flows.stages.stage1b.contracts import IdentificationReportContract
+    from nof1_causal_lab.flows.stages.stage1b.result import derive_identification_report
 
     validated = _validated("causal_spec", Stage1bContract, payload)
     spec_info = store.write_version(
@@ -70,42 +68,28 @@ def _write_causal_spec(
         provenance=provenance,
         derived_from={},
         produced_by=None,
-        json_files={"causal_spec.json": validated},
+        json_files={json_filename("causal_spec", "causal_spec"): validated},
     )
-    report, estimands = derive_identification_artifacts(validated["causal_spec"])
-    produced = [
-        spec_info,
-        store.write_version(
-            "identification_report",
-            provenance=provenance,
-            derived_from={"causal_spec": spec_info.version},
-            produced_by=None,
-            json_files={
-                "identification_report.json": _validated(
-                    "identification_report", IdentificationReportContract, report
-                )
-            },
-        ),
-    ]
+    report = derive_identification_report(validated["causal_spec"])
+    produced = [spec_info]
     retracted: list[ArtifactId] = []
-    if estimands is not None:
+    if report is not None:
         produced.append(
             store.write_version(
-                "estimands",
+                "identification_report",
                 provenance=provenance,
                 derived_from={"causal_spec": spec_info.version},
                 produced_by=None,
                 json_files={
-                    "estimands.json": _validated("estimands", EstimandsContract, estimands)
+                    json_filename("identification_report", "identification_report"): (
+                        _validated("identification_report", IdentificationReportContract, report)
+                    )
                 },
             )
         )
     else:
-        retracted.append("estimands")
+        retracted.append("identification_report")
 
-    from nof1_causal_lab.flows.stage_persistence import persist_validated_web_result
-
-    persist_validated_web_result("stage-1b", validated, store.workspace_id)
     return TransitionEffects(produced=produced, retracted=retracted)
 
 
@@ -135,19 +119,27 @@ def _write_saved_scenarios(
         provenance=provenance,
         derived_from=derived_from,
         produced_by=None,
-        json_files={"saved_scenarios.json": {"scenarios": validated}},
+        json_files={json_filename("saved_scenarios", "saved_scenarios"): {"scenarios": validated}},
     )
     return TransitionEffects(produced=[info])
 
 
 _CONTRACT_WRITES: dict[ArtifactId, tuple[str, str]] = {
     # artifact -> (contract import name, payload filename)
-    "constructs": ("Stage1aContract", "constructs.json"),
-    "identification_report": ("IdentificationReportContract", "identification_report.json"),
-    "estimands": ("EstimandsContract", "estimands.json"),
-    "extraction_report": ("Stage2Contract", "extraction_report.json"),
-    "validation_report": ("Stage3Contract", "validation_report.json"),
-    "baseline_ranking": ("Stage6Contract", "baseline_ranking.json"),
+    "constructs": ("Stage1aContract", json_filename("constructs", "constructs")),
+    "identification_report": (
+        "IdentificationReportContract",
+        json_filename("identification_report", "identification_report"),
+    ),
+    "extraction_report": (
+        "Stage2Contract",
+        json_filename("extraction_report", "extraction_report"),
+    ),
+    "validation_report": (
+        "Stage3Contract",
+        json_filename("validation_report", "validation_report"),
+    ),
+    "baseline_ranking": ("Stage6Contract", json_filename("baseline_ranking", "baseline_ranking")),
 }
 
 

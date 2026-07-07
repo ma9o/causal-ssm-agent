@@ -36,7 +36,6 @@ def _draws_stats(draws: list[float] | None) -> tuple[float | None, float | None]
 async def run_stage6(
     stage5b: dict,
     stage1b: dict,
-    question: str | None = None,
 ) -> dict[str, Any]:
     """Run interventions and synthesize the Stage 6 commentary payload."""
     from nof1_causal_lab.utils.causal_spec import get_outcome_name
@@ -89,7 +88,6 @@ async def run_stage6(
     ]
 
     commentary_input = {
-        "question": question,
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
         "excluded_non_identifiable_treatments": sorted(

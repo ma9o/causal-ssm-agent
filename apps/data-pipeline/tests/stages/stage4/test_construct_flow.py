@@ -20,6 +20,8 @@ from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
     SUBMIT_CONSTRUCT_SCHEMA,
     ConstructBuildState,
     ParamCatalog,
+    _closed_loop_target,
+    _closing_edge_effects,
     construct_parents,
     contribution_from_payload,
     deferred_closing_edge_params,
@@ -28,7 +30,11 @@ from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import (
 from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_prompt import (
     build_construct_messages,
 )
-from nof1_causal_lab.models.ssm.construct_admission import AdmissionReport, AdmissionState
+from nof1_causal_lab.models.ssm.construct_admission import (
+    AdmissionReport,
+    AdmissionState,
+    ConstructContribution,
+)
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.models.ssm.test_dag_to_ssm import _make_causal_spec_dict
 
@@ -103,6 +109,36 @@ def test_deferred_closing_edge_params_cover_feedback_cycles():
     assert "hill_emax_Z_Y" in names
     # A plain downstream edge (Y->Z with Z being admitted) is not a closing edge.
     assert deferred_closing_edge_params(spec, "Z", admitted=set()) == set()
+
+
+def test_closing_edge_effects_detects_the_rechecked_member():
+    spec = _make_causal_spec_dict()
+    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
+    spec["estimation"]["edges"].append(dict(feedback))
+    # Admitting Z with Y already admitted closes the Y<->Z loop → Y is the member to recheck.
+    assert _closing_edge_effects(spec, "Z", {"X", "Y"}) == ["Y"]
+    # Admitting Y (only X admitted) closes no loop — Y->Z's effect isn't admitted yet.
+    assert _closing_edge_effects(spec, "Y", {"X"}) == []
+
+
+def test_closed_loop_target_includes_the_closing_feedback_edge():
+    spec = _make_causal_spec_dict()
+    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
+    spec["estimation"]["edges"].append(dict(feedback))
+    # Y was admitted open-loop with just X->Y; once Z closes the loop the priors also carry
+    # beta_Z_Y, so the recheck target must see BOTH parents to re-measure edge overwhelm.
+    member_y = ConstructContribution(name="Y", edge_parents=("X",))
+    target = _closed_loop_target(
+        member_y, spec, {"beta_X_Y": _normal(0.3, 0.1), "beta_Z_Y": _normal(0.2, 0.1)}
+    )
+    assert target.edge_parents == ("X", "Z")
+    assert target.hill_parents == ()
+    # A saturating closing edge registers as both an edge parent and a Hill parent.
+    hill_target = _closed_loop_target(
+        member_y, spec, {"beta_X_Y": _normal(0.3, 0.1), "hill_emax_Z_Y": _normal(1.0, 0.5)}
+    )
+    assert hill_target.edge_parents == ("X", "Z")
+    assert hill_target.hill_parents == ("Z",)
 
 
 def test_contribution_from_payload_linear_edge():

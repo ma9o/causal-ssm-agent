@@ -4,8 +4,9 @@ Nodes are artifacts, not stages; a stage is a transition that consumes
 artifact versions and produces artifact versions. Enabledness is a pure
 existence check over consumed artifacts — no content predicates. The
 epistemic gate ("numeric claims only when identification supports them")
-emerges structurally: stage-1b produces ``estimands`` only when nonempty,
-so fitting and interventions are simply never enabled without it.
+emerges structurally: stage-1b produces ``identification_report`` only when
+at least one treatment is explicitly identifiable, so fitting and
+interventions are simply never enabled without it.
 """
 
 from __future__ import annotations
@@ -40,8 +41,8 @@ class StageSpec:
 
 # The raw ``question`` text is consumed by stage-2 and stage-4 today; both
 # edges are slated to be cut (extraction should be driven by the measurement
-# model's indicators, elicitation by the structured spec — the latter lands
-# with the stage-4 rework). Keep the graph honest until the runners change.
+# model's indicators; elicitation by structured specs). Keep the graph
+# honest until the runners change.
 ARTIFACT_GRAPH: tuple[StageSpec, ...] = (
     StageSpec(
         stage_id="stage-0",
@@ -56,8 +57,8 @@ ARTIFACT_GRAPH: tuple[StageSpec, ...] = (
     StageSpec(
         stage_id="stage-1b",
         consumes=("question", "raw_data", "constructs"),
-        produces=("causal_spec", "identification_report"),
-        produces_optional=("estimands",),
+        produces=("causal_spec",),
+        produces_optional=("identification_report",),
     ),
     StageSpec(
         stage_id="stage-2",
@@ -72,7 +73,13 @@ ARTIFACT_GRAPH: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         stage_id="stage-4",
-        consumes=("question", "causal_spec", "estimands", "model_data", "validation_report"),
+        consumes=(
+            "question",
+            "causal_spec",
+            "identification_report",
+            "model_data",
+            "validation_report",
+        ),
         produces=("compiled_ssm",),
     ),
     StageSpec(
@@ -82,7 +89,7 @@ ARTIFACT_GRAPH: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         stage_id="stage-6",
-        consumes=("posterior", "causal_spec", "estimands"),
+        consumes=("posterior", "causal_spec", "identification_report"),
         produces=("baseline_ranking",),
     ),
 )

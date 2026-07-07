@@ -35,42 +35,16 @@ STAGE1B_TOOL_CONTRACTS: list[ToolContract] = [
 class Stage1bContract(LLMStageContract):
     causal_spec: CausalSpec
 
-    def summary_message(self) -> str:
-        non_id = (
-            self.causal_spec.identifiability.non_identifiable_treatments
-            if self.causal_spec.identifiability
-            else {}
-        ) or {}
-        return (
-            f"Stage 1b summary: constructs={len(self.causal_spec.latent.constructs)} "
-            f"indicators={len(self.causal_spec.measurement.indicators)} "
-            f"filtered_treatments={len(non_id)}"
-        )
-
 
 class IdentificationReportContract(BaseModel):
-    """The identification finding — always produced, positive or negative.
+    """The positive identification finding.
 
-    A negative finding (``estimable_treatments`` empty) is a scientifically
-    meaningful result the navigator reads to decide whether to revise the
-    DAG or the question; it is never an execution failure.
+    Only produced when at least one treatment effect is explicitly
+    identifiable. Negative findings remain in ``causal_spec.identifiability``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     outcome_name: str
-    estimable_treatments: list[str]
+    estimable_treatments: list[str] = Field(min_length=1)
     non_identifiable_treatments: dict[str, Any] = Field(default_factory=dict)
-
-
-class EstimandsContract(BaseModel):
-    """The enabling artifact for fitting and interventions.
-
-    Only produced when at least one treatment effect is identifiable —
-    the epistemic gate is this artifact's existence, not a status flag.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    outcome: str
-    treatments: list[str]

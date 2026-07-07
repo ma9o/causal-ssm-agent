@@ -128,6 +128,15 @@ class TestSafeResolve:
         with pytest.raises(ValueError, match="Path traversal blocked"):
             _safe_resolve(tmp_path, "../../../etc/passwd")
 
+    def test_sibling_prefix_traversal_blocked(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        sibling = tmp_path / "base_evil"
+        sibling.write_text("outside")
+
+        with pytest.raises(ValueError, match="Path traversal blocked"):
+            _safe_resolve(base, "../base_evil")
+
 
 class TestIngestionTools:
     """Test the individual tools returned by make_ingestion_tools."""

@@ -42,11 +42,3 @@ class Stage5bContract(BaseStageContract):
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
-
-    def summary_message(self) -> str:
-        ppc_warnings = len(self.ppc.per_variable_warnings)
-        return (
-            f"Stage 5b summary: method={self.inference_metadata.method} "
-            f"samples={self.inference_metadata.n_samples} "
-            f"ppc_warnings={ppc_warnings}"
-        )

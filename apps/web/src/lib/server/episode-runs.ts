@@ -10,7 +10,6 @@ export type EpisodeArtifactId =
   | "constructs"
   | "causal_spec"
   | "identification_report"
-  | "estimands"
   | "extraction_report"
   | "model_data"
   | "validation_report"

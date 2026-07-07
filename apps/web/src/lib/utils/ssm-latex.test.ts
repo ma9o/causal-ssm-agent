@@ -1,7 +1,6 @@
 import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import {
-  concreteTransitionLines,
   confounderGroupLatex,
   confounderGroups,
   distName,
@@ -446,32 +445,5 @@ describe("stateEquationRows", () => {
     expect(rows[1].state).toBe("sleep");
     expect(rows[1].crossEffects).toHaveLength(1);
     expect(rows[1].crossEffects[0].source).toBe("stress");
-  });
-});
-
-describe("concreteTransitionLines", () => {
-  it("builds transition lines", () => {
-    const params = [
-      { name: "rho_X", role: "ar_coefficient" },
-      { name: "sigma_X", role: "residual_sd" },
-    ] as ParameterSpec[];
-
-    const lines = concreteTransitionLines(params);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("\\eta"))).toBe(true);
-    expect(lines.some((l) => l.includes("\\varepsilon"))).toBe(true);
-  });
-
-  it("includes cross effects", () => {
-    const params = [
-      { name: "rho_X", role: "ar_coefficient" },
-      { name: "rho_Y", role: "ar_coefficient" },
-      { name: "beta_X_Y", role: "fixed_effect" },
-      { name: "sigma_X", role: "residual_sd" },
-      { name: "sigma_Y", role: "residual_sd" },
-    ] as ParameterSpec[];
-
-    const lines = concreteTransitionLines(params);
-    expect(lines.some((l) => l.includes("\\beta"))).toBe(true);
   });
 });

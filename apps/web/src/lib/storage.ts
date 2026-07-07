@@ -58,7 +58,7 @@ function r2Key(relativePath: string): string {
 
 /**
  * Read a text file from storage.
- * @param relativePath  Path relative to the data root (e.g. "workspaceId/run/stage-1a.json")
+ * @param relativePath  Path relative to the data root (e.g. "workspaceId/episode/state.json")
  */
 export async function readData(relativePath: string): Promise<string> {
   if (isRemote) {
@@ -84,27 +84,6 @@ export async function readBinary(relativePath: string): Promise<Uint8Array> {
   }
   const buf = await readFile(resolve(LOCAL_DATA_DIR, relativePath));
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-}
-
-/**
- * Write a text file to storage.
- */
-export async function writeData(relativePath: string, content: string): Promise<void> {
-  if (isRemote) {
-    const { PutObjectCommand } = await import("@aws-sdk/client-s3");
-    await getS3().send(
-      new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: r2Key(relativePath),
-        Body: content,
-        ContentType: "application/octet-stream",
-      }),
-    );
-    return;
-  }
-  const fullPath = resolve(LOCAL_DATA_DIR, relativePath);
-  await mkdir(dirname(fullPath), { recursive: true });
-  await writeFile(fullPath, content, "utf-8");
 }
 
 /**

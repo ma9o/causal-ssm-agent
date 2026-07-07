@@ -67,7 +67,6 @@ def machine_env(monkeypatch, tmp_path):
         _fake_runner(
             ("causal_spec", "stage-1b"),
             ("identification_report", "stage-1b"),
-            ("estimands", "stage-1b"),
         ),
     )
     monkeypatch.setitem(

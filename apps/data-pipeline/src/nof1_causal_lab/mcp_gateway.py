@@ -159,8 +159,8 @@ async def write_artifact(
     contract, journaled, and provenance-stamped ("llm" or "human"). A write
     is a new provenance root — you take responsibility for its content;
     downstream artifacts become stale and re-pin on their next run. Writing
-    causal_spec deterministically fans out recomputed identification_report
-    and estimands."""
+    causal_spec deterministically fans out a recomputed positive
+    identification_report when the spec has explicitly identified treatments."""
     return await _request(
         "POST",
         f"/api/episodes/{workspace_id}/moves",

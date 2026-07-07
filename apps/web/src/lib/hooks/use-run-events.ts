@@ -1,11 +1,17 @@
 "use client";
 
+import type { StageId } from "@nof1-causal-lab/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
 import {
-  getEpisodeProgress,
   type EpisodeEventRecord,
   type EpisodeProgressPayload,
   type EpisodeTransitionRecord,
+  getEpisodeProgress,
 } from "@/lib/api/analysis";
+import { groupStaleArtifactsByStage, hasStaleArtifacts } from "@/lib/artifact-staleness";
+import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
 import {
   applyStage2Event,
   getStage2StateQueryKey,
@@ -13,23 +19,17 @@ import {
   type Stage2ReplayState,
 } from "@/lib/stage2-runtime";
 import {
-  applyStage4Event,
-  getStage4StateQueryKey,
-  parseStage4Event,
-  type Stage4ReplayState,
-} from "@/lib/stage4-runtime";
-import { groupStaleArtifactsByStage, hasStaleArtifacts } from "@/lib/artifact-staleness";
-import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
-import type { StageId } from "@nof1-causal-lab/api-types";
-import { STAGES } from "@nof1-causal-lab/api-types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+  applyStage4AdmissionEvent,
+  getStage4AdmissionStateQueryKey,
+  parseStage4AdmissionEvent,
+  type Stage4AdmissionReplayState,
+} from "@/lib/stage4-admission-runtime";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
   applyStageUpdate,
   initialProgress,
-  restartStageAttempt,
   type PipelineProgress,
+  restartStageAttempt,
   type StageRunStatus,
 } from "./pipeline-progress";
 import { getStageDataQueryKey } from "./use-stage-data";
@@ -174,10 +174,11 @@ export function useRunEvents(workspaceId: string | null) {
       for (const record of payload.events) {
         const runtimeRecord = toRuntimeEventRecord(record);
 
-        const stage4Event = parseStage4Event(runtimeRecord);
-        if (stage4Event) {
-          queryClient.setQueryData<Stage4ReplayState>(getStage4StateQueryKey(workspaceId), (old) =>
-            applyStage4Event(old, stage4Event),
+        const admissionEvent = parseStage4AdmissionEvent(runtimeRecord);
+        if (admissionEvent) {
+          queryClient.setQueryData<Stage4AdmissionReplayState>(
+            getStage4AdmissionStateQueryKey(workspaceId),
+            (old) => applyStage4AdmissionEvent(old, admissionEvent),
           );
           continue;
         }
@@ -250,7 +251,7 @@ export function useRunEvents(workspaceId: string | null) {
 
     queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
     queryClient.removeQueries({ queryKey: getStage2StateQueryKey(workspaceId) });
-    queryClient.removeQueries({ queryKey: getStage4StateQueryKey(workspaceId) });
+    queryClient.removeQueries({ queryKey: getStage4AdmissionStateQueryKey(workspaceId) });
   }, [queryClient, workspaceId]);
 
   useEffect(() => {

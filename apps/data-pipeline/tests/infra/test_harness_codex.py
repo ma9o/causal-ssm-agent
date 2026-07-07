@@ -49,6 +49,7 @@ class TestBuildCodexArgv:
             thread_id=None,
             model="gpt-5.4",
             reasoning_effort="high",
+            service_tier="fast",
         )
         # exec is first subcommand, "resume" must not appear between exec and flags.
         assert argv[0] == "codex"
@@ -62,6 +63,7 @@ class TestBuildCodexArgv:
         assert argv[-1] == "hello"
         # reasoning_effort passes through -c
         assert any(arg == "model_reasoning_effort=high" for arg in argv)
+        assert any(arg == 'service_tier="fast"' for arg in argv)
 
     def test_follow_up_turn_uses_resume_subcommand_with_thread_id(self):
         argv = build_codex_argv(
@@ -70,6 +72,7 @@ class TestBuildCodexArgv:
             thread_id="tid-123",
             model="gpt-5.4",
             reasoning_effort=None,
+            service_tier=None,
         )
         assert argv[0:4] == ["codex", "exec", "resume", "tid-123"]
         assert argv[-1] == "continue"
@@ -81,9 +84,11 @@ class TestBuildCodexArgv:
             thread_id=None,
             model="m",
             reasoning_effort=None,
+            service_tier=None,
         )
         # No stray reasoning_effort key=value entries.
         assert not any("model_reasoning_effort" in arg for arg in argv)
+        assert not any("service_tier" in arg for arg in argv)
         assert "-C" not in argv
 
     def test_cwd_and_extra_config_pass_through(self):
@@ -93,10 +98,12 @@ class TestBuildCodexArgv:
             thread_id=None,
             model="m",
             reasoning_effort=None,
+            service_tier="fast",
             cwd="/tmp/work",
             extra_config=[("key1", "val1"), ("key2", "val2")],
         )
         assert argv[argv.index("-C") + 1] == "/tmp/work"
+        assert 'service_tier="fast"' in argv
         assert "key1=val1" in argv
         assert "key2=val2" in argv
 

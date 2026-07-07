@@ -57,6 +57,37 @@ def runs_dir(workspace_id: str) -> str:
     return join(DATA_URI, workspace_id, "run")
 
 
+def ensure_datetime_column(df: pl.DataFrame, time_col: str) -> pl.DataFrame:
+    """Parse a timestamp column to Polars datetime when it arrives as text."""
+    if df.schema[time_col] == pl.Utf8:
+        return df.with_columns(
+            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
+        )
+    return df
+
+
+def support_window_tick_frame(
+    df: pl.DataFrame,
+    model_clock: str,
+    time_col: str,
+) -> pl.DataFrame:
+    """Materialize every support-window tick spanning the observed raw data."""
+    if df.is_empty():
+        return pl.DataFrame(schema={"__tick__": pl.Datetime})
+
+    df = ensure_datetime_column(df, time_col)
+    observed_ticks = df.select(pl.col(time_col).dt.truncate(model_clock).alias("__tick__"))
+    start, end = observed_ticks.select(
+        pl.col("__tick__").min().alias("start"),
+        pl.col("__tick__").max().alias("end"),
+    ).row(0)
+    if start is None or end is None:
+        return pl.DataFrame(schema={"__tick__": observed_ticks.schema["__tick__"]})
+
+    ticks = pl.datetime_range(start, end, interval=model_clock, eager=True).alias("__tick__")
+    return pl.DataFrame({"__tick__": ticks})
+
+
 def bucket_by_clock(
     df: pl.DataFrame,
     model_clock: str,
@@ -70,27 +101,27 @@ def bucket_by_clock(
         time_col: Name of the datetime column to bucket by.
 
     Returns:
-        List of (tick_id, events_df) sorted chronologically.
+        List of (tick_id, events_df) sorted chronologically, including empty
+        support windows between the first and last observed ticks.
         tick_id is an ISO-format string of the tick start time.
     """
-    # Raw timestamps may already carry a timezone suffix such as `Z`.
-    # Parse them as UTC so bucketing matches the rest of stage 2.
-    if df.schema[time_col] == pl.Utf8:
-        df = df.with_columns(
-            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
-        )
+    df = ensure_datetime_column(df, time_col)
 
     # Truncate to tick boundaries
     bucketed = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__")).sort(
         time_col
     )
+    tick_frame = support_window_tick_frame(df, model_clock, time_col)
 
-    # Group by tick
+    groups = {
+        tick_val[0]: group_df.drop("__tick__")
+        for tick_val, group_df in bucketed.group_by("__tick__", maintain_order=True)
+    }
+    empty_events = df.head(0)
     result = []
-    for tick_val, group_df in bucketed.group_by("__tick__", maintain_order=True):
-        tick_dt = tick_val[0]
+    for tick_dt in tick_frame["__tick__"].to_list():
+        events = groups.get(tick_dt, empty_events)
         tick_id = tick_dt.isoformat() if hasattr(tick_dt, "isoformat") else str(tick_dt)
-        events = group_df.drop("__tick__")
         result.append((tick_id, events))
 
     return result

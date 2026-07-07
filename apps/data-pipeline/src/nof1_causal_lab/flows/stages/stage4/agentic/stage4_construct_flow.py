@@ -15,7 +15,7 @@ the ``compiled_ssm`` artifact unchanged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
@@ -28,6 +28,7 @@ from nof1_causal_lab.artifacts import (
     ParameterRole,
 )
 from nof1_causal_lab.artifacts.model_spec import LikelihoodSpec, ParameterSpec
+from nof1_causal_lab.flows.runtime_events import emit_stage4_admission_event
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -35,9 +36,11 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     DesignInfo,
     admit_construct,
     build_construct_order,
+    recheck_member,
     restrict_causal_spec,
     trial_admission_state,
 )
+from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult
 from nof1_causal_lab.utils.causal_spec import get_estimation_edges
 
 from .stage4_types import Stage4Result
@@ -190,6 +193,40 @@ def deferred_closing_edge_params(
     return names
 
 
+def _closing_edge_effects(
+    causal_spec: dict, construct: str, prior_admitted: Collection[str]
+) -> list[str]:
+    """Already-admitted effect(s) of feedback edges out of ``construct``.
+
+    These are the cycle members whose latent dynamics change when admitting ``construct``
+    closes the loop — so they warrant a coupled recheck against the closed-loop model.
+    """
+    effects: list[str] = []
+    for edge in get_estimation_edges(causal_spec):
+        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
+        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        if cause == construct and effect in prior_admitted and str(effect) not in effects:
+            effects.append(str(effect))
+    return effects
+
+
+def _closed_loop_target(
+    member: ConstructContribution, causal_spec: dict, priors: Mapping[str, Any]
+) -> ConstructContribution:
+    """``member``'s contribution with its edge set recomputed on the closed loop.
+
+    C4b/C4c on the member must now see the just-closed feedback edge, whose ``beta_*`` /
+    ``hill_*`` prior is already in ``priors`` (authored during the loop-closing submission).
+    """
+    name = member.name
+    parents = construct_parents(causal_spec, name)
+    edge_parents = tuple(
+        p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
+    )
+    hill_parents = tuple(p for p in parents if f"hill_emax_{p}_{name}" in priors)
+    return replace(member, edge_parents=edge_parents, hill_parents=hill_parents)
+
+
 # --------------------------------------------------------------------------- #
 # Tool payload → ConstructContribution
 # --------------------------------------------------------------------------- #
@@ -265,23 +302,44 @@ def build_design_info(
     n_draws: int,
     seed: int,
 ) -> DesignInfo:
-    """Derive the reachability design against the compiled *partial* model.
+    """Reachability design for admitting ``contribution`` onto ``state`` (the trial model)."""
+    return _design_for_state(
+        trial_admission_state(state, contribution),
+        causal_spec,
+        data_for_model,
+        n_draws=n_draws,
+        seed=seed,
+    )
+
+
+def _design_for_state(
+    model_state: AdmissionState,
+    causal_spec: dict,
+    data_for_model: pl.DataFrame,
+    *,
+    n_draws: int,
+    seed: int,
+) -> DesignInfo:
+    """Derive the reachability design against the compiled ``model_state``.
 
     Uses the canonical ``prepare_model_runtime`` so the sampling grid, the
     per-indicator observation indices, and the observed values all live in the
     same time + observation space the fit uses — including support-aware handling
-    and the emission-space scaling the raw data does not carry.
+    and the emission-space scaling the raw data does not carry. Both admission
+    (against a trial state) and the coupled recheck (against the closed-loop state)
+    build their design here.
     """
     import polars as pl
 
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
-    trial = trial_admission_state(state, contribution)
-    restricted = restrict_causal_spec(causal_spec, set(trial.names))
-    compiled = compile_ssm_artifact(trial.model_spec(), dict(trial.priors), causal_spec=restricted)
+    restricted = restrict_causal_spec(causal_spec, set(model_state.names))
+    compiled = compile_ssm_artifact(
+        model_state.model_spec(), dict(model_state.priors), causal_spec=restricted
+    )
 
-    indicator_names = [lik.variable for lik in trial.likelihoods]
+    indicator_names = [lik.variable for lik in model_state.likelihoods]
     trial_data = data_for_model.filter(pl.col("indicator").is_in(indicator_names))
     runtime = prepare_model_runtime(trial_data, compiled_ssm=compiled)
 
@@ -336,6 +394,83 @@ def render_admission_feedback(report: AdmissionReport) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Admission telemetry payloads (live-view contract)
+# --------------------------------------------------------------------------- #
+#
+# These translate the admission dataclasses into the JSON the web construct-
+# admission view reduces. Emission is threaded through the flow (see
+# ``run_stage4_construct_build``) only when a ``workspace_id`` is present, so the
+# batch/test path (``workspace_id=None``) runs without any telemetry side effect.
+
+
+def _admission_plan_payload(causal_spec: dict, order: Sequence[str]) -> dict[str, Any]:
+    """The static admission plan: constructs in admission order + the DAG edges among them."""
+    order_set = set(order)
+    edges: list[dict[str, str]] = []
+    for edge in get_estimation_edges(causal_spec):
+        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
+        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        if cause in order_set and effect in order_set:
+            edges.append({"cause": str(cause), "effect": str(effect)})
+    constructs = [{"name": name, "parents": construct_parents(causal_spec, name)} for name in order]
+    return {"constructs": constructs, "edges": edges, "max_attempts": _MAX_ATTEMPTS_PER_CONSTRUCT}
+
+
+def _admission_parameters_payload(contribution: ConstructContribution) -> list[dict[str, Any]]:
+    """Authored priors of a submission as ``{name, distribution, params}`` for the UI table."""
+    params: list[dict[str, Any]] = []
+    for name, dist in contribution.priors.items():
+        raw = dist.get("params", {}) if isinstance(dist, dict) else {}
+        params.append(
+            {
+                "name": name,
+                "distribution": str(dist.get("distribution", "")) if isinstance(dist, dict) else "",
+                "params": {k: float(v) for k, v in raw.items() if isinstance(v, (int, float))},
+            }
+        )
+    return params
+
+
+def _check_result_payload(result: CheckResult) -> dict[str, Any]:
+    """A reachability CheckResult in the admission-view contract (mode from the severity table)."""
+    return {
+        "check": result.check,
+        "target": result.target,
+        "value": result.value,
+        "band": result.band,
+        "passed": result.passed,
+        "note": result.note,
+        "diagnosis": list(result.diagnosis),
+        "mode": CHECK_MODES[result.check],
+    }
+
+
+def _admission_report_payload(
+    report: AdmissionReport,
+    contribution: ConstructContribution,
+    attempt: int,
+    coupled_recheck: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One attempt's battery outcome + authored priors, in the admission-view contract.
+
+    ``coupled_recheck`` (present only when admitting this construct closed a feedback loop)
+    carries the closed-loop re-evaluation of the already-admitted cycle member(s).
+    """
+    payload: dict[str, Any] = {
+        "name": report.name,
+        "attempt": attempt,
+        "outcome": report.outcome,
+        "admitted": report.admitted,
+        "annotations": list(report.annotations),
+        "results": [_check_result_payload(r) for r in report.results],
+        "parameters": _admission_parameters_payload(contribution),
+    }
+    if coupled_recheck is not None:
+        payload["coupled_recheck"] = coupled_recheck
+    return payload
+
+
+# --------------------------------------------------------------------------- #
 # Construct-build session state + tool
 # --------------------------------------------------------------------------- #
 
@@ -349,6 +484,10 @@ class ConstructBuildState:
     order: list[str]
     n_draws: int = 200
     seed: int = 0
+    # Live-telemetry seam (mirrors stage 2): production threads the workspace id so the
+    # construct-admission view can stream; the batch/test path leaves it None and emits nothing.
+    workspace_id: str | None = None
+    attempt: int = 0
     catalog: ParamCatalog | None = None
     admission: AdmissionState = field(default_factory=AdmissionState)
     cursor: int = 0
@@ -356,6 +495,8 @@ class ConstructBuildState:
     search_cache: dict[str, str] = field(default_factory=dict)
     last_report: AdmissionReport | None = None
     submission_made: bool = False
+    # Kept so a loop-closing admission can re-run the battery on already-admitted members.
+    admitted_contributions: dict[str, ConstructContribution] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.catalog is None:
@@ -411,6 +552,12 @@ class ConstructBuildState:
             )
         payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
         contribution = contribution_from_payload(self.causal_spec, payload, self.catalog)
+        if self.workspace_id:
+            emit_stage4_admission_event(
+                self.workspace_id,
+                "construct_checking",
+                {"construct": construct, "attempt": self.attempt},
+            )
         design = build_design_info(
             self.admission,
             contribution,
@@ -419,14 +566,73 @@ class ConstructBuildState:
             n_draws=self.n_draws,
             seed=self.seed,
         )
+        prior_admitted = set(self.admission.names)
         new_state, report = admit_construct(
             self.admission, contribution, self.causal_spec, design, accepted=dict(accept or {})
         )
         self.last_report = report
+        coupled_recheck: dict[str, Any] | None = None
         if report.admitted:
             self.admission = new_state
             self.cursor += 1
+            self.admitted_contributions[construct] = contribution
+            # Informational-only, and currently consumed solely via telemetry, so skip its
+            # extra closed-loop compile+sim when nobody is streaming (batch/tests).
+            if self.workspace_id:
+                coupled_recheck = self._coupled_recheck(construct, prior_admitted)
+        if self.workspace_id:
+            emit_stage4_admission_event(
+                self.workspace_id,
+                "construct_report",
+                _admission_report_payload(report, contribution, self.attempt, coupled_recheck),
+            )
         return render_admission_feedback(report)
+
+    def _coupled_recheck(
+        self, construct: str, prior_admitted: Collection[str]
+    ) -> dict[str, Any] | None:
+        """Re-run the battery on already-admitted member(s) if admitting ``construct`` closed a loop.
+
+        Informational: the closed-loop re-evaluation is surfaced on the report event but does not
+        gate the admission (the loop stays closed regardless of the recheck outcome).
+
+        The right version, long-term, is to GATE rather than inform: a hard closed-loop failure
+        means closing the feedback edge destabilized an already-admitted member, so the correct
+        behavior is to *invalidate* that member's admission — re-open the closing construct for
+        revision of its closing-edge prior — consistent with the "hard check blocks, no override"
+        rule the rest of the battery follows. Kept informational for now to avoid changing
+        admission control flow until real closed-loop recheck outcomes are observed.
+        """
+        members = [
+            m
+            for m in _closing_edge_effects(self.causal_spec, construct, prior_admitted)
+            if m in self.admitted_contributions
+        ]
+        if not members:
+            return None
+        design = _design_for_state(
+            self.admission,
+            self.causal_spec,
+            self.data_for_model,
+            n_draws=self.n_draws,
+            seed=self.seed,
+        )
+        results: list[dict[str, Any]] = []
+        for member in members:
+            target = _closed_loop_target(
+                self.admitted_contributions[member], self.causal_spec, self.admission.priors
+            )
+            results.extend(
+                _check_result_payload(r)
+                for r in recheck_member(self.admission, target, self.causal_spec, design)
+            )
+        if not results:
+            return None
+        return {
+            "constructs": [*members, construct],
+            "closing_edges": [f"{construct}->{m}" for m in members],
+            "results": results,
+        }
 
 
 def make_submit_construct_tool(state: ConstructBuildState) -> Any:
@@ -531,53 +737,83 @@ async def run_stage4_construct_build(
     enable_literature: bool = False,
     n_draws: int = 200,
     seed: int = 0,
+    workspace_id: str | None = None,
 ) -> Stage4Result:
-    """Drive construct admission one construct at a time and assemble the result."""
+    """Drive construct admission one construct at a time and assemble the result.
+
+    When ``workspace_id`` is given, the loop streams construct-admission telemetry
+    (``plan`` → per-attempt ``construct_started``/``construct_checking``/``construct_report``
+    → ``done``/``failed``) for the live web view; with ``None`` it runs silently.
+    """
     from nof1_causal_lab.flows.stages.stage4.tools import make_search_tool
 
     from .stage4_construct_prompt import build_construct_messages
 
     order = build_construct_order(causal_spec)
+    if workspace_id:
+        emit_stage4_admission_event(
+            workspace_id, "plan", _admission_plan_payload(causal_spec, order)
+        )
     state = ConstructBuildState(
         causal_spec=causal_spec,
         data_for_model=data_for_model,
         order=order,
         n_draws=n_draws,
         seed=seed,
+        workspace_id=workspace_id,
     )
 
-    for construct in order:
-        for _attempt in range(_MAX_ATTEMPTS_PER_CONSTRUCT):
-            if state.current_construct != construct:
-                break  # admitted on a previous attempt
-            state.submission_made = False
-            tools = [make_submit_construct_tool(state)]
-            if enable_literature:
-                tools.append(make_search_tool(state))
-            system_prompt, user_prompt = build_construct_messages(
-                state=state,
-                construct=construct,
-                question=question,
-                causal_spec=causal_spec,
-                indicator_audits=indicator_audits,
-            )
-            async with session_factory.open(
-                system_prompt=system_prompt,
-                tools=tools,
-                log_label=f"stage-4:construct:{construct}",
-            ) as agent_session:
-                await agent_session.turn(user_prompt)
-            if not state.submission_made:
-                raise ValueError(
-                    f"Stage 4 construct `{construct}` did not call submit_construct before "
-                    "the turn ended."
+    try:
+        for construct in order:
+            for _attempt in range(_MAX_ATTEMPTS_PER_CONSTRUCT):
+                if state.current_construct != construct:
+                    break  # admitted on a previous attempt
+                state.attempt = _attempt + 1
+                state.submission_made = False
+                if workspace_id:
+                    emit_stage4_admission_event(
+                        workspace_id,
+                        "construct_started",
+                        {"construct": construct, "attempt": state.attempt},
+                    )
+                tools = [make_submit_construct_tool(state)]
+                if enable_literature:
+                    tools.append(make_search_tool(state))
+                system_prompt, user_prompt = build_construct_messages(
+                    state=state,
+                    construct=construct,
+                    question=question,
+                    causal_spec=causal_spec,
+                    indicator_audits=indicator_audits,
                 )
-        if state.current_construct == construct:
-            outcome = state.last_report.outcome if state.last_report else "no report"
-            raise ValueError(
-                f"Stage 4 construct `{construct}` was not admitted after "
-                f"{_MAX_ATTEMPTS_PER_CONSTRUCT} attempts (last outcome: {outcome})."
+                async with session_factory.open(
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    log_label=f"stage-4:construct:{construct}",
+                ) as agent_session:
+                    await agent_session.turn(user_prompt)
+                if not state.submission_made:
+                    raise ValueError(
+                        f"Stage 4 construct `{construct}` did not call submit_construct before "
+                        "the turn ended."
+                    )
+            if state.current_construct == construct:
+                outcome = state.last_report.outcome if state.last_report else "no report"
+                raise ValueError(
+                    f"Stage 4 construct `{construct}` was not admitted after "
+                    f"{_MAX_ATTEMPTS_PER_CONSTRUCT} attempts (last outcome: {outcome})."
+                )
+    except Exception as exc:
+        if workspace_id:
+            emit_stage4_admission_event(
+                workspace_id,
+                "failed",
+                {"construct": state.current_construct, "message": str(exc)},
             )
+        raise
+
+    if workspace_id:
+        emit_stage4_admission_event(workspace_id, "done", {})
 
     model_spec = state.admission.model_spec().model_dump(mode="json")
     return Stage4Result(

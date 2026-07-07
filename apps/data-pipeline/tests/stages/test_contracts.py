@@ -1,8 +1,7 @@
-"""Tests for stage payload contracts persisted to the web layer."""
+"""Tests for stage payload contracts."""
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 
 import pytest
@@ -12,7 +11,6 @@ from nof1_causal_lab.flows.stage_contracts import (
     STAGE_TOOLS,
     validate_stage_payload,
 )
-from nof1_causal_lab.flows.stage_persistence import persist_validated_web_result
 
 
 @pytest.fixture
@@ -243,35 +241,6 @@ def valid_stage_payloads() -> dict[str, dict]:
     }
 
 
-def test_persist_web_result_normalizes_nonfinite_numbers(
-    tmp_path, monkeypatch, valid_stage_payloads
-):
-    from nof1_causal_lab.flows import stage_persistence as persist_module
-
-    captured: dict[str, str] = {}
-
-    monkeypatch.setattr(
-        persist_module.storage,
-        "join",
-        lambda *parts: "/".join(str(part).strip("/") for part in parts if part),
-    )
-    monkeypatch.setattr(persist_module.storage, "makedirs", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        persist_module.storage,
-        "write_text",
-        lambda path, text: captured.setdefault(path, text),
-    )
-
-    payload = deepcopy(valid_stage_payloads["stage-5b"])
-    payload["inference_metadata"]["duration_seconds"] = float("inf")
-
-    result = persist_validated_web_result("stage-5b", payload, "run-123")
-
-    assert result["inference_metadata"]["duration_seconds"] is None
-    written = json.loads(next(iter(captured.values())))
-    assert written["inference_metadata"]["duration_seconds"] is None
-
-
 def test_tool_server_registry_matches_served_tool_contracts() -> None:
     """Served tool contracts should match the tool server registry exactly."""
     from nof1_causal_lab.tool_server import _TOOL_IMPLS
@@ -300,12 +269,14 @@ def test_validate_stage_payload_rejects_unknown_stage():
         validate_stage_payload("stage-x", {})
 
 
-def test_persist_web_result_rejects_missing_required_fields(valid_stage_payloads: dict[str, dict]):
-    """Persistence task should fail on contract violations."""
+def test_validate_stage_payload_rejects_missing_required_fields(
+    valid_stage_payloads: dict[str, dict],
+):
+    """Stage contract validation should fail on contract violations."""
     bad = deepcopy(valid_stage_payloads["stage-2"])
     bad.pop("workers")
     with pytest.raises(ValidationError):
-        persist_validated_web_result("stage-2", bad, "run-123")
+        validate_stage_payload("stage-2", bad)
 
 
 def test_stage6_rejects_extra_fields(valid_stage_payloads: dict[str, dict]):

@@ -85,6 +85,23 @@ class TestBucketByClock:
             "2025-03-04T00:00:00+00:00",
         ]
 
+    def test_materializes_empty_windows_between_observed_ticks(self):
+        df = _make_events_df(
+            [
+                "2024-01-01T08:00:00",
+                "2024-01-03T10:00:00",
+            ]
+        )
+
+        ticks = bucket_by_clock(df, "1d", "timestamp")
+
+        assert [tick_id for tick_id, _ in ticks] == [
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+        ]
+        assert [len(events) for _, events in ticks] == [1, 0, 1]
+
     def test_chronological_ordering(self):
         """Ticks should be sorted chronologically."""
         df = _make_events_df(

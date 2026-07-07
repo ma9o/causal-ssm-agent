@@ -7,8 +7,8 @@ import {
   stageStoryDecorators,
 } from "../stage-story-helpers";
 import Stage5bContent from "./stage-5b-content";
-import fixture from "../../../../../../data/DEMO/run/stage-5b.json";
-import auxKalmanMCMCFixture from "../../../../../../data/DEMO/run/stage-5b.json";
+import fixture from "../../__fixtures__/demo-run/stage-5b.json";
+import auxKalmanMCMCFixture from "../../__fixtures__/demo-run/stage-5b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-5b")!;
 const data = fixture as Stage5bData;

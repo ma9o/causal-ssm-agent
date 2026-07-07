@@ -39,6 +39,7 @@ async def stage4_agentic_flow(
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict],
     enable_literature: bool = True,
+    workspace_id: str | None = None,
 ) -> dict:
     """Stage 4 LLM flow: gradual construct admission → grounded result.
 
@@ -48,6 +49,7 @@ async def stage4_agentic_flow(
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support).
         indicator_audits: Per-indicator audit hints keyed by indicator name.
         enable_literature: Whether to offer the search_literature tool per construct.
+        workspace_id: When set, stream construct-admission telemetry for the live web view.
 
     Returns:
         The full grounded Stage 4 result (``model_spec``, ``authored_priors``,
@@ -81,6 +83,7 @@ async def stage4_agentic_flow(
             indicator_audits=indicator_audits,
             session_factory=factory,
             enable_literature=literature_enabled,
+            workspace_id=workspace_id,
         )
         materialized = materialize_stage4_result(
             model_spec=result.model_spec,

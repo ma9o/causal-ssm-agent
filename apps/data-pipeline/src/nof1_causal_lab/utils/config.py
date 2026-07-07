@@ -53,7 +53,8 @@ class CodexDefaults:
     """Defaults for ``harness: codex`` stages."""
 
     bin: str = "codex"
-    reasoning_effort: str = "high"
+    reasoning_effort: str = "xhigh"
+    service_tier: str = "fast"
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ class StageLLMConfig:
     timeout: int | None = None
     # embedded + codex share reasoning_effort (different scales)
     reasoning_effort: str | None = None
+    # codex overrides
+    service_tier: str | None = None
     # claude-code overrides
     effort: str | None = None
     max_turns: int | None = None
@@ -504,6 +507,8 @@ def validate_config(config: PipelineConfig) -> list[str]:
                 errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
             if llm.bin is not None:
                 errors.append(f"{path}.bin: only valid for harness=claude-code or codex")
+            if llm.service_tier is not None:
+                errors.append(f"{path}.service_tier: only valid for harness=codex")
             if (
                 llm.reasoning_effort is not None
                 and llm.reasoning_effort not in EMBEDDED_REASONING_EFFORT_VALUES
@@ -524,6 +529,8 @@ def validate_config(config: PipelineConfig) -> list[str]:
                 errors.append(f"{path}.max_tokens: not configurable for harness=claude-code")
             if llm.timeout is not None:
                 errors.append(f"{path}.timeout: not configurable for harness=claude-code")
+            if llm.service_tier is not None:
+                errors.append(f"{path}.service_tier: only valid for harness=codex")
             if llm.effort is not None and llm.effort not in HARNESS_EFFORT_VALUES:
                 errors.append(f"{path}.effort: {llm.effort!r} not in {list(HARNESS_EFFORT_VALUES)}")
 

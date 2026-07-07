@@ -1,5 +1,5 @@
 import type { ObservationRecord, Stage2Data } from "@nof1-causal-lab/api-types";
-import stage2Fixture from "../../../../../data/DEMO/run/stage-2.json";
+import stage2Fixture from "./demo-run/stage-2.json";
 import extractionsSample from "./stage2-extractions-sample.json";
 
 // The persisted `stage-2.json` no longer inlines observation rows — production derives

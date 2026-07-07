@@ -10,6 +10,8 @@ import logging
 import numpy as np
 import polars as pl
 
+from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
+
 logger = logging.getLogger(__name__)
 
 # Aggregations that require map_groups (cannot be expressed as a single Polars expr)
@@ -321,7 +323,7 @@ def _build_agg_expr(agg_name: str, col_name: str = "value") -> pl.Expr:
         "var": col.var(),
         "last": col.drop_nulls().last(),
         "first": col.drop_nulls().first(),
-        "count": pl.when(col.is_not_null().any()).then(col.count()).otherwise(None),
+        "count": col.drop_nulls().count(),
         "median": col.median(),
         "n_unique": col.n_unique(),
         "skew": col.skew(),
@@ -371,9 +373,11 @@ def _build_map_groups_fn(agg_name: str):
     if agg_name == "trend":
 
         def _ols_slope(df: pl.DataFrame) -> pl.DataFrame:
-            values = df["value"].to_numpy()
+            values = df["value"].drop_nulls().to_numpy()
             n = len(values)
-            if n < 2:
+            if n == 0:
+                slope = None
+            elif n < 2:
                 slope = 0.0
             else:
                 x = np.arange(n, dtype=np.float64)
@@ -417,13 +421,7 @@ def compute_indicators(
     if not indicators:
         return pl.DataFrame(schema=output_schema)
 
-    # Match the rest of the pipeline: raw string timestamps may already carry
-    # a timezone suffix such as `Z`, so parse them as UTC.
-    df = raw_df
-    if df.schema[time_col] == pl.Utf8:
-        df = df.with_columns(
-            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
-        )
+    df = ensure_datetime_column(raw_df, time_col)
 
     frames: list[pl.DataFrame] = []
     for ind in indicators:
@@ -450,19 +448,24 @@ def compute_indicators(
             continue
 
         if computed_rule:
+            tick_frame = support_window_tick_frame(df, observation_window, time_col)
             prepared = _prepare_computed_rule_frame(
                 df,
                 time_col=time_col,
                 source_columns=source_columns,
                 observation_window=observation_window,
             )
-            expr = _compile_computed_rule_expr(
-                computed_rule["window_expr"],
-                allowed_names=set(source_columns),
-            ).alias("value")
+            prepared = _with_dense_support_rows(prepared, tick_frame)
+            expr = _missing_window_guard(
+                _compile_computed_rule_expr(
+                    computed_rule["window_expr"],
+                    allowed_names=set(source_columns),
+                )
+            )
             agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
         else:
             source_col = source_columns[0]
+            tick_frame = support_window_tick_frame(df, observation_window, time_col)
             prepared = _prepare_computed_indicator_frame(
                 df,
                 time_col=time_col,
@@ -471,6 +474,7 @@ def compute_indicators(
                 measurement_dtype=measurement_dtype,
                 ordinal_levels=ind.get("ordinal_levels"),
             )
+            prepared = _with_dense_support_rows(prepared, tick_frame)
 
             if agg_name in _MAP_GROUPS_AGGREGATIONS:
                 # trend etc: rename source_col → "value" for map_groups function
@@ -485,7 +489,7 @@ def compute_indicators(
                     .map_groups(fn)
                 )
             else:
-                expr = _build_agg_expr(agg_name, "__value__")
+                expr = _build_dense_agg_expr(agg_name, "__value__")
                 agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
         agg_df = agg_df.select(
@@ -499,6 +503,29 @@ def compute_indicators(
         return pl.DataFrame(schema=output_schema)
 
     return pl.concat(frames, how="vertical").sort("timestamp", "indicator")
+
+
+def _missing_window_guard(expr: pl.Expr) -> pl.Expr:
+    """Return null for synthetic windows with no raw rows."""
+    return (
+        pl.when(pl.col("__observed_row__").fill_null(False).any())
+        .then(expr)
+        .otherwise(None)
+        .alias("value")
+    )
+
+
+def _build_dense_agg_expr(agg_name: str, col_name: str) -> pl.Expr:
+    """Build aggregation over a dense support grid with missing-window nulls."""
+    if agg_name == "count":
+        col = pl.col(col_name)
+        return (
+            pl.when(pl.col("__observed_row__").fill_null(False).any())
+            .then(col.drop_nulls().count())
+            .otherwise(None)
+            .alias("value")
+        )
+    return _build_agg_expr(agg_name, col_name)
 
 
 def _prepare_computed_indicator_frame(
@@ -520,6 +547,14 @@ def _prepare_computed_indicator_frame(
         pl.col(time_col).dt.truncate(observation_window).alias("__tick__"),
         value_expr,
     )
+
+
+def _with_dense_support_rows(prepared: pl.DataFrame, tick_frame: pl.DataFrame) -> pl.DataFrame:
+    """Add null-valued placeholder rows for support windows with no raw rows."""
+    if tick_frame.is_empty():
+        return prepared.with_columns(pl.lit(True).alias("__observed_row__"))
+    observed = prepared.with_columns(pl.lit(True).alias("__observed_row__"))
+    return tick_frame.join(observed, on="__tick__", how="left")
 
 
 def _prepare_computed_rule_frame(

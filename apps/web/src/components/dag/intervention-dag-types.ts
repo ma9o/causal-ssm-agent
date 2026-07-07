@@ -6,12 +6,6 @@ export interface EdgePosterior {
   ci_upper: number;
 }
 
-export type EdgeAnimState = "normal" | "cut" | "flowing" | "dimmed";
-
-export type NodeAnimPhase = "idle" | "clamped" | "receiving" | "active" | "start_state" | "dimmed";
-
-export type ActionReferenceKind = "baseline_steady_state" | "fitted_start_state";
-
 /** A composable Stage 6 scenario result: a start state + a list of timed latent clamps. */
 export type Stage6SimulationResult = SimulateScenarioResult;
 

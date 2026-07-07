@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { normalizeStage3Data } from "./__fixtures__/normalize-stage3";
 import { IndicatorHealthTable } from "./indicator-health-table";
-import fixture from "../../../../../../data/DEMO/run/stage-3.json";
+import fixture from "../../__fixtures__/demo-run/stage-3.json";
 
 const data = normalizeStage3Data(fixture);
 

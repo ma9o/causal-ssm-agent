@@ -3,8 +3,8 @@
 ``execute_stage`` is the single entry point the Temporal activity calls:
 it loads the *pinned* input versions from the store (never "latest on
 disk" — the derived_from stamp must be honest), runs the stage logic,
-writes the produced artifact versions, refreshes the per-stage web JSON
-projection, and returns the version stamps for the workflow to install.
+writes the produced artifact versions, and returns the version stamps for
+the workflow to install.
 
 Execution failure raises the typed exceptions in :mod:`machine.errors`;
 negative findings withhold optional artifacts instead of raising.
@@ -21,6 +21,7 @@ import asyncio
 import os
 from typing import TYPE_CHECKING, Any, Literal
 
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
     ArtifactVersionInfo,
@@ -43,22 +44,22 @@ def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str,
 
 
 def _question_text(store: ArtifactStore, pins: dict[ArtifactId, int]) -> str:
-    return store.read_json_file("question", pins["question"], "question.json")["text"]
+    return store.read_json_file(
+        "question", pins["question"], json_filename("question", "question")
+    )["text"]
 
 
 def _causal_spec_dict(store: ArtifactStore, pins: dict[ArtifactId, int]) -> dict[str, Any]:
-    payload = store.read_json_file("causal_spec", pins["causal_spec"], "causal_spec.json")
+    payload = store.read_json_file(
+        "causal_spec", pins["causal_spec"], json_filename("causal_spec", "causal_spec")
+    )
     return payload["causal_spec"]
 
 
 def _model_data_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
-    return store.read_parquet_file("model_data", pins["model_data"], "model_data.parquet")
-
-
-def _persist_web(stage_id: str, payload: dict[str, Any], workspace_id: str) -> dict[str, Any]:
-    from nof1_causal_lab.flows.stage_persistence import persist_validated_web_result
-
-    return persist_validated_web_result(stage_id, payload, workspace_id)
+    return store.read_parquet_file(
+        "model_data", pins["model_data"], parquet_filename("model_data", "model_data")
+    )
 
 
 async def _run_stage0(
@@ -78,10 +79,9 @@ async def _run_stage0(
         provenance="computed",
         derived_from=pins,
         produced_by="stage-0",
-        json_files={"profile.json": payload},
-        parquet_files={"raw.parquet": result.dataframe},
+        json_files={json_filename("raw_data", "profile"): payload},
+        parquet_files={parquet_filename("raw_data", "raw"): result.dataframe},
     )
-    _persist_web("stage-0", payload, workspace_id)
     return [info]
 
 
@@ -93,16 +93,15 @@ async def _run_stage1a(
 ) -> list[ArtifactVersionInfo]:
     from nof1_causal_lab.flows.stages.stage1a.flow import propose_latent_model
 
-    del options
+    del workspace_id, options
     payload = await propose_latent_model(_question_text(store, pins))
     info = store.write_version(
         "constructs",
         provenance="computed",
         derived_from=pins,
         produced_by="stage-1a",
-        json_files={"constructs.json": payload},
+        json_files={json_filename("constructs", "constructs"): payload},
     )
-    _persist_web("stage-1a", payload, workspace_id)
     return [info]
 
 
@@ -119,11 +118,17 @@ async def _run_stage1b(
     )
     from nof1_causal_lab.flows.stages.stage1b.result import split_stage1b_result
 
-    del options
+    del workspace_id, options
     question = _question_text(store, pins)
-    profile = store.read_json_file("raw_data", pins["raw_data"], "profile.json")
-    raw_df = store.read_parquet_file("raw_data", pins["raw_data"], "raw.parquet")
-    constructs = store.read_json_file("constructs", pins["constructs"], "constructs.json")
+    profile = store.read_json_file(
+        "raw_data", pins["raw_data"], json_filename("raw_data", "profile")
+    )
+    raw_df = store.read_parquet_file(
+        "raw_data", pins["raw_data"], parquet_filename("raw_data", "raw")
+    )
+    constructs = store.read_json_file(
+        "constructs", pins["constructs"], json_filename("constructs", "constructs")
+    )
     latent_model = constructs["latent_model"]
 
     column_descriptions = {
@@ -145,27 +150,23 @@ async def _run_stage1b(
             provenance="computed",
             derived_from=pins,
             produced_by="stage-1b",
-            json_files={"causal_spec.json": spec_payload},
-        ),
-        store.write_version(
-            "identification_report",
-            provenance="computed",
-            derived_from=pins,
-            produced_by="stage-1b",
-            json_files={"identification_report.json": artifacts.identification_report},
-        ),
+            json_files={json_filename("causal_spec", "causal_spec"): spec_payload},
+        )
     ]
-    if artifacts.estimands is not None:
+    if artifacts.identification_report is not None:
         produced.append(
             store.write_version(
-                "estimands",
+                "identification_report",
                 provenance="computed",
                 derived_from=pins,
                 produced_by="stage-1b",
-                json_files={"estimands.json": artifacts.estimands},
+                json_files={
+                    json_filename("identification_report", "identification_report"): (
+                        artifacts.identification_report
+                    )
+                },
             )
         )
-    _persist_web("stage-1b", spec_payload, workspace_id)
     return produced
 
 
@@ -180,7 +181,9 @@ async def _run_stage2(
     from nof1_causal_lab.flows.stages.stage2.materialization import materialize_stage2_outputs
 
     question = _question_text(store, pins)
-    raw_df = store.read_parquet_file("raw_data", pins["raw_data"], "raw.parquet")
+    raw_df = store.read_parquet_file(
+        "raw_data", pins["raw_data"], parquet_filename("raw_data", "raw")
+    )
     causal_spec = _causal_spec_dict(store, pins)
 
     result = await run_stage2_extraction(
@@ -206,7 +209,7 @@ async def _run_stage2(
             provenance="computed",
             derived_from=pins,
             produced_by="stage-2",
-            json_files={"extraction_report.json": report},
+            json_files={json_filename("extraction_report", "extraction_report"): report},
         )
     ]
     if len(data_for_model) > 0:
@@ -216,10 +219,9 @@ async def _run_stage2(
                 provenance="computed",
                 derived_from=pins,
                 produced_by="stage-2",
-                parquet_files={"model_data.parquet": data_for_model},
+                parquet_files={parquet_filename("model_data", "model_data"): data_for_model},
             )
         )
-    _persist_web("stage-2", report, workspace_id)
     return produced
 
 
@@ -235,7 +237,7 @@ async def _run_stage3(
         validate_extraction,
     )
 
-    del options
+    del workspace_id, options
     causal_spec = _causal_spec_dict(store, pins)
     data_for_model = _model_data_df(store, pins)
 
@@ -261,9 +263,8 @@ async def _run_stage3(
         provenance="computed",
         derived_from=pins,
         produced_by="stage-3",
-        json_files={"validation_report.json": report},
+        json_files={json_filename("validation_report", "validation_report"): report},
     )
-    _persist_web("stage-3", report, workspace_id)
     return [info]
 
 
@@ -281,7 +282,9 @@ async def _run_stage4(
     causal_spec = _causal_spec_dict(store, pins)
     data_for_model = _model_data_df(store, pins)
     validation_report = store.read_json_file(
-        "validation_report", pins["validation_report"], "validation_report.json"
+        "validation_report",
+        pins["validation_report"],
+        json_filename("validation_report", "validation_report"),
     )
 
     lit_enabled = (
@@ -295,6 +298,7 @@ async def _run_stage4(
         data_for_model=data_for_model,
         indicator_audits=validation_report.get("indicators", {}),
         enable_literature=lit_enabled,
+        workspace_id=workspace_id,
     )
 
     compiled_ssm = result.pop("_compiled_ssm", None)
@@ -311,9 +315,11 @@ async def _run_stage4(
         provenance="computed",
         derived_from=pins,
         produced_by="stage-4",
-        json_files={"compiled-ssm.json": compiled_ssm, "report.json": report},
+        json_files={
+            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm,
+            json_filename("compiled_ssm", "report"): report,
+        },
     )
-    _persist_web("stage-4", report, workspace_id)
     return [info]
 
 
@@ -330,7 +336,9 @@ async def _run_stage5b(
     )
     from nof1_causal_lab.utils.config import get_config
 
-    compiled_ssm = store.read_json_file("compiled_ssm", pins["compiled_ssm"], "compiled-ssm.json")
+    compiled_ssm = store.read_json_file(
+        "compiled_ssm", pins["compiled_ssm"], json_filename("compiled_ssm", "compiled_ssm")
+    )
     data_for_model = _model_data_df(store, pins)
 
     result = await asyncio.to_thread(
@@ -349,10 +357,9 @@ async def _run_stage5b(
         provenance="computed",
         derived_from=pins,
         produced_by="stage-5b",
-        json_files={"diagnostics.json": payload},
-        pickle_files={"fitted.pkl": fitted_artifact},
+        json_files={json_filename("posterior", "diagnostics"): payload},
+        pickle_files={pickle_filename("posterior", "fitted"): fitted_artifact},
     )
-    _persist_web("stage-5b", payload, workspace_id)
     return [info]
 
 
@@ -365,21 +372,28 @@ async def _run_stage6(
     from nof1_causal_lab.flows.stage_contracts import Stage6Contract
     from nof1_causal_lab.flows.stages.stage6.flow import run_stage6
 
-    del options
-    question = _question_text(store, pins)
-    diagnostics = store.read_json_file("posterior", pins["posterior"], "diagnostics.json")
+    del workspace_id, options
+    diagnostics = store.read_json_file(
+        "posterior", pins["posterior"], json_filename("posterior", "diagnostics")
+    )
     causal_spec = _causal_spec_dict(store, pins)
-    estimands = store.read_json_file("estimands", pins["estimands"], "estimands.json")
+    identification_report = store.read_json_file(
+        "identification_report",
+        pins["identification_report"],
+        json_filename("identification_report", "identification_report"),
+    )
 
     stage5b_dict = {
         **diagnostics,
-        "_fitted_result_path": store.file_path("posterior", pins["posterior"], "fitted.pkl"),
+        "_fitted_result_path": store.file_path(
+            "posterior", pins["posterior"], pickle_filename("posterior", "fitted")
+        ),
     }
     stage1b_dict = {
         "causal_spec": causal_spec,
-        "_identified_treatments": estimands["treatments"],
+        "_identified_treatments": identification_report["estimable_treatments"],
     }
-    result = await run_stage6(stage5b_dict, stage1b_dict, question=question)
+    result = await run_stage6(stage5b_dict, stage1b_dict)
     payload = _filter_to_contract(Stage6Contract, result)
 
     info = store.write_version(
@@ -387,9 +401,8 @@ async def _run_stage6(
         provenance="computed",
         derived_from=pins,
         produced_by="stage-6",
-        json_files={"baseline_ranking.json": payload},
+        json_files={json_filename("baseline_ranking", "baseline_ranking"): payload},
     )
-    _persist_web("stage-6", payload, workspace_id)
     return [info]
 
 

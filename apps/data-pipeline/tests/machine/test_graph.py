@@ -31,10 +31,14 @@ def test_topological_order_respects_artifact_dependencies():
 
 
 def test_epistemic_gate_is_structural():
-    """estimands is optional from stage-1b and required by stage-4 and stage-6."""
-    assert "estimands" in stage_spec("stage-1b").produces_optional
-    assert "estimands" in stage_spec("stage-4").consumes
-    assert "estimands" in stage_spec("stage-6").consumes
+    """identification_report is optional from stage-1b and required downstream."""
+    assert "identification_report" in stage_spec("stage-1b").produces_optional
+    assert "identification_report" in stage_spec("stage-4").consumes
+    assert "identification_report" in stage_spec("stage-6").consumes
+
+
+def test_stage6_does_not_consume_question():
+    assert "question" not in stage_spec("stage-6").consumes
 
 
 def test_model_data_gate_is_structural():

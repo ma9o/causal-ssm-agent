@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 MCP_SERVER_NAME = "pipeline-tools"
-_DEFAULT_TIMEOUT_SECONDS = 900
+_DEFAULT_TIMEOUT_SECONDS = 1800
 
 
 def build_codex_mcp_toml(
@@ -114,6 +114,7 @@ def build_codex_argv(
     thread_id: str | None,
     model: str,
     reasoning_effort: str | None,
+    service_tier: str | None,
     cwd: str | Path | None = None,
     extra_config: list[tuple[str, str]] | None = None,
 ) -> list[str]:
@@ -150,6 +151,8 @@ def build_codex_argv(
     )
     if reasoning_effort is not None:
         argv.extend(["-c", f"model_reasoning_effort={reasoning_effort}"])
+    if service_tier is not None:
+        argv.extend(["-c", f"service_tier={json.dumps(service_tier)}"])
     # ``-C`` is only valid on ``codex exec``; the ``resume`` subcommand
     # inherits the cwd set on the original session and rejects it.
     if cwd is not None and thread_id is None:
@@ -263,6 +266,7 @@ class CodexHarnessSession:
         model: str,
         bin: str = "codex",
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         cwd: str | Path | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
@@ -277,6 +281,7 @@ class CodexHarnessSession:
         self._model = model
         self._bin = bin
         self._reasoning_effort = reasoning_effort
+        self._service_tier = service_tier
         self._cwd = cwd
         self._timeout_seconds = timeout_seconds
         self._log_label = log_label
@@ -299,6 +304,7 @@ class CodexHarnessSession:
             thread_id=self._state.thread_id if self._turn_index > 1 else None,
             model=self._model,
             reasoning_effort=self._reasoning_effort,
+            service_tier=self._service_tier,
             cwd=self._cwd,
         )
         argv = build_sandboxed_argv(
@@ -508,6 +514,7 @@ async def open_codex_harness_session(
     model: str,
     bin: str = "codex",
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     cwd: str | Path | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
@@ -539,6 +546,7 @@ async def open_codex_harness_session(
                 model=model,
                 bin=bin,
                 reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
                 # Default the agent's working root to the scratch CODEX_HOME
                 # so it has nothing to auto-explore (the real repo would
                 # otherwise invite hours of autonomous shell commands). Our

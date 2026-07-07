@@ -31,12 +31,12 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from nof1_causal_lab.flows.run_store import load_parquet, load_public_payload
+from nof1_causal_lab.flows.run_store import load_parquet
 from nof1_causal_lab.flows.stage_contracts import STAGE_CONTRACTS
+from nof1_causal_lab.machine.artifacts import ArtifactId
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import topological_stage_order
-from nof1_causal_lab.machine.store import current_artifact_file
-from nof1_causal_lab.utils import storage
-from nof1_causal_lab.utils.data import runs_dir
+from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, current_artifact_file
 
 Severity = Literal["error", "warning"]
 
@@ -62,9 +62,16 @@ class RunContext:
 # Loading
 # ---------------------------------------------------------------------------
 
-
-def _stage_json_path(workspace_id: str, stage_id: str) -> str:
-    return storage.join(runs_dir(workspace_id), f"{stage_id}.json")
+STAGE_RESULT_ARTIFACTS: dict[str, tuple[ArtifactId, str]] = {
+    "stage-0": ("raw_data", "profile"),
+    "stage-1a": ("constructs", "constructs"),
+    "stage-1b": ("causal_spec", "causal_spec"),
+    "stage-2": ("extraction_report", "extraction_report"),
+    "stage-3": ("validation_report", "validation_report"),
+    "stage-4": ("compiled_ssm", "report"),
+    "stage-5b": ("posterior", "diagnostics"),
+    "stage-6": ("baseline_ranking", "baseline_ranking"),
+}
 
 
 def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
@@ -76,17 +83,30 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
 
     stages: dict[str, dict[str, Any]] = {}
     stage_paths: dict[str, str] = {}
+    state = EpisodeJournal(workspace_id).latest_state()
+    store = ArtifactStore(workspace_id)
     for stage_id in order:
-        path = _stage_json_path(workspace_id, stage_id)
-        if not storage.exists(path):
+        artifact_id, key = STAGE_RESULT_ARTIFACTS[stage_id]
+        info = state.get(artifact_id)
+        if info is None:
             continue
-        stages[stage_id] = load_public_payload(workspace_id, stage_id)
-        stage_paths[stage_id] = path
+        filename = json_filename(artifact_id, key)
+        payload = store.read_json_file(artifact_id, info.version, filename)
+        if not isinstance(payload, dict):
+            raise TypeError(
+                f"Canonical payload for {stage_id} ({artifact_id}/{filename}) is not a dict"
+            )
+        stages[stage_id] = payload
+        stage_paths[stage_id] = store.file_path(artifact_id, info.version, filename)
 
     model_indicators: set[str] | None = None
     if "stage-2" in stages:
         try:
-            parquet_path = current_artifact_file(workspace_id, "model_data", "model_data.parquet")
+            parquet_path = current_artifact_file(
+                workspace_id,
+                "model_data",
+                parquet_filename("model_data", "model_data"),
+            )
             df = load_parquet(parquet_path)
             if "indicator" in df.columns:
                 model_indicators = set(df["indicator"].unique().to_list())
@@ -96,7 +116,11 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
     raw_input_columns: set[str] | None = None
     if "stage-0" in stages:
         try:
-            raw_path = current_artifact_file(workspace_id, "raw_data", "raw.parquet")
+            raw_path = current_artifact_file(
+                workspace_id,
+                "raw_data",
+                parquet_filename("raw_data", "raw"),
+            )
             raw_input_columns = set(load_parquet(raw_path).columns)
         except FileNotFoundError:
             pass
@@ -186,7 +210,7 @@ def rule_stage0_columns_match_raw_parquet(ctx: RunContext) -> list[LineageIssue]
                 stages=("stage-0",),
                 message=(
                     "stage-0 column_descriptions name columns absent from "
-                    f"stage0-raw-input.parquet: {sorted(extra)}"
+                    f"raw_data/raw.parquet: {sorted(extra)}"
                 ),
             )
         )
@@ -197,7 +221,7 @@ def rule_stage0_columns_match_raw_parquet(ctx: RunContext) -> list[LineageIssue]
                 severity="error",
                 stages=("stage-0",),
                 message=(
-                    "stage0-raw-input.parquet contains columns without a "
+                    "raw_data/raw.parquet contains columns without a "
                     f"stage-0 column_descriptions entry: {sorted(missing)}"
                 ),
             )
@@ -365,7 +389,7 @@ def rule_source_columns_in_stage0(ctx: RunContext) -> list[LineageIssue]:
             stages=("stage-0", "stage-1b"),
             message=(
                 "stage-1b indicators reference source_columns not in "
-                f"stage0-raw-input.parquet: {detail}"
+                f"raw_data/raw.parquet: {detail}"
             ),
         )
     ]
@@ -402,7 +426,7 @@ def rule_indicators_in_model_data(ctx: RunContext) -> list[LineageIssue]:
             severity="warning",
             stages=("stage-1b", "stage-2"),
             message=(
-                "Indicators declared in stage-1b but absent from stage2-model-data.parquet "
+                "Indicators declared in stage-1b but absent from model_data/model_data.parquet "
                 f"(no extracted observations): {sorted(missing)}"
             ),
         )
@@ -698,8 +722,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    run_dir = runs_dir(args.workspace_id)
-    print(f"Validating run: workspace={args.workspace_id} ({run_dir})")
+    print(f"Validating run: workspace={args.workspace_id}")
 
     try:
         ctx = load_run_context(args.workspace_id, up_to=args.up_to)
@@ -708,14 +731,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if not ctx.stages:
-        print("error: no stage-*.json files found in run directory", file=sys.stderr)
+        print("error: no current stage result artifacts found in episode state", file=sys.stderr)
         return 1
 
     print(f"Stages found: {', '.join(ctx.stages)}")
     if ctx.model_indicators is not None:
         print(f"Model-data indicators: {len(ctx.model_indicators)} unique")
     else:
-        print("Model-data indicators: (stage2-model-data.parquet not found)")
+        print("Model-data indicators: (model_data/model_data.parquet not found)")
 
     issues: list[LineageIssue] = []
     for rule in RULES:

@@ -19,7 +19,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.runtime_events import read_events
@@ -243,6 +243,44 @@ def get_artifact(
         "payload": payload,
         "binary_files": sorted(binary_files),
     }
+
+
+@router.get("/{workspace_id}/artifacts/{artifact_id}/files/{filename}")
+def get_artifact_file(
+    workspace_id: str,
+    artifact_id: ArtifactId,
+    filename: str,
+    version: int | None = None,
+) -> Response:
+    """One declared payload file from an artifact version.
+
+    Defaults to the episode's current version. Unlike the JSON artifact
+    endpoint, this serves binary files as bytes and refuses undeclared
+    filenames so callers cannot browse arbitrary workspace paths.
+    """
+    from nof1_causal_lab.machine.artifact_files import is_declared_artifact_file
+    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.utils import storage
+
+    if "/" in filename or not is_declared_artifact_file(artifact_id, filename):
+        raise HTTPException(404, f"{filename} is not a declared file for {artifact_id}")
+
+    store = ArtifactStore(workspace_id)
+    if version is None:
+        info = EpisodeJournal(workspace_id).latest_state().get(artifact_id)
+        if info is None:
+            raise HTTPException(
+                404, f"No current '{artifact_id}' artifact for workspace {workspace_id}"
+            )
+        version = info.version
+
+    path = store.file_path(artifact_id, version, filename)
+    if not storage.exists(path):
+        raise HTTPException(404, f"{artifact_id} v{version}/{filename} does not exist")
+
+    with storage.open_file(path, "rb") as handle:
+        data = handle.read()
+    return Response(content=data, media_type="application/octet-stream")
 
 
 # ---------------------------------------------------------------------------

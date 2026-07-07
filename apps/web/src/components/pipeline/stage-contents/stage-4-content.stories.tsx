@@ -8,7 +8,7 @@ import {
 } from "../stage-story-helpers";
 import Stage4Content from "./stage-4-content";
 import { stage4Data } from "@/components/stages/model-spec/__fixtures__/model-spec-fixtures";
-import stage1bFixture from "../../../../../../data/DEMO/run/stage-1b.json";
+import stage1bFixture from "../../__fixtures__/demo-run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
 const indicators = (stage1bFixture as unknown as Stage1bData).causal_spec.measurement.indicators;
@@ -23,7 +23,7 @@ export default meta;
 
 export const Pending = createStageStatusStory(stage, "pending");
 
-export { StateMachineReplay as Running } from "./stage-4-running-content.stories";
+export { AdmissionReplay as Running } from "./stage-4-running-content.stories";
 
 export const Completed = createCompletedStageStory({
   stage,

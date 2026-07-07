@@ -1,13 +1,16 @@
-import { isStorageNotFoundError, readBinary } from "@/lib/storage";
+import { ArtifactNotFoundError, readArtifactBinary } from "@/lib/server/artifacts";
+import { isStorageNotFoundError } from "@/lib/storage";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
- * Map stage IDs to their parquet artifact filenames.
- * Order matters — first existing file wins (see run_store.py STAGE*_FILENAMES).
+ * Map stage IDs to their canonical parquet artifact.
  */
-const PARQUET_MAP: Record<string, string[]> = {
-  "stage-0": ["stage0-raw-input.parquet"],
-  "stage-2": ["stage2-model-data.parquet"],
+const PARQUET_MAP: Record<
+  string,
+  { artifact: "raw_data" | "model_data"; key: "raw" | "model_data" }
+> = {
+  "stage-0": { artifact: "raw_data", key: "raw" },
+  "stage-2": { artifact: "model_data", key: "model_data" },
 };
 
 export async function GET(
@@ -24,27 +27,29 @@ export async function GET(
     return new Response("Invalid workspaceId format", { status: 400 });
   }
 
-  const filenames = PARQUET_MAP[safeStage];
-  if (!filenames) {
+  const mapping = PARQUET_MAP[safeStage];
+  if (!mapping) {
     return new Response("No dataframe available for this stage", { status: 404 });
   }
 
-  for (const filename of filenames) {
-    try {
-      const bytes = await readBinary(`${safeWorkspaceId}/run/${filename}`);
-      return new Response(bytes.buffer as ArrayBuffer, {
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${filename}"`,
-          "Cache-Control": "private, max-age=3600",
-        },
-      });
-    } catch (e) {
-      if (!isStorageNotFoundError(e)) {
-        throw e;
-      }
+  try {
+    const { data, filename } = await readArtifactBinary(
+      safeWorkspaceId,
+      mapping.artifact,
+      "parquet",
+      mapping.key,
+    );
+    return new Response(data.slice(), {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "private, max-age=3600",
+      },
+    });
+  } catch (e) {
+    if (e instanceof ArtifactNotFoundError || isStorageNotFoundError(e)) {
+      return new Response("Parquet file not found", { status: 404 });
     }
+    throw e;
   }
-
-  return new Response("Parquet file not found", { status: 404 });
 }

@@ -56,7 +56,7 @@ data/
 │   ├── input/             # Raw uploaded files for stage 0
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
 │   ├── episode/           # Transition journal, state read model, telemetry events
-│   └── run/               # Web-facing stage JSON projection
+│   └── run/               # Internal sidecars only, such as stage-4 compile cache
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
@@ -138,10 +138,10 @@ not a run parameter.
 ## Editing artifacts (replaces stage overrides)
 
 A human/LLM edit is a `write` move: schema-validated, provenance-stamped,
-and journaled. Editing `causal_spec` fans out recomputed
-`identification_report`/`estimands` artifacts automatically; downstream
-artifacts become **stale** (visible in `.artifacts`), and the next
-auto-run recomputes exactly the stale suffix.
+and journaled. Editing `causal_spec` fans out a recomputed positive
+`identification_report` when the spec has explicitly identified treatments;
+downstream artifacts become **stale** (visible in `.artifacts`), and the
+next auto-run recomputes exactly the stale suffix.
 
 ```bash
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
@@ -170,5 +170,5 @@ stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-
 ```
 
 Note the machine is not a tape: any stage whose consumed artifacts exist
-can run, and `estimands`/`model_data` are produced only when nonempty —
-their absence structurally disables the fit chain.
+can run, and `identification_report`/`model_data` are produced only when
+nonempty — their absence structurally disables the fit chain.

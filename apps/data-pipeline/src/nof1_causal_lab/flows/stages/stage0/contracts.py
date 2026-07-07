@@ -69,6 +69,3 @@ class Stage0ColumnDescriptionContract(BaseModel):
 
 class Stage0Contract(LLMStageContract):
     column_descriptions: list[Stage0ColumnDescriptionContract]
-
-    def summary_message(self) -> str:
-        return f"Stage 0 summary: described_columns={len(self.column_descriptions)}"

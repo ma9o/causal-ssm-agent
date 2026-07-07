@@ -153,17 +153,34 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
         "topological_stage_order",
         lambda: ("stage-0", "stage-1a", "stage-1b", "stage-2"),
     )
-    monkeypatch.setattr(validate_run, "runs_dir", lambda workspace_id: f"/tmp/{workspace_id}/run")
-    monkeypatch.setattr(
-        validate_run.storage,
-        "exists",
-        lambda path: path.endswith(("stage-0.json", "stage-1a.json", "stage-1b.json")),
-    )
-    monkeypatch.setattr(
-        validate_run,
-        "load_public_payload",
-        lambda _workspace_id, stage_id: {"stage_id": stage_id},
-    )
+
+    class FakeInfo:
+        version = 1
+
+    class FakeState:
+        def get(self, artifact_id: str) -> FakeInfo | None:
+            present = {"raw_data", "constructs", "causal_spec"}
+            return FakeInfo() if artifact_id in present else None
+
+    class FakeJournal:
+        def __init__(self, _workspace_id: str) -> None:
+            pass
+
+        def latest_state(self) -> FakeState:
+            return FakeState()
+
+    class FakeStore:
+        def __init__(self, _workspace_id: str) -> None:
+            pass
+
+        def read_json_file(self, artifact_id: str, _version: int, _filename: str) -> dict[str, str]:
+            return {"artifact_id": artifact_id}
+
+        def file_path(self, artifact_id: str, _version: int, filename: str) -> str:
+            return f"/tmp/ws/store/{artifact_id}/v1/{filename}"
+
+    monkeypatch.setattr(validate_run, "EpisodeJournal", FakeJournal)
+    monkeypatch.setattr(validate_run, "ArtifactStore", FakeStore)
 
     def fake_current_artifact_file(_workspace_id: str, artifact_id: str, _filename: str) -> str:
         if artifact_id == "raw_data":

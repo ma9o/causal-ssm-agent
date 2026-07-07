@@ -101,12 +101,18 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         produced_by="stage-2",
         parquet_files={"model_data.parquet": model_data},
     )
-    estimands_info = store.write_version(
-        "estimands",
+    identification_report_info = store.write_version(
+        "identification_report",
         provenance="computed",
         derived_from={"causal_spec": 1},
         produced_by="stage-1b",
-        json_files={"estimands.json": {"treatments": ["screen_time"], "outcome": "sleep_quality"}},
+        json_files={
+            "identification_report.json": {
+                "outcome_name": "sleep_quality",
+                "estimable_treatments": ["screen_time"],
+                "non_identifiable_treatments": {},
+            }
+        },
     )
     posterior_info = store.write_version(
         "posterior",
@@ -124,7 +130,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
             status="applied",
             produced=[posterior_info],
             state_after=EpisodeState().with_versions(
-                [causal_spec_info, model_data_info, estimands_info, posterior_info]
+                [causal_spec_info, model_data_info, identification_report_info, posterior_info]
             ),
         )
     )

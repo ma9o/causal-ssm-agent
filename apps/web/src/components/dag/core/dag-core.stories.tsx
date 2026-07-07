@@ -3,8 +3,7 @@ import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useMemo, useState } from "react";
 import { DagEdge } from "./dag-edge";
-import { DagNodeGroup, DagNodeShell } from "./dag-node";
-import { DagViewport } from "./dag-viewport";
+import { DagNodeShell } from "./dag-node";
 import { DAG_COLORS } from "./palette";
 
 interface DemoNode {
@@ -38,8 +37,8 @@ const META: Record<string, DemoNode> = Object.fromEntries(NODES.map((n) => [n.id
 
 /**
  * Smoke-test harness for the shared bespoke DAG core: build a small causal
- * graph, lay it out with ELK (routed), and render it through the viewport +
- * edge + node primitives. Hover an edge to light it and its endpoints.
+ * graph, lay it out with ELK (routed), and render it through the edge + node
+ * primitives. Hover an edge to light it and its endpoints.
  */
 function DagCoreDemo() {
   const graph: DagGraphInput = useMemo(
@@ -62,8 +61,15 @@ function DagCoreDemo() {
   }
 
   return (
-    <div className="h-[560px] w-full rounded-lg border bg-card">
-      <DagViewport contentWidth={width} contentHeight={height} fitSignal={`${width}x${height}`}>
+    <div className="h-[560px] w-full overflow-auto rounded-lg border bg-card p-6">
+      <svg
+        width={Math.ceil(width)}
+        height={Math.ceil(height)}
+        viewBox={`0 0 ${Math.ceil(width)} ${Math.ceil(height)}`}
+        role="img"
+        aria-label="DAG core renderer demo"
+        className="block"
+      >
         {edges.map((e) => {
           const lit = e.id === hovered;
           return (
@@ -80,7 +86,7 @@ function DagCoreDemo() {
           const node = META[n.id];
           const lit = litNodes.has(n.id);
           return (
-            <DagNodeGroup key={n.id} x={n.x} y={n.y}>
+            <g key={n.id} transform={`translate(${n.x} ${n.y})`}>
               <DagNodeShell
                 width={n.width}
                 height={n.height}
@@ -90,10 +96,10 @@ function DagCoreDemo() {
                 highlighted={lit}
                 outcome={node?.outcome}
               />
-            </DagNodeGroup>
+            </g>
           );
         })}
-      </DagViewport>
+      </svg>
     </div>
   );
 }

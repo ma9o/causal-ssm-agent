@@ -1,8 +1,7 @@
 """Run-level artifact persistence for the causal inference pipeline.
 
-Run-dir I/O that remains outside the versioned artifact store: the
-web-facing stage JSON projection and stage-4's private compile-cache /
-checkpoint machinery. Everything the machine owns lives in
+Run-dir I/O that remains outside the versioned artifact store: stage-4's
+private compile-cache sidecar. Everything the machine owns lives in
 nof1_causal_lab.machine.store.
 """
 
@@ -69,34 +68,9 @@ def load_pickle(path: str) -> Any:
         return cloudpickle.load(f)
 
 
-# ---------------------------------------------------------------------------
-# JSON artifact I/O
-# ---------------------------------------------------------------------------
-
-
 def load_json(path: str) -> Any:
     """Read a JSON value from storage."""
     return storage.read_json(path)
-
-
-# ---------------------------------------------------------------------------
-# Public JSON payloads (web-facing results)
-# ---------------------------------------------------------------------------
-
-
-def load_public_payload(workspace_id: str, stage_id: str) -> dict[str, Any]:
-    """Load a persisted web-facing stage payload."""
-    path = storage.join(existing_run_dir(workspace_id), f"{stage_id}.json")
-    if not storage.exists(path):
-        raise FileNotFoundError(
-            f"No public stage payload found for {stage_id} in workspace_id {workspace_id}"
-        )
-    payload = storage.read_json(path)
-    if not isinstance(payload, dict):
-        raise TypeError(
-            f"Persisted payload for {stage_id} in workspace_id {workspace_id} is not a dict"
-        )
-    return payload
 
 
 # ---------------------------------------------------------------------------

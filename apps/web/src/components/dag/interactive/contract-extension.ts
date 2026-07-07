@@ -86,7 +86,3 @@ export function getAllSelfEffects(result: Stage6SimulationResult): SelfEffect[] 
 export function getNodeIndicators(result: Stage6SimulationResult, node: string): IndicatorSeries[] {
   return (ext(result)?.indicators ?? []).filter((ind) => ind.construct === node);
 }
-
-export function hasDrift(result: Stage6SimulationResult): boolean {
-  return (ext(result)?.edge_drift?.length ?? 0) > 0;
-}

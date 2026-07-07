@@ -64,16 +64,3 @@ class Stage3Contract(BaseStageContract):
     is_valid: bool
     indicators: dict[str, IndicatorAuditContract]
     dataset_issues: list[ValidationIssueContract]
-
-    def summary_message(self) -> str:
-        indicator_issues = [
-            issue for audit in self.indicators.values() for issue in audit.validation.issues
-        ]
-        all_issues = [*indicator_issues, *self.dataset_issues]
-        errors = sum(1 for issue in all_issues if issue.severity == "error")
-        warnings = sum(1 for issue in all_issues if issue.severity == "warning")
-        return (
-            f"Stage 3 summary: is_valid={self.is_valid} "
-            f"issues={len(all_issues)} "
-            f"errors={errors} warnings={warnings}"
-        )

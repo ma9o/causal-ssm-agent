@@ -315,6 +315,3 @@ class Stage6Contract(LLMStageContract):
     intervention_results: list[TreatmentEffectContract]
     saved_scenarios: list[SavedScenarioContract] | None = None
     final_summary: str | None = None
-
-    def summary_message(self) -> str:
-        return f"Stage 6 summary: treatments_ranked={len(self.intervention_results)}"

@@ -102,6 +102,7 @@ async def open_session(
             "reasoning_effort": _first_not_none(
                 stage_llm.reasoning_effort, defaults.reasoning_effort
             ),
+            "service_tier": _first_not_none(stage_llm.service_tier, defaults.service_tier),
             "log_label": label,
         }
         if stage_llm.timeout is not None:

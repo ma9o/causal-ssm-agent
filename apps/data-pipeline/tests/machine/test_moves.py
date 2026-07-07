@@ -53,14 +53,13 @@ class TestLegalMoves:
         assert "causal_spec" in offered
         assert "saved_scenarios" in offered
 
-    def test_no_estimands_disables_fit_chain(self):
+    def test_no_identification_report_disables_fit_chain(self):
         """The epistemic gate: identification produced nothing estimable."""
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data", produced_by="stage-0"),
             _version("constructs", produced_by="stage-1a"),
             _version("causal_spec", produced_by="stage-1b"),
-            _version("identification_report", produced_by="stage-1b"),
             _version("extraction_report", produced_by="stage-2"),
             _version("model_data", produced_by="stage-2"),
             _version("validation_report", produced_by="stage-3"),
@@ -69,19 +68,26 @@ class TestLegalMoves:
         assert "stage-4" not in runnable
         assert "stage-3" in runnable
 
-    def test_estimands_enables_stage4(self):
+    def test_identification_report_enables_stage4(self):
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data"),
             _version("constructs"),
             _version("causal_spec"),
             _version("identification_report"),
-            _version("estimands"),
             _version("extraction_report"),
             _version("model_data"),
             _version("validation_report"),
         )
         assert "stage-4" in _runnable(state)
+
+    def test_stage6_does_not_require_question(self):
+        state = _state(
+            _version("causal_spec"),
+            _version("identification_report"),
+            _version("posterior"),
+        )
+        assert "stage-6" in _runnable(state)
 
 
 class TestValidateMove:
@@ -119,30 +125,27 @@ class TestApplyTransition:
         assert state.get("raw_data").version == 2
 
     def test_optional_artifact_retracted_when_withheld(self):
-        """A rerun of stage-1b that finds nothing estimable retracts estimands."""
+        """A rerun of stage-1b that finds nothing estimable retracts the report."""
         spec = stage_spec("stage-1b")
         state = _state(
             _version("causal_spec", version=1),
             _version("identification_report", version=1),
-            _version("estimands", version=1),
         )
         produced = [
             _version("causal_spec", version=2),
-            _version("identification_report", version=2),
         ]
         retracted = run_retractions(state, spec, produced)
-        assert retracted == ["estimands"]
+        assert retracted == ["identification_report"]
         next_state = apply_transition(state, produced, retracted)
-        assert not next_state.has("estimands")
+        assert not next_state.has("identification_report")
         assert next_state.get("causal_spec").version == 2
 
     def test_no_retraction_when_optional_still_produced(self):
         spec = stage_spec("stage-1b")
-        state = _state(_version("estimands", version=1))
+        state = _state(_version("identification_report", version=1))
         produced = [
             _version("causal_spec"),
-            _version("identification_report"),
-            _version("estimands", version=2),
+            _version("identification_report", version=2),
         ]
         assert run_retractions(state, spec, produced) == []
 

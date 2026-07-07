@@ -76,9 +76,6 @@ class BaseStageContract(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    def summary_message(self) -> str:
-        raise NotImplementedError
-
 
 class LLMStageContract(BaseStageContract):
     """Base contract for stages that surface an LLM trace."""

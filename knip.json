@@ -21,6 +21,7 @@
       "ignoreDependencies": [
         "@tailwindcss/typography",
         "shadcn",
+        "tailwindcss",
         "tw-animate-css"
       ]
     }

@@ -2,36 +2,6 @@
 
 import type { ReactNode } from "react";
 
-interface DagNodeGroupProps {
-  x: number;
-  y: number;
-  opacity?: number;
-  children: ReactNode;
-  onPointerEnter?: () => void;
-  onPointerLeave?: () => void;
-}
-
-/** Positions a node's content at its laid-out top-left corner. */
-export function DagNodeGroup({
-  x,
-  y,
-  opacity = 1,
-  children,
-  onPointerEnter,
-  onPointerLeave,
-}: DagNodeGroupProps) {
-  return (
-    <g
-      transform={`translate(${x} ${y})`}
-      opacity={opacity}
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-    >
-      {children}
-    </g>
-  );
-}
-
 interface DagNodeShellProps {
   width: number;
   height: number;

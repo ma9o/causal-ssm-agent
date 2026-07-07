@@ -221,13 +221,6 @@ export function applyStage2Event(
   };
 }
 
-export function reduceStage2Events(events: readonly Stage2EventRecord[]): Stage2ReplayState {
-  return events.reduce<Stage2ReplayState>((state, record) => {
-    const event = parseStage2Event(record);
-    return event ? applyStage2Event(state, event) : state;
-  }, EMPTY_STAGE2_REPLAY_STATE);
-}
-
 export function listStage2Workers(
   state: Stage2ReplayState | null | undefined,
 ): Stage2WorkerRecord[] {

@@ -38,6 +38,7 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
     ClampSpec,
@@ -51,14 +52,12 @@ from nof1_causal_lab.models.ssm.dynamics import (
     posterior_dynamics_from_result,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
-from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.causal_spec import (
     get_estimation_constructs,
     get_estimation_state_order,
     get_indicators,
     get_outcome_name,
 )
-from nof1_causal_lab.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +75,6 @@ from nof1_causal_lab.episode_api import router as episode_router  # noqa: E402
 
 app.include_router(episode_router)
 app.include_router(capabilities_router)
-
-
-# ---------------------------------------------------------------------------
-# Result loading
-# ---------------------------------------------------------------------------
-
-
-def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
-    """Load a persisted stage result from storage."""
-    path = storage.join(runs_dir(workspace_id), f"{stage_id}.json")
-    if not storage.exists(path):
-        raise HTTPException(404, f"Stage result not found: {path}")
-    return storage.read_json(path)
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -297,36 +283,52 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         raise HTTPException(404, f"No fitted posterior for workspace {workspace_id}")
     store = ArtifactStore(workspace_id)
 
-    fitted_artifact = store.read_pickle_file("posterior", posterior_info.version, "fitted.pkl")
-    stage5b = store.read_json_file("posterior", posterior_info.version, "diagnostics.json")
+    fitted_artifact = store.read_pickle_file(
+        "posterior", posterior_info.version, pickle_filename("posterior", "fitted")
+    )
+    stage5b = store.read_json_file(
+        "posterior", posterior_info.version, json_filename("posterior", "diagnostics")
+    )
 
     model_data_pin = posterior_info.derived_from.get("model_data")
     if model_data_pin is None:
         raise HTTPException(500, "posterior artifact is missing its model_data pin")
-    data_for_model = store.read_parquet_file("model_data", model_data_pin, "model_data.parquet")
+    data_for_model = store.read_parquet_file(
+        "model_data", model_data_pin, parquet_filename("model_data", "model_data")
+    )
 
     spec_info = state.get("causal_spec")
     if spec_info is None:
         raise HTTPException(404, f"No causal_spec for workspace {workspace_id}")
-    stage1b = store.read_json_file("causal_spec", spec_info.version, "causal_spec.json")
+    stage1b = store.read_json_file(
+        "causal_spec", spec_info.version, json_filename("causal_spec", "causal_spec")
+    )
 
     compiled_info = state.get("compiled_ssm")
     stage4 = (
-        store.read_json_file("compiled_ssm", compiled_info.version, "report.json")
+        store.read_json_file(
+            "compiled_ssm", compiled_info.version, json_filename("compiled_ssm", "report")
+        )
         if compiled_info is not None
         else {}
     )
     ranking_info = state.get("baseline_ranking")
     stage6 = (
-        store.read_json_file("baseline_ranking", ranking_info.version, "baseline_ranking.json")
+        store.read_json_file(
+            "baseline_ranking",
+            ranking_info.version,
+            json_filename("baseline_ranking", "baseline_ranking"),
+        )
         if ranking_info is not None
         else {}
     )
-    estimands_info = state.get("estimands")
-    estimands = (
-        store.read_json_file("estimands", estimands_info.version, "estimands.json")
-        if estimands_info is not None
-        else {"treatments": []}
+    identification_report_info = state.get("identification_report")
+    if identification_report_info is None:
+        raise HTTPException(404, f"No identification_report for workspace {workspace_id}")
+    identification_report = store.read_json_file(
+        "identification_report",
+        identification_report_info.version,
+        json_filename("identification_report", "identification_report"),
     )
 
     fitted_spec = getattr(fitted_artifact, "spec", None)
@@ -344,7 +346,13 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     causal_spec = stage1b.get("causal_spec", {})
     outcome_name = get_outcome_name(causal_spec)
 
-    serving_chain = ("posterior", "baseline_ranking", "causal_spec", "estimands", "compiled_ssm")
+    serving_chain = (
+        "posterior",
+        "baseline_ranking",
+        "causal_spec",
+        "identification_report",
+        "compiled_ssm",
+    )
     stale_artifacts = [
         status.artifact_id
         for status in freshness_report(state)
@@ -361,7 +369,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
         "_outcome_name": outcome_name,
-        "_identifiable_treatments": list(estimands.get("treatments", [])),
+        "_identifiable_treatments": list(identification_report["estimable_treatments"]),
         "_stale_artifacts": stale_artifacts,
     }
 
@@ -897,13 +905,39 @@ _STAGE_CONTEXT_DEPS: dict[str, list[str]] = {
 }
 
 
+def _load_stage_context_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+
+    state = EpisodeJournal(workspace_id).latest_state()
+    store = ArtifactStore(workspace_id)
+    if stage_id == "stage-1a":
+        info = state.get("constructs")
+        if info is None:
+            raise HTTPException(404, f"No constructs for workspace {workspace_id}")
+        return store.read_json_file(
+            "constructs",
+            info.version,
+            json_filename("constructs", "constructs"),
+        )
+    if stage_id == "stage-1b":
+        info = state.get("causal_spec")
+        if info is None:
+            raise HTTPException(404, f"No causal_spec for workspace {workspace_id}")
+        return store.read_json_file(
+            "causal_spec",
+            info.version,
+            json_filename("causal_spec", "causal_spec"),
+        )
+    raise KeyError(f"No canonical tool context loader for {stage_id}")
+
+
 def _build_context(workspace_id: str, stage_id: str) -> dict[str, Any]:
     """Load upstream stage results needed for tool execution context."""
     if stage_id == "stage-6":
         return _build_stage6_context(workspace_id)
     ctx: dict[str, Any] = {"_workspace_id": workspace_id}
     for dep_stage in _STAGE_CONTEXT_DEPS.get(stage_id, []):
-        ctx[dep_stage] = _load_stage_result(workspace_id, dep_stage)
+        ctx[dep_stage] = _load_stage_context_result(workspace_id, dep_stage)
     return ctx
 
 

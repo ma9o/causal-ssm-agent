@@ -29,7 +29,7 @@ import type {
   Stage6Data,
   TraceMessage,
 } from "@nof1-causal-lab/api-types";
-import demoStage6 from "../../../../../../data/DEMO/run/stage-6.json";
+import demoStage6 from "../../__fixtures__/demo-run/stage-6.json";
 import type { Stage6SimulationResult } from "../intervention-dag-types";
 import { constructs, edges, indicators } from "./dag-base-fixtures";
 import {

@@ -48,7 +48,7 @@ stage1_structure_proposal:
 # is untenable, so `harness` is locked to `none` (enforced by config validator).
 stage2_workers:
   windows_per_chunk: 1
-  max_concurrent_workers: 30
+  max_concurrent_workers: 200
   max_events_per_window: 300
   max_rpm: 450               # OpenRouter sliding-window RPM (embedded-only)
   worker_timeout: 120        # per-LLM-call timeout in seconds

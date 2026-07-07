@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { ArtifactNotFoundError } from "@/lib/server/artifacts";
 import { loadStageResult } from "@/lib/stage-result-loader";
-import { isStorageNotFoundError, readData } from "@/lib/storage";
+import { isStorageNotFoundError } from "@/lib/storage";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function GET(
@@ -19,22 +20,9 @@ export async function GET(
   }
 
   try {
-    const raw = await readData(`${safeWorkspaceId}/run/${safeStage}.json`);
-
-    try {
-      return NextResponse.json(await loadStageResult(safeStage, raw, safeWorkspaceId));
-    } catch (error) {
-      return NextResponse.json(
-        {
-          error: `Invalid persisted data for ${stage}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        },
-        { status: 500 },
-      );
-    }
+    return NextResponse.json(await loadStageResult(safeStage, safeWorkspaceId));
   } catch (e: unknown) {
-    if (isStorageNotFoundError(e)) {
+    if (e instanceof ArtifactNotFoundError || isStorageNotFoundError(e)) {
       return NextResponse.json({ error: `No data for ${stage}` }, { status: 404 });
     }
     return NextResponse.json(

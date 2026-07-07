@@ -11,9 +11,9 @@ import {
   interventionResult,
 } from "@/components/dag/__fixtures__/intervention-dag-fixture";
 import { materializedTrace } from "@/components/dag/__fixtures__/stage-6-materialized-fixture";
-import stage1aFixture from "../../../../../../data/DEMO/run/stage-1a.json";
-import stage4Fixture from "../../../../../../data/DEMO/run/stage-4.json";
-import stage5bFixture from "../../../../../../data/DEMO/run/stage-5b.json";
+import stage1aFixture from "../../__fixtures__/demo-run/stage-1a.json";
+import stage4Fixture from "../../__fixtures__/demo-run/stage-4.json";
+import stage5bFixture from "../../__fixtures__/demo-run/stage-5b.json";
 import { buildEdgePosteriors, buildStage6Scenarios } from "./stage-6-scenarios";
 
 const stage1a = stage1aFixture as unknown as Stage1aData;
@@ -132,13 +132,72 @@ describe("buildStage6Scenarios — trace ∪ extra messages", () => {
 
 describe("buildEdgePosteriors", () => {
   it("maps fixed-effect posterior marginals onto source→target edges", () => {
-    const edgePosteriors = buildEdgePosteriors({ stage1a, stage4, stage5b });
-    expect(Object.keys(edgePosteriors).length).toBeGreaterThan(0);
-    for (const posterior of Object.values(edgePosteriors)) {
-      expect(posterior).toHaveProperty("mean");
-      expect(posterior).toHaveProperty("ci_lower");
-      expect(posterior).toHaveProperty("ci_upper");
-    }
+    const edgePosteriors = buildEdgePosteriors({
+      stage1a: {
+        latent_model: {
+          constructs: [
+            {
+              name: "stress_load",
+              description: "Stress exposure",
+              role: "endogenous",
+              is_outcome: false,
+              temporal_status: "time_varying",
+            },
+            {
+              name: "sleep_quality",
+              description: "Sleep quality",
+              role: "endogenous",
+              is_outcome: true,
+              temporal_status: "time_varying",
+            },
+          ],
+          edges: [
+            {
+              cause: "stress_load",
+              effect: "sleep_quality",
+              description: "Stress affects sleep",
+              lagged: true,
+            },
+          ],
+        },
+      } as Stage1aData,
+      stage4: {
+        model_spec: {
+          likelihoods: [],
+          parameters: [
+            {
+              name: "beta_stress_load_sleep_quality",
+              role: "fixed_effect",
+              constraint: "none",
+              description: "Effect of stress_load on sleep_quality",
+            },
+          ],
+        },
+        authored_priors: {},
+        resolved_priors: [],
+      } as unknown as Stage4Data,
+      stage5b: {
+        posterior_marginals: [
+          {
+            parameter: "beta_stress_load_sleep_quality",
+            x_values: [0.1, 0.2],
+            density: [1, 1],
+            mean: 0.2,
+            sd: 0.05,
+            hdi_3: 0.1,
+            hdi_97: 0.3,
+          },
+        ],
+      } as unknown as Stage5bData,
+    });
+
+    expect(edgePosteriors).toEqual({
+      "stress_load→sleep_quality": {
+        mean: 0.2,
+        ci_lower: 0.1,
+        ci_upper: 0.3,
+      },
+    });
   });
 
   it("returns an empty map without stage 1a", () => {

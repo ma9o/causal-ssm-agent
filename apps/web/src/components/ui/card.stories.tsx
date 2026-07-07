@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./card";
-import { Button } from "./button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 
 const meta = {
   title: "UI/Card",
@@ -20,9 +19,6 @@ export const Default: Story = {
       <CardContent>
         <p>Card content with some text.</p>
       </CardContent>
-      <CardFooter>
-        <Button>Action</Button>
-      </CardFooter>
     </Card>
   ),
 };

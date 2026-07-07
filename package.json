@@ -19,7 +19,7 @@
     "test:all": "turbo test:all",
     "format": "turbo format",
     "type-check": "turbo type-check",
-    "check": "turbo run check docs:check",
+    "check": "turbo run check docs:check knip",
     "storybook": "turbo storybook"
   },
   "devDependencies": {

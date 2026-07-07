@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | [`CausalSpec`](#causalspec) |
+| Semantic | Yes | [`CausalSpec`](#causalspec), [`IdentificationReport`](#identificationreport) when positive |
 
 Operationalizes the [`LatentModel`](01a-latent-model.md#latent-model) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
 
@@ -50,6 +50,7 @@ For a study of developer workload and code quality where Stage 1a posited an uno
 | Output | Type | Description |
 |---|---|---|
 | `causal_spec` | [`CausalSpec`](#causalspec) | Combined latent model, measurement model, and identifiability status |
+| `identification_report` | [`IdentificationReport`](#identificationreport) | Positive identification gate produced only when at least one treatment effect is explicitly identifiable |
 | `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
 
 ### `MeasurementModel`
@@ -117,6 +118,14 @@ The `MeasurementModel` does not store row timestamps itself, but it fully determ
 | Field | Type | Description |
 |---|---|---|
 | `identifiable_treatments` | `dict[str, IdentifiedTreatmentStatus]` | Treatment names mapped to the identification method, estimand, marginalized confounders, and any instruments used |
+| `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
+
+### `IdentificationReport`
+
+| Field | Type | Description |
+|---|---|---|
+| `outcome_name` | `str` | Outcome construct name |
+| `estimable_treatments` | `list[str]` | Nonempty list of treatments with explicitly identified effects |
 | `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-spec/identifiability.md](../reference/causal-spec/identifiability.md).

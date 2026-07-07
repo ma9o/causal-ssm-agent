@@ -1,17 +1,6 @@
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
-export interface ReplayResponse {
-  ok: true;
-  workspaceId: string;
-}
-
-export interface ReplayStageOverrideRequest {
-  workspaceId: string;
-  stageId: StageId;
-  stageData: Record<string, unknown>;
-}
-
 export interface AnalysisStageExecution {
   stateType: string;
   startTime: string | null;
@@ -95,14 +84,5 @@ export async function recomputeStaleStages(
 ): Promise<{ ok: true; workspaceId: string }> {
   return apiFetch<{ ok: true; workspaceId: string }>(`/api/analysis/${workspaceId}/recompute`, {
     method: "POST",
-  });
-}
-
-export async function replayStageOverride(
-  payload: ReplayStageOverrideRequest,
-): Promise<ReplayResponse> {
-  return apiFetch<ReplayResponse>("/api/replay", {
-    method: "POST",
-    body: JSON.stringify(payload),
   });
 }

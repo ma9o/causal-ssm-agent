@@ -6,6 +6,18 @@
       "inputs": ["README.md", "docs/**/*.md", ".markdownlint-docs.json"],
       "outputs": []
     },
+    "//#knip": {
+      "inputs": [
+        "knip.json",
+        "package.json",
+        "bun.lock",
+        "apps/web/package.json",
+        "apps/web/*.config.*",
+        "apps/web/tsconfig.json",
+        "apps/web/src/**/*.{ts,tsx,css}"
+      ],
+      "outputs": []
+    },
     "dev": {
       "persistent": true,
       "cache": false

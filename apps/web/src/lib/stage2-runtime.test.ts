@@ -5,9 +5,15 @@ import {
   applyStage2Event,
   getStage2RequestsPerMinute,
   parseStage2Event,
-  reduceStage2Events,
   summarizeStage2State,
 } from "./stage2-runtime";
+
+function replayStage2Events(events: readonly Parameters<typeof parseStage2Event>[0][]) {
+  return events.reduce((state, record) => {
+    const event = parseStage2Event(record);
+    return event ? applyStage2Event(state, event) : state;
+  }, EMPTY_STAGE2_REPLAY_STATE);
+}
 
 describe("stage2-runtime", () => {
   it("parses and reduces Stage 2 plan/worker events", () => {
@@ -62,7 +68,7 @@ describe("stage2-runtime", () => {
     expect(parseStage2Event(completedRecord)?.type).toBe("worker");
 
     expect(
-      reduceStage2Events([planRecord, runningRecord, completedRecord, snapshotRecord]),
+      replayStage2Events([planRecord, runningRecord, completedRecord, snapshotRecord]),
     ).toEqual({
       plan: {
         total_workers: 3,
@@ -140,7 +146,7 @@ describe("stage2-runtime", () => {
   });
 
   it("derives summary counts and rolling RPM from replay state", () => {
-    const state = reduceStage2Events([
+    const state = replayStage2Events([
       {
         event: `${STAGE2_EVENT_PREFIX}plan`,
         occurred: "2026-04-02T10:00:00.000Z",

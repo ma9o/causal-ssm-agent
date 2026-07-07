@@ -18,8 +18,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.run_store import load_parquet
-from nof1_causal_lab.utils import storage
-from nof1_causal_lab.utils.data import runs_dir
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 
 if TYPE_CHECKING:
     from nof1_causal_lab.flows.stage_contracts import ToolContract
@@ -77,22 +76,24 @@ def _load_stage2_data_for_model(workspace_id: str) -> Any:
     from nof1_causal_lab.machine.store import current_artifact_file
 
     try:
-        path = current_artifact_file(workspace_id, "model_data", "model_data.parquet")
+        path = current_artifact_file(
+            workspace_id, "model_data", parquet_filename("model_data", "model_data")
+        )
     except FileNotFoundError:
         return None
     return load_parquet(path)
 
 
 def _load_stage4_current(workspace_id: str) -> dict[str, Any] | None:
-    """Load persisted Stage 4 state with draft overlay for refinement accumulation."""
-    path = storage.join(runs_dir(workspace_id), "stage-4.json")
-    if not storage.exists(path):
+    """Load the current accepted Stage 4 report, if one exists."""
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+
+    info = EpisodeJournal(workspace_id).latest_state().get("compiled_ssm")
+    if info is None:
         return None
-    state = storage.read_json(path)
-    draft_path = storage.join(runs_dir(workspace_id), "stage-4-draft.json")
-    if storage.exists(draft_path):
-        state.update(storage.read_json(draft_path))
-    return state
+    return ArtifactStore(workspace_id).read_json_file(
+        "compiled_ssm", info.version, json_filename("compiled_ssm", "report")
+    )
 
 
 def _execute_stage4_submission(

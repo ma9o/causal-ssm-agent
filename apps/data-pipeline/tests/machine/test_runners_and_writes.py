@@ -19,7 +19,7 @@ def workspace(monkeypatch, tmp_path):
     return "test_workspace"
 
 
-def _valid_causal_spec(*, non_identifiable=None) -> dict:
+def _valid_causal_spec(*, include_identifiability=True, non_identifiable=None) -> dict:
     spec = {
         "latent": {
             "constructs": [
@@ -73,25 +73,43 @@ def _valid_causal_spec(*, non_identifiable=None) -> dict:
             "known_inputs": [],
         },
     }
-    if non_identifiable is not None:
-        spec["identifiability"] = {"non_identifiable_treatments": non_identifiable}
+    if include_identifiability:
+        identifiable = (
+            {}
+            if non_identifiable
+            else {
+                "Stress": {
+                    "method": "do_calculus",
+                    "estimand": "P(Perf | do(Stress))",
+                    "marginalized_confounders": [],
+                    "instruments": [],
+                }
+            }
+        )
+        spec["identifiability"] = {
+            "identifiable_treatments": identifiable,
+            "non_identifiable_treatments": non_identifiable or {},
+        }
     return spec
 
 
 class TestStage1bSplit:
-    def test_estimable_treatments_produce_estimands(self):
+    def test_explicit_identifiable_treatments_produce_identification_report(self):
         artifacts = split_stage1b_result({"causal_spec": _valid_causal_spec()})
         assert artifacts.identification_report["estimable_treatments"] == ["Stress"]
-        assert artifacts.estimands == {"outcome": "Perf", "treatments": ["Stress"]}
 
-    def test_all_non_identifiable_withholds_estimands(self):
-        """The epistemic gate: a negative finding is a report, not a failure."""
+    def test_missing_identifiability_withholds_identification_report(self):
+        artifacts = split_stage1b_result(
+            {"causal_spec": _valid_causal_spec(include_identifiability=False)}
+        )
+        assert artifacts.identification_report is None
+
+    def test_all_non_identifiable_withholds_identification_report(self):
+        """The epistemic gate: no positive report means the fit chain is disabled."""
         artifacts = split_stage1b_result(
             {"causal_spec": _valid_causal_spec(non_identifiable={"Stress": {"confounders": ["U"]}})}
         )
-        assert artifacts.estimands is None
-        assert artifacts.identification_report["estimable_treatments"] == []
-        assert "Stress" in artifacts.identification_report["non_identifiable_treatments"]
+        assert artifacts.identification_report is None
 
 
 class TestStage2Gate:
@@ -170,7 +188,7 @@ def _pins(state):
 
 
 class TestCausalSpecWrite:
-    def test_write_fans_out_identification_and_estimands(self, workspace):
+    def test_write_fans_out_positive_identification_report(self, workspace):
         effects = execute_write(
             workspace,
             "causal_spec",
@@ -178,7 +196,7 @@ class TestCausalSpecWrite:
             "human",
         )
         produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"causal_spec", "identification_report", "estimands"}
+        assert produced == {"causal_spec", "identification_report"}
         assert effects.retracted == []
         for info in effects.produced:
             assert info.provenance == "human"
@@ -190,9 +208,9 @@ class TestCausalSpecWrite:
         spec_version = next(
             info.version for info in effects.produced if info.artifact_id == "causal_spec"
         )
-        assert derived["estimands"] == {"causal_spec": spec_version}
+        assert derived["identification_report"] == {"causal_spec": spec_version}
 
-    def test_write_with_nothing_estimable_retracts_estimands(self, workspace):
+    def test_write_with_nothing_estimable_retracts_identification_report(self, workspace):
         effects = execute_write(
             workspace,
             "causal_spec",
@@ -204,8 +222,8 @@ class TestCausalSpecWrite:
             "human",
         )
         produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"causal_spec", "identification_report"}
-        assert effects.retracted == ["estimands"]
+        assert produced == {"causal_spec"}
+        assert effects.retracted == ["identification_report"]
 
     def test_invalid_payload_rejected(self, workspace):
         with pytest.raises(ArtifactWriteRejected):

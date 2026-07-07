@@ -35,9 +35,9 @@ flowchart LR
     end
 ```
 
-Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-identifiability.md#observation_window-and-model_clock), grouping rows into support-window buckets. They diverge in how values are extracted from each bucket.
+Both paths begin by [truncating the raw time column to each indicator's observation window](01b-measurement-identifiability.md#observation_window-and-model_clock), then materializing every support-window bucket between the first and last observed tick, including buckets with no raw rows. They diverge in how values are extracted from each bucket.
 
-**Computed path:** The indicator's aggregation function is applied within each window group via Polars. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups.
+**Computed path:** The indicator's aggregation function is applied within each window group via Polars. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups. Windows with no raw rows emit `null`; count aggregations emit `0` only when raw rows are present and the counted source or condition is absent.
 
 **Semantic path:** Indicators with `extraction_mode="semantic"` require LLM interpretation and follow a prepare-then-fan-out pattern.
 

@@ -484,6 +484,79 @@ class TestComputeIndicators:
         ]
         assert result["value"].to_list() == ["1", "0", None]
 
+    def test_direct_aggregations_materialize_empty_support_windows(self):
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 2, 10, 0),
+                    datetime(2024, 1, 4, 10, 0),
+                ],
+                "event_id": ["a", None, "b"],
+                "score": [5.0, None, 7.0],
+            }
+        )
+        indicators = [
+            {
+                "name": "event_count",
+                "source_columns": ["event_id"],
+                "measurement_dtype": "count",
+                "aggregation": "count",
+            },
+            {
+                "name": "score_mean",
+                "source_columns": ["score"],
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+            },
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        counts = result.filter(pl.col("indicator") == "event_count")
+        means = result.filter(pl.col("indicator") == "score_mean")
+        assert counts["timestamp"].to_list() == [
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+            "2024-01-04T00:00:00",
+        ]
+        assert counts["value"].to_list() == ["1", "0", None, "1"]
+        assert means["value"].to_list() == ["5.0", None, None, "7.0"]
+
+    def test_computed_rule_count_materializes_empty_support_windows(self):
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 2, 10, 0),
+                    datetime(2024, 1, 4, 10, 0),
+                ],
+                "title": ["stress spike", "ordinary update", "another ordinary update"],
+            }
+        )
+        indicators = [
+            {
+                "name": "stress_mentions",
+                "source_columns": ["title"],
+                "measurement_dtype": "count",
+                "aggregation": "count",
+                "computed_rule": {
+                    "window_expr": 'count_true(contains(lower(coalesce(title, "")), "stress"))'
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["timestamp"].to_list() == [
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+            "2024-01-04T00:00:00",
+        ]
+        assert result["value"].to_list() == ["1", "0", None, "0"]
+
     def test_computed_rule_binary_flag_preserves_zero_vs_null(self):
         """Binary deterministic window flags should keep observed negative distinct from missing."""
         df = pl.DataFrame(
@@ -628,14 +701,16 @@ class TestComputeIndicators:
         assert [float(v) for v in result["value"].to_list()] == [78.0, 90.0]
 
     def test_hourly_clock(self):
-        """Hourly model_clock produces hourly ticks."""
+        """Hourly model_clock produces every support tick in the observed span."""
         df = _make_raw_df()
         indicators = [
             {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
         ]
         result = compute_indicators(df, indicators, "1h", "timestamp")
-        # 6 events at 6 different hours → 6 ticks (each with 1 event)
-        assert len(result) == 6
+        assert len(result) == 51
+        assert result["timestamp"][0] == "2024-01-01T08:00:00"
+        assert result["timestamp"][-1] == "2024-01-03T10:00:00"
+        assert result["value"].null_count() == 45
 
     def test_indicator_specific_observation_window_overrides_model_clock(self):
         """Computed indicators bucket by their own support window, not the global clock."""
