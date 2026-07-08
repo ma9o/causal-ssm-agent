@@ -23,7 +23,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.artifacts import (
@@ -41,19 +41,37 @@ with workflow.unsafe.imports_passed_through():
         legal_moves,
         validate_move,
     )
+    from nof1_causal_lab.machine.temporal.llm_transition_workflow import (
+        SingleLLMTransitionWorkflow,
+    )
+    from nof1_causal_lab.machine.temporal.measurement_workflow import MeasurementsWorkflow
     from nof1_causal_lab.machine.temporal.messages import (
         EpisodeInit,
         EpisodeStatus,
         JournalInput,
+        MeasurementsWorkflowInput,
         MoveOutcome,
         MoveRequest,
         RunArtifactInput,
+        SingleLLMTransitionWorkflowInput,
+        StatisticalModelSpecWorkflowInput,
         WriteArtifactInput,
+    )
+    from nof1_causal_lab.machine.temporal.statistical_model_spec_workflow import (
+        StatisticalModelSpecWorkflow,
     )
 
 _RUN_TRANSITION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _JOURNAL_TIMEOUT = timedelta(minutes=1)
+_SINGLE_LLM_TRANSITIONS = frozenset(
+    {
+        "raw_data",
+        "latent_structure",
+        "measurement_structure",
+        "baseline_report",
+    }
+)
 
 _NON_RETRYABLE_ERRORS = [
     "TransitionExecutionError",
@@ -118,7 +136,80 @@ class EpisodeWorkflow:
                 return self._outcome(seq, status="rejected", reason=reason)
 
             try:
-                if isinstance(move, RunArtifact):
+                if isinstance(move, RunArtifact) and move.artifact_id in _SINGLE_LLM_TRANSITIONS:
+                    effects = await workflow.execute_child_workflow(
+                        SingleLLMTransitionWorkflow.run,
+                        SingleLLMTransitionWorkflowInput(
+                            workspace_id=self._workspace_id,
+                            seq=seq,
+                            transition_id=move.artifact_id,
+                            state=self._state,
+                            options=request.options,
+                        ),
+                        id=(f"{move.artifact_id.replace('_', '-')}-{self._workspace_id}-{seq:06d}"),
+                        result_type=TransitionEffects,
+                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
+                        static_summary=f"Run {move.artifact_id}",
+                        static_details=(
+                            f"workspace={self._workspace_id}; seq={seq}; "
+                            f"artifact={move.artifact_id}; workflow=single_llm_transition"
+                        ),
+                        memo={
+                            "workspace_id": self._workspace_id,
+                            "seq": seq,
+                            "artifact_id": move.artifact_id,
+                            "workflow_kind": "single_llm_transition",
+                        },
+                    )
+                elif isinstance(move, RunArtifact) and move.artifact_id == "measurements":
+                    effects = await workflow.execute_child_workflow(
+                        MeasurementsWorkflow.run,
+                        MeasurementsWorkflowInput(
+                            workspace_id=self._workspace_id,
+                            seq=seq,
+                            state=self._state,
+                            options=request.options,
+                        ),
+                        id=f"measurements-{self._workspace_id}-{seq:06d}",
+                        result_type=TransitionEffects,
+                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
+                        static_summary="Run measurements",
+                        static_details=(
+                            f"workspace={self._workspace_id}; seq={seq}; "
+                            "artifact=measurements; workflow=batch_llm_transition"
+                        ),
+                        memo={
+                            "workspace_id": self._workspace_id,
+                            "seq": seq,
+                            "artifact_id": "measurements",
+                            "workflow_kind": "batch_llm_transition",
+                        },
+                    )
+                elif isinstance(move, RunArtifact) and move.artifact_id == "statistical_model_spec":
+                    effects = await workflow.execute_child_workflow(
+                        StatisticalModelSpecWorkflow.run,
+                        StatisticalModelSpecWorkflowInput(
+                            workspace_id=self._workspace_id,
+                            seq=seq,
+                            state=self._state,
+                            options=request.options,
+                        ),
+                        id=f"statistical-model-spec-{self._workspace_id}-{seq:06d}",
+                        result_type=TransitionEffects,
+                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
+                        static_summary="Run statistical model spec",
+                        static_details=(
+                            f"workspace={self._workspace_id}; seq={seq}; "
+                            "artifact=statistical_model_spec; workflow=construct_admission"
+                        ),
+                        memo={
+                            "workspace_id": self._workspace_id,
+                            "seq": seq,
+                            "artifact_id": "statistical_model_spec",
+                            "workflow_kind": "construct_admission",
+                        },
+                    )
+                elif isinstance(move, RunArtifact):
                     effects = await workflow.execute_activity(
                         "run_transition_activity",
                         RunArtifactInput(
@@ -147,8 +238,8 @@ class EpisodeWorkflow:
                     )
                 produced = effects.produced
                 retracted = effects.retracted
-            except ActivityError as exc:
-                error_type, error_message, diagnostics = _unwrap_activity_error(exc)
+            except (ActivityError, ChildWorkflowError) as exc:
+                error_type, error_message, diagnostics = _unwrap_temporal_failure(exc)
                 await self._journal(
                     seq,
                     move,
@@ -227,8 +318,12 @@ class EpisodeWorkflow:
         )
 
 
-def _unwrap_activity_error(exc: ActivityError) -> tuple[str, str, dict[str, Any]]:
+def _unwrap_temporal_failure(
+    exc: ActivityError | ChildWorkflowError,
+) -> tuple[str, str, dict[str, Any]]:
     cause = exc.cause
+    while isinstance(cause, (ActivityError, ChildWorkflowError)):
+        cause = cause.cause
     if isinstance(cause, ApplicationError):
         diagnostics: dict[str, Any] = {}
         if cause.details:

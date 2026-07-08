@@ -8,6 +8,15 @@ from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
 
 EPISODE_TASK_QUEUE = os.environ.get("TEMPORAL_TASK_QUEUE", "nof1-episodes")
+OPENROUTER_TASK_QUEUE = os.environ.get("TEMPORAL_OPENROUTER_TASK_QUEUE", "nof1-openrouter")
+HARNESS_CLAUDE_TASK_QUEUE = os.environ.get(
+    "TEMPORAL_HARNESS_CLAUDE_TASK_QUEUE",
+    "nof1-harness-claude",
+)
+HARNESS_CODEX_TASK_QUEUE = os.environ.get(
+    "TEMPORAL_HARNESS_CODEX_TASK_QUEUE",
+    "nof1-harness-codex",
+)
 
 
 def episode_workflow_id(workspace_id: str) -> str:

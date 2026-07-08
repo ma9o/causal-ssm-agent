@@ -7,51 +7,189 @@ The facade reseeds a fresh workflow from the journal's ``latest_state`` /
 sequence numbering, instead of re-running from ingestion.
 """
 
+import dataclasses
+import json
 import uuid
+from pathlib import Path
 
 import pytest
 
-from nof1_causal_lab.machine import runners as runners_module
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import RunArtifact, WriteArtifact
+from nof1_causal_lab.machine.moves import RunArtifact, TransitionEffects, WriteArtifact
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
+from nof1_causal_lab.machine.temporal import latent_structure_activities
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
 pytestmark = pytest.mark.timeout(240)
 
 
-def _fake_runner(*artifact_specs):
-    async def _run(workspace_id, store, pins, options):
-        del workspace_id, options
-        return [
-            store.write_version(
-                artifact_id,
-                provenance="computed",
-                derived_from=pins,
-                produced_by=produced_by,
-                json_files={f"{artifact_id}.json": {"stub": True}},
-            )
-            for artifact_id, produced_by in artifact_specs
-        ]
-
-    return _run
+def _valid_latent_structure() -> dict:
+    return {
+        "constructs": [
+            {
+                "name": "exercise",
+                "description": "exercise level",
+                "role": "exogenous",
+                "is_outcome": False,
+                "temporal_status": "time_varying",
+            },
+            {
+                "name": "sleep",
+                "description": "sleep quality",
+                "role": "endogenous",
+                "is_outcome": True,
+                "temporal_status": "time_varying",
+            },
+        ],
+        "edges": [
+            {
+                "cause": "exercise",
+                "effect": "sleep",
+                "description": "exercise can affect sleep",
+                "lagged": True,
+                "sources": [],
+            }
+        ],
+    }
 
 
 @pytest.fixture
 def resume_env(monkeypatch, tmp_path):
+    import nof1_causal_lab.utils.openrouter_client as openrouter_client
+    from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module
+    from nof1_causal_lab.utils.config import LLMProfileConfig
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
-    monkeypatch.setitem(
-        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "ingestion"))
+    workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
+    input_root = Path(data_module.input_dir(workspace_id))
+    input_root.mkdir(parents=True, exist_ok=True)
+    (input_root / "observations.csv").write_text(
+        "timestamp,steps\n2026-01-01T08:00:00,1000\n2026-01-02T08:00:00,2000\n"
     )
-    monkeypatch.setitem(
-        runners_module._TRANSITION_RUNNERS,
-        "latent_structure",
-        _fake_runner(("latent_structure", "latent-structure")),
+
+    config = config_module.get_config()
+    monkeypatch.setattr(
+        config_module,
+        "get_config",
+        lambda: dataclasses.replace(
+            config,
+            ingestion=dataclasses.replace(
+                config.ingestion,
+                llm=LLMProfileConfig(harness="none", model="openrouter/mock-raw"),
+            ),
+            structure_proposal=dataclasses.replace(
+                config.structure_proposal,
+                llm=LLMProfileConfig(harness="none", model="openrouter/mock-latent"),
+            ),
+        ),
     )
-    return f"ws-{uuid.uuid4().hex[:8]}"
+
+    def complete_without_derivations(store, state, produced, retracted=None):
+        del store, state
+        return TransitionEffects(produced=produced, retracted=retracted or [])
+
+    monkeypatch.setattr(
+        latent_structure_activities,
+        "complete_derivation_cascade",
+        complete_without_derivations,
+    )
+
+    async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
+        del config, log_label
+        tool_names = {tool.name for tool in tools or []}
+        if "execute_python" in tool_names:
+            if not any(
+                message.get("role") == "tool" and message.get("name") == "execute_python"
+                for message in messages
+            ):
+                return {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call-python",
+                                "type": "function",
+                                "function": {
+                                    "name": "execute_python",
+                                    "arguments": json.dumps(
+                                        {
+                                            "code": (
+                                                "result_df = pl.read_csv(Path(DATA_DIR) / "
+                                                "'observations.csv')\n"
+                                                "result_df = result_df.with_columns("
+                                                "pl.col('timestamp').str.strptime(pl.Datetime))"
+                                            )
+                                        }
+                                    ),
+                                },
+                            }
+                        ],
+                    },
+                    "completion": "",
+                    "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
+                    "model": model_name,
+                    "time": 0.25,
+                    "stop_reason": "tool_calls",
+                }
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-submit-table",
+                            "type": "function",
+                            "function": {
+                                "name": "submit_table",
+                                "arguments": json.dumps(
+                                    {
+                                        "column_descriptions_json": json.dumps(
+                                            {
+                                                "timestamp": "observation time",
+                                                "steps": "step count",
+                                            }
+                                        )
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
+                "model": model_name,
+                "time": 0.25,
+                "stop_reason": "tool_calls",
+            }
+        return {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-latent",
+                        "type": "function",
+                        "function": {
+                            "name": "validate_latent_structure",
+                            "arguments": json.dumps(
+                                {"structure_json": json.dumps(_valid_latent_structure())}
+                            ),
+                        },
+                    }
+                ],
+            },
+            "completion": "",
+            "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
+            "model": model_name,
+            "time": 0.25,
+            "stop_reason": "tool_calls",
+        }
+
+    monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
+    return workspace_id
 
 
 def test_latest_seq_reads_max_journal_entry(resume_env):
@@ -81,11 +219,14 @@ def test_workflow_resumes_from_seeded_init(resume_env):
         from temporalio.testing import WorkflowEnvironment
 
         from nof1_causal_lab.machine.temporal.client import pydantic_data_converter
-        from nof1_causal_lab.machine.temporal.worker import build_worker
+        from nof1_causal_lab.machine.temporal.worker import build_openrouter_worker, build_worker
 
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
-            async with build_worker(env.client, task_queue="test-episodes"):
+            async with (
+                build_worker(env.client, task_queue="test-episodes"),
+                build_openrouter_worker(env.client),
+            ):
 
                 async def propose(handle, move, **kwargs):
                     return await handle.execute_update(

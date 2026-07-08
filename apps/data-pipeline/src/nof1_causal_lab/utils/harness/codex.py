@@ -270,6 +270,8 @@ class CodexHarnessSession:
         cwd: str | Path | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
+        initial_events: list[dict] | None = None,
+        turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
         self._tool_stop_map = {
@@ -287,12 +289,18 @@ class CodexHarnessSession:
         self._log_label = log_label
 
         self._state = CodexStreamState()
-        self._turn_index = 0
+        for event in initial_events or []:
+            apply_codex_event(self._state, event)
+        self._turn_index = turn_index
         self._terminal_tool: tuple[str, str] | None = None
 
     @property
     def thread_id(self) -> str | None:
         return self._state.thread_id
+
+    @property
+    def raw_events(self) -> list[dict]:
+        return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
         self._turn_index += 1
@@ -518,6 +526,8 @@ async def open_codex_harness_session(
     cwd: str | Path | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
+    initial_events: list[dict] | None = None,
+    turn_index: int = 0,
 ) -> AsyncIterator[CodexHarnessSession]:
     """Open a Codex-backed agent session scoped to an ``async with`` block.
 
@@ -554,6 +564,8 @@ async def open_codex_harness_session(
                 cwd=cwd if cwd is not None else codex_home,
                 timeout_seconds=timeout_seconds,
                 log_label=log_label,
+                initial_events=initial_events,
+                turn_index=turn_index,
             )
             try:
                 yield session

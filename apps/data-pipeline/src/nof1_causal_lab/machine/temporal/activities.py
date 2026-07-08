@@ -19,10 +19,21 @@ from nof1_causal_lab.machine.errors import ArtifactWriteRejected, TransitionExec
 from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
 from nof1_causal_lab.machine.runners import execute_transition
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, utc_now_iso
+from nof1_causal_lab.machine.temporal.baseline_report_activities import BASELINE_REPORT_ACTIVITIES
+from nof1_causal_lab.machine.temporal.latent_structure_activities import LATENT_STRUCTURE_ACTIVITIES
+from nof1_causal_lab.machine.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
+from nof1_causal_lab.machine.temporal.measurement_activities import MEASUREMENT_ACTIVITIES
+from nof1_causal_lab.machine.temporal.measurement_structure_activities import (
+    MEASUREMENT_STRUCTURE_ACTIVITIES,
+)
 from nof1_causal_lab.machine.temporal.messages import (  # noqa: TC001
     JournalInput,
     RunArtifactInput,
     WriteArtifactInput,
+)
+from nof1_causal_lab.machine.temporal.raw_data_activities import RAW_DATA_ACTIVITIES
+from nof1_causal_lab.machine.temporal.statistical_model_spec_activities import (
+    STATISTICAL_MODEL_SPEC_ACTIVITIES,
 )
 from nof1_causal_lab.machine.writes import execute_write
 
@@ -82,4 +93,15 @@ async def journal_activity(input: JournalInput) -> None:
     )
 
 
-ALL_ACTIVITIES = [run_transition_activity, write_artifact_activity, journal_activity]
+ALL_ACTIVITIES = [
+    run_transition_activity,
+    write_artifact_activity,
+    journal_activity,
+    *RAW_DATA_ACTIVITIES,
+    *MEASUREMENT_ACTIVITIES,
+    *LLM_SUBROUTINE_ACTIVITIES,
+    *LATENT_STRUCTURE_ACTIVITIES,
+    *MEASUREMENT_STRUCTURE_ACTIVITIES,
+    *BASELINE_REPORT_ACTIVITIES,
+    *STATISTICAL_MODEL_SPEC_ACTIVITIES,
+]

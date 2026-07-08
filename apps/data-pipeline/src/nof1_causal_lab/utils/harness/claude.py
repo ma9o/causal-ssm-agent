@@ -157,6 +157,9 @@ class ClaudeHarnessSession:
         fallback_model: str | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
+        session_id: str | None = None,
+        initial_events: list[dict] | None = None,
+        turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
         self._tool_stop_map = {
@@ -175,14 +178,20 @@ class ClaudeHarnessSession:
         self._timeout_seconds = timeout_seconds
         self._log_label = log_label
 
-        self._session_id = str(uuid.uuid4())
+        self._session_id = session_id or str(uuid.uuid4())
         self._state = ClaudeStreamState()
-        self._turn_index = 0
+        for event in initial_events or []:
+            apply_claude_event(self._state, event)
+        self._turn_index = turn_index
         self._terminal_tool: tuple[str, str] | None = None
 
     @property
     def session_id(self) -> str:
         return self._session_id
+
+    @property
+    def raw_events(self) -> list[dict]:
+        return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
         self._turn_index += 1
@@ -380,6 +389,9 @@ async def open_claude_harness_session(
     fallback_model: str | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
+    session_id: str | None = None,
+    initial_events: list[dict] | None = None,
+    turn_index: int = 0,
 ) -> AsyncIterator[ClaudeHarnessSession]:
     """Open a Claude-backed agent session scoped to an ``async with`` block.
 
@@ -408,6 +420,9 @@ async def open_claude_harness_session(
                 fallback_model=fallback_model,
                 timeout_seconds=timeout_seconds,
                 log_label=log_label,
+                session_id=session_id,
+                initial_events=initial_events,
+                turn_index=turn_index,
             )
             try:
                 yield session

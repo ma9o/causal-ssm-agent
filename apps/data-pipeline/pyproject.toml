@@ -178,6 +178,9 @@ ignore_decorators = [
     "@*.defvjp",
     "@*.list_tools",
     "@*.call_tool",
+    "@workflow.signal",
+    "@workflow.update",
+    "@workflow.query",
     # MCP gateway tools are invoked by the MCP runtime, never by our code
     "@mcp.tool",
 ]
