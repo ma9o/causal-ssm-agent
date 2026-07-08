@@ -1,4 +1,4 @@
-"""Parameter-recovery scenarios (diagnostic, Stage 4 inference).
+"""Parameter-recovery scenarios (diagnostic, Target 4 inference).
 
 A recovery scenario carries the model inputs and the known true parameter
 values. The runner fits the model and the scorer checks credible-interval
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from evaluation.contracts import Capability, Kind, Scenario, Stage
+from evaluation.contracts import Capability, Kind, Scenario, Target
 
 
 @dataclass(frozen=True)
@@ -30,8 +30,8 @@ class RecoveryScenario(Scenario):
     def inputs(self) -> dict[str, Any]:
         return self.model_inputs
 
-    def truth_for(self, stage: Stage) -> Any | None:
-        if stage is Stage.INFERENCE:
+    def truth_for(self, target: Target) -> Any | None:
+        if target is Target.INFERENCE:
             return self.true_params
         return None
 
@@ -62,5 +62,5 @@ class SyntheticNonlinearRecoveryScenario(Scenario):
             "num_samples": self.num_samples,
         }
 
-    def truth_for(self, stage: Stage) -> Any | None:  # noqa: ARG002
+    def truth_for(self, target: Target) -> Any | None:  # noqa: ARG002
         return None

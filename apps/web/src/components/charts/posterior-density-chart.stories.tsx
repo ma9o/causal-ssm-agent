@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5b } from "@/components/__fixtures__/inference-data";
+import { posterior } from "@/components/__fixtures__/inference-data";
 import { PosteriorDensityChart } from "./posterior-density-chart";
 
-const marginals = stage5b.posterior_marginals ?? [];
+const marginals = posterior.posterior_marginals ?? [];
 
 const meta = {
   title: "Charts/PosteriorDensityChart",

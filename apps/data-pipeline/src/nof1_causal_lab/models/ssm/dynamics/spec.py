@@ -1,7 +1,7 @@
 """Spec → ``VectorField`` compiler.
 
 Bridges between a *declarative* description of the SSM dynamics (the
-kind of structure Stage 4 will eventually emit from the LLM) and the
+kind of structure model-spec will eventually emit from the LLM) and the
 runtime ``VectorField`` + ``args.params`` tuple that the
 simulator, root-finder, and (eventually) Corenflos auxiliary samplers
 consume.

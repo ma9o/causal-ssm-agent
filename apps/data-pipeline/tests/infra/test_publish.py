@@ -16,7 +16,7 @@ def _seed_workspace(root):
         "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "version": 1},
         "episode/journal/000001.json": {"seq": 1},
         "episode/state.json": {"current": {}},
-        "run/stage4-jax-cache-metadata.json": {"schema_version": 1},
+        "run/model-spec-jax-cache-metadata.json": {"schema_version": 1},
         "input/MyActivity.json": {"secret": "personal"},
     }
     for rel, payload in files.items():

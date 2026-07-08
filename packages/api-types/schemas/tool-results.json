@@ -13,7 +13,7 @@
       "$ref": "#/$defs/EffectTrajectoryPointContract"
     },
     {
-      "$ref": "#/$defs/Stage6VisualizationContract"
+      "$ref": "#/$defs/BaselineReportVisualizationContract"
     },
     {
       "$ref": "#/$defs/ScenarioStartResultContract"
@@ -26,6 +26,86 @@
     }
   ],
   "$defs": {
+    "BaselineReportVisualizationContract": {
+      "additionalProperties": false,
+      "properties": {
+        "reference_node_trajectories": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
+          "title": "Reference Node Trajectories"
+        },
+        "action_node_trajectories": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
+          "title": "Action Node Trajectories"
+        },
+        "node_effect_trajectories": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
+          "title": "Node Effect Trajectories"
+        },
+        "start_state": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Posterior mean latent state the rollout started from.",
+          "title": "Start State"
+        }
+      },
+      "title": "BaselineReportVisualizationContract",
+      "type": "object"
+    },
     "EffectSummaryContract": {
       "additionalProperties": false,
       "properties": {
@@ -293,7 +373,7 @@
         "visualization": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Stage6VisualizationContract"
+              "$ref": "#/$defs/BaselineReportVisualizationContract"
             },
             {
               "type": "null"
@@ -351,86 +431,6 @@
         }
       ],
       "title": "SimulateScenarioToolResultContract"
-    },
-    "Stage6VisualizationContract": {
-      "additionalProperties": false,
-      "properties": {
-        "reference_node_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
-          "title": "Reference Node Trajectories"
-        },
-        "action_node_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
-          "title": "Action Node Trajectories"
-        },
-        "node_effect_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
-          "title": "Node Effect Trajectories"
-        },
-        "start_state": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Posterior mean latent state the rollout started from.",
-          "title": "Start State"
-        }
-      },
-      "title": "Stage6VisualizationContract",
-      "type": "object"
     },
     "ToolErrorContract": {
       "additionalProperties": false,

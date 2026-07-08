@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5b } from "@/components/__fixtures__/inference-data";
+import { posterior } from "@/components/__fixtures__/inference-data";
 import { PosteriorPairsChart } from "./posterior-pairs-chart";
 
-const pairs = stage5b.posterior_pairs ?? [];
+const pairs = posterior.posterior_pairs ?? [];
 
 const meta = {
   title: "Charts/PosteriorPairsChart",

@@ -1,41 +1,43 @@
 "use client";
 
-import type { StageId } from "@nof1-causal-lab/api-types";
-import { STAGES } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   type EpisodeEventRecord,
   type EpisodeProgressPayload,
   type EpisodeTransitionRecord,
   getEpisodeProgress,
-  getMachineDescription,
 } from "@/lib/api/analysis";
-import { groupStaleArtifactsByStage, hasStaleArtifacts } from "@/lib/artifact-staleness";
-import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
+import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "@/lib/artifact-staleness";
 import {
-  applyStage2Event,
-  getStage2StateQueryKey,
-  parseStage2Event,
-  type Stage2ReplayState,
-} from "@/lib/stage2-runtime";
+  TRANSITION_EVENT_FILTER_PREFIX,
+  type TransitionProgressStatus,
+} from "@/lib/transition-runtime";
 import {
-  applyStage4AdmissionEvent,
-  getStage4AdmissionStateQueryKey,
-  parseStage4AdmissionEvent,
-  type Stage4AdmissionReplayState,
-} from "@/lib/stage4-admission-runtime";
+  applyExtractionEvent,
+  getExtractionStateQueryKey,
+  parseExtractionEvent,
+  type ExtractionReplayState,
+} from "@/lib/extraction-runtime";
+import {
+  applyModelSpecAdmissionEvent,
+  getModelSpecAdmissionStateQueryKey,
+  parseModelSpecAdmissionEvent,
+  type ModelSpecAdmissionReplayState,
+} from "@/lib/model-spec-admission-runtime";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
-  applyStageUpdate,
+  applyTransitionUpdate,
   initialProgress,
   type PipelineProgress,
-  restartStageAttempt,
-  type StageRunStatus,
+  restartTransitionAttempt,
+  type TransitionRunStatus,
 } from "./pipeline-progress";
-import { getStageDataQueryKey } from "./use-stage-data";
+import { getArtifactViewQueryKey } from "./use-artifact-view";
 
-export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
+export type { PipelineProgress, TransitionRunStatus, TransitionTiming } from "./pipeline-progress";
 
 const PROGRESS_POLL_INTERVAL_MS = 2_000;
 
@@ -56,45 +58,37 @@ export function cursorTimestampMs(cursor: string): number | undefined {
   return Math.floor(Number(nanos) / 1_000_000);
 }
 
-function isStageId(value: unknown): value is StageId {
-  return typeof value === "string" && STAGES.some((stage) => stage.id === value);
+function isArtifactViewId(value: unknown): value is ArtifactViewId {
+  return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
-function stageIdsByArtifact(
-  transitions: Awaited<ReturnType<typeof getMachineDescription>>["transitions"] | undefined,
-) {
-  const entries =
-    transitions
-      ?.map((transition) => [transition.transition_id, transition.runner_id] as const)
-      .filter((entry): entry is readonly [string, StageId] => isStageId(entry[1])) ?? [];
-  return Object.fromEntries(entries) as Partial<Record<string, StageId>>;
-}
-
-function isStageRunStatus(value: unknown): value is StageProgressStatus {
+function isTransitionRunStatus(value: unknown): value is TransitionProgressStatus {
   return value === "running" || value === "completed" || value === "failed";
 }
 
-export interface StageProgressEvent {
-  stageId: StageId;
-  status: StageProgressStatus;
+export interface TransitionProgressEvent {
+  artifactId: ArtifactViewId;
+  status: TransitionProgressStatus;
   eventTime?: number;
   error?: { type: string; message: string };
 }
 
-export function parseStageProgressEvent(record: EpisodeEventRecord): StageProgressEvent | null {
-  if (!record.event.startsWith(STAGE_PROGRESS_EVENT_FILTER_PREFIX)) {
+export function parseTransitionProgressEvent(
+  record: EpisodeEventRecord,
+): TransitionProgressEvent | null {
+  if (!record.event.startsWith(TRANSITION_EVENT_FILTER_PREFIX)) {
     return null;
   }
 
   const payload = record.payload;
-  const stageId = payload?.stage_id;
+  const artifactId = payload?.transition_id;
   const status = payload?.status;
-  if (!isStageId(stageId) || !isStageRunStatus(status)) {
+  if (!isArtifactViewId(artifactId) || !isTransitionRunStatus(status)) {
     return null;
   }
 
   return {
-    stageId,
+    artifactId,
     status,
     eventTime: cursorTimestampMs(record.cursor),
     error:
@@ -104,7 +98,7 @@ export function parseStageProgressEvent(record: EpisodeEventRecord): StageProgre
   };
 }
 
-/** Adapt an episode event to the {event, occurred, payload} record the stage parsers consume. */
+/** Adapt an episode event to the {event, occurred, payload} record telemetry parsers consume. */
 function toRuntimeEventRecord(record: EpisodeEventRecord) {
   const timestampMs = cursorTimestampMs(record.cursor);
   return {
@@ -114,16 +108,16 @@ function toRuntimeEventRecord(record: EpisodeEventRecord) {
   };
 }
 
-function invalidateStageData(
+function invalidateArtifactView(
   queryClient: ReturnType<typeof useQueryClient>,
   workspaceId: string,
-  stageId: StageId,
+  artifactId: ArtifactViewId,
 ) {
-  queryClient.invalidateQueries({ queryKey: getStageDataQueryKey(workspaceId, stageId) });
+  queryClient.invalidateQueries({ queryKey: getArtifactViewQueryKey(workspaceId, artifactId) });
 }
 
 /**
- * The durable journal is authoritative for a stage's terminal state: an applied
+ * The durable journal is authoritative for a transition's terminal state: an applied
  * run transition means it completed, a raised one means it failed. Telemetry
  * `completed` events also drive completion, but they are ephemeral — the
  * transition keeps the display correct even when the event log has been pruned.
@@ -131,117 +125,156 @@ function invalidateStageData(
 function applyRunTransition(
   progress: PipelineProgress | undefined,
   transition: EpisodeTransitionRecord,
-  artifactStageIds: Partial<Record<string, StageId>>,
+  transitionOrder: readonly ArtifactViewId[],
 ): PipelineProgress | undefined {
   if (transition.move.kind !== "run") {
     return progress;
   }
-  const stageId = artifactStageIds[transition.move.artifact_id];
-  if (!isStageId(stageId)) {
+  const artifactId = transition.move.artifact_id;
+  if (!isArtifactViewId(artifactId)) {
     return progress;
   }
   const eventTime = Date.parse(transition.ts);
   const ts = Number.isFinite(eventTime) ? eventTime : undefined;
 
   if (transition.status === "applied") {
-    return applyStageUpdate(progress, stageId, "completed", ts);
+    return applyTransitionUpdate(progress, artifactId, "completed", ts, undefined, transitionOrder);
   }
   if (transition.status === "raised") {
-    return applyStageUpdate(
+    return applyTransitionUpdate(
       progress,
-      stageId,
+      artifactId,
       "failed",
       ts,
       transition.error_message ?? transition.error_type ?? undefined,
+      transitionOrder,
     );
   }
   return progress; // rejected attempts never executed — leave status untouched
 }
 
-function hasRunningStage(progress: PipelineProgress | undefined): boolean {
-  return !!progress && STAGES.some((stage) => progress.stages[stage.id] === "running");
+function hasRunningTransition(progress: PipelineProgress | undefined): boolean {
+  return (
+    !!progress &&
+    progress.transitionOrder.some((transitionId) => progress.artifacts[transitionId] === "running")
+  );
 }
 
-export function useRunEvents(workspaceId: string | null) {
+function applyExistingArtifactView(
+  progress: PipelineProgress | undefined,
+  artifactId: ArtifactViewId,
+  transitionOrder: readonly ArtifactViewId[],
+): PipelineProgress {
+  const current = progress ?? initialProgress(transitionOrder);
+  if (current.artifacts[artifactId] !== "pending") {
+    return current;
+  }
+  return applyTransitionUpdate(
+    current,
+    artifactId,
+    "completed",
+    undefined,
+    undefined,
+    transitionOrder,
+  );
+}
+
+export function useRunEvents(
+  workspaceId: string | null,
+  transitionOrder: readonly ArtifactViewId[] | undefined,
+) {
   const queryClient = useQueryClient();
   const cursorRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const hydratedWorkspaceRef = useRef<string | null>(null);
-  const machineDescriptionQuery = useQuery({
-    queryKey: ["machine"],
-    queryFn: getMachineDescription,
-    enabled: !isMockMode(),
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  });
-  const artifactStageIds = useMemo(
-    () => stageIdsByArtifact(machineDescriptionQuery.data?.transitions),
-    [machineDescriptionQuery.data?.transitions],
-  );
 
-  const updateStage = useCallback(
-    (stageId: StageId, status: StageRunStatus, eventTime?: number, errorMessage?: string) => {
+  const updateTransition = useCallback(
+    (
+      artifactId: ArtifactViewId,
+      status: TransitionRunStatus,
+      eventTime?: number,
+      errorMessage?: string,
+    ) => {
+      if (!transitionOrder) {
+        return;
+      }
       queryClient.setQueryData<PipelineProgress>(["pipeline", workspaceId, "status"], (old) =>
-        applyStageUpdate(old, stageId, status, eventTime, errorMessage),
+        applyTransitionUpdate(old, artifactId, status, eventTime, errorMessage, transitionOrder),
       );
     },
-    [queryClient, workspaceId],
+    [queryClient, transitionOrder, workspaceId],
   );
 
   const applyProgressPayload = useCallback(
     (payload: EpisodeProgressPayload) => {
-      if (!workspaceId) {
+      if (!workspaceId || !transitionOrder) {
         return;
       }
 
       for (const record of payload.events) {
         const runtimeRecord = toRuntimeEventRecord(record);
 
-        const admissionEvent = parseStage4AdmissionEvent(runtimeRecord);
+        const admissionEvent = parseModelSpecAdmissionEvent(runtimeRecord);
         if (admissionEvent) {
-          queryClient.setQueryData<Stage4AdmissionReplayState>(
-            getStage4AdmissionStateQueryKey(workspaceId),
-            (old) => applyStage4AdmissionEvent(old, admissionEvent),
+          queryClient.setQueryData<ModelSpecAdmissionReplayState>(
+            getModelSpecAdmissionStateQueryKey(workspaceId),
+            (old) => applyModelSpecAdmissionEvent(old, admissionEvent),
           );
           continue;
         }
 
-        const stage2Event = parseStage2Event(runtimeRecord);
-        if (stage2Event) {
-          queryClient.setQueryData<Stage2ReplayState>(getStage2StateQueryKey(workspaceId), (old) =>
-            applyStage2Event(old, stage2Event),
+        const extractionEvent = parseExtractionEvent(runtimeRecord);
+        if (extractionEvent) {
+          queryClient.setQueryData<ExtractionReplayState>(
+            getExtractionStateQueryKey(workspaceId),
+            (old) => applyExtractionEvent(old, extractionEvent),
           );
           continue;
         }
 
-        const stageEvent = parseStageProgressEvent(record);
-        if (!stageEvent) {
+        const transitionEvent = parseTransitionProgressEvent(record);
+        if (!transitionEvent) {
           continue;
         }
 
-        if (stageEvent.status === "running") {
+        if (transitionEvent.status === "running") {
           // The event stream is totally ordered, so a running event after a
           // terminal state is a genuine re-run (stale inputs recomputed).
           queryClient.setQueryData<PipelineProgress>(
             getPipelineStatusQueryKey(workspaceId),
-            (old) => restartStageAttempt(old, stageEvent.stageId, stageEvent.eventTime),
+            (old) =>
+              restartTransitionAttempt(
+                old,
+                transitionEvent.artifactId,
+                transitionEvent.eventTime,
+                transitionOrder,
+              ),
           );
           continue;
         }
 
-        updateStage(
-          stageEvent.stageId,
-          stageEvent.status,
-          stageEvent.eventTime,
-          stageEvent.error?.message,
+        updateTransition(
+          transitionEvent.artifactId,
+          transitionEvent.status,
+          transitionEvent.eventTime,
+          transitionEvent.error?.message,
         );
-        if (stageEvent.status === "completed") {
-          invalidateStageData(queryClient, workspaceId, stageEvent.stageId);
+        if (transitionEvent.status === "completed") {
+          invalidateArtifactView(queryClient, workspaceId, transitionEvent.artifactId);
         }
       }
       if (payload.events.length > 0) {
         cursorRef.current = payload.events[payload.events.length - 1].cursor;
+      }
+
+      for (const artifact of payload.artifacts) {
+        const artifactId = artifact.artifact_id;
+        if (!artifact.exists || !isArtifactViewId(artifactId)) {
+          continue;
+        }
+        queryClient.setQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId), (old) =>
+          applyExistingArtifactView(old, artifactId, transitionOrder),
+        );
       }
 
       for (const transition of payload.transitions) {
@@ -250,50 +283,56 @@ export function useRunEvents(workspaceId: string | null) {
         }
         queryClient.setQueryData<PipelineProgress>(
           getPipelineStatusQueryKey(workspaceId),
-          (old) => applyRunTransition(old, transition, artifactStageIds) ?? old,
+          (old) => applyRunTransition(old, transition, transitionOrder) ?? old,
         );
         lastSeqRef.current = Math.max(lastSeqRef.current, transition.seq);
       }
 
       queryClient.setQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId), (old) => ({
-        ...(old ?? initialProgress()),
-        staleArtifactsByStage: groupStaleArtifactsByStage(payload.artifacts),
+        ...(old ?? initialProgress(transitionOrder)),
+        staleArtifactsByProducer: groupStaleArtifactsByProducer(payload.artifacts),
         autoRunning: payload.autoRunning,
       }));
     },
-    [artifactStageIds, queryClient, updateStage, workspaceId],
+    [queryClient, transitionOrder, updateTransition, workspaceId],
   );
 
   // Reset the reduced caches when the workspace changes.
   useEffect(() => {
-    if (!workspaceId || hydratedWorkspaceRef.current === workspaceId) {
+    if (!workspaceId || !transitionOrder || hydratedWorkspaceRef.current === workspaceId) {
       return;
     }
     hydratedWorkspaceRef.current = workspaceId;
     cursorRef.current = null;
     lastSeqRef.current = 0;
 
-    queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
-    queryClient.removeQueries({ queryKey: getStage2StateQueryKey(workspaceId) });
-    queryClient.removeQueries({ queryKey: getStage4AdmissionStateQueryKey(workspaceId) });
-  }, [queryClient, workspaceId]);
+    queryClient.setQueryData(
+      getPipelineStatusQueryKey(workspaceId),
+      initialProgress(transitionOrder),
+    );
+    queryClient.removeQueries({ queryKey: getExtractionStateQueryKey(workspaceId) });
+    queryClient.removeQueries({ queryKey: getModelSpecAdmissionStateQueryKey(workspaceId) });
+  }, [queryClient, transitionOrder, workspaceId]);
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || !transitionOrder) return;
 
     if (isMockMode()) {
-      const cleanup = simulatePipelineEvents({
-        onStageStart: (id) => updateStage(id, "running"),
-        onStageComplete: (id) => {
-          updateStage(id, "completed");
-          invalidateStageData(queryClient, workspaceId, id);
+      const cleanup = simulatePipelineEvents(
+        {
+          onTransitionStart: (id) => updateTransition(id, "running"),
+          onTransitionComplete: (id) => {
+            updateTransition(id, "completed");
+            invalidateArtifactView(queryClient, workspaceId, id);
+          },
         },
-      });
+        transitionOrder,
+      );
       return () => {
         cleanup();
       };
     }
-  }, [queryClient, updateStage, workspaceId]);
+  }, [queryClient, transitionOrder, updateTransition, workspaceId]);
 
   useQuery({
     queryKey: getEpisodeProgressQueryKey(workspaceId ?? "__none__"),
@@ -304,7 +343,7 @@ export function useRunEvents(workspaceId: string | null) {
     },
     // Read-only viewers poll too: published workspaces carry a real journal,
     // and a live local run publishing to the hosted store tails through here.
-    enabled: !isMockMode() && !!workspaceId,
+    enabled: !isMockMode() && !!workspaceId && !!transitionOrder,
     refetchInterval: (query) => {
       const payload = query.state.data;
       if (!payload) {
@@ -314,7 +353,7 @@ export function useRunEvents(workspaceId: string | null) {
         ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
         : undefined;
       return payload.autoRunning ||
-        hasRunningStage(progress) ||
+        hasRunningTransition(progress) ||
         hasStaleArtifacts(payload.artifacts)
         ? PROGRESS_POLL_INTERVAL_MS
         : false;

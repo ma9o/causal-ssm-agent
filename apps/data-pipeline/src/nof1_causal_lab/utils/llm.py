@@ -347,11 +347,11 @@ def make_validation_tool(
 ) -> tuple[Tool, dict]:
     """Generic factory for JSON-validation tools.
 
-    Thin adapter over :func:`make_stage_tool` that bridges the
-    ``(result, errors)`` validator interface to the ``(stage_output, feedback)``
+    Thin adapter over :func:`make_context_tool` that bridges the
+    ``(result, errors)`` validator interface to the ``(context_output, feedback)``
     grounding interface.
     """
-    from nof1_causal_lab.flows.stage_tool_factory import make_stage_tool
+    from nof1_causal_lab.flows.context_tool_factory import make_context_tool
 
     def _adapted(data: dict) -> tuple[dict | None, str]:
         result, errors = validator(data)
@@ -360,7 +360,7 @@ def make_validation_tool(
         value = result if capture_result else data
         return {capture_key: value}, "VALID"
 
-    return make_stage_tool(name, description, param_name, param_description, _adapted)
+    return make_context_tool(name, description, param_name, param_description, _adapted)
 
 
 # ---------------------------------------------------------------------------
@@ -787,7 +787,7 @@ async def multi_turn_generate(
 # Legacy note
 # ---------------------------------------------------------------------------
 # The previous ``LLMStageContext`` + ``attach_trace`` helpers have been
-# removed; stages now use :class:`nof1_causal_lab.utils.agent_session.StageSessionFactory`
+# removed; stages now use :class:`nof1_causal_lab.utils.agent_session.ScopedSessionFactory`
 # which subsumes both trace accumulation and lifecycle logging. The
 # ``multi_turn_generate`` + ``make_generate_fn`` pair is kept for eval
 # scripts outside the main pipeline; new production code should use

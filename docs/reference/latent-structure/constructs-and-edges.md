@@ -1,12 +1,12 @@
 # LatentStructure: Constructs and Edges
 
-This reference deepens the construct and edge semantics used by [Stage 1a](../../pipeline/01a-latent-structure.md). Stage 1a owns the emitted `LatentStructure` contract; this page focuses on ontology, edge legality, and lag semantics.
+This reference deepens the construct and edge semantics used by [`latent_structure` transition](../../pipeline/latent-structure.md). `latent_structure` transition owns the emitted `LatentStructure` contract; this page focuses on ontology, edge legality, and lag semantics.
 
 ## Ontology
 
 **Constructs** are theoretical entities in the causal model such as stress, mood, cognitive load, staffing pressure, or student engagement. They live in the `LatentStructure`.
 
-**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [Stage 1b measurement structure](../../pipeline/01b-measurement-structure-identifiability.md#measurementstructure) and reflect their parent construct via factor loadings.
+**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [`measurement_structure` transition measurement structure](../../pipeline/measurement-structure.md#measurementstructure) and reflect their parent construct via factor loadings.
 
 The `LatentStructure` therefore lives at the construct layer, not the observed-variable layer.
 
@@ -34,7 +34,7 @@ AR structure and edge restrictions follow from the [latent-structure assumptions
 
 ### Shared Construct Timescale
 
-All time-varying constructs currently share a single timescale set by the [Stage 1b `model_clock`](../../pipeline/01b-measurement-structure-identifiability.md#observation_window-and-model_clock). Time-invariant constructs have no temporal granularity of their own.
+All time-varying constructs currently share a single timescale set by the [`measurement_structure` transition `model_clock`](../../pipeline/measurement-structure.md#observation_window-and-model_clock). Time-invariant constructs have no temporal granularity of their own.
 
 ### Edge Lag Rules
 
@@ -55,7 +55,7 @@ The graph stays a DAG in the user-facing contract:
 
 ## Outcome Designation
 
-The `LatentStructure` carries exactly one designated outcome. See the [Stage 1a definition](../../pipeline/01a-latent-structure.md#latent-structure) for encoding and treatment derivation.
+The `LatentStructure` carries exactly one designated outcome. See the [`latent_structure` transition definition](../../pipeline/latent-structure.md#latent-structure) for encoding and treatment derivation.
 
 ## Example
 

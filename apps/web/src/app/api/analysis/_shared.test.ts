@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EpisodeStatus, TransitionRecord } from "@/lib/server/episode-runs";
 
 vi.mock("@/lib/server/episode-runs", () => ({
+  getMachineDescription: vi.fn(),
   getEpisodeStatus: vi.fn(),
   getEpisodeTimeline: vi.fn(),
-  getMachineDescription: vi.fn(),
 }));
 
 vi.mock("@/lib/storage", () => ({
@@ -67,14 +67,39 @@ function transition(
 describe("buildAnalysisManifest", () => {
   beforeEach(() => {
     vi.mocked(getMachineDescription).mockResolvedValue({
+      topological_artifact_order: [
+        "question",
+        "raw_data",
+        "latent_structure",
+        "measurement_structure",
+        "causal_design",
+        "identification_report",
+        "measurements",
+        "panel",
+        "validation_report",
+        "statistical_model_spec",
+        "compiled_ssm",
+        "posterior",
+        "baseline_report",
+        "saved_scenarios",
+      ],
+      topological_transition_order: [
+        "raw_data",
+        "latent_structure",
+        "measurement_structure",
+        "measurements",
+        "statistical_model_spec",
+        "posterior",
+        "baseline_report",
+      ],
       transitions: [
-        { transition_id: "raw_data", runner_id: "stage-0" },
-        { transition_id: "latent_structure", runner_id: "stage-1a" },
-        { transition_id: "measurement_structure", runner_id: "stage-1b" },
-        { transition_id: "measurements", runner_id: "stage-2" },
-        { transition_id: "statistical_model_spec", runner_id: "stage-4" },
-        { transition_id: "posterior", runner_id: "stage-5b" },
-        { transition_id: "baseline_report", runner_id: "stage-6" },
+        { transition_id: "raw_data" },
+        { transition_id: "latent_structure" },
+        { transition_id: "measurement_structure" },
+        { transition_id: "measurements" },
+        { transition_id: "statistical_model_spec" },
+        { transition_id: "posterior" },
+        { transition_id: "baseline_report" },
       ],
     });
   });
@@ -93,7 +118,7 @@ describe("buildAnalysisManifest", () => {
     await expect(buildAnalysisManifest("user-1")).resolves.toBeNull();
   });
 
-  it("builds stage executions from journal run transitions", async () => {
+  it("builds transition executions from journal run transitions", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(statusWithQuestion("user-1"));
     vi.mocked(readData).mockResolvedValue(JSON.stringify({ text: "Does exercise help sleep?" }));
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
@@ -124,7 +149,7 @@ describe("buildAnalysisManifest", () => {
           ts: "2026-07-01T00:03:00+00:00",
           move: { kind: "run", artifact_id: "latent_structure" },
           status: "rejected",
-          reason: "stage-1a requires artifacts that do not exist: raw_data",
+          reason: "latent_structure requires artifacts that do not exist: raw_data",
         }),
       ],
     });
@@ -134,20 +159,30 @@ describe("buildAnalysisManifest", () => {
     expect(manifest).not.toBeNull();
     expect(manifest?.createdAt).toBe("2026-07-01T00:00:00+00:00");
     expect(manifest?.question).toBe("Does exercise help sleep?");
+    expect(manifest?.transitionOrder).toEqual([
+      "raw_data",
+      "latent_structure",
+      "measurement_structure",
+      "measurements",
+      "validation_report",
+      "statistical_model_spec",
+      "posterior",
+      "baseline_report",
+    ]);
     expect(vi.mocked(readData)).toHaveBeenCalledWith("user-1/store/question/v1/question.json");
-    expect(manifest?.stages["stage-0"]).toEqual({
+    expect(manifest?.transitionRuns["raw_data"]).toEqual({
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-07-01T00:01:00+00:00",
         endTime: "2026-07-01T00:01:00+00:00",
       },
     });
-    // Raised run marks the stage failed; the later rejected attempt never executed.
-    expect(manifest?.stages["stage-1a"]?.execution?.stateType).toBe("FAILED");
-    expect(manifest?.stages["stage-2"]).toEqual({ execution: null });
+    // Raised run marks the transition failed; the later rejected attempt never executed.
+    expect(manifest?.transitionRuns["latent_structure"]?.execution?.stateType).toBe("FAILED");
+    expect(manifest?.transitionRuns["measurements"]).toEqual({ execution: null });
   });
 
-  it("prefers the latest run attempt per stage", async () => {
+  it("prefers the latest run attempt per artifact", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(emptyStatus("user-1"));
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
       workspace_id: "user-1",
@@ -170,6 +205,6 @@ describe("buildAnalysisManifest", () => {
 
     const manifest = await buildAnalysisManifest("user-1");
 
-    expect(manifest?.stages["stage-0"]?.execution?.stateType).toBe("COMPLETED");
+    expect(manifest?.transitionRuns["raw_data"]?.execution?.stateType).toBe("COMPLETED");
   });
 });

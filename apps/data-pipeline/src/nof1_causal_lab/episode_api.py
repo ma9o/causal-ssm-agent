@@ -89,12 +89,14 @@ def machine_description() -> dict[str, Any]:
         ARTIFACT_GRAPH,
         DERIVATIONS,
         ROOTS,
+        topological_artifact_order,
         topological_transition_order,
     )
     from nof1_causal_lab.machine.hierarchy import describe_actions, describe_contexts
 
     return {
         "artifact_ids": list(ARTIFACT_IDS),
+        "topological_artifact_order": topological_artifact_order(),
         "topological_transition_order": topological_transition_order(),
         "contexts": describe_contexts(),
         "actions": describe_actions(),
@@ -104,7 +106,6 @@ def machine_description() -> dict[str, Any]:
         "transitions": [
             {
                 "transition_id": spec.transition_id,
-                "runner_id": spec.runner_id,
                 "consumes": list(spec.consumes),
                 "produces": [spec.produces],
                 "produces_optional": list(spec.produces_optional),
@@ -264,7 +265,7 @@ def get_timeline(workspace_id: str) -> dict[str, Any]:
     """The transition journal: every move attempt in order.
 
     Each record is `applied` (state advanced), `rejected` (illegal move, state
-    unchanged), or `raised` (the stage ran but threw — the record carries the
+    unchanged), or `raised` (the transition ran but threw — the record carries the
     typed error). Re-running after a `raised`/`rejected` is just proposing the
     move again.
     """
@@ -277,7 +278,7 @@ def get_timeline(workspace_id: str) -> dict[str, Any]:
 
 @router.get("/{workspace_id}/events")
 def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
-    """Intra-stage telemetry (e.g. stage-2 worker fan-out, stage progress).
+    """Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).
 
     Pass the last-seen event id as `after` to page forward; omit it for the full
     stream. This is finer-grained than the timeline, which records only whole
@@ -386,7 +387,8 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
     Idempotent: attaches to an existing episode or starts a fresh one. Passing
     `question` writes the `question` root artifact with `human` provenance. Raw
     data enters separately by placing files under `data/{workspace_id}/input/`
-    before running stage-0. Returns the same shape as `GET /api/episodes/{id}`.
+    before running the `raw_data` transition. Returns the same shape as
+    `GET /api/episodes/{id}`.
     """
     _require_moves_enabled()
     await _episode_handle(body.workspace_id)

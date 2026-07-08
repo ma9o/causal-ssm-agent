@@ -1,8 +1,8 @@
 # N-of-1 Causal Lab Pipeline Configuration
 
 # --- LLM backend defaults --------------------------------------------------
-# Each stage below picks a harness via `llm.harness`; these defaults apply
-# when a stage doesn't override individual fields.
+# Each agentic context below picks a harness via `llm.harness`; these defaults
+# apply when a context doesn't override individual fields.
 llm:
   # harness: none  (OpenRouter direct)
   embedded:
@@ -24,29 +24,29 @@ llm:
     reasoning_effort: xhigh  # low | medium | high | xhigh | max
     service_tier: fast
 
-# --- Stages ----------------------------------------------------------------
+# --- Agentic contexts ------------------------------------------------------
 
-# Stage 0: Agentic Data Ingestion
-stage0_ingestion:
+# ingestion: Agentic Data Ingestion
+ingestion:
   max_tool_turns: 40
   llm:
     harness: codex
     model: gpt-5.5
 
-# Stage 1: Structure Proposal (Orchestrator)
-stage1_structure_proposal:
+# Structure Proposal (orchestrator contexts)
+structure_proposal:
   sample_chunks: 10
   chunk_size: 100
-  stage1a_max_tool_turns: 40
-  stage1b_max_tool_turns: 40
+  latent_max_tool_turns: 40
+  measurement_max_tool_turns: 40
   llm:
     harness: codex
     model: gpt-5.5
 
-# Stage 2: Support-Window Extraction (Workers)
-# Stage 2 fans out across thousands of workers; harness cold-start per worker
+# extraction: Support-Window Extraction (Workers)
+# extraction fans out across thousands of workers; harness cold-start per worker
 # is untenable, so `harness` is locked to `none` (enforced by config validator).
-stage2_workers:
+extraction_workers:
   windows_per_chunk: 1
   max_concurrent_workers: 200
   max_events_per_window: 300
@@ -58,26 +58,26 @@ stage2_workers:
     harness: none
     model: openrouter/deepseek/deepseek-v4-flash
 
-# Stage 3: Validation — no LLM (rule-based)
+# validation: Validation — no LLM (rule-based)
 
-# Stage 4: Model Specification & Prior Elicitation
-stage4_prior_elicitation:
+# model-spec: Model Specification & Prior Elicitation
+prior_elicitation:
   max_tool_turns: 200
   literature_search:
     enabled: true
   paraphrasing:
     enabled: false
     n_paraphrases: 10
-    gmm_model: null          # optional; null = inherit stage's llm.model
+    gmm_model: null          # optional; null = inherit context's llm.model
   llm:
     harness: codex
     model: gpt-5.5
     timeout: 3600           # 60-min per-turn ceiling for xhigh reasoning on the megaprompt
 
-# Stages 5a/5b: Inference — no LLM (NumPyro SSM)
+# Inference — no LLM (NumPyro SSM)
 
-# Stage 6: Narrative Commentary
-stage6_commentary:
+# analysis: Narrative Commentary
+analysis_commentary:
   llm:
     harness: codex
     model: gpt-5.5

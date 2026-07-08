@@ -1,32 +1,38 @@
-import type { AnalysisManifest, AnalysisStageRun, AnalysisStageRuns } from "@/lib/api/analysis";
+import type {
+  AnalysisManifest,
+  AnalysisTransitionRun,
+  AnalysisTransitionRuns,
+} from "@/lib/api/analysis";
 import {
   getMachineDescription,
   getEpisodeStatus,
   getEpisodeTimeline,
   type EpisodeStatus,
+  type MachineDescription,
   type TransitionRecord,
 } from "@/lib/server/episode-runs";
 import { isStorageNotFoundError, readData } from "@/lib/storage";
-import { STAGES, type StageId } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS, type ArtifactViewId } from "@nof1-causal-lab/api-types";
 
-function emptyStageRun(): AnalysisStageRun {
+function emptyTransitionRun(): AnalysisTransitionRun {
   return { execution: null };
 }
 
-function isStageId(value: unknown): value is StageId {
-  return typeof value === "string" && STAGES.some((stage) => stage.id === value);
+function isArtifactViewId(value: unknown): value is ArtifactViewId {
+  return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
-function stageIdsByArtifact(
-  transitions: Awaited<ReturnType<typeof getMachineDescription>>["transitions"],
-) {
-  const entries: Array<[string, StageId]> = [];
-  for (const transition of transitions) {
-    if (isStageId(transition.runner_id)) {
-      entries.push([transition.transition_id, transition.runner_id]);
-    }
+function artifactViewOrder(machine: MachineDescription): ArtifactViewId[] {
+  const ordered = machine.topological_artifact_order.filter(isArtifactViewId);
+  const missing = TRANSITIONS.filter((transition) => !ordered.includes(transition.id)).map(
+    (transition) => transition.id,
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Machine description omits artifact views from topological order: ${missing.join(", ")}`,
+    );
   }
-  return Object.fromEntries(entries) as Partial<Record<string, StageId>>;
+  return ordered;
 }
 
 async function readEpisodeQuestion(
@@ -51,31 +57,28 @@ async function readEpisodeQuestion(
 }
 
 /**
- * Per-stage execution summaries from the episode journal: the latest
- * completed run attempt per stage wins (applied → completed, raised →
+ * Per-artifact execution summaries from the episode journal: the latest
+ * completed run attempt per artifact wins (applied -> completed, raised ->
  * failed; rejected attempts never executed).
  */
-function summarizeTimelineStageRuns(
-  transitions: TransitionRecord[],
-  artifactStageIds: Partial<Record<string, StageId>>,
-): AnalysisStageRuns {
-  const stages = Object.fromEntries(
-    STAGES.map((stage) => [stage.id, emptyStageRun()]),
-  ) as AnalysisStageRuns;
+function summarizeTimelineTransitionRuns(transitions: TransitionRecord[]): AnalysisTransitionRuns {
+  const transitionRuns = Object.fromEntries(
+    TRANSITIONS.map((transition) => [transition.id, emptyTransitionRun()]),
+  ) as AnalysisTransitionRuns;
 
   for (const record of transitions) {
     if (record.move.kind !== "run") {
       continue;
     }
-    const stageId = artifactStageIds[record.move.artifact_id];
-    if (!isStageId(stageId)) {
+    const artifactId = record.move.artifact_id;
+    if (!isArtifactViewId(artifactId)) {
       continue;
     }
     if (record.status === "rejected") {
       continue;
     }
 
-    stages[stageId] = {
+    transitionRuns[artifactId] = {
       execution: {
         stateType: record.status === "applied" ? "COMPLETED" : "FAILED",
         startTime: record.ts,
@@ -84,7 +87,7 @@ function summarizeTimelineStageRuns(
     };
   }
 
-  return stages;
+  return transitionRuns;
 }
 
 /**
@@ -110,9 +113,7 @@ export async function buildAnalysisManifest(
     workspaceId,
     createdAt: timeline.transitions[0].ts,
     question,
-    stages: summarizeTimelineStageRuns(
-      timeline.transitions,
-      stageIdsByArtifact(machine.transitions),
-    ),
+    transitionOrder: artifactViewOrder(machine),
+    transitionRuns: summarizeTimelineTransitionRuns(timeline.transitions),
   };
 }

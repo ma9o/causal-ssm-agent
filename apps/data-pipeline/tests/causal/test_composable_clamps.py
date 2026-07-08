@@ -1,4 +1,4 @@
-"""Tests for composable, windowed latent clamps (Stage 6 unified simulation).
+"""Tests for composable, windowed latent clamps (analysis unified simulation).
 
 Covers ``vmap_simulate_clamps_from_state`` + ``build_segment_bounds``: full-horizon
 clamps, finite windows that release to natural dynamics, mid-rollout onset (the

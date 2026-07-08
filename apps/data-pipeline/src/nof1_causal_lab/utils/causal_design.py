@@ -239,7 +239,7 @@ _WORKER_INDICATOR_KEYS = (
 
 
 def make_measurement_extraction_context(measurement_structure: dict) -> dict:
-    """Build minimal context needed by Stage 2 extraction workers.
+    """Build minimal context needed by extraction extraction workers.
 
     Workers need:
     - indicators: name, measurement_dtype, how_to_measure, source_columns,

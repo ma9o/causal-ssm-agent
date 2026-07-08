@@ -52,7 +52,7 @@ export function LLMTracePanelView({
     const el = scrollRef.current;
     if (!el) return;
     // Defer until after parent layout/animation settles so the container
-    // has its final constrained height (e.g. StageWithTrace motion).
+    // has its final constrained height (e.g. OutputWithTrace motion).
     const raf = requestAnimationFrame(() => {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     });

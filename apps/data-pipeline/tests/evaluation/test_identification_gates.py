@@ -1,4 +1,4 @@
-"""Identification gates: the registry's Stage 2 verdicts must match canonical truth.
+"""Identification gates: the registry's extraction verdicts must match canonical truth.
 
 The bow-arc case is the differentiator — it asserts the system *refuses*
 (declares non-identifiable) under latent confounding, which is the behavior no

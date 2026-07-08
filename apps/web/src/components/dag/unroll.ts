@@ -1,6 +1,6 @@
 /**
  * Time-unrolling for the causal-DAG renderers (shared by the static structure
- * DAG and the Stage 6 interactive DAG).
+ * DAG and the analysis interactive DAG).
  *
  * A lagged dependency — something at t−1 driving an effect at t — is drawn by
  * *unrolling time* rather than by tagging the edge: the t−1 source becomes a
@@ -13,7 +13,7 @@
  * the ghost fade, and the ghost→present link builder). It is deliberately NOT
  * in `core/`: the core renderer is domain-agnostic (plain `{nodes, edges}`),
  * whereas which links are temporal is a domain decision each consumer makes
- * (lagged structural edges here; NodePotential self-dynamics in Stage 6).
+ * (lagged structural edges here; NodePotential self-dynamics in analysis).
  */
 
 /** Suffix marking a node id as the t−1 (previous-timestep) ghost of its base. */
@@ -60,12 +60,12 @@ export function buildGhostLinks(links: TemporalLink[]): GhostLinks {
   return { ghosts: [...ghosts], edges };
 }
 
-/** Glyph/spacer node size — matches the Stage 6 interactive DAG's drift glyphs. */
+/** Glyph/spacer node size — matches the analysis interactive DAG's drift glyphs. */
 export const GLYPH_W = 86;
 export const GLYPH_H = 36;
 
 /**
- * ELK spacing shared with the Stage 6 interactive DAG so the structural and
+ * ELK spacing shared with the analysis interactive DAG so the structural and
  * intervention graphs lay out identically given the same node/edge structure.
  * (build-cone-graph keeps a matching local copy for now; unify when that path
  * is refactored onto this module.)
@@ -96,15 +96,15 @@ export interface GlyphSplit {
 
 /**
  * Split each pair `a → b` into `a → [glyph] → b`, inserting a glyph node on the
- * edge — the same construction the Stage 6 DAG uses. Putting a real node on every
+ * edge — the same construction the analysis DAG uses. Putting a real node on every
  * edge is what gives the layered layout its column rhythm (each edge spans an
  * extra layer), so structural and intervention graphs share it.
  *
- * `glyphSize` controls that node's footprint. Stage 6 uses the full GLYPH_W×GLYPH_H
+ * `glyphSize` controls that node's footprint. analysis uses the full GLYPH_W×GLYPH_H
  * because it draws a drift glyph there, and the box hides ELK's port-entry jog. The
  * structural DAG leaves the slot empty and draws the edge straight through (it
  * concatenates the `e<i>s` + `e<i>t` routed segments), so it passes a near-point
- * size: layer insertion is size-independent, so the columns still match Stage 6,
+ * size: layer insertion is size-independent, so the columns still match analysis,
  * but a point has no port-entry jog to expose — no squiggle.
  */
 export function splitEdgesWithGlyphs(

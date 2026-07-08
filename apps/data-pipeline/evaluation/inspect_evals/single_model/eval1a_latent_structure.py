@@ -1,13 +1,13 @@
-"""Inspect AI evaluation for Stage 1a: Latent Structure Proposal.
+"""Inspect AI evaluation for Target 1a: Latent Structure Proposal.
 
 Tests the orchestrator's ability to propose valid theoretical causal structures
 from a research question alone, WITHOUT seeing any data.
 
 This evaluates domain knowledge and causal reasoning, not data operationalization.
 
-Uses the same core logic as production (``run_stage1a``), driven through a real
-``StageSessionFactory`` for the model under test (the ``-T model=`` task arg,
-defaulting to the configured Stage 1 model).
+Uses the same core logic as production (``run_latent_structure``), driven through a real
+``ScopedSessionFactory`` for the model under test (the ``-T model=`` task arg,
+defaulting to the configured Target 1 model).
 
 Usage:
     inspect eval evals/single_model/eval1a_latent_structure.py -T model=openrouter/anthropic/claude-sonnet-4
@@ -33,13 +33,16 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure
-from nof1_causal_lab.flows.stages.stage1a.run import Stage1aResult, run_stage1a
+from nof1_causal_lab.flows.transitions.latent_structure.run import (
+    LatentStructureResult,
+    run_latent_structure,
+)
 
 
 def create_eval_dataset(questions: str | None = None) -> MemoryDataset:
     """Create evaluation dataset from questions.
 
-    Note: Stage 1a uses questions ONLY - no data samples.
+    Note: Target 1a uses questions ONLY - no data samples.
 
     Args:
         questions: Optional comma-separated selectors to filter questions.
@@ -55,7 +58,7 @@ def create_eval_dataset(questions: str | None = None) -> MemoryDataset:
     for q in all_questions:
         samples.append(
             Sample(
-                input=q.question,  # Just the question, stage1a builds the full prompt
+                input=q.question,  # Just the question, latent_structure builds the full prompt
                 id=f"q_{q.slug}",
                 metadata={
                     "question": q.question,
@@ -79,14 +82,14 @@ def latent_structure_scorer():
     """
 
     async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
-        # Get the Stage1aResult from metadata (set by solver)
-        result: Stage1aResult | None = state.metadata.get("stage1a_result")
+        # Get the LatentStructureResult from metadata (set by solver)
+        result: LatentStructureResult | None = state.metadata.get("latent_result")
 
         if result is None:
             return Score(
                 value=0.0,
                 answer="[No result]",
-                explanation="Stage 1a did not produce a result",
+                explanation="Target 1a did not produce a result",
             )
 
         # Validate against schema
@@ -116,7 +119,7 @@ def latent_structure_scorer():
 
 
 def latent_structure_solver(model: str | None = None):
-    """Solver that runs the production Stage 1a flow via a real session factory."""
+    """Solver that runs the production Target 1a flow via a real session factory."""
 
     @solver
     def _solver():
@@ -124,11 +127,11 @@ def latent_structure_solver(model: str | None = None):
             question = state.metadata.get("question", "")
 
             # Run the SAME core logic as production, on the model under test.
-            async with make_eval_session_factory("stage-1a", model) as factory:
-                result = await run_stage1a(question=question, session_factory=factory)
+            async with make_eval_session_factory("target-1a", model) as factory:
+                result = await run_latent_structure(question=question, session_factory=factory)
 
             # Store result in metadata for scorer
-            state.metadata["stage1a_result"] = result
+            state.metadata["latent_result"] = result
             state.output.completion = json.dumps(result.latent_structure, indent=2)
 
             return state
@@ -142,14 +145,14 @@ def latent_structure_solver(model: str | None = None):
 def latent_structure_eval(questions: str | None = None, model: str | None = None):
     """Evaluate LLM ability to propose theoretical causal structures (latent structures).
 
-    Stage 1a evaluation:
+    Target 1a evaluation:
     - Input: Research question only (NO data)
     - Output: LatentStructure (constructs + causal edges)
 
     Args:
         questions: Optional comma-separated question selectors (e.g. "1,3,5")
         model: Model under test as an ``openrouter/...`` slug; defaults to the
-            configured Stage 1 model.
+            configured Target 1 model.
     """
     return Task(
         dataset=create_eval_dataset(questions=questions),

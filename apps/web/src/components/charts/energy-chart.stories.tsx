@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
+import { posteriorAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
 import { EnergyChart } from "./energy-chart";
 
 const meta = {
@@ -14,5 +14,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { energy: stage5bAuxKalmanMCMC.mcmc_diagnostics!.energy! },
+  args: { energy: posteriorAuxKalmanMCMC.mcmc_diagnostics!.energy! },
 };

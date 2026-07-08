@@ -1,6 +1,6 @@
 """Declarative action/context hierarchy semantics."""
 
-from nof1_causal_lab.flows.stage_tools import STAGE_TOOLS
+from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
@@ -39,15 +39,12 @@ def _state(*infos):
 
 def test_context_tree_is_closed():
     context_ids = {context.context_id for context in CONTEXTS}
-    runner_ids = {spec.runner_id for spec in ARTIFACT_GRAPH}
 
     assert "navigator" in context_ids
     assert "episode-machine" in context_ids
     for context in CONTEXTS:
         if context.parent_id is not None:
             assert context.parent_id in context_ids
-        if context.runner_id is not None:
-            assert context.runner_id in runner_ids
 
 
 def test_transition_actions_cover_graph_exactly_once():
@@ -73,15 +70,15 @@ def test_every_transition_declares_a_creation_class():
         assert spec.creation_class in valid
 
 
-def test_lower_context_tools_are_declared_stage_tools():
-    tool_names_by_stage = {
-        stage_id: {tool.name for tool in tools} for stage_id, tools in STAGE_TOOLS.items()
+def test_lower_context_tools_are_declared_context_tools():
+    tool_names_by_context = {
+        context_id: {tool.name for tool in tools} for context_id, tools in CONTEXT_TOOLS.items()
     }
 
     for context in CONTEXTS:
-        if not context.allowed_tools or context.runner_id is None:
+        if not context.allowed_tools:
             continue
-        declared = tool_names_by_stage[context.runner_id]
+        declared = tool_names_by_context[context.context_id]
         assert set(context.allowed_tools).issubset(declared)
 
 
@@ -108,10 +105,10 @@ def test_action_legality_is_artifact_state_only():
     assert "specify.latent_structure" in with_question
     assert "specify.measurement" not in with_question
 
-    with_posterior = set(_state(_version("posterior", produced_by="stage-5b")).current)
+    with_posterior = set(_state(_version("posterior", produced_by="run:posterior")).current)
     assert with_posterior == {"posterior"}
     legal_with_posterior = set(
-        legal_action_ids(_state(_version("posterior", produced_by="stage-5b")))
+        legal_action_ids(_state(_version("posterior", produced_by="run:posterior")))
     )
     assert "analyze.save" in legal_with_posterior
 
@@ -119,12 +116,12 @@ def test_action_legality_is_artifact_state_only():
 def test_identification_gate_is_visible_at_action_level():
     state = _state(
         _version("question", provenance="human"),
-        _version("raw_data", produced_by="stage-0"),
-        _version("latent_structure", produced_by="stage-1a"),
-        _version("measurement_structure", produced_by="stage-1b"),
+        _version("raw_data", produced_by="run:raw_data"),
+        _version("latent_structure", produced_by="run:latent_structure"),
+        _version("measurement_structure", produced_by="run:measurement_structure"),
         _version("causal_design", produced_by="derive:causal_design"),
-        _version("measurements", produced_by="stage-2"),
-        _version("panel", produced_by="stage-2"),
+        _version("measurements", produced_by="run:measurements"),
+        _version("panel", produced_by="run:measurements"),
         _version("validation_report", produced_by="derive:validation_report"),
     )
 

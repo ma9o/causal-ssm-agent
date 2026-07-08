@@ -15,7 +15,7 @@ Usage:
     uv run python evals/scripts/run_parallel_evals.py --eval worker -n 10 --seed 123
     uv run python evals/scripts/run_parallel_evals.py --max-tasks 8
 
-    # Filter to specific Stage 1a questions
+    # Filter to specific Target 1a questions
     uv run python evals/scripts/run_parallel_evals.py -q 1,4
 """
 

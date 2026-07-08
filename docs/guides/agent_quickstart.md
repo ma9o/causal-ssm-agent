@@ -15,7 +15,7 @@ tool server with the episode facade (port `8100`), and the web viewer (port
 `3000`). See [agentic_integration_testing.md](agentic_integration_testing.md)
 for details.
 
-LLM-backed stages read the ambient `OPENROUTER_API_KEY` from the service's
+LLM-backed transitions read the ambient `OPENROUTER_API_KEY` from the service's
 environment — credentials are infra config, never per-move parameters.
 
 ## Drive the machine
@@ -34,10 +34,11 @@ from the API. The loop in brief:
 
 1. `GET /api/machine` once for the artifact graph and creation classes, then
    `GET /api/episodes/{workspace_id}` for the live state and legal moves.
-2. Propose moves at `POST /api/episodes/{workspace_id}/moves`: `run` a stage for
-   compute, or `write` a judgment artifact (latent structure, causal design, priors,
-   narrative) directly instead of running the in-service stage.
-3. Long stages (stage-4, stage-5b) can outlive a client timeout: prefer
+2. Propose moves at `POST /api/episodes/{workspace_id}/moves`: `run` an
+   artifact-named transition for compute, or `write` a judgment artifact
+   (`latent_structure`, `measurement_structure`, `statistical_model_spec`,
+   `baseline_report`) directly instead of running the in-service transition.
+3. Long transitions (`statistical_model_spec`, `posterior`) can outlive a client timeout: prefer
    `POST /api/episodes/{workspace_id}/auto`, then poll
    `GET /api/episodes/{workspace_id}`.
 4. Read outcomes from `GET /api/episodes/{workspace_id}/timeline` — a `raised`
@@ -45,7 +46,7 @@ from the API. The loop in brief:
    proposing again.
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
-running stage-0. The [integration testing guide](agentic_integration_testing.md)
+running the `raw_data` transition. The [integration testing guide](agentic_integration_testing.md)
 has end-to-end curl walkthroughs of the same flows.
 
 ## Publishing a workspace

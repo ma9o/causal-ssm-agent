@@ -8,8 +8,8 @@ back. Imported as `from evaluation... import ...` (repo root on `sys.path`).
 
 - **spine** — `contracts` · `registry` · `seeds` · `scenarios/` · `scorers/` ·
   `fixtures/` · `recovery/`: the importable library. A `Scenario` carries inputs
-  + truth, a `StageRunner` drives the live core, a `StageScorer` grades. Cells
-  are tagged `stage × mode × cost × cadence × kind × capability`.
+  + truth, a `TargetRunner` drives the live core, a `TargetScorer` grades. Cells
+  are tagged `target × mode × cost × cadence × kind × capability`.
 - **surfaces** — thin entrypoints: `inspect_evals/` (LLM evals via Inspect),
   `benchmarks/` (CLI/Modal recovery).
 - **data** — `data/questions/` (static fixtures), `data/cache/` (fetched
@@ -29,7 +29,7 @@ back. Imported as `from evaluation... import ...` (repo root on `sys.path`).
 
 ## Adding one
 
-- **Statistical benchmark** → a `Scenario` + `StageScorer` (+ `StageRunner` if
+- **Statistical benchmark** → a `Scenario` + `TargetScorer` (+ `TargetRunner` if
   it drives a live core), registered in `seeds.py`.
 - **LLM eval** → an Inspect `@task` in `inspect_evals/` that imports a `scorers/`
   function — do not write a new scorer there.

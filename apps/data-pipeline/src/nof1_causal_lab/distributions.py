@@ -67,7 +67,7 @@ class ObservationFamilyCatalogEntry:
 
 
 class PriorDistributionFamily(StrEnum):
-    """Distribution families allowed in Stage 4 prior proposals."""
+    """Distribution families allowed in model-spec prior proposals."""
 
     NORMAL = "Normal"
     HALF_NORMAL = "HalfNormal"
@@ -92,7 +92,7 @@ class PriorFamilySpec:
 
 @dataclass(frozen=True)
 class PriorParameterGuidanceRow:
-    """Parameter-level prior heuristics reused across Stage 4 prompts."""
+    """Parameter-level prior heuristics reused across model-spec prompts."""
 
     parameter_type: str
     typical_distribution: str
@@ -171,7 +171,7 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per endogenous time-varying construct",
         constraint="unit_interval",
         ssm_location="State-decay dynamics site",
-        note="Stage 4 elicits baseline discrete-time persistence absent feedback; "
+        note="model-spec elicits baseline discrete-time persistence absent feedback; "
         "[compilation](../compilation.md) binds it to the owning decay component "
         "and converts to continuous-time decay scale",
     ),
@@ -251,8 +251,8 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per non-reference indicator in multi-indicator constructs",
         constraint="positive",
         ssm_location="Observation model",
-        note="Stage 1b indicator polarity fixes each loading sign as either "
-        "`positive` or `negative`; Stage 4 no longer chooses loading orientation",
+        note="measurement-structure indicator polarity fixes each loading sign as either "
+        "`positive` or `negative`; model-spec no longer chooses loading orientation",
     ),
     ParameterRoleSpec(
         role="measurement_error_sd",

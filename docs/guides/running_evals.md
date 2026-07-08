@@ -2,11 +2,11 @@
 
 | File | Current pipeline area | What it tests |
 |------|-----------------------|---------------|
-| `evals/single_model/eval1a_latent_structure.py` | Stage 1a | Latent structure proposal (orchestrator) |
-| `evals/single_model/eval1b_measurement_structure.py` | Stage 1b | Measurement structure proposal |
-| `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
-| `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
-| `evals/multi_model/eval_demo_health_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `DEMO` fixture |
+| `evals/single_model/eval1a_latent_structure.py` | `latent_structure` | Latent structure proposal (orchestrator) |
+| `evals/single_model/eval1b_measurement_structure.py` | `measurement_structure` | Measurement structure proposal |
+| `evals/single_model/eval2_worker_extraction.py` | `measurements` | Worker data extraction |
+| `evals/multi_model/eval3_worker_measurement_adherence.py` | `measurements` workers | Judge-based worker adherence to measurement instructions |
+| `evals/multi_model/eval_demo_health_orchestrator.py` | `latent_structure` -> `measurement_structure` -> `measurements` | Judge-ranked orchestrator reproduction of the fixed `DEMO` fixture |
 
 Worker-facing evaluations load persisted workspace artifacts, not ad hoc preprocessed
 text files. The default workspace is `DEMO` from `evals/config.yaml`, and you
@@ -15,10 +15,10 @@ can override it with `workspace_id`.
 ## Run all models in parallel
 
 ```bash
-# Stage 1a orchestrator eval (default) — runs configured models concurrently
+# latent_structure orchestrator eval (default) — runs configured models concurrently
 uv run python evals/scripts/run_parallel_evals.py
 
-# Stage 2 worker eval against the default DEMO workspace
+# measurements worker eval against the default DEMO workspace
 uv run python evals/scripts/run_parallel_evals.py --eval worker
 uv run python evals/scripts/run_parallel_evals.py --eval worker --workspace-id MYWORKSPACE
 
@@ -29,11 +29,11 @@ uv run python evals/scripts/run_parallel_evals.py --eval worker --models gemini 
 # Customize worker sampling
 uv run python evals/scripts/run_parallel_evals.py --eval worker -n 10 --seed 123
 
-# Filter to specific Stage 1a questions
+# Filter to specific latent_structure questions
 uv run python evals/scripts/run_parallel_evals.py -q 1,3
 
-# Stage 1a aliases: claude, gemini, gpt, deepseek, kimi
-# Stage 2 aliases:   kimi, deepseek, gemini, grok, haiku, minimax, gpt-oss
+# latent_structure aliases: claude, gemini, gpt, deepseek, kimi
+# measurements aliases:      kimi, deepseek, gemini, grok, haiku, minimax, gpt-oss
 ```
 
 ## Run individual models
@@ -42,7 +42,7 @@ uv run python evals/scripts/run_parallel_evals.py -q 1,3
 # General pattern: pick an eval from the table above
 uv run inspect eval <eval_file> --model <model> [-T workspace_id=<WS>]
 
-# Example: Stage 1a with a specific model
+# Example: latent_structure with a specific model
 uv run inspect eval evals/single_model/eval1a_latent_structure.py \
     --model openrouter/anthropic/claude-opus-4.6
 

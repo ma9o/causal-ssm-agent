@@ -1,10 +1,10 @@
 # CausalDesign: Identifiability
 
-This reference covers the identifiability assumptions used by [Stage 1b](../../pipeline/01b-measurement-structure-identifiability.md): why treatment-outcome identifiability is checked there, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders.
+This reference covers the identifiability assumptions used by [`measurement_structure` transition](../../pipeline/measurement-structure.md): why treatment-outcome identifiability is checked there, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders.
 
-## What Stage 1b Checks
+## What `measurement_structure` transition Checks
 
-Stage 1b checks whether each treatment-to-outcome effect is causally identifiable under the latent graph and the measurement assumptions.
+`measurement_structure` transition checks whether each treatment-to-outcome effect is causally identifiable under the latent graph and the measurement assumptions.
 
 The unit of checking is one treatment-outcome pair at a time. Non-identifiability of one effect does not affect identifiability of others, because the ID algorithm[^shpitser2006] restricts attention to ancestors of the outcome; additions elsewhere cannot introduce new blocking structures.
 
@@ -37,7 +37,7 @@ but not via `U_{t-2}` or earlier, because `U_{t-1}` d-separates `U_{t-2}` from c
 
 The user-facing contract remains a DAG with explicit latent confounder nodes.
 
-Internally, Stage 1b may:
+Internally, `measurement_structure` transition may:
 
 1. unroll that DAG to two timesteps
 2. project the unrolled structure to an ADMG

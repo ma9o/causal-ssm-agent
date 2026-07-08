@@ -1,6 +1,6 @@
 """Validate ``config.yaml`` and jaxtyping runtime-check wiring.
 
-Reports schema errors (enum values, field-harness compatibility, Stage 2
+Reports schema errors (enum values, field-harness compatibility, extraction
 harness lock) and optionally runtime prereqs (binary on PATH, required env
 vars). Also verifies that every ``src/`` module using jaxtyping shape
 annotations is registered in ``--jaxtyping-packages`` (so its runtime shape

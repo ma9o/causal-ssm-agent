@@ -35,7 +35,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 **Justification:** Cyclic contemporaneous relationships are not identified without additional constraints such as instrumental variables or non-Gaussianity. Requiring acyclicity simplifies identification while allowing feedback dynamics through the temporal structure, as in dynamic SEM treatments[^asparouhov2018].
 
-**Identification implication:** A4 interacts with identifiability checking[^shpitser2006]. See [A3a](../causal-design/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach) for how Stage 1b unrolls the temporal graph to two timesteps and [the ADMG projection](../causal-design/identifiability.md#user-facing-dag-vs-internal-admg-projection) for the internal ID algorithm.
+**Identification implication:** A4 interacts with identifiability checking[^shpitser2006]. See [A3a](../causal-design/identifiability.md#a3a-latent-confounders-have-bounded-temporal-reach) for how the `measurement_structure` transition unrolls the temporal graph to two timesteps and [the ADMG projection](../causal-design/identifiability.md#user-facing-dag-vs-internal-admg-projection) for the internal ID algorithm.
 
 ## A4b. Endogenous Time-Varying Directed Effects Are Drift-Mediated
 
@@ -45,7 +45,7 @@ P(C_t | C_t-1, C_t-2, ..., C_1) = P(C_t | C_t-1)
 
 **Implications:**
 
-- Stage 1a rejects `lagged=false` edges between constructs that are both endogenous and time-varying
+- The `latent_structure` transition rejects `lagged=false` edges between constructs that are both endogenous and time-varying
 - Directed cross-construct effects among latent states are encoded as drift-mediated temporal dependence
 - Same-time co-movement should be represented by explicit latent confounders or diffusion covariance, depending on whether the dependence is theoretical or stochastic
 

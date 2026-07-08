@@ -1,4 +1,4 @@
-"""Canonical identification scenarios (diagnostic, Stage 2 gates).
+"""Canonical identification scenarios (diagnostic, Target 2 gates).
 
 Each isolates the identification capability against a textbook graph with a
 known verdict, fed straight to ``check_identifiability``. Truth is the expected
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from evaluation.contracts import Capability, Kind, Scenario, Stage
+from evaluation.contracts import Capability, Kind, Scenario, Target
 
 
 def _construct(name: str, *, is_outcome: bool = False) -> dict[str, Any]:
@@ -48,8 +48,8 @@ class IdentificationScenario(Scenario):
             "iv_allowed": self.iv_allowed,
         }
 
-    def truth_for(self, stage: Stage) -> Any | None:
-        if stage is Stage.IDENTIFICATION:
+    def truth_for(self, target: Target) -> Any | None:
+        if target is Target.IDENTIFICATION:
             return self.expected
         return None
 

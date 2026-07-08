@@ -1,12 +1,12 @@
-"""Inspect AI evaluation for Stage 1b: Measurement Structure with Identifiability.
+"""Inspect AI evaluation for Target 1b: Measurement Structure with Identifiability.
 
 Tests the orchestrator's ability to:
 1. Operationalize theoretical constructs into measurable indicators
 2. Check identifiability of target causal effects
 3. Request proxies for blocking confounders when needed
 
-Uses the same core logic as production (``run_stage1b``), driven through a real
-``StageSessionFactory`` for the model under test.
+Uses the same core logic as production (``run_measurement_structure``), driven through a real
+``ScopedSessionFactory`` for the model under test.
 
 Usage:
     inspect eval evals/single_model/eval1b_measurement_structure.py \
@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import json
 
 from evaluation.inspect_evals.common import (
-    load_workspace_stage1b_inputs,
+    load_workspace_measurement_structure_inputs,
     make_eval_session_factory,
 )
 from evaluation.scorers.measurement import score_measurement_structure
@@ -32,7 +32,10 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure
-from nof1_causal_lab.flows.stages.stage1b.run import Stage1bResult, run_stage1b
+from nof1_causal_lab.flows.transitions.measurement_structure.run import (
+    MeasurementStructureResult,
+    run_measurement_structure,
+)
 from nof1_causal_lab.utils.causal_design import get_all_treatments, get_outcome_name
 
 
@@ -42,9 +45,9 @@ def create_eval_dataset(
     """Create evaluation dataset.
 
     Args:
-        workspace_id: Workspace to load persisted Stage 0 and Stage 1a inputs from.
+        workspace_id: Workspace to load persisted Target 0 and Target 1a inputs from.
     """
-    inputs = load_workspace_stage1b_inputs(workspace_id)
+    inputs = load_workspace_measurement_structure_inputs(workspace_id)
     latent_structure = inputs["latent_structure"]
     outcome = get_outcome_name(latent_structure)
     treatments = get_all_treatments(latent_structure)
@@ -70,17 +73,17 @@ def create_eval_dataset(
 
 @scorer(metrics=[mean(), stderr()])
 def measurement_structure_scorer():
-    """Score Stage 1b results."""
+    """Score Target 1b results."""
 
     async def score(state: TaskState, target: Target) -> Score:  # noqa: ARG001
-        # Get the Stage1bResult from metadata (set by solver)
-        result: Stage1bResult | None = state.metadata.get("stage1b_result")
+        # Get the MeasurementStructureResult from metadata (set by solver)
+        result: MeasurementStructureResult | None = state.metadata.get("measurement_result")
 
         if result is None:
             return Score(
                 value=0.0,
                 answer="[No result]",
-                explanation="Stage 1b did not produce a result",
+                explanation="Target 1b did not produce a result",
             )
 
         latent_data = state.metadata.get("latent_structure", {})
@@ -118,7 +121,7 @@ def measurement_structure_scorer():
 
 
 def measurement_structure_solver(model: str | None = None):
-    """Solver that runs the production Stage 1b flow via a real session factory."""
+    """Solver that runs the production Target 1b flow via a real session factory."""
 
     @solver
     def _solver():
@@ -129,8 +132,8 @@ def measurement_structure_solver(model: str | None = None):
             dataset_summary = state.metadata.get("dataset_summary", "")
 
             # Run the SAME core logic as production, on the model under test.
-            async with make_eval_session_factory("stage-1b", model) as factory:
-                result = await run_stage1b(
+            async with make_eval_session_factory("target-1b", model) as factory:
+                result = await run_measurement_structure(
                     question=question,
                     latent_structure=latent_structure,
                     chunks=chunks,
@@ -139,7 +142,7 @@ def measurement_structure_solver(model: str | None = None):
                 )
 
             # Store result in metadata for scorer
-            state.metadata["stage1b_result"] = result
+            state.metadata["measurement_result"] = result
             state.output.completion = json.dumps(result.measurement_structure, indent=2)
 
             return state
@@ -154,9 +157,9 @@ def measurement_structure_eval(
     workspace_id: str | None = None,
     model: str | None = None,
 ):
-    """Evaluate Stage 1b using the production logic.
+    """Evaluate Target 1b using the production logic.
 
-    The eval uses the exact same run_stage1b() function as production, just with
+    The eval uses the exact same run_measurement_structure() function as production, just with
     a chosen model. This ensures the eval tests what actually runs.
 
     Scoring:
@@ -164,9 +167,9 @@ def measurement_structure_eval(
     - +10: All identifiable
 
     Args:
-        workspace_id: Workspace to load persisted Stage 0 and Stage 1a inputs from.
+        workspace_id: Workspace to load persisted Target 0 and Target 1a inputs from.
         model: Model under test as an ``openrouter/...`` slug; defaults to the
-            configured Stage 1 model.
+            configured Target 1 model.
     """
     return Task(
         dataset=create_eval_dataset(workspace_id=workspace_id),

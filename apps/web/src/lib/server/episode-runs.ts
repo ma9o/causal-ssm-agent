@@ -96,19 +96,20 @@ export interface EpisodeEvent {
 
 export interface MachineTransition {
   transition_id: EpisodeArtifactId;
-  runner_id: string;
 }
 
 export interface MachineDescription {
+  topological_artifact_order: EpisodeArtifactId[];
+  topological_transition_order: EpisodeArtifactId[];
   transitions: MachineTransition[];
 }
 
-/** The artifact a stage's human-edited result writes back into the machine. */
-export const STAGE_EDIT_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
-  "stage-1a": "latent_structure",
-  "stage-1b": "measurement_structure",
-  "stage-4": "statistical_model_spec",
-  "stage-6": "baseline_report",
+/** Artifacts a human-edited result can write back into the machine. */
+export const WRITABLE_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
+  latent_structure: "latent_structure",
+  measurement_structure: "measurement_structure",
+  statistical_model_spec: "statistical_model_spec",
+  baseline_report: "baseline_report",
 };
 
 export class EpisodeRunError extends Error {

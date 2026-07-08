@@ -4,7 +4,7 @@ When Temporal loses a workflow's in-memory history (dev-server restart), the
 artifacts survive on disk but the workflow's version-pointer state does not.
 The facade reseeds a fresh workflow from the journal's ``latest_state`` /
 ``latest_seq`` so it resumes with stages already produced and continues its
-sequence numbering, instead of re-running from stage-0.
+sequence numbering, instead of re-running from ingestion.
 """
 
 import uuid
@@ -44,12 +44,12 @@ def resume_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
     monkeypatch.setitem(
-        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "stage-0"))
+        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "ingestion"))
     )
     monkeypatch.setitem(
         runners_module._TRANSITION_RUNNERS,
         "latent_structure",
-        _fake_runner(("latent_structure", "stage-1a")),
+        _fake_runner(("latent_structure", "latent-structure")),
     )
     return f"ws-{uuid.uuid4().hex[:8]}"
 
@@ -92,7 +92,7 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                         EpisodeWorkflow.propose, MoveRequest(move=move, **kwargs)
                     )
 
-                # Run 1: drive through stage-0, then lose the workflow.
+                # Run 1: drive through ingestion, then lose the workflow.
                 first = await env.client.start_workflow(
                     EpisodeWorkflow.run,
                     EpisodeInit(workspace_id=workspace_id),

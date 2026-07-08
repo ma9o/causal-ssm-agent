@@ -259,7 +259,7 @@ export const mockTrace: LLMTrace = {
     {
       role: "system",
       content:
-        "You are generating follow-up simulations for Stage 6 of a causal state-space model. Compute intervention and counterfactual trajectories over the fitted latent graph.",
+        "You are generating follow-up simulations for analysis of a causal state-space model. Compute intervention and counterfactual trajectories over the fitted latent graph.",
       tool_is_error: false,
     },
     {

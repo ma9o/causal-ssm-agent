@@ -1,4 +1,4 @@
-"""Pure helper functions shared by stage helpers and the pipeline.
+"""Pure helper functions shared by transition helpers and the pipeline.
 
 No orchestration imports here, just data transformations.
 """
@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import polars as pl
 
-    from .stages.stage0.flow import IngestionResult
+    from .transitions.ingestion.flow import IngestionResult
 
 
 def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
     """Format a DataFrame schema and sample for LLM consumption.
 
-    Used by Stage 1b so the LLM can see what columns are available
+    Used by measurement-structure so the LLM can see what columns are available
     when proposing the measurement structure.
     """
     lines = ["## Dataset Schema\n"]
@@ -43,7 +43,7 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
     return "\n".join(lines)
 
 
-def build_stage0_payload(ingestion_result: IngestionResult) -> dict:
+def build_raw_data_payload(ingestion_result: IngestionResult) -> dict:
     """Build the web-serializable stage 0 payload from an IngestionResult."""
     return {
         "column_descriptions": [

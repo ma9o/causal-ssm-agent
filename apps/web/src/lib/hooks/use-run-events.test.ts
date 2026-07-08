@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cursorTimestampMs, parseStageProgressEvent } from "./use-run-events";
+import { cursorTimestampMs, parseTransitionProgressEvent } from "./use-run-events";
 
 describe("cursorTimestampMs", () => {
   it("parses the nanosecond prefix of an event cursor", () => {
@@ -12,18 +12,18 @@ describe("cursorTimestampMs", () => {
   });
 });
 
-describe("parseStageProgressEvent", () => {
+describe("parseTransitionProgressEvent", () => {
   const cursor = "01750000000000000000-abcd1234.json";
 
   it("parses running events", () => {
-    const event = parseStageProgressEvent({
-      event: "nof1-causal-lab.pipeline-stage.running",
-      payload: { stage_id: "stage-1a", status: "running" },
+    const event = parseTransitionProgressEvent({
+      event: "nof1-causal-lab.transition.running",
+      payload: { transition_id: "latent_structure", status: "running" },
       cursor,
     });
 
     expect(event).toEqual({
-      stageId: "stage-1a",
+      artifactId: "latent_structure",
       status: "running",
       eventTime: cursorTimestampMs(cursor),
       error: undefined,
@@ -31,10 +31,10 @@ describe("parseStageProgressEvent", () => {
   });
 
   it("parses failed events with error detail", () => {
-    const event = parseStageProgressEvent({
-      event: "nof1-causal-lab.pipeline-stage.failed",
+    const event = parseTransitionProgressEvent({
+      event: "nof1-causal-lab.transition.failed",
       payload: {
-        stage_id: "stage-2",
+        transition_id: "measurements",
         status: "failed",
         error: { type: "RuntimeError", message: "boom" },
       },
@@ -45,11 +45,11 @@ describe("parseStageProgressEvent", () => {
     expect(event?.error).toEqual({ type: "RuntimeError", message: "boom" });
   });
 
-  it("ignores non-stage-progress events", () => {
+  it("ignores non-transition-progress events", () => {
     expect(
-      parseStageProgressEvent({
-        event: "nof1-causal-lab.stage2.worker",
-        payload: { stage_id: "stage-2", type: "worker", worker_id: 1, state: "running" },
+      parseTransitionProgressEvent({
+        event: "nof1-causal-lab.extraction.worker",
+        payload: { context_id: "measurement", type: "worker", worker_id: 1, state: "running" },
         cursor,
       }),
     ).toBeNull();
@@ -57,9 +57,9 @@ describe("parseStageProgressEvent", () => {
 
   it("ignores malformed payloads", () => {
     expect(
-      parseStageProgressEvent({
-        event: "nof1-causal-lab.pipeline-stage.running",
-        payload: { stage_id: "not-a-stage", status: "running" },
+      parseTransitionProgressEvent({
+        event: "nof1-causal-lab.transition.running",
+        payload: { transition_id: "not-an-artifact", status: "running" },
         cursor,
       }),
     ).toBeNull();

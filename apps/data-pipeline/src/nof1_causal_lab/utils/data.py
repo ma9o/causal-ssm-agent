@@ -18,7 +18,7 @@ SECONDS_PER_DAY = 86400.0
 
 
 class ObservationRecord(TypedDict):
-    """Canonical serialized Stage 2 observation row."""
+    """Canonical serialized extraction observation row."""
 
     indicator: str
     value: str | int | float | bool | None
@@ -138,7 +138,7 @@ def annotate_observation_rows(
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:
-    """Attach observation metadata to long-format Stage 2 rows.
+    """Attach observation metadata to long-format extraction rows.
 
     The input ``time_col`` is the support-window start emitted by the computed
     and semantic extraction paths. The canonical observation-row contract keeps:
@@ -206,7 +206,7 @@ def annotate_observation_rows(
         )
 
     ts_expr = (
-        # Stage 2 merges support-window starts coming from both paths:
+        # extraction merges support-window starts coming from both paths:
         # computed rows use naive bucket strings while semantic rows can carry
         # the same UTC boundary with an explicit `+00:00` suffix from the
         # worker header. Normalize the redundant UTC suffix so mixed batches

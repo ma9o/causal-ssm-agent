@@ -128,7 +128,7 @@ def build_construct_order(causal_design: dict) -> list[str]:
     """Construct order (parents before children) along the causal arrows.
 
     The universe is the estimation projection's ``state_order`` — constructs
-    stage-1b marginalized, anchored, or dropped out of estimation carry no
+    measurement-structure marginalized, anchored, or dropped out of estimation carry no
     state, so there is nothing to admit for them (restricting the spec to one
     would fail compilation with an empty state_order).
 

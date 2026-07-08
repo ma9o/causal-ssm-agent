@@ -191,9 +191,9 @@ class TestRunWorkerExtraction:
                     measurement_structure=_measurement_structure(),
                     session_factory=factory,
                     logger=logger,
-                    call_label="stage2 chunk=3 windows=1 events=1",
+                    call_label="extraction chunk=3 windows=1 events=1",
                 )
             )
 
         assert result.dataframe.height == 1
-        assert "[stage2 chunk=3 windows=1 events=1] Calling extraction model" in caplog.text
+        assert "[extraction chunk=3 windows=1 events=1] Calling extraction model" in caplog.text

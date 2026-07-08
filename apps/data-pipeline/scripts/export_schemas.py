@@ -18,12 +18,12 @@ from typing import Any
 
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 
-# Import all stage contracts — this pulls in every nested domain model
-from nof1_causal_lab.flows.stage_contracts import (
+# Import all artifact contracts — this pulls in every nested domain model
+from nof1_causal_lab.flows.artifact_contracts import (
+    ARTIFACT_CONTRACTS,
+    CONTEXT_TOOLS,
     EXPORTED_TOOL_RESULT_MODELS,
-    INTERACTIVE_STAGES,
-    STAGE_CONTRACTS,
-    STAGE_TOOLS,
+    INTERACTIVE_CONTEXTS,
 )
 from nof1_causal_lab.models.ssm.parameterization import SiteKind
 
@@ -107,11 +107,11 @@ def _is_nullable(prop_schema: dict) -> bool:
 
 
 def export_schemas() -> dict:
-    """Build a combined JSON Schema with all stage contracts in $defs."""
+    """Build a combined JSON Schema with all artifact contracts in $defs."""
     all_defs: dict = {}
-    stage_refs: dict[str, dict] = {}
+    artifact_refs: dict[str, dict] = {}
 
-    for stage_id, model_cls in STAGE_CONTRACTS.items():
+    for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
         schema = model_cls.model_json_schema(mode="serialization")
 
         # Collect nested $defs
@@ -121,14 +121,14 @@ def export_schemas() -> dict:
         # Store the top-level contract under a clean name
         contract_name = model_cls.__name__
         all_defs[contract_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
-        stage_refs[stage_id] = {"$ref": f"#/$defs/{contract_name}"}
+        artifact_refs[artifact_id] = {"$ref": f"#/$defs/{contract_name}"}
 
     combined = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "CausalSSMContracts",
-        "description": "Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.",
+        "description": "Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.",
         "type": "object",
-        "properties": stage_refs,
+        "properties": artifact_refs,
         "$defs": dict(sorted(all_defs.items())),
     }
 
@@ -160,21 +160,21 @@ def export_tool_result_schemas() -> dict:
 
 
 def export_tool_schemas() -> dict:
-    """Build a JSON document describing all stage tools for TypeScript codegen.
+    """Build a JSON document describing all context tools for TypeScript codegen.
 
     Output structure::
 
         {
-          "stage-1a": [
+          "latent-structure": [
             {"name": "validate_latent_structure", "description": "...", "parameters": {...}},
           ],
           ...
-          "_interactive": ["stage-1a", "stage-1b", ...]
+          "_interactive": ["latent-structure", "measurement-structure", ...]
         }
     """
     result: dict[str, Any] = {}
-    for stage_id, tools in STAGE_TOOLS.items():
-        result[stage_id] = [
+    for context_id, tools in CONTEXT_TOOLS.items():
+        result[context_id] = [
             {
                 "name": tc.name,
                 "description": tc.description,
@@ -183,7 +183,7 @@ def export_tool_schemas() -> dict:
             }
             for tc in tools
         ]
-    result["_interactive"] = sorted(INTERACTIVE_STAGES)
+    result["_interactive"] = sorted(INTERACTIVE_CONTEXTS)
     return result
 
 

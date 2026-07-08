@@ -1,4 +1,4 @@
-import type { StageId } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
 export async function uploadFile(file: File, workspaceId: string): Promise<{ path: string }> {
@@ -13,6 +13,9 @@ export async function uploadFile(file: File, workspaceId: string): Promise<{ pat
   return res.json();
 }
 
-export async function getStageResult<T>(workspaceId: string, stage: StageId): Promise<T> {
-  return apiFetch<T>(`/api/results/${workspaceId}/${stage}`);
+export async function getArtifactView<T>(
+  workspaceId: string,
+  artifactId: ArtifactViewId,
+): Promise<T> {
+  return apiFetch<T>(`/api/artifacts/${workspaceId}/${artifactId}/view`);
 }

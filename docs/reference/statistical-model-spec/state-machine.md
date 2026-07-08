@@ -1,12 +1,12 @@
-# Stage 4 State Machine
+# Model-Spec State Machine
 
-This page explains the [Stage 4](../../pipeline/04-statistical-model-specification-priors.md) control loop at a high level. It is meant to answer questions like "what is the reducer trying to do?", "what can reopen?", and "why does the stage sometimes pause for validation before asking the LLM another question?"
+This page explains the [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md) control loop at a high level. It is meant to answer questions like "what is the reducer trying to do?", "what can reopen?", and "why does the transition sometimes pause for validation before asking the LLM another question?"
 
-For the exact block-by-block contract, see [LLM-Driven Stage 4 Specification](llm-driven-specification.md). For the artifact contract that downstream stages consume, see [Stage 4](../../pipeline/04-statistical-model-specification-priors.md).
+For the exact block-by-block contract, see [LLM-Driven `statistical_model_spec` transition Specification](llm-driven-specification.md). For the artifact contract that downstream transitions consume, see [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md).
 
 ## 1. What the State Machine Owns
 
-Stage 4 does not decide the causal graph, the retained indicators, or whether a causal estimand is graph-identified. Those decisions were already made upstream. Its job is narrower:
+`statistical_model_spec` transition does not decide the causal graph, the retained indicators, or whether a causal estimand is graph-identified. Those decisions were already made upstream. Its job is narrower:
 
 1. turn the fixed upstream structure into a prompt plan,
 2. collect a bounded set of model-form decisions,
@@ -15,7 +15,7 @@ Stage 4 does not decide the causal graph, the retained indicators, or whether a 
 5. validate the assembled result,
 6. reopen only the smallest scope that needs repair.
 
-The important design choice is that Stage 4 is not a free-form conversation. It is a controlled state machine with deterministic ordering and deterministic repair routing.
+The important design choice is that `statistical_model_spec` transition is not a free-form conversation. It is a controlled state machine with deterministic ordering and deterministic repair routing.
 
 ## 2. The Four Moving Pieces
 
@@ -50,7 +50,7 @@ The runtime is different from the plan. The runtime is the mutable session state
 
 | Runtime concern | Why it matters |
 |---|---|
-| Active cursor | Tells the stage which block is currently waiting on an LLM submission, or whether the stage is doing deterministic settling work between prompts. |
+| Active cursor | Tells the transition which block is currently waiting on an LLM submission, or whether the transition is doing deterministic settling work between prompts. |
 | Block status | Tracks whether each planned block is `pending`, `accepted`, `reopened`, or `inactive`. |
 | Draft model decisions | Holds accepted model-form choices before the full `StatisticalModelSpec` is locked. |
 | Accepted artifacts | Holds the locked `StatisticalModelSpec`, accepted priors, and latest accepted validation result. |
@@ -62,7 +62,7 @@ That split is the core mental model: the plan says what can happen, and the runt
 
 ```mermaid
 flowchart TD
-    A[Deterministic Skeleton] --> B[Immutable Stage 4 Plan]
+    A[Deterministic Skeleton] --> B[Immutable `statistical_model_spec` transition Plan]
     B --> C[Model Decisions]
     C --> D[Lock StatisticalModelSpec]
     D --> E[Model Review]
@@ -75,7 +75,7 @@ flowchart TD
     J --> F
 ```
 
-That picture hides one important detail: the stage alternates between two modes.
+That picture hides one important detail: the transition alternates between two modes.
 
 | Mode | What happens there |
 |---|---|
@@ -88,13 +88,13 @@ The LLM only acts in prompt mode. All routing decisions happen in settling mode.
 
 On the happy path, execution is simple.
 
-1. The stage asks for `model:configuration`.
+1. The transition asks for `model:configuration`.
 2. It asks for each ambiguous indicator decision in deterministic order.
 3. It pauses and tries to lock the full `StatisticalModelSpec`.
 4. It runs `review:statistical_model_spec`.
 5. It asks for prior blocks in deterministic order.
 6. Once the required active priors exist, it runs full assembly validation.
-7. If validation succeeds, the stage finishes.
+7. If validation succeeds, the transition finishes.
 
 Two points matter here.
 
@@ -104,7 +104,7 @@ Second, `review:prior_system` is not part of the nominal path. It exists as an e
 
 ## 6. Why the Lock Step Is a Separate State
 
-The transition from model decisions to prior authoring is not direct. Stage 4 first pauses to lock the `StatisticalModelSpec`.
+The transition from model decisions to prior authoring is not direct. `statistical_model_spec` transition first pauses to lock the `StatisticalModelSpec`.
 
 That lock step has one purpose: convert accepted draft decisions into one executable model form and verify that the assembled model is coherent before priors enter the picture.
 
@@ -112,7 +112,7 @@ At this point the state machine is asking a narrow question:
 
 "Given the accepted indicator choices and model-level switches, is there a valid `StatisticalModelSpec` to build on?"
 
-If the answer is no, the stage does not guess how to recover. It deterministically reopens the smallest model-form block that owns the problem.
+If the answer is no, the transition does not guess how to recover. It deterministically reopens the smallest model-form block that owns the problem.
 
 ## 7. Draft State Versus Accepted State
 
@@ -125,10 +125,10 @@ One of the most important moving pieces is the distinction between draft state a
 
 This separation gives the reducer two useful properties.
 
-1. A local failure does not force the stage to rebuild everything from scratch.
+1. A local failure does not force the transition to rebuild everything from scratch.
 2. Rejected compile attempts or prior-predictive failures do not overwrite the last accepted state.
 
-That is why the stage can reopen one scope while keeping the rest of the run stable.
+That is why the transition can reopen one scope while keeping the rest of the run stable.
 
 ## 8. Block Statuses Are the Control Surface
 
@@ -145,20 +145,20 @@ The reducer largely advances by changing these statuses and then asking, "what i
 
 ## 9. Prior Authoring Is Still Blocked and Incremental
 
-After the model form is locked, Stage 4 still does not open the full prior surface all at once. It walks the prior blocks one scope at a time.
+After the model form is locked, `statistical_model_spec` transition still does not open the full prior surface all at once. It walks the prior blocks one scope at a time.
 
 That matters for two reasons.
 
 | Reason | Consequence |
 |---|---|
-| Priors are authored incrementally | The stage can reject a narrow prior bundle without discarding unrelated accepted priors. |
+| Priors are authored incrementally | The transition can reject a narrow prior bundle without discarding unrelated accepted priors. |
 | The active parameter surface depends on the locked model form | Re-locking the model can deactivate some prior blocks or reactivate others, and the runtime resynchronizes block activity to match. |
 
-The stage is allowed to finish once the required active priors are present. Some parameter roles can remain optional for closure, so the state machine distinguishes "active prior surface" from "required to complete."
+The transition is allowed to finish once the required active priors are present. Some parameter roles can remain optional for closure, so the state machine distinguishes "active prior surface" from "required to complete."
 
 ## 10. Review Checkpoints Have Different Jobs
 
-Stage 4 has two conceptually different review checkpoints.
+`statistical_model_spec` transition has two conceptually different review checkpoints.
 
 | Checkpoint | Job |
 |---|---|
@@ -196,7 +196,7 @@ When that happens, the runtime opens a repair campaign.
 | Progress tracking | The runtime records which campaign blocks are already repaired and which are still pending. |
 | Optional barrier validation | Multi-block campaigns can require one joint validation pass after every reopened block has been edited. |
 
-This is the mechanism that keeps Stage 4 from accepting several locally plausible edits that only fail when assembled together.
+This is the mechanism that keeps `statistical_model_spec` transition from accepting several locally plausible edits that only fail when assembled together.
 
 ## 13. Barrier Validation Is the Joint-Coherence Check
 
@@ -206,7 +206,7 @@ Barrier validation asks:
 
 "Do these repaired blocks work together when reassembled into the current locked model and prior system?"
 
-If yes, the campaign clears and the stage returns to the ordinary flow.
+If yes, the campaign clears and the transition returns to the ordinary flow.
 
 If no, the failure is classified again and the repair scope can widen.
 
@@ -235,9 +235,9 @@ The state machine is done only when all of these conditions hold at once.
 | Locked model form exists | The reducer has an accepted `StatisticalModelSpec`. |
 | Required priors are covered | The active non-optional prior surface has accepted prior proposals. |
 | No active repair campaign remains | The run is no longer inside a coordinated repair scope. |
-| Latest accepted validation is clean enough to proceed | The stage is not ending on a compile failure or unresolved prior-predictive failure. |
+| Latest accepted validation is clean enough to proceed | The transition is not ending on a compile failure or unresolved prior-predictive failure. |
 
-Operationally, that means Stage 4 finishes with one accepted model form and one accepted prior system that passed assembled prior validation, not just with a sequence of accepted local edits.
+Operationally, that means `statistical_model_spec` transition finishes with one accepted model form and one accepted prior system that passed assembled prior validation, not just with a sequence of accepted local edits.
 
 ## 16. What This Page Intentionally Leaves Out
 
@@ -249,4 +249,4 @@ This page omits the plumbing details on purpose:
 - validator packet structure,
 - and the line-by-line repair-ladder implementation.
 
-Those details live in [LLM-Driven Stage 4 Specification](llm-driven-specification.md). This page is the shorter mental model for understanding why the Stage 4 reducer behaves the way it does.
+Those details live in [LLM-Driven `statistical_model_spec` transition Specification](llm-driven-specification.md). This page is the shorter mental model for understanding why the `statistical_model_spec` transition reducer behaves the way it does.

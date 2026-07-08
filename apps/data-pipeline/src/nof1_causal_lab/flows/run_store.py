@@ -1,6 +1,6 @@
 """Run-level artifact persistence for the causal inference pipeline.
 
-Run-dir I/O that remains outside the versioned artifact store: stage-4's
+Run-dir I/O that remains outside the versioned artifact store: model-spec's
 private compile-cache sidecar. Everything the machine owns lives in
 nof1_causal_lab.machine.store.
 """
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 # Filename constants for run artifacts
 # ---------------------------------------------------------------------------
 
-STAGE4_JAX_CACHE_FILENAMES = ("stage4-jax-cache.tar.gz",)
-STAGE4_JAX_CACHE_METADATA_FILENAMES = ("stage4-jax-cache-metadata.json",)
+MODEL_SPEC_JAX_CACHE_FILENAMES = ("model-spec-jax-cache.tar.gz",)
+MODEL_SPEC_JAX_CACHE_METADATA_FILENAMES = ("model-spec-jax-cache-metadata.json",)
 
 # ---------------------------------------------------------------------------
 # Path helpers

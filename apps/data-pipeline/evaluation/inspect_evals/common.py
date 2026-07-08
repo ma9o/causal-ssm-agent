@@ -212,7 +212,7 @@ class EvalQuestion:
 
     @property
     def has_full_spec(self) -> bool:
-        """Has statistical_model_spec + priors + causal_design (all Stage 4 artifacts)."""
+        """Has statistical_model_spec + priors + causal_design (all Target 4 artifacts)."""
         return self.has_statistical_model_spec and self.has_priors and self.has_causal_design
 
 
@@ -269,33 +269,37 @@ def get_generate_config() -> GenerateConfig:
     )
 
 
-def make_eval_session_factory(stage_id: str, model: str | None = None, *, max_tool_turns: int = 40):
-    """Open a real ``StageSessionFactory`` for the model under test.
+def make_eval_session_factory(
+    context_id: str, model: str | None = None, *, max_tool_turns: int = 40
+):
+    """Open a real ``ScopedSessionFactory`` for the model under test.
 
-    Returns the ``open_llm_stage`` async context manager, which yields a
-    :class:`~nof1_causal_lab.utils.agent_session.StageSessionFactory` bound to
+    Returns the ``open_llm_transition`` async context manager, which yields a
+    :class:`~nof1_causal_lab.utils.agent_session.ScopedSessionFactory` bound to
     the project's embedded OpenRouter backend — the same path production uses, so
-    the eval exercises the live stage code rather than an Inspect-mediated copy.
+    the eval exercises the live target code rather than an Inspect-mediated copy.
 
-    ``model`` defaults to the configured Stage 1 model and must be an
+    ``model`` defaults to the configured Target 1 model and must be an
     ``openrouter/...`` slug. Relies on ``OPENROUTER_API_KEY`` in the environment.
     """
     from nof1_causal_lab.flows import get_prefect_logger
-    from nof1_causal_lab.flows.llm_stage_runtime import LLMStageRuntimeConfig, open_llm_stage
-    from nof1_causal_lab.utils.config import StageLLMConfig, get_config
+    from nof1_causal_lab.flows.llm_transition_runtime import (
+        LLMTransitionRuntimeConfig,
+        open_llm_transition,
+    )
+    from nof1_causal_lab.utils.config import LLMProfileConfig, get_config
 
     config = get_config()
-    resolved_model = model or config.stage1_structure_proposal.llm.model
-    runtime = LLMStageRuntimeConfig(
-        stage_id=stage_id,
-        stage_llm=StageLLMConfig(harness="none", model=resolved_model),
+    resolved_model = model or config.structure_proposal.llm.model
+    runtime = LLMTransitionRuntimeConfig(
+        context_id=context_id,
+        profile_llm=LLMProfileConfig(harness="none", model=resolved_model),
         llm_defaults=config.llm,
         max_tool_turns=max_tool_turns,
     )
-    return open_llm_stage(
+    return open_llm_transition(
         config=runtime,
-        openrouter_api_key=None,
-        logger=get_prefect_logger(stage_id),
+        logger=get_prefect_logger(context_id),
     )
 
 
@@ -429,8 +433,8 @@ def load_workspace_question(workspace_id: str | None = None) -> str:
     return store.read_json_file("question", version, "question.json")["text"]
 
 
-def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, Any]:
-    """Load the exact Stage 1b inputs from a workspace's artifact store."""
+def load_workspace_measurement_structure_inputs(workspace_id: str | None = None) -> dict[str, Any]:
+    """Load the exact Target 1b inputs from a workspace's artifact store."""
     from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
 
     resolved = resolve_eval_workspace_id(workspace_id)
@@ -458,9 +462,9 @@ def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, 
     }
 
 
-def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, Any]:
-    """Load the exact Stage 2 semantic-worker inputs from a workspace's artifact store."""
-    from nof1_causal_lab.flows.stages.stage2.planning import prepare_semantic_chunks
+def load_workspace_extraction_inputs(workspace_id: str | None = None) -> dict[str, Any]:
+    """Load the exact Target 2 semantic-worker inputs from a workspace's artifact store."""
+    from nof1_causal_lab.flows.transitions.extraction.planning import prepare_semantic_chunks
     from nof1_causal_lab.utils.config import get_config
 
     resolved = resolve_eval_workspace_id(workspace_id)
@@ -479,10 +483,10 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
         if indicator.get("extraction_mode", "semantic") == "semantic"
     ]
     if not semantic_inds:
-        raise ValueError(f"Workspace '{resolved}' has no semantic indicators for Stage 2 evals")
+        raise ValueError(f"Workspace '{resolved}' has no semantic indicators for Target 2 evals")
 
     time_col = "timestamp"
-    stage2_workers = get_config().stage2_workers
+    extraction_workers = get_config().extraction_workers
     model_clock = causal_design.get("measurement", {}).get("model_clock", "1d")
     chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
         raw_df=raw_df,
@@ -490,12 +494,12 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
         causal_design=causal_design,
         model_clock=model_clock,
         time_col=time_col,
-        windows_per_chunk=stage2_workers.windows_per_chunk,
-        max_events_per_window=stage2_workers.max_events_per_window,
+        windows_per_chunk=extraction_workers.windows_per_chunk,
+        max_events_per_window=extraction_workers.max_events_per_window,
         max_windows=None,
     )
     if not chunk_texts:
-        raise ValueError(f"Workspace '{resolved}' produced no Stage 2 semantic chunks")
+        raise ValueError(f"Workspace '{resolved}' produced no Target 2 semantic chunks")
 
     return {
         "workspace_id": resolved,
@@ -507,15 +511,15 @@ def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, A
     }
 
 
-def get_stage2_eval_chunks(
+def get_extraction_eval_chunks(
     n_chunks: int,
     seed: int,
     workspace_id: str | None = None,
 ) -> dict[str, Any]:
-    """Sample Stage 2 semantic-worker chunks from a persisted workspace."""
-    stage2_inputs = load_workspace_stage2_inputs(workspace_id)
-    chunk_texts = sample_evenly(stage2_inputs["chunk_texts"], n_chunks, seed)
+    """Sample Target 2 semantic-worker chunks from a persisted workspace."""
+    extraction_inputs = load_workspace_extraction_inputs(workspace_id)
+    chunk_texts = sample_evenly(extraction_inputs["chunk_texts"], n_chunks, seed)
     return {
-        **stage2_inputs,
+        **extraction_inputs,
         "sampled_chunk_texts": chunk_texts,
     }

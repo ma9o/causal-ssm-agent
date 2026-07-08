@@ -1,4 +1,4 @@
-"""Prior Predictive Validation for Stage 4.
+"""Prior Predictive Validation for model-spec.
 
 Validates proposed priors by sampling from the prior predictive distribution
 and checking for domain violations (NaN/Inf, constraint violations, extreme
@@ -1079,7 +1079,7 @@ def validate_prior_predictive(
         constraint_tolerance: Fraction of positive-constraint violations to
             tolerate before flagging failure (default 5%).
         causal_design: CausalDesign dict for DAG-constrained masks
-        compiled_ssm: Optional precompiled artifact to reuse within a Stage 4
+        compiled_ssm: Optional precompiled artifact to reuse within a model-spec
             validation pass and avoid recompiling identical inputs.
 
     Returns:

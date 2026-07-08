@@ -556,7 +556,7 @@ class TestCausalDesign:
                 # stress has no indicator - it's a latent construct
             ],
         )
-        # This should now be valid - y0 will check identification in Stage 3
+        # This should now be valid - y0 will check identification in validation
         causal_design = CausalDesign(latent=latent, measurement=measurement)
         assert len(causal_design.latent.constructs) == 2
         assert len(causal_design.measurement.indicators) == 1

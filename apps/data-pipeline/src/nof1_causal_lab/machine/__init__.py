@@ -8,7 +8,7 @@ engine-agnostic core:
 - :mod:`graph` — the artifact-level dependency DAG
 - :mod:`hierarchy` — public actions, contexts, execution classes, write effects
 - :mod:`moves` — ``legal_moves`` / ``apply_transition`` / staleness / freshness
-- :mod:`errors` — typed stage-execution exceptions
+- :mod:`errors` — typed transition-execution exceptions
 
 Everything here is pure (no I/O, no engine imports) so it can run inside a
 Temporal workflow sandbox, a test, or a notebook unchanged. I/O lives in
@@ -26,7 +26,7 @@ from nof1_causal_lab.machine.errors import (
     ArtifactWriteRejected,
     ModelCompileError,
     ModelFitError,
-    StageExecutionError,
+    TransitionExecutionError,
 )
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
@@ -82,8 +82,8 @@ __all__ = [
     "Root",
     "RetractedArtifact",
     "RunArtifact",
-    "StageExecutionError",
     "Transition",
+    "TransitionExecutionError",
     "WRITABLE_ARTIFACTS",
     "WriteArtifact",
     "action_spec",

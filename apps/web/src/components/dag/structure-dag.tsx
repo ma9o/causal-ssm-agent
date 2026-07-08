@@ -24,7 +24,7 @@ interface StructureDagProps {
   edges: CausalEdge[];
   indicators?: Indicator[];
   /**
-   * Per-construct identifiability status (Stage 1b). Colors the node border and any
+   * Per-construct identifiability status (measurement-structure). Colors the node border and any
    * edge incident to it: blocking → destructive (red), marginalized → warning (amber).
    */
   nodeStatuses?: Record<string, ConstructStatus>;
@@ -49,7 +49,7 @@ function nodeHeight(indicatorCount: number): number {
 }
 
 // Edge colors as theme tokens. Lagged and contemporaneous causal edges are drawn
-// identically (as in the Stage 6 DAG) — the temporal slice is carried by the
+// identically (as in the analysis DAG) — the temporal slice is carried by the
 // faded t−1 self-dynamics ghosts, not by edge styling. Self-edges render fainter.
 const EDGE_DEFAULT = "var(--edge-contemporary)";
 const EDGE_BLOCKING = "var(--destructive)";
@@ -71,7 +71,7 @@ function edgeStatusColor(
  * Stitch the two glyph-split halves into one polyline and remove the spacer spur.
  * Splitting a → [spacer] → b makes ELK route into the spacer's ports; on a back-edge
  * it enters and exits the same side, leaving a short out-and-back "spur" by the
- * spacer (Stage 6 hides this behind its drift-glyph box; our empty slot would expose
+ * spacer (analysis hides this behind its drift-glyph box; our empty slot would expose
  * it as a squiggle). A spur is a H-V-H (or V-H-V) run whose outer two segments
  * reverse direction with only a short perpendicular hop between — that overshoot is
  * dropped. Genuine routing detours (large perpendicular travel to clear a node) are
@@ -208,7 +208,7 @@ function LegendSwatch({ border, faded }: { border?: string; faded?: boolean }) {
 /**
  * Static causal-structure DAG for Stages 1a/1b. Uses the bespoke core's node /
  * edge primitives (`DagNodeShell`, `DagEdge`, ELK routing) on the same scrollable,
- * content-sized canvas as the Stage 6 interactive DAG — full-size cards you scroll
+ * content-sized canvas as the analysis interactive DAG — full-size cards you scroll
  * and zoom, not a fit-to-box viewport — so the structural and intervention stages
  * read identically.
  *
@@ -218,14 +218,14 @@ function LegendSwatch({ border, faded }: { border?: string; faded?: boolean }) {
  * one), click-to-focus (highlight a node's neighborhood, dim the rest) with
  * `onNodeClick`, and edge hover.
  *
- * Topology AND layout mirror the Stage 6 interactive DAG (the reference "good
+ * Topology AND layout mirror the analysis interactive DAG (the reference "good
  * state"): the ELK graph is built the same way — every causal edge stays present
  * → present and is split a → [glyph] → b (the glyph node per edge is what gives
  * the layered layout its column rhythm; see `splitEdgesWithGlyphs`), each
  * endogenous latent gets a faded t−1 self-ghost (self-dynamics), and the same ELK
  * spacing (`DAG_LAYOUT_OPTIONS`) is used — so nodes land in the same columns. The
  * structural DAG leaves each glyph slot empty (drawing the edge straight through)
- * and uses compact cards instead of Stage 6's trajectory cards. It does not
+ * and uses compact cards instead of analysis's trajectory cards. It does not
  * cone-restrict: the structural stages show the full proposed model.
  */
 export function StructureDag({
@@ -256,7 +256,7 @@ export function StructureDag({
 
   const nodeWidth = indicatorsByConstruct.size > 0 ? NODE_W_WITH_INDICATORS : NODE_W;
 
-  // Same ELK construction as the Stage 6 interactive DAG: every causal edge is split
+  // Same ELK construction as the analysis interactive DAG: every causal edge is split
   // a → [spacer] → b, and each endogenous latent gets a faded t−1 self-ghost feeding
   // its present-time self. The spacer node per edge inserts an extra layer, which is
   // what gives the layered layout its column rhythm — so the structural and
@@ -327,7 +327,7 @@ export function StructureDag({
 
   return (
     <div style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif" }}>
-      {/* toolbar — mirrors the Stage 6 interactive DAG */}
+      {/* toolbar — mirrors the analysis interactive DAG */}
       <div
         style={{
           display: "flex",

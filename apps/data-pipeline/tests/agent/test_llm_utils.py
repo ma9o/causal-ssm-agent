@@ -307,7 +307,7 @@ class TestWorkerValidationTools:
 
         tool = Tool(
             name="validate_model",
-            description="Stage 4 validation tool.",
+            description="model-spec validation tool.",
             parameters={"type": "object", "properties": {}, "required": []},
             execute=_validate,
             stop_on_success=True,
@@ -350,7 +350,7 @@ class TestWorkerValidationTools:
 
         result = _run(
             multi_turn_generate(
-                messages=[{"role": "user", "content": "Submit the active Stage 4 block"}],
+                messages=[{"role": "user", "content": "Submit the active model-spec block"}],
                 model_name="test-model",
                 tools=[tool],
                 max_tool_turns=3,
@@ -890,7 +890,7 @@ class TestOpenRouterClient:
                     "test-model",
                     [{"role": "user", "content": "hello"}],
                     config=openrouter_client.GenerateConfig(),
-                    log_label="stage2 chunk=1",
+                    log_label="extraction chunk=1",
                 )
             )
 
@@ -1080,20 +1080,20 @@ class TestDictMessagesToChat:
 
 
 class TestMakeLLMStageRunner:
-    """Tests for the session-based make_llm_stage_runner wrapper."""
+    """Tests for the session-based make_llm_transition_runner wrapper."""
 
-    def test_forwards_stage_llm_via_session_factory(self, monkeypatch):
-        from nof1_causal_lab.flows.llm_stage_runtime import make_llm_stage_runner
-        from nof1_causal_lab.utils.agent_session import StageSessionFactory
+    def test_forwards_profile_llm_via_session_factory(self, monkeypatch):
+        from nof1_causal_lab.flows.llm_transition_runtime import make_llm_transition_runner
+        from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
         from nof1_causal_lab.utils.config import (
             ClaudeCodeDefaults,
             CodexDefaults,
             EmbeddedLLMDefaults,
             LLMDefaults,
-            StageLLMConfig,
+            LLMProfileConfig,
         )
 
-        stage_llm = StageLLMConfig(harness="none", model="openrouter/test-model")
+        profile_llm = LLMProfileConfig(harness="none", model="openrouter/test-model")
         llm_defaults = LLMDefaults(
             embedded=EmbeddedLLMDefaults(),
             claude_code=ClaudeCodeDefaults(),
@@ -1102,14 +1102,14 @@ class TestMakeLLMStageRunner:
         captured: dict[str, object] = {}
 
         async def orchestrator_fn(*, session_factory):
-            assert isinstance(session_factory, StageSessionFactory)
+            assert isinstance(session_factory, ScopedSessionFactory)
             captured["max_tool_turns"] = session_factory._max_tool_turns
             return {"ok": True}
 
-        runner = make_llm_stage_runner(
-            stage_id="test-stage",
+        runner = make_llm_transition_runner(
+            context_id="test-stage",
             orchestrator_fn=orchestrator_fn,
-            stage_llm_getter=lambda: stage_llm,
+            profile_llm_getter=lambda: profile_llm,
             llm_defaults_getter=lambda: llm_defaults,
             max_tool_turns_getter=lambda: 77,
             payload_builder=lambda result: result,

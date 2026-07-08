@@ -5,7 +5,7 @@ import {
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "./intervention-dag-semantics";
-import type { Stage6SimulationResult } from "./intervention-dag-types";
+import type { AnalysisSimulationResult } from "./intervention-dag-types";
 
 describe("intervention DAG semantics", () => {
   it("formats baseline-relative clamp labels from a baseline-start scenario", () => {
@@ -19,7 +19,7 @@ describe("intervention DAG semantics", () => {
         node_effect_trajectories: { lipid_burden: [1] },
         start_state: null,
       },
-    } as unknown as Stage6SimulationResult;
+    } as unknown as AnalysisSimulationResult;
 
     expect(formatScenarioActionDescription(result)).toBe("do(lipid_burden shift +1.0)");
     expect(getEffectTrajectoryDays(result)).toEqual([1]);

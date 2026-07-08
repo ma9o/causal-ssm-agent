@@ -1,4 +1,4 @@
-"""Stage 4 worker prompts: Prior Research and Elicitation.
+"""model-spec worker prompts: Prior Research and Elicitation.
 
 Each worker researches a single parameter, using literature evidence
 to propose an informed prior distribution.
@@ -44,7 +44,7 @@ __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 - AR coefficients (rho): Must be in [0, 1] as baseline persistence absent incoming feedback
 - Standard deviations: Must be positive
 - Correlations: Must be in [-1, 1]
-- Factor loadings: Must respect the fixed Stage 1b polarity (`positive` or `negative`)
+- Factor loadings: Must respect the fixed measurement-structure polarity (`positive` or `negative`)
 
 ## Output Format
 
@@ -340,7 +340,7 @@ def format_literature_for_parameter(
 
     lines.extend(
         [
-            "If you cite these results in a Stage 4 prior, each `sources` entry must be an object like:",
+            "If you cite these results in a model-spec prior, each `sources` entry must be an object like:",
             '`{"title": "...", "snippet": "...", "url": "https://...", "effect_size": "β=0.2", "study_interval_days": 7.0}`',
             "Only `title` and `snippet` are required. If you are unsure, use `sources: []` instead of a malformed entry.",
         ]

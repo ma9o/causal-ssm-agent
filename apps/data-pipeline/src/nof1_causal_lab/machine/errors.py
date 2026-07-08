@@ -4,7 +4,7 @@ Discriminator: an exception means the transition FAILED TO EXECUTE ITS
 CONTRACT — state must not change, and the failure is a property of the
 attempt (recorded in the transition log), never of the world. Negative
 findings (no estimable treatments, zero observations extracted) are NOT
-exceptions: those stages succeed and simply withhold their enabling
+exceptions: those transitions succeed and simply withhold their enabling
 artifact while producing a report.
 
 Temporal maps these to non-retryable ApplicationErrors; transient infra
@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import Any
 
 
-class StageExecutionError(Exception):
-    """A stage failed to produce its output artifacts.
+class TransitionExecutionError(Exception):
+    """A transition failed to produce its output artifacts.
 
     ``diagnostics`` carries whatever partial information the attempt yielded
     (e.g. sampler diagnostics from a diverged fit) — informative for the
@@ -29,20 +29,20 @@ class StageExecutionError(Exception):
         self,
         message: str,
         *,
-        stage_id: str,
+        transition_id: str,
         diagnostics: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
-        self.stage_id = stage_id
+        self.transition_id = transition_id
         self.diagnostics = diagnostics or {}
 
 
-class ModelCompileError(StageExecutionError):
-    """Stage 4 could not compile the proposed spec into an executable SSM."""
+class ModelCompileError(TransitionExecutionError):
+    """The model-spec transition could not compile an executable SSM."""
 
 
-class ModelFitError(StageExecutionError):
-    """Stage 5b inference failed to produce a usable posterior."""
+class ModelFitError(TransitionExecutionError):
+    """The posterior transition failed to produce a usable fit."""
 
 
 class ArtifactWriteRejected(ValueError):

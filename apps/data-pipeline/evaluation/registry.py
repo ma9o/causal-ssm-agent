@@ -1,6 +1,6 @@
-"""The capability-evaluation registry: ``(scenario x stage)`` cells with tiers.
+"""The capability-evaluation registry: ``(scenario x target)`` cells with tiers.
 
-Each :class:`RegistryEntry` pairs a scenario+stage with the runner that drives
+Each :class:`RegistryEntry` pairs a scenario+target with the runner that drives
 the live core and the scorer that grades it, tagged with a cost tier, a mode
 (gate vs benchmark) and a cadence. The content lives here once; the execution
 surfaces (pytest / CLI / Inspect) select rows by those tags.
@@ -18,9 +18,9 @@ from .contracts import (
     Mode,
     Scenario,
     Score,
-    Stage,
-    StageRunner,
-    StageScorer,
+    Target,
+    TargetRunner,
+    TargetScorer,
 )
 
 
@@ -29,16 +29,16 @@ class RegistryEntry:
     """One cell of the evaluation matrix."""
 
     scenario: Scenario
-    stage: Stage
-    runner: StageRunner
-    scorer: StageScorer
+    target: Target
+    runner: TargetRunner
+    scorer: TargetScorer
     cost: Cost
     mode: Mode
     cadence: Cadence
 
     @property
     def id(self) -> str:
-        return f"{self.scenario.name}:{self.stage.value}"
+        return f"{self.scenario.name}:{self.target.value}"
 
 
 REGISTRY: list[RegistryEntry] = []
@@ -54,7 +54,7 @@ def register(entry: RegistryEntry) -> RegistryEntry:
 
 def select(
     *,
-    stage: Stage | None = None,
+    target: Target | None = None,
     mode: Mode | None = None,
     cost: Cost | None = None,
     cadence: Cadence | None = None,
@@ -63,12 +63,12 @@ def select(
 ) -> list[RegistryEntry]:
     """Return registry entries matching every provided filter.
 
-    ``stage``/``mode``/``cost``/``cadence`` filter on the entry; ``kind`` and
+    ``target``/``mode``/``cost``/``cadence`` filter on the entry; ``kind`` and
     ``capability`` filter on the entry's scenario.
     """
     out = list(REGISTRY)
-    if stage is not None:
-        out = [e for e in out if e.stage == stage]
+    if target is not None:
+        out = [e for e in out if e.target == target]
     if mode is not None:
         out = [e for e in out if e.mode == mode]
     if cost is not None:
@@ -94,5 +94,5 @@ def evaluate(entry: RegistryEntry) -> Score:
             "drive it explicitly through the Inspect backend"
         )
     produced = entry.runner.run(entry.scenario)
-    truth = entry.scenario.truth_for(entry.stage)
+    truth = entry.scenario.truth_for(entry.target)
     return entry.scorer.score(produced, truth)

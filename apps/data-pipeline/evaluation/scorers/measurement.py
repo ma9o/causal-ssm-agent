@@ -1,10 +1,10 @@
-"""Measurement-structure (Stage 1b) scoring with the identifiability bonus.
+"""Measurement-structure (Target 1b) scoring with the identifiability bonus.
 
-Lifted out of the Inspect Stage 1b eval so the scoring is a single source shared
+Lifted out of the Inspect Target 1b eval so the scoring is a single source shared
 by the eval and any registry measurement row. ``score_measurement_structure`` is the
 core logic; ``MeasurementStructureScorer`` is the registry-shaped wrapper.
 
-``result`` is duck-typed to the Stage 1b result (``.measurement_structure``,
+``result`` is duck-typed to the Target 1b result (``.measurement_structure``,
 ``.identifiability_status``); ``latent`` is the proposed :class:`LatentStructure`.
 """
 
@@ -16,7 +16,7 @@ from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
 
 
 def score_measurement_structure(result: Any, latent: Any) -> dict[str, Any]:
-    """Score a Stage 1b result.
+    """Score a Target 1b result.
 
     Scoring rules:
     - +2 per valid indicator (references a known construct)

@@ -1,12 +1,12 @@
-import type { StageId } from "./stages";
+import type { ArtifactViewId } from "./transitions";
 
-export type StageStatus = "pending" | "running" | "completed" | "failed" | "blocked";
+export type ArtifactStatus = "pending" | "running" | "completed" | "failed" | "blocked";
 
 export type RunStatus = "pending" | "running" | "completed" | "failed";
 
-export interface StageState {
-  id: StageId;
-  status: StageStatus;
+export interface ArtifactViewState {
+  id: ArtifactViewId;
+  status: ArtifactStatus;
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
@@ -17,5 +17,5 @@ export interface PipelineRun {
   status: RunStatus;
   question: string;
   createdAt: string;
-  stages: StageState[];
+  artifacts: ArtifactViewState[];
 }

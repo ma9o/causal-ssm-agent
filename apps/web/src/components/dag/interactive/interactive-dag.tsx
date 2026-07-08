@@ -10,7 +10,7 @@ import {
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
-import type { Stage6SimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "../intervention-dag-types";
 import { baseId, buildGlyphGraph, CARD_H, CARD_W, GLYPH_H, GLYPH_W } from "./build-cone-graph";
 import {
   getAllEdgeDrift,
@@ -44,13 +44,13 @@ interface InteractiveDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
-  result: Stage6SimulationResult;
+  result: AnalysisSimulationResult;
   height?: number;
   onSimulate?: SimulateFn;
 }
 
 /**
- * Stage 6 "Living DAG" — a faithful port of the design playground. Layered
+ * analysis "Living DAG" — a faithful port of the design playground. Layered
  * cause→effect layout over the full projected estimation graph; every construct
  * carries its own counterfactual trajectory card; every cross-edge and
  * self-effect carries a two-panel drift glyph; one playhead sweeps them all;
@@ -262,7 +262,7 @@ export function InteractiveDag({
         </div>
       </div>
 
-      {/* stage */}
+      {/* output */}
       <div
         style={{
           background: "#fff",

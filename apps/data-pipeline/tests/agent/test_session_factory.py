@@ -2,10 +2,10 @@
 
 Verifies:
 - ``harness: none`` opens an :class:`EmbeddedSession` with config merged from
-  per-stage overrides + :class:`EmbeddedLLMDefaults`.
+  per-context overrides + :class:`EmbeddedLLMDefaults`.
 - ``harness: claude-code`` and ``harness: codex`` call into the harness
   openers with the correct merged kwargs.
-- ``max_tool_turns`` passed at call-time overrides per-stage and global
+- ``max_tool_turns`` passed at call-time overrides per-context and global
   defaults in the appropriate spot for each backend.
 - Unknown harness raises.
 """
@@ -21,7 +21,7 @@ from nof1_causal_lab.utils.config import (
     CodexDefaults,
     EmbeddedLLMDefaults,
     LLMDefaults,
-    StageLLMConfig,
+    LLMProfileConfig,
 )
 from tests.helpers import run_async as _run
 
@@ -52,7 +52,7 @@ def _defaults() -> LLMDefaults:
 
 class TestEmbeddedDispatch:
     def test_opens_embedded_session_with_merged_config(self):
-        stage = StageLLMConfig(harness="none", model="openrouter/test-model")
+        stage = LLMProfileConfig(harness="none", model="openrouter/test-model")
 
         async def scenario():
             async with open_session(
@@ -73,7 +73,7 @@ class TestEmbeddedDispatch:
         assert cfg.max_tool_output is None
 
     def test_per_stage_override_takes_precedence(self):
-        stage = StageLLMConfig(
+        stage = LLMProfileConfig(
             harness="none",
             model="openrouter/test-model",
             max_tokens=999,
@@ -115,11 +115,11 @@ class TestHarnessDispatch:
             stub_open_claude_harness_session,
         )
 
-        stage = StageLLMConfig(
+        stage = LLMProfileConfig(
             harness="claude-code",
             model="claude-sonnet-4-6",
-            effort="xhigh",  # per-stage override
-            max_budget_usd=5.0,  # per-stage override
+            effort="xhigh",  # per-context override
+            max_budget_usd=5.0,  # per-context override
         )
 
         async def scenario():
@@ -134,12 +134,12 @@ class TestHarnessDispatch:
 
         session = _run(scenario())
         assert session == "claude-stub"
-        # per-stage override wins
+        # per-context override wins
         assert captured["effort"] == "xhigh"
-        # max_tool_turns from call wins over per-stage max_turns (None) and global
+        # max_tool_turns from call wins over per-context max_turns (None) and global
         assert captured["max_turns"] == 99
         assert captured["max_budget_usd"] == 5.0
-        # bin inherits global default (no per-stage override)
+        # bin inherits global default (no per-context override)
         assert captured["bin"] == "claude"
         # model is passed through
         assert captured["model"] == "claude-sonnet-4-6"
@@ -158,10 +158,10 @@ class TestHarnessDispatch:
             stub_open_codex_harness_session,
         )
 
-        stage = StageLLMConfig(
+        stage = LLMProfileConfig(
             harness="codex",
             model="gpt-5.4",
-            reasoning_effort="high",  # per-stage override
+            reasoning_effort="high",  # per-context override
         )
 
         async def scenario():
@@ -182,7 +182,7 @@ class TestHarnessDispatch:
 
 class TestUnknownHarness:
     def test_raises(self):
-        stage = StageLLMConfig(harness="anthropic", model="x")
+        stage = LLMProfileConfig(harness="anthropic", model="x")
 
         async def scenario():
             async with open_session(stage, _defaults(), system_prompt=None, tools=[]) as _session:

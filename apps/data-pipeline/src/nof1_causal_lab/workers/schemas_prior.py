@@ -1,4 +1,4 @@
-"""Prior research schemas for Stage 4 workers.
+"""Prior research schemas for model-spec workers.
 
 These schemas define the structure for per-parameter prior research
 conducted by worker LLMs with Exa literature search.
@@ -102,7 +102,7 @@ class PriorPathologyCertificate(BaseModel):
 
 
 class PriorValidationResult(BaseModel):
-    """Typed Stage 4 validation diagnostic."""
+    """Typed model-spec validation diagnostic."""
 
     parameter: str = Field(description="Name of the parameter that was validated")
     is_valid: bool = Field(description="Whether the prior passed validation")

@@ -1,21 +1,20 @@
 "use client";
 
-import { recomputeStaleStages } from "@/lib/api/analysis";
+import { recomputeStaleArtifacts } from "@/lib/api/analysis";
 import { getEpisodeProgressQueryKey } from "@/lib/hooks/use-run-events";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@nof1-causal-lab/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useCallback, useState } from "react";
 
 /** Presentational banner — no hooks beyond local UI state. Used by stories too. */
 export function StaleRecomputeBannerView({
-  staleStageCount,
+  staleTransitionCount,
   recomputing,
   error,
   onRecompute,
 }: {
-  staleStageCount: number;
+  staleTransitionCount: number;
   recomputing: boolean;
   error?: string | null;
   onRecompute: () => void;
@@ -28,7 +27,7 @@ export function StaleRecomputeBannerView({
       <div className="flex items-center gap-2 text-sm">
         <RefreshCw className="h-4 w-4 shrink-0 text-warning-foreground" />
         <span className="font-medium text-warning-foreground">
-          {staleStageCount} stage{staleStageCount === 1 ? "" : "s"} have stale results
+          {staleTransitionCount} artifact{staleTransitionCount === 1 ? "" : "s"} have stale results
         </span>
         <span className="hidden text-muted-foreground sm:inline">
           — inputs changed since they last ran.
@@ -54,11 +53,11 @@ export function StaleRecomputeBannerView({
   );
 }
 
-export function countStaleStages(progress: PipelineProgress): number {
-  return STAGES.filter(
-    (stage) =>
-      (progress.staleArtifactsByStage[stage.id]?.length ?? 0) > 0 &&
-      progress.stages[stage.id] !== "running",
+export function countStaleTransitions(progress: PipelineProgress): number {
+  return progress.transitionOrder.filter(
+    (artifactId) =>
+      (progress.staleArtifactsByProducer[artifactId]?.length ?? 0) > 0 &&
+      progress.artifacts[artifactId] !== "running",
   ).length;
 }
 
@@ -83,7 +82,7 @@ export function StaleRecomputeBanner({
     setRecomputing(true);
     setError(null);
     try {
-      await recomputeStaleStages(workspaceId);
+      await recomputeStaleArtifacts(workspaceId);
       // Refetch immediately so auto_running flips and the poll resumes.
       await queryClient.invalidateQueries({
         queryKey: getEpisodeProgressQueryKey(workspaceId),
@@ -95,14 +94,14 @@ export function StaleRecomputeBanner({
     }
   }, [queryClient, recomputing, workspaceId]);
 
-  const staleStageCount = countStaleStages(progress);
-  if (staleStageCount === 0 || progress.autoRunning) {
+  const staleTransitionCount = countStaleTransitions(progress);
+  if (staleTransitionCount === 0 || progress.autoRunning) {
     return null;
   }
 
   return (
     <StaleRecomputeBannerView
-      staleStageCount={staleStageCount}
+      staleTransitionCount={staleTransitionCount}
       recomputing={recomputing}
       error={error}
       onRecompute={() => void handleRecompute()}

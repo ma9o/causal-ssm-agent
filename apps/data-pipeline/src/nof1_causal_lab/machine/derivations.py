@@ -164,7 +164,7 @@ def _derive_causal_design(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.stages.stage1b.assemble import build_causal_design
+    from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
     from nof1_causal_lab.models.ssm.compile.artifact import (
         collect_estimation_projection_compile_errors,
     )
@@ -198,8 +198,12 @@ def _derive_identification_report(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo | None:
-    from nof1_causal_lab.flows.stages.stage1b.contracts import IdentificationReportContract
-    from nof1_causal_lab.flows.stages.stage1b.identification import derive_identification_report
+    from nof1_causal_lab.flows.transitions.measurement_structure.contracts import (
+        IdentificationReportContract,
+    )
+    from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
+        derive_identification_report,
+    )
 
     causal_design = _read_causal_design(store, pins["causal_design"])
     report = derive_identification_report(causal_design)
@@ -219,8 +223,8 @@ def _derive_validation_report(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.stage_contracts import Stage3Contract
-    from nof1_causal_lab.flows.stages.stage3.flow import (
+    from nof1_causal_lab.flows.artifact_contracts import ValidationReportContract
+    from nof1_causal_lab.flows.transitions.validation.flow import (
         derive_validation_status,
         validate_extraction,
     )
@@ -241,7 +245,7 @@ def _derive_validation_report(
     ]
     dataset_issues = audit_result.get("dataset_issues", [])
     status = derive_validation_status([*indicator_issues, *dataset_issues])
-    payload = Stage3Contract.model_validate(
+    payload = ValidationReportContract.model_validate(
         {**audit_result, "is_valid": status["is_valid"]}
     ).model_dump(mode="json")
     return store.write_version(

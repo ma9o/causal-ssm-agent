@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EpisodeArtifactStatus } from "@/lib/api/analysis";
-import { groupStaleArtifactsByStage, hasStaleArtifacts } from "./artifact-staleness";
+import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "./artifact-staleness";
 
 function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactStatus {
   return {
@@ -9,26 +9,30 @@ function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactSta
     stale: false,
     version: 1,
     provenance: "computed",
-    produced_by: "stage-1a",
+    produced_by: "run:latent_structure",
     ...overrides,
   };
 }
 
-describe("groupStaleArtifactsByStage", () => {
-  it("groups stale existing artifacts by producing stage", () => {
+describe("groupStaleArtifactsByProducer", () => {
+  it("groups stale existing artifacts by producing artifact", () => {
     const report = [
-      artifact({ artifact_id: "latent_structure", stale: true, produced_by: "stage-1a" }),
+      artifact({
+        artifact_id: "latent_structure",
+        stale: true,
+        produced_by: "run:latent_structure",
+      }),
       artifact({
         artifact_id: "measurement_structure",
         stale: true,
-        produced_by: "stage-1b",
+        produced_by: "run:measurement_structure",
       }),
-      artifact({ artifact_id: "panel", stale: false, produced_by: "stage-2" }),
+      artifact({ artifact_id: "panel", stale: false, produced_by: "run:measurements" }),
     ];
 
-    expect(groupStaleArtifactsByStage(report)).toEqual({
-      "stage-1a": ["latent_structure"],
-      "stage-1b": ["measurement_structure"],
+    expect(groupStaleArtifactsByProducer(report)).toEqual({
+      latent_structure: ["latent_structure"],
+      measurement_structure: ["measurement_structure"],
     });
   });
 
@@ -38,24 +42,24 @@ describe("groupStaleArtifactsByStage", () => {
         artifact_id: "identification_report",
         exists: false,
         stale: true,
-        produced_by: "stage-1b",
+        produced_by: "run:measurement_structure",
       }),
     ];
 
-    expect(groupStaleArtifactsByStage(report)).toEqual({});
+    expect(groupStaleArtifactsByProducer(report)).toEqual({});
   });
 
-  it("ignores root artifacts with no producing stage", () => {
+  it("ignores root artifacts with no producer", () => {
     const report = [
       artifact({ artifact_id: "question", stale: true, produced_by: null, provenance: "human" }),
     ];
 
-    expect(groupStaleArtifactsByStage(report)).toEqual({});
+    expect(groupStaleArtifactsByProducer(report)).toEqual({});
   });
 });
 
 describe("hasStaleArtifacts", () => {
-  it("is true iff any stage-produced artifact is stale", () => {
+  it("is true iff any produced artifact is stale", () => {
     expect(hasStaleArtifacts([artifact({ stale: false })])).toBe(false);
     expect(hasStaleArtifacts([artifact({ stale: true })])).toBe(true);
   });

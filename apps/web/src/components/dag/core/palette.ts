@@ -1,5 +1,5 @@
 /**
- * Color language for the bespoke DAG renderer, matching the Stage 6 "Living DAG"
+ * Color language for the bespoke DAG renderer, matching the analysis "Living DAG"
  * design playground exactly. The one axis nodes & edges read on is pos/neg:
  * teal = above set-point / positive push, red = below / negative, calm neutral
  * near zero. Hex values are the playground's, kept literal for pixel fidelity.

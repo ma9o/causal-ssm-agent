@@ -165,14 +165,14 @@ class TestApplyTransition:
 class TestStaleness:
     def _fitted_chain(self):
         question = _version("question", provenance="human")
-        raw = _version("raw_data", produced_by="stage-0")
+        raw = _version("raw_data", produced_by="run:raw_data")
         latent_structure = _version(
-            "latent_structure", derived_from={"question": 1}, produced_by="stage-1a"
+            "latent_structure", derived_from={"question": 1}, produced_by="run:latent_structure"
         )
         measurement_structure = _version(
             "measurement_structure",
             derived_from={"question": 1, "raw_data": 1, "latent_structure": 1},
-            produced_by="stage-1b",
+            produced_by="run:measurement_structure",
         )
         causal_design = _version(
             "causal_design",
@@ -187,12 +187,12 @@ class TestStaleness:
         measurements = _version(
             "measurements",
             derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
-            produced_by="stage-2",
+            produced_by="run:measurements",
         )
         panel = _version(
             "panel",
             derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
-            produced_by="stage-2",
+            produced_by="run:measurements",
         )
         validation = _version(
             "validation_report",
@@ -208,7 +208,7 @@ class TestStaleness:
                 "panel": 1,
                 "validation_report": 1,
             },
-            produced_by="stage-4",
+            produced_by="run:statistical_model_spec",
         )
         compiled = _version(
             "compiled_ssm",
@@ -218,7 +218,7 @@ class TestStaleness:
         posterior = _version(
             "posterior",
             derived_from={"compiled_ssm": 1, "panel": 1},
-            produced_by="stage-5b",
+            produced_by="run:posterior",
         )
         return _state(
             question,

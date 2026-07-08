@@ -6,7 +6,7 @@
  *   cd apps/data-pipeline && uv run python scripts/export_schemas.py
  *   cd packages/api-types && bun run scripts/generate.ts
  *
- * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py
+ * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py
  */
 
 /**
@@ -83,7 +83,7 @@ export type InitializationPolicy = "stationary" | "free";
  */
 export type ObservationInterceptPolicy = "fixed" | "free";
 /**
- * Distribution families allowed in Stage 4 prior proposals.
+ * Distribution families allowed in model-spec prior proposals.
  */
 export type PriorDistributionFamily =
   | "Normal"
@@ -97,21 +97,21 @@ export type PriorDistributionFamily =
   | "Delta";
 
 /**
- * Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.
+ * Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.
  */
 export interface CausalSSMContracts {
-  "stage-0": Stage0Contract;
-  "stage-1a": Stage1AContract;
-  "stage-1b": Stage1BContract;
-  "stage-2": Stage2Contract;
-  "stage-3": Stage3Contract;
-  "stage-4": Stage4Contract;
-  "stage-5b": Stage5BContract;
-  "stage-6": Stage6Contract;
+  raw_data: RawDataContract;
+  latent_structure: LatentStructureContract;
+  measurement_structure: MeasurementStructureContract;
+  measurements: MeasurementsContract;
+  validation_report: ValidationReportContract;
+  statistical_model_spec: StatisticalModelSpecContract;
+  posterior: PosteriorContract;
+  baseline_report: BaselineReportContract;
 }
-export interface Stage0Contract {
+export interface RawDataContract {
   llm_trace?: LLMTrace | null;
-  column_descriptions: Stage0ColumnDescriptionContract[];
+  column_descriptions: RawDataColumnDescriptionContract[];
 }
 /**
  * Full trace of an LLM multi-turn conversation.
@@ -147,11 +147,11 @@ export interface TraceUsage {
   output_tokens: number;
   reasoning_tokens?: number | null;
 }
-export interface Stage0ColumnDescriptionContract {
+export interface RawDataColumnDescriptionContract {
   name: string;
   description: string;
 }
-export interface Stage1AContract {
+export interface LatentStructureContract {
   llm_trace?: LLMTrace | null;
   latent_structure: LatentStructure;
 }
@@ -229,7 +229,7 @@ export interface EdgeSource {
    */
   snippet: string;
 }
-export interface Stage1BContract {
+export interface MeasurementStructureContract {
   llm_trace?: LLMTrace | null;
   measurement_structure: MeasurementStructure;
 }
@@ -304,7 +304,7 @@ export interface ComputedRule {
    */
   window_expr: string;
 }
-export interface Stage2Contract {
+export interface MeasurementsContract {
   llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
 }
@@ -315,7 +315,7 @@ export interface WorkerStatusContract {
   n_windows: number;
   error?: string | null;
 }
-export interface Stage3Contract {
+export interface ValidationReportContract {
   is_valid: boolean;
   indicators: {
     [k: string]: IndicatorAuditContract | undefined;
@@ -361,7 +361,7 @@ export interface ValidationIssueContract {
   severity: "error" | "warning" | "info";
   message: string;
 }
-export interface Stage4Contract {
+export interface StatisticalModelSpecContract {
   llm_trace?: LLMTrace | null;
   statistical_model_spec: StatisticalModelSpec;
   authored_priors: {
@@ -511,7 +511,7 @@ export interface PriorSource {
    */
   study_interval_days?: number | null;
 }
-export interface Stage5BContract {
+export interface PosteriorContract {
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
   mcmc_diagnostics?: MCMCDiagnostics | null;
@@ -691,7 +691,7 @@ export interface PosteriorPair {
   y_values: number[];
   divergent?: boolean[] | null;
 }
-export interface Stage6Contract {
+export interface BaselineReportContract {
   llm_trace?: LLMTrace | null;
   intervention_results: TreatmentEffectContract[];
   saved_scenarios?: SavedScenarioContract[] | null;

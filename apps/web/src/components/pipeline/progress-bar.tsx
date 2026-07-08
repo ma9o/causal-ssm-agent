@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@nof1-causal-lab/api-types";
+import { TRANSITION_META } from "@nof1-causal-lab/api-types";
 import { Check, Loader2, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 
@@ -20,7 +20,9 @@ export function PipelineProgressBar({
 }) {
   if (!progress) return null;
 
-  const completed = STAGES.filter((s) => progress.stages[s.id] === "completed").length;
+  const completed = progress.transitionOrder.filter(
+    (artifactId) => progress.artifacts[artifactId] === "completed",
+  ).length;
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b px-4 py-2.5 sm:px-6 sm:py-3 lg:px-10 2xl:px-12">
@@ -42,16 +44,18 @@ export function PipelineProgressBar({
               </span>
             )}
             <span className="text-sm font-medium text-muted-foreground">
-              {completed}/{STAGES.length} stages
+              {completed}/{progress.transitionOrder.length} artifacts
             </span>
           </div>
         </div>
         {question && <p className="text-sm text-muted-foreground mb-1.5">{question}</p>}
         <div className="flex items-center gap-1.5">
-          {STAGES.map((stage) => {
-            const status = progress.stages[stage.id];
+          {progress.transitionOrder.map((artifactId) => {
+            const output = TRANSITION_META[artifactId];
+            const status = progress.artifacts[output.id];
             const stale =
-              (progress.staleArtifactsByStage[stage.id]?.length ?? 0) > 0 && status !== "running";
+              (progress.staleArtifactsByProducer[output.id]?.length ?? 0) > 0 &&
+              status !== "running";
             const isClickable = status !== "pending";
 
             const tooltipIcon =
@@ -80,14 +84,14 @@ export function PipelineProgressBar({
                       : "bg-secondary";
 
             return (
-              <Tooltip key={stage.id}>
+              <Tooltip key={output.id}>
                 <TooltipTrigger
                   className="group relative flex-1"
                   disabled={!isClickable}
                   onClick={() => {
                     if (!isClickable) return;
                     document
-                      .getElementById(stage.id)
+                      .getElementById(output.id)
                       ?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                 >
@@ -99,7 +103,7 @@ export function PipelineProgressBar({
                   <div className="flex items-center gap-1.5 text-xs whitespace-nowrap">
                     {tooltipIcon}
                     <span>
-                      {stage.number}. {stage.label}
+                      {output.label}
                       {tooltipSuffix}
                     </span>
                   </div>

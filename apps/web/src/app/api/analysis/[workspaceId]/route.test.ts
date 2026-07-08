@@ -17,7 +17,7 @@ const manifest = {
   workspaceId: "user-123",
   createdAt: "2026-05-07T00:00:00.000Z",
   question: "Did escitalopram help?",
-  stages: {},
+  transitionRuns: {},
 } as unknown as AnalysisManifest;
 
 describe("GET /api/analysis/[workspaceId]", () => {

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import {
   EpisodeRunError,
   proposeMove,
-  STAGE_EDIT_ARTIFACTS,
   startAutoRun,
+  WRITABLE_ARTIFACTS,
 } from "@/lib/server/episode-runs";
 import { isRecord } from "@/lib/utils/type-guards";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
@@ -11,28 +11,28 @@ import { normalizeWorkspaceId } from "@/lib/workspace-id";
 /**
  * POST /api/replay
  *
- * Writes the edited stage result back into the episode machine as a
+ * Writes the edited artifact result back into the episode machine as a
  * human-provenance artifact version, then starts the auto-run driver,
- * which recomputes the stages whose outputs went stale.
+ * which recomputes stale downstream artifacts.
  *
- * Body: { workspaceId: string, stageId: string, stageData: object }
+ * Body: { workspaceId: string, artifactId: string, payload: object }
  */
 export async function POST(request: Request) {
-  const { workspaceId, stageId, stageData } = await request.json();
+  const { workspaceId, artifactId, payload } = await request.json();
 
-  if (!workspaceId || !stageId || !stageData) {
+  if (!workspaceId || !artifactId || !payload) {
     return NextResponse.json(
-      { error: "Missing workspaceId, stageId, or stageData" },
+      { error: "Missing workspaceId, artifactId, or payload" },
       { status: 400 },
     );
   }
 
-  const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
-  if (!safeStageId || /[\\/]/.test(safeStageId)) {
-    return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
+  const safeArtifactId = typeof artifactId === "string" ? artifactId.trim() : "";
+  if (!safeArtifactId || /[\\/]/.test(safeArtifactId)) {
+    return NextResponse.json({ error: "Invalid artifactId format" }, { status: 400 });
   }
-  if (!isRecord(stageData)) {
-    return NextResponse.json({ error: "stageData must be an object" }, { status: 400 });
+  if (!isRecord(payload)) {
+    return NextResponse.json({ error: "payload must be an object" }, { status: 400 });
   }
 
   const safeWorkspaceId =
@@ -41,10 +41,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
 
-  const artifactId = STAGE_EDIT_ARTIFACTS[safeStageId];
-  if (!artifactId) {
+  const writableArtifactId = WRITABLE_ARTIFACTS[safeArtifactId];
+  if (!writableArtifactId) {
     return NextResponse.json(
-      { error: `Stage ${safeStageId} has no writable artifact` },
+      { error: `Artifact ${safeArtifactId} is not writable` },
       { status: 400 },
     );
   }
@@ -52,8 +52,8 @@ export async function POST(request: Request) {
   try {
     const outcome = await proposeMove(
       safeWorkspaceId,
-      { kind: "write", artifact_id: artifactId, provenance: "human" },
-      stageData,
+      { kind: "write", artifact_id: writableArtifactId, provenance: "human" },
+      payload,
     );
     if (outcome.status === "rejected") {
       return NextResponse.json({ error: outcome.reason ?? "Write move rejected" }, { status: 400 });

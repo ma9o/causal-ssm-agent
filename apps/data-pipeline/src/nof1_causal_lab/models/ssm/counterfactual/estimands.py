@@ -68,7 +68,7 @@ def resolve_action_value(
     value: float | None = None,
     amount: float | None = None,
 ) -> Array:
-    """Map a stage-6 set/shift action onto an absolute latent-space value."""
+    """Map a analysis set/shift action onto an absolute latent-space value."""
     baseline = jnp.asarray(baseline_value)
     if mode == "set":
         if value is None:

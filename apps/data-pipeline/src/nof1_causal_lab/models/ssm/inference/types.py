@@ -311,10 +311,10 @@ class InferenceResult:
 
 
 def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult | None:
-    """Reduce persisted inference output to the posterior samples Stage 6 uses.
+    """Reduce persisted inference output to the posterior samples analysis uses.
 
     Fits store dynamics parameters in ``_samples`` and keep retained latent
-    paths in ``diagnostics`` for Stage 6 counterfactual starts. Live inference
+    paths in ``diagnostics`` for analysis counterfactual starts. Live inference
     caches such as the MCMC object are not picklable and are dropped.
     """
     if result is None:
@@ -340,7 +340,7 @@ class FittedArtifact:
     ppc_result: dict[str, Any] | None = None
 
     def __getstate__(self) -> dict[str, Any]:
-        """Persist only the Stage 6 inputs, never live inference caches/backends."""
+        """Persist only the analysis inputs, never live inference caches/backends."""
         return {
             "result": _serialize_fitted_result(self.result),
             "spec": self.spec,

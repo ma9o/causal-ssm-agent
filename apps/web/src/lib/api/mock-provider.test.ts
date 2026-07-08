@@ -1,4 +1,4 @@
-import { STAGES } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 
@@ -62,21 +62,28 @@ describe("getMockFixture", () => {
 });
 
 describe("simulatePipelineEvents", () => {
-  it("emits paired start and complete callbacks for each declared stage", () => {
+  it("emits paired start and complete callbacks in machine order", () => {
     const events: Array<{ type: string; id: string }> = [];
+    const transitionOrder: ArtifactViewId[] = ["raw_data", "latent_structure", "measurements"];
 
-    const cleanup = simulatePipelineEvents({
-      onStageStart: (id) => events.push({ type: "start", id }),
-      onStageComplete: (id) => events.push({ type: "complete", id }),
-    });
+    const cleanup = simulatePipelineEvents(
+      {
+        onTransitionStart: (id) => events.push({ type: "start", id }),
+        onTransitionComplete: (id) => events.push({ type: "complete", id }),
+      },
+      transitionOrder,
+    );
 
-    expect(events).toHaveLength(STAGES.length * 2);
+    expect(events).toHaveLength(transitionOrder.length * 2);
     for (let index = 0; index < events.length; index += 2) {
       expect(events[index]?.type).toBe("start");
       expect(events[index + 1]?.type).toBe("complete");
       expect(events[index]?.id).toBe(events[index + 1]?.id);
     }
-    expect(new Set(events.map((event) => event.id)).size).toBe(STAGES.length);
+    expect(events.filter((event) => event.type === "start").map((event) => event.id)).toEqual(
+      transitionOrder,
+    );
+    expect(new Set(events.map((event) => event.id)).size).toBe(transitionOrder.length);
     cleanup();
   });
 });

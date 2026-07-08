@@ -30,7 +30,6 @@ class ContextSpec:
     layer: ContextLayer
     label: str
     parent_id: str | None = None
-    runner_id: str | None = None
     owns: tuple[ArtifactId, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     runtime_state: tuple[str, ...] = ()
@@ -44,7 +43,7 @@ class MachineMoveSpec:
 
 @dataclass(frozen=True)
 class ToolQuerySpec:
-    runner_id: str
+    context_id: str
     tool_name: str
     freshness_checked: bool = True
 
@@ -89,7 +88,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Ingestion file/code loop",
         parent_id="episode-machine",
-        runner_id="stage-0",
         owns=("raw_data",),
         allowed_tools=("list_files", "read_file_sample", "execute_python", "submit_table"),
         runtime_state=("prepared_input_dir", "sandbox", "result_df", "column_descriptions"),
@@ -99,7 +97,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Latent structure proposal loop",
         parent_id="episode-machine",
-        runner_id="stage-1a",
         owns=("latent_structure",),
         allowed_tools=("validate_latent_structure",),
         runtime_state=("question", "latent_structure_draft", "llm_trace"),
@@ -109,7 +106,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Measurement structure proposal loop",
         parent_id="episode-machine",
-        runner_id="stage-1b",
         owns=("measurement_structure",),
         allowed_tools=("validate_measurement_structure",),
         runtime_state=("latent_structure", "dataset_schema", "measurement_structure_draft"),
@@ -119,7 +115,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Indicator extraction worker fan-out",
         parent_id="episode-machine",
-        runner_id="stage-2",
         owns=("measurements", "panel"),
         allowed_tools=("validate_extractions",),
         runtime_state=("indicator_plan", "worker_statuses", "extracted_values"),
@@ -129,7 +124,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Model/prior reducer",
         parent_id="episode-machine",
-        runner_id="stage-4",
         owns=("statistical_model_spec",),
         allowed_tools=("search_literature", "submit_statistical_model_spec", "submit_priors"),
         runtime_state=(
@@ -146,7 +140,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Exact nonlinear SSM inference job",
         parent_id="episode-machine",
-        runner_id="stage-5b",
         owns=("posterior",),
         runtime_state=("sampler_config", "diagnostics", "fitted_artifact"),
     ),
@@ -155,7 +148,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Baseline causal ranking",
         parent_id="episode-machine",
-        runner_id="stage-6",
         owns=("baseline_report",),
         allowed_tools=("get_model_info", "simulate"),
         runtime_state=("identified_treatments", "effect_summaries", "llm_trace"),
@@ -372,7 +364,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("posterior", "causal_design", "identification_report"),
-        query=ToolQuerySpec(runner_id="stage-6", tool_name="simulate"),
+        query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.counterfactual",
@@ -382,7 +374,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("posterior", "causal_design", "identification_report"),
-        query=ToolQuerySpec(runner_id="stage-6", tool_name="simulate"),
+        query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.ppc",
@@ -476,7 +468,7 @@ def _query_dict(query: ToolQuerySpec | None) -> dict[str, str | bool] | None:
     if query is None:
         return None
     return {
-        "runner_id": query.runner_id,
+        "context_id": query.context_id,
         "tool_name": query.tool_name,
         "freshness_checked": query.freshness_checked,
     }
@@ -489,7 +481,6 @@ def describe_contexts() -> list[dict[str, object]]:
             "layer": context.layer,
             "label": context.label,
             "parent_id": context.parent_id,
-            "runner_id": context.runner_id,
             "owns": list(context.owns),
             "allowed_tools": list(context.allowed_tools),
             "runtime_state": list(context.runtime_state),
@@ -520,7 +511,6 @@ def describe_actions() -> list[dict[str, object]]:
 
 
 def _assert_hierarchy_consistent() -> None:
-    runner_ids = {spec.runner_id for spec in ARTIFACT_GRAPH}
     transition_ids = {spec.transition_id for spec in ARTIFACT_GRAPH}
     artifact_ids = set(ARTIFACT_IDS)
 
@@ -532,8 +522,6 @@ def _assert_hierarchy_consistent() -> None:
     for context in CONTEXTS:
         if context.parent_id is not None and context.parent_id not in CONTEXTS_BY_ID:
             raise AssertionError(f"Unknown parent context '{context.parent_id}'")
-        if context.runner_id is not None and context.runner_id not in runner_ids:
-            raise AssertionError(f"Unknown context runner '{context.runner_id}'")
         unknown_owned = set(context.owns) - artifact_ids
         if unknown_owned:
             raise AssertionError(f"{context.context_id} owns unknown artifacts: {unknown_owned}")
@@ -555,8 +543,8 @@ def _assert_hierarchy_consistent() -> None:
                 raise AssertionError(f"{action.action_id} runs unknown transition")
             if action.move.kind == "write" and action.move.artifact_id not in WRITABLE_ARTIFACTS:
                 raise AssertionError(f"{action.action_id} writes non-writable artifact")
-        if action.query is not None and action.query.runner_id not in runner_ids:
-            raise AssertionError(f"{action.action_id} queries unknown runner")
+        if action.query is not None and action.query.context_id not in CONTEXTS_BY_ID:
+            raise AssertionError(f"{action.action_id} queries unknown context")
         referenced = (
             *action.consumes,
             *action.produces,

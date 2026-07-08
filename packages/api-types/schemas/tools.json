@@ -1,5 +1,5 @@
 {
-  "stage-0": [
+  "ingestion": [
     {
       "name": "list_files",
       "description": "List files in the prepared input directory.",
@@ -85,10 +85,10 @@
       "result": null
     }
   ],
-  "stage-1a": [
+  "latent-structure": [
     {
       "name": "validate_latent_structure",
-      "description": "Tool for validating latent structure JSON (Stage 1a).",
+      "description": "Tool for validating latent structure JSON (latent-structure).",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -107,7 +107,7 @@
       "result": null
     }
   ],
-  "stage-1b": [
+  "measurement-structure": [
     {
       "name": "validate_measurement_structure",
       "description": "Validate measurement structure JSON and compiler constraints.",
@@ -129,7 +129,7 @@
       "result": null
     }
   ],
-  "stage-2": [
+  "measurement": [
     {
       "name": "validate_extractions",
       "description": "Tool for validating worker extraction output JSON.",
@@ -151,7 +151,7 @@
       "result": null
     }
   ],
-  "stage-4": [
+  "statistical-model-spec": [
     {
       "name": "search_literature",
       "description": "Search for empirical literature about effect sizes for model parameters.",
@@ -180,12 +180,12 @@
     },
     {
       "name": "submit_statistical_model_spec",
-      "description": "Submit the full Stage 4 StatisticalModelSpec for compile-only locking and validation.",
+      "description": "Submit the full model-spec StatisticalModelSpec for compile-only locking and validation.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "statistical_model_spec_json": {
-            "description": "The JSON string containing the complete StatisticalModelSpec to lock for Stage 4.",
+            "description": "The JSON string containing the complete StatisticalModelSpec to lock for model-spec.",
             "title": "Statistical Model Spec Json",
             "type": "string"
           }
@@ -200,7 +200,7 @@
     },
     {
       "name": "submit_priors",
-      "description": "Submit Stage 4 prior proposals for schema, compile, and prior-predictive validation.",
+      "description": "Submit model-spec prior proposals for schema, compile, and prior-predictive validation.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -219,10 +219,10 @@
       "result": null
     }
   ],
-  "stage-6": [
+  "ranking": [
     {
       "name": "get_model_info",
-      "description": "Return a read-only summary of the fitted model, variables, identifiability status, diagnostics, and stage-6 baseline effects.",
+      "description": "Return a read-only summary of the fitted model, variables, identifiability status, diagnostics, and baseline effects.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -440,7 +440,7 @@
               }
             ],
             "default": null,
-            "description": "Outcome construct. Defaults to the stage-1a outcome.",
+            "description": "Outcome construct. Defaults to the latent-structure outcome.",
             "title": "Outcome"
           },
           "query": {
@@ -818,7 +818,7 @@
                         "title": "Start State"
                       }
                     },
-                    "title": "Stage6VisualizationContract",
+                    "title": "BaselineReportVisualizationContract",
                     "type": "object"
                   },
                   {
@@ -901,9 +901,9 @@
     }
   ],
   "_interactive": [
-    "stage-1a",
-    "stage-1b",
-    "stage-4",
-    "stage-6"
+    "latent-structure",
+    "measurement-structure",
+    "ranking",
+    "statistical-model-spec"
   ]
 }

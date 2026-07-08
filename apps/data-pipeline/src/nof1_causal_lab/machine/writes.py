@@ -61,7 +61,7 @@ def _write_saved_scenarios(
     payload: dict[str, Any],
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.stages.stage6.contracts import SavedScenarioContract
+    from nof1_causal_lab.flows.transitions.analysis.contracts import SavedScenarioContract
 
     scenarios = payload.get("scenarios")
     if not isinstance(scenarios, list):
@@ -84,25 +84,28 @@ def _write_saved_scenarios(
 
 _CONTRACT_WRITES: dict[ArtifactId, tuple[type[BaseModel] | str, str]] = {
     "latent_structure": (
-        "Stage1aContract",
+        "LatentStructureContract",
         json_filename("latent_structure", "latent_structure"),
     ),
     "measurement_structure": (
-        "Stage1bContract",
+        "MeasurementStructureContract",
         json_filename("measurement_structure", "measurement_structure"),
     ),
     "statistical_model_spec": (
-        "Stage4Contract",
+        "StatisticalModelSpecContract",
         json_filename("statistical_model_spec", "statistical_model_spec"),
     ),
-    "baseline_report": ("Stage6Contract", json_filename("baseline_report", "baseline_report")),
+    "baseline_report": (
+        "BaselineReportContract",
+        json_filename("baseline_report", "baseline_report"),
+    ),
 }
 
 
 def _contract_class(name: str) -> type[BaseModel]:
-    from nof1_causal_lab.flows import stage_contracts
+    from nof1_causal_lab.flows import artifact_contracts
 
-    return getattr(stage_contracts, name)
+    return getattr(artifact_contracts, name)
 
 
 def _write_contract_artifact(

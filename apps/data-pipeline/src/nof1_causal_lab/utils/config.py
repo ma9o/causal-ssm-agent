@@ -30,7 +30,7 @@ HARNESS_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
 
 @dataclass(frozen=True)
 class EmbeddedLLMDefaults:
-    """Defaults for ``harness: none`` (OpenRouter) stages."""
+    """Defaults for ``harness: none`` (OpenRouter) contexts."""
 
     max_tokens: int = 65536
     timeout: int = 900
@@ -39,7 +39,7 @@ class EmbeddedLLMDefaults:
 
 @dataclass(frozen=True)
 class ClaudeCodeDefaults:
-    """Defaults for ``harness: claude-code`` stages."""
+    """Defaults for ``harness: claude-code`` contexts."""
 
     bin: str = "claude"
     effort: str = "high"
@@ -50,7 +50,7 @@ class ClaudeCodeDefaults:
 
 @dataclass(frozen=True)
 class CodexDefaults:
-    """Defaults for ``harness: codex`` stages."""
+    """Defaults for ``harness: codex`` contexts."""
 
     bin: str = "codex"
     reasoning_effort: str = "xhigh"
@@ -67,8 +67,8 @@ class LLMDefaults:
 
 
 @dataclass(frozen=True)
-class StageLLMConfig:
-    """Per-stage LLM selection and optional overrides.
+class LLMProfileConfig:
+    """Per-context LLM selection and optional overrides.
 
     ``harness`` discriminates the backend. ``model`` is always required.
     The remaining fields are optional and override the corresponding
@@ -96,39 +96,39 @@ class StageLLMConfig:
 
 
 # ---------------------------------------------------------------------------
-# Stage configs
+# Agentic context configs
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class Stage0Config:
-    """Stage 0: Agentic Data Ingestion."""
+class IngestionConfig:
+    """ingestion: Agentic Data Ingestion."""
 
-    llm: StageLLMConfig
+    llm: LLMProfileConfig
     max_tool_turns: int = 40
 
 
 @dataclass(frozen=True)
-class Stage1Config:
-    """Stage 1: Structure Proposal (Orchestrator)."""
+class StructureProposalConfig:
+    """Structure Proposal (orchestrator contexts)."""
 
-    llm: StageLLMConfig
+    llm: LLMProfileConfig
     sample_chunks: int = 10
     chunk_size: int = 100
-    stage1a_max_tool_turns: int = 40
-    stage1b_max_tool_turns: int = 40
+    latent_max_tool_turns: int = 40
+    measurement_max_tool_turns: int = 40
 
 
 @dataclass(frozen=True)
-class Stage2Config:
-    """Stage 2: Support-Window Extraction (Workers).
+class ExtractionWorkersConfig:
+    """extraction: Support-Window Extraction (Workers).
 
-    ``max_rpm`` only applies when ``llm.harness == 'none'``. Stage 2 must
+    ``max_rpm`` only applies when ``llm.harness == 'none'``. extraction must
     stay on the embedded backend because fanning out thousands of workers
     through a harness CLI is economically and latency-wise untenable.
     """
 
-    llm: StageLLMConfig
+    llm: LLMProfileConfig
     windows_per_chunk: int = 1
     max_concurrent_workers: int = 4
     max_events_per_window: int = 300
@@ -154,24 +154,24 @@ class ParaphrasingConfig:
     n_paraphrases: int = 10
     gmm_model: str | None = None
     """Override model name for inner paraphrase calls; inherits the
-    stage's ``llm.harness``. ``None`` means use the stage's main model."""
+    context's ``llm.harness``. ``None`` means use the context's main model."""
 
 
 @dataclass(frozen=True)
-class Stage4Config:
-    """Stage 4: Statistical Model Specification & Prior Elicitation."""
+class PriorElicitationConfig:
+    """model-spec: Statistical Model Specification & Prior Elicitation."""
 
-    llm: StageLLMConfig
+    llm: LLMProfileConfig
     max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
     paraphrasing: ParaphrasingConfig = field(default_factory=ParaphrasingConfig)
 
 
 @dataclass(frozen=True)
-class Stage6Config:
-    """Stage 6: Narrative commentary over intervention results and fit diagnostics."""
+class AnalysisCommentaryConfig:
+    """analysis: Narrative commentary over intervention results and fit diagnostics."""
 
-    llm: StageLLMConfig
+    llm: LLMProfileConfig
 
 
 # ---------------------------------------------------------------------------
@@ -297,11 +297,11 @@ class PipelineBehaviorConfig:
 class PipelineConfig:
     """Full pipeline configuration."""
 
-    stage0_ingestion: Stage0Config
-    stage1_structure_proposal: Stage1Config
-    stage2_workers: Stage2Config
-    stage4_prior_elicitation: Stage4Config
-    stage6_commentary: Stage6Config
+    ingestion: IngestionConfig
+    structure_proposal: StructureProposalConfig
+    extraction_workers: ExtractionWorkersConfig
+    prior_elicitation: PriorElicitationConfig
+    analysis_commentary: AnalysisCommentaryConfig
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     llm: LLMDefaults = field(default_factory=LLMDefaults)
     pipeline: PipelineBehaviorConfig = field(default_factory=PipelineBehaviorConfig)
@@ -337,15 +337,15 @@ def _find_config_path() -> Path:
     raise FileNotFoundError("config.yaml not found in any parent directory")
 
 
-def _parse_stage_llm(raw: dict, stage_name: str) -> StageLLMConfig:
-    """Parse a per-stage llm: block into a StageLLMConfig."""
+def _parse_profile_llm(raw: dict, context_name: str) -> LLMProfileConfig:
+    """Parse a per-context llm: block into a LLMProfileConfig."""
     if not isinstance(raw, dict):
-        raise ValueError(f"{stage_name}.llm must be a mapping")
+        raise ValueError(f"{context_name}.llm must be a mapping")
     if "harness" not in raw:
-        raise ValueError(f"{stage_name}.llm.harness is required")
+        raise ValueError(f"{context_name}.llm.harness is required")
     if "model" not in raw:
-        raise ValueError(f"{stage_name}.llm.model is required")
-    return StageLLMConfig(**raw)
+        raise ValueError(f"{context_name}.llm.model is required")
+    return LLMProfileConfig(**raw)
 
 
 def _parse_llm_defaults(raw: dict) -> LLMDefaults:
@@ -388,33 +388,33 @@ def load_config() -> PipelineConfig:
     llm_defaults = _parse_llm_defaults(raw.get("llm", {}) or {})
     inference_config = _parse_inference(raw.get("inference", {}) or {})
 
-    stage0_raw = raw.get("stage0_ingestion", {}) or {}
-    stage0_config = Stage0Config(
-        llm=_parse_stage_llm(stage0_raw["llm"], "stage0_ingestion"),
-        max_tool_turns=stage0_raw.get("max_tool_turns", 40),
+    ingestion_raw = raw.get("ingestion", {}) or {}
+    ingestion_config = IngestionConfig(
+        llm=_parse_profile_llm(ingestion_raw["llm"], "ingestion"),
+        max_tool_turns=ingestion_raw.get("max_tool_turns", 40),
     )
 
-    stage1_raw = raw.get("stage1_structure_proposal", {}) or {}
-    stage1_llm = _parse_stage_llm(stage1_raw["llm"], "stage1_structure_proposal")
-    stage1_config = Stage1Config(
-        llm=stage1_llm,
-        sample_chunks=stage1_raw.get("sample_chunks", 10),
-        chunk_size=stage1_raw.get("chunk_size", 100),
-        stage1a_max_tool_turns=stage1_raw.get("stage1a_max_tool_turns", 40),
-        stage1b_max_tool_turns=stage1_raw.get("stage1b_max_tool_turns", 40),
+    structure_raw = raw.get("structure_proposal", {}) or {}
+    structure_llm = _parse_profile_llm(structure_raw["llm"], "structure_proposal")
+    structure_config = StructureProposalConfig(
+        llm=structure_llm,
+        sample_chunks=structure_raw.get("sample_chunks", 10),
+        chunk_size=structure_raw.get("chunk_size", 100),
+        latent_max_tool_turns=structure_raw.get("latent_max_tool_turns", 40),
+        measurement_max_tool_turns=structure_raw.get("measurement_max_tool_turns", 40),
     )
 
-    stage2_raw = dict(raw.get("stage2_workers", {}) or {})
-    stage2_llm = _parse_stage_llm(stage2_raw.pop("llm"), "stage2_workers")
-    stage2_config = Stage2Config(llm=stage2_llm, **stage2_raw)
+    extraction_raw = dict(raw.get("extraction_workers", {}) or {})
+    extraction_llm = _parse_profile_llm(extraction_raw.pop("llm"), "extraction_workers")
+    extraction_config = ExtractionWorkersConfig(llm=extraction_llm, **extraction_raw)
 
-    stage4_raw = dict(raw.get("stage4_prior_elicitation", {}) or {})
-    stage4_llm = _parse_stage_llm(stage4_raw.pop("llm"), "stage4_prior_elicitation")
-    lit_search_raw = stage4_raw.pop("literature_search", {}) or {}
-    paraphrasing_raw = stage4_raw.pop("paraphrasing", {}) or {}
-    stage4_config = Stage4Config(
-        llm=stage4_llm,
-        max_tool_turns=stage4_raw.get("max_tool_turns", 40),
+    prior_raw = dict(raw.get("prior_elicitation", {}) or {})
+    prior_llm = _parse_profile_llm(prior_raw.pop("llm"), "prior_elicitation")
+    lit_search_raw = prior_raw.pop("literature_search", {}) or {}
+    paraphrasing_raw = prior_raw.pop("paraphrasing", {}) or {}
+    prior_config = PriorElicitationConfig(
+        llm=prior_llm,
+        max_tool_turns=prior_raw.get("max_tool_turns", 40),
         literature_search=LiteratureSearchConfig(**lit_search_raw)
         if lit_search_raw
         else LiteratureSearchConfig(),
@@ -423,8 +423,10 @@ def load_config() -> PipelineConfig:
         else ParaphrasingConfig(),
     )
 
-    stage6_raw = raw.get("stage6_commentary", {}) or {}
-    stage6_config = Stage6Config(llm=_parse_stage_llm(stage6_raw["llm"], "stage6_commentary"))
+    commentary_raw = raw.get("analysis_commentary", {}) or {}
+    commentary_config = AnalysisCommentaryConfig(
+        llm=_parse_profile_llm(commentary_raw["llm"], "analysis_commentary")
+    )
 
     pipeline_raw = raw.get("pipeline", {}) or {}
     pipeline_config = (
@@ -432,11 +434,11 @@ def load_config() -> PipelineConfig:
     )
 
     config = PipelineConfig(
-        stage0_ingestion=stage0_config,
-        stage1_structure_proposal=stage1_config,
-        stage2_workers=stage2_config,
-        stage4_prior_elicitation=stage4_config,
-        stage6_commentary=stage6_config,
+        ingestion=ingestion_config,
+        structure_proposal=structure_config,
+        extraction_workers=extraction_config,
+        prior_elicitation=prior_config,
+        analysis_commentary=commentary_config,
         inference=inference_config,
         llm=llm_defaults,
         pipeline=pipeline_config,
@@ -460,13 +462,13 @@ def get_config() -> PipelineConfig:
 # ---------------------------------------------------------------------------
 
 
-def _iter_stage_llms(config: PipelineConfig) -> list[tuple[str, StageLLMConfig]]:
+def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileConfig]]:
     return [
-        ("stage0_ingestion", config.stage0_ingestion.llm),
-        ("stage1_structure_proposal", config.stage1_structure_proposal.llm),
-        ("stage2_workers", config.stage2_workers.llm),
-        ("stage4_prior_elicitation", config.stage4_prior_elicitation.llm),
-        ("stage6_commentary", config.stage6_commentary.llm),
+        ("ingestion", config.ingestion.llm),
+        ("structure_proposal", config.structure_proposal.llm),
+        ("extraction_workers", config.extraction_workers.llm),
+        ("prior_elicitation", config.prior_elicitation.llm),
+        ("analysis_commentary", config.analysis_commentary.llm),
     ]
 
 
@@ -474,20 +476,20 @@ def validate_config(config: PipelineConfig) -> list[str]:
     """Validate the config's schema and cross-field constraints.
 
     Returns a list of error strings (empty on success). Each error is
-    prefixed with the config path (e.g. ``stage2_workers.llm.harness``).
+    prefixed with the config path (e.g. ``extraction_workers.llm.harness``).
     """
     errors: list[str] = []
 
-    for name, llm in _iter_stage_llms(config):
+    for name, llm in _iter_profile_llms(config):
         path = f"{name}.llm"
         if llm.harness not in HARNESS_VALUES:
             errors.append(f"{path}.harness: {llm.harness!r} not in {list(HARNESS_VALUES)}")
             continue
 
-        # Stage 2 fan-out constraint
-        if name == "stage2_workers" and llm.harness != "none":
+        # extraction fan-out constraint
+        if name == "extraction_workers" and llm.harness != "none":
             errors.append(
-                f"{path}.harness: must be 'none' for Stage 2 workers "
+                f"{path}.harness: must be 'none' for extraction workers "
                 "(harness cold-start × thousands of workers is untenable); "
                 f"got {llm.harness!r}"
             )
@@ -638,7 +640,7 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
     the first time each backend opens a session.
     """
     errors: list[str] = []
-    harnesses_used = {llm.harness for _name, llm in _iter_stage_llms(config)}
+    harnesses_used = {llm.harness for _name, llm in _iter_profile_llms(config)}
     if "none" in harnesses_used:
         errors.extend(_check_embedded_prereqs())
     if "claude-code" in harnesses_used:
@@ -656,7 +658,7 @@ def ensure_harness_prereqs(harness: str) -> None:
 
     Harness openers call this on first invocation so a pipeline with a
     logged-out CLI or a missing ``OPENROUTER_API_KEY`` fails within
-    milliseconds of starting the relevant stage, instead of crashing
+    milliseconds of starting the relevant context, instead of crashing
     deep inside the subprocess or the OpenAI SDK.
     """
     if harness in _verified_harnesses:

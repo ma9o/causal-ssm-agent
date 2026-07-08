@@ -1,4 +1,4 @@
-"""Parameter-recovery coverage scorer (Stage 4 inference).
+"""Parameter-recovery coverage scorer (Target 4 inference).
 
 Given posterior draws per parameter and the known true values, scores the
 fraction whose true value falls inside a central credible interval — the
@@ -15,20 +15,20 @@ from evaluation.contracts import (
     Mode,
     Scenario,
     Score,
-    Stage,
-    StageRunner,
-    StageScorer,
+    Target,
+    TargetRunner,
+    TargetScorer,
 )
 
 
-class SyntheticNonlinearRecoveryRunner(StageRunner):
+class SyntheticNonlinearRecoveryRunner(TargetRunner):
     """Simulates the synthetic-nonlinear fixture, fits it, returns the InferenceResult.
 
     A graded, on-demand (MANUAL / COMPUTE) benchmark: it runs the production
     ``fit`` on the same fixture the recovery benchmark uses.
     """
 
-    stage = Stage.INFERENCE
+    target = Target.INFERENCE
 
     def run(self, scenario: Scenario) -> Any:
         from evaluation.fixtures.synthetic_nonlinear import (
@@ -50,7 +50,7 @@ class SyntheticNonlinearRecoveryRunner(StageRunner):
         )
 
 
-class SyntheticNonlinearRecoveryScorer(StageScorer):
+class SyntheticNonlinearRecoveryScorer(TargetScorer):
     """Scores synthetic-nonlinear recovery via the lifted ``parameter_recovery``.
 
     ``produced`` is the fit ``InferenceResult``; the truth lives in the fixture's
@@ -58,7 +58,7 @@ class SyntheticNonlinearRecoveryScorer(StageScorer):
     scenario truth is ignored.
     """
 
-    stage = Stage.INFERENCE
+    target = Target.INFERENCE
 
     def score(self, produced: Any, truth: Any) -> Score:  # noqa: ARG002
         from evaluation.recovery.extraction import parameter_recovery
@@ -89,10 +89,10 @@ def interval_covers(
     return lo <= true_value <= hi
 
 
-class RecoveryScorer(StageScorer):
+class RecoveryScorer(TargetScorer):
     """Scores credible-interval coverage of known true parameter values."""
 
-    stage = Stage.INFERENCE
+    target = Target.INFERENCE
 
     def __init__(self, q_low: float = 5.0, q_high: float = 95.0) -> None:
         self.q_low = q_low

@@ -80,8 +80,8 @@ export default meta;
 
 type Story = StoryObj<typeof StructureDag>;
 
-/** Stage 1a — latent structure: clickable constructs, no indicators or statuses. */
-export const Stage1aLatentStructure: Story = {
+/** latent-structure — latent structure: clickable constructs, no indicators or statuses. */
+export const LatentStructureStory: Story = {
   render: () => {
     const [selected, setSelected] = useState<string | null>(null);
     return (
@@ -93,8 +93,8 @@ export const Stage1aLatentStructure: Story = {
   },
 };
 
-/** Stage 1b — measurement + identifiability: indicators, status borders, blocking edges. */
-export const Stage1bMeasurement: Story = {
+/** measurement-structure — measurement + identifiability: indicators, status borders, blocking edges. */
+export const MeasurementStructureStory: Story = {
   render: () => (
     <div className="p-4">
       <StructureDag

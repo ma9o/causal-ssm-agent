@@ -12,7 +12,7 @@ contraction, power-scaling).
 The checks are **pure**: each takes arrays already produced by the exact
 forward engine (Euler-Maruyama over the true nonlinear drift for latents,
 Diffrax for the prior predictive) and returns :class:`CheckResult`s. Nothing is
-simulated or linearized here — the caller (the Stage 4 construct reducer) feeds
+simulated or linearized here — the caller (the model-spec construct reducer) feeds
 these from ``sample_prior_predictive_from_runtime``. Keeping them array-in makes
 them engine-agnostic and trivially testable, and keeps this module free of any
 plotting or notebook dependency.

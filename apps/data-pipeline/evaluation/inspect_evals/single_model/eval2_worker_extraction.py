@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import json
 
 from evaluation.inspect_evals.common import (
-    get_stage2_eval_chunks,
+    get_extraction_eval_chunks,
     load_eval_config,
     make_generate_fn,
 )
@@ -54,16 +54,16 @@ def create_eval_dataset(
     Args:
         n_chunks: Number of chunks to include (each becomes a sample)
         seed: Random seed for reproducible chunk sampling
-        workspace_id: Workspace to load persisted Stage 2 inputs from.
+        workspace_id: Workspace to load persisted Target 2 inputs from.
 
     Returns:
         MemoryDataset with one sample per chunk
     """
-    stage2_inputs = get_stage2_eval_chunks(n_chunks, seed, workspace_id)
-    causal_design = stage2_inputs["causal_design"]
+    extraction_inputs = get_extraction_eval_chunks(n_chunks, seed, workspace_id)
+    causal_design = extraction_inputs["causal_design"]
     indicator_dtypes = _get_indicator_dtypes(causal_design)
     n_indicators = len(indicator_dtypes)
-    chunks = stage2_inputs["sampled_chunk_texts"]
+    chunks = extraction_inputs["sampled_chunk_texts"]
 
     samples = []
     for i, chunk in enumerate(chunks):
@@ -74,8 +74,8 @@ def create_eval_dataset(
                 metadata={
                     "chunk_index": i,
                     "chunk": chunk,
-                    "workspace_id": stage2_inputs["workspace_id"],
-                    "question": stage2_inputs["question"],
+                    "workspace_id": extraction_inputs["workspace_id"],
+                    "question": extraction_inputs["question"],
                     "causal_design": causal_design,
                     "n_indicators": n_indicators,
                     "indicator_dtypes": indicator_dtypes,
@@ -247,7 +247,7 @@ def worker_eval(
     Args:
         n_chunks: Number of chunks to include in evaluation
         seed: Random seed for chunk sampling (reproducibility)
-        workspace_id: Workspace to load persisted Stage 2 inputs from.
+        workspace_id: Workspace to load persisted Target 2 inputs from.
     """
     return Task(
         dataset=create_eval_dataset(

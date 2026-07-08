@@ -1,4 +1,4 @@
-"""Stage 4 Worker: Per-Parameter Prior Research.
+"""model-spec Worker: Per-Parameter Prior Research.
 
 Each worker researches a single parameter using:
 1. Targeted Exa literature search (cacheable, run once)

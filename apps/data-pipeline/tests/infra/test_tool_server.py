@@ -19,12 +19,12 @@ def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
 
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("stage-1a", "validate_latent_structure"),
+        ("latent-structure", "validate_latent_structure"),
         fake_impl,
     )
 
     response = client.post(
-        "/api/tools/stage-1a/validate_latent_structure",
+        "/api/tools/latent-structure/validate_latent_structure",
         json={"workspace_id": "user-123", "input": {}},
     )
 
@@ -38,12 +38,12 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
     monkeypatch.setattr(tool_server, "_build_context", lambda *_args, **_kwargs: {})
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("stage-1a", "validate_latent_structure"),
+        ("latent-structure", "validate_latent_structure"),
         lambda _ctx, _args: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     response = client.post(
-        "/api/tools/stage-1a/validate_latent_structure",
+        "/api/tools/latent-structure/validate_latent_structure",
         json={"workspace_id": "user-123", "input": {"structure_json": "{}"}},
     )
 
@@ -52,13 +52,13 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
         "detail": {
             "message": "boom",
             "exception_type": "RuntimeError",
-            "stage_id": "stage-1a",
+            "context_id": "latent-structure",
             "tool_name": "validate_latent_structure",
         }
     }
 
 
-def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
+def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
     import polars as pl
 
     from nof1_causal_lab.machine.artifacts import EpisodeState
@@ -89,7 +89,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         "causal_design",
         provenance="llm",
         derived_from={},
-        produced_by="stage-1b",
+        produced_by="run:measurement_structure",
         json_files={
             "causal_design.json": {"causal_design": {"identifiability": {}, "measurement": {}}}
         },
@@ -98,14 +98,14 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         "panel",
         provenance="computed",
         derived_from={"causal_design": 1},
-        produced_by="stage-2",
+        produced_by="run:measurements",
         parquet_files={"panel.parquet": model_data},
     )
     identification_report_info = store.write_version(
         "identification_report",
         provenance="computed",
         derived_from={"causal_design": 1},
-        produced_by="stage-1b",
+        produced_by="run:measurement_structure",
         json_files={
             "identification_report.json": {
                 "outcome_name": "sleep_quality",
@@ -118,7 +118,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
         "posterior",
         provenance="computed",
         derived_from={"panel": 1},
-        produced_by="stage-5b",
+        produced_by="run:posterior",
         json_files={"diagnostics.json": {"outcome": "warn"}},
         pickle_files={"fitted.pkl": fitted_artifact},
     )
@@ -152,7 +152,7 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
     monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
 
-    ctx = tool_server._build_stage6_context("user-123")
+    ctx = tool_server._build_ranking_context("user-123")
 
     assert isinstance(captured["model"], tool_server.SSMModel)
     # The runtime is rebuilt from the unpickled fitted artifact's spec, on the
@@ -162,21 +162,21 @@ def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch
     assert captured["data_for_model"].equals(model_data)
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime
-    assert ctx["stage-1b"] == {"causal_design": {"identifiability": {}, "measurement": {}}}
-    assert ctx["stage-5b"] == {"outcome": "warn"}
+    assert ctx["causal_design"] == {"causal_design": {"identifiability": {}, "measurement": {}}}
+    assert ctx["posterior"] == {"outcome": "warn"}
     assert ctx["_outcome_name"] == "sleep_quality"
     assert ctx["_identifiable_treatments"] == ["screen_time"]
     # Every serving-chain artifact pins current versions: nothing is stale.
     assert ctx["_stale_artifacts"] == []
 
 
-def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch, tmp_path):
+def test_execute_submit_priors_loads_runtime_via_context_registry(monkeypatch, tmp_path):
     import polars as pl
 
-    import nof1_causal_lab.flows.stages.stage4.grounding as stage4_grounding_module
-    import nof1_causal_lab.flows.stages.stage4.tool_registry as stage4_tool_registry
-    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
-        make_stage4_grounding_result,
+    import nof1_causal_lab.flows.transitions.model_spec.grounding as model_spec_grounding_module
+    import nof1_causal_lab.flows.transitions.model_spec.tool_registry as stage4_tool_registry
+    from nof1_causal_lab.flows.transitions.model_spec.agentic.feedback import (
+        make_model_spec_grounding_result,
     )
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import RunArtifact
@@ -190,7 +190,7 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
         "panel",
         provenance="computed",
         derived_from={},
-        produced_by="stage-2",
+        produced_by="run:measurements",
         parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
     )
     EpisodeJournal("user-123").append(
@@ -212,7 +212,7 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
         assert path == store.file_path("panel", 1, "panel.parquet")
         return expected_data_for_model
 
-    def fake_stage4_grounding(
+    def fake_model_spec_grounding(
         _data,
         causal_design,
         *,
@@ -224,34 +224,36 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
         captured["current"] = current
         captured["data_for_model"] = data_for_model
         captured["indicator_audits"] = indicator_audits
-        return make_stage4_grounding_result(
-            stage_output={"statistical_model_spec": {}},
+        return make_model_spec_grounding_result(
+            context_output={"statistical_model_spec": {}},
             status="accepted",
             feedback="VALID",
             retain_for_next_prompt=False,
-            capture_stage_output=True,
+            capture_context_output=True,
         )
 
     monkeypatch.setattr(stage4_tool_registry, "load_parquet", fake_load_parquet)
     monkeypatch.setattr(
         stage4_tool_registry,
-        "_load_stage4_current",
+        "_load_model_spec_current",
         lambda workspace_id: {
             "workspace_id": workspace_id,
             "statistical_model_spec": {"parameters": []},
         },
     )
-    monkeypatch.setattr(stage4_grounding_module, "stage4_grounding", fake_stage4_grounding)
+    monkeypatch.setattr(
+        model_spec_grounding_module, "model_spec_grounding", fake_model_spec_grounding
+    )
 
     result = tool_server._execute_submit_priors(
         {
             "_workspace_id": "user-123",
-            "stage-1b": {"causal_design": {"latent": {"constructs": []}}},
+            "causal_design": {"causal_design": {"latent": {"constructs": []}}},
         },
         {"priors_json": "{}"},
     )
 
-    assert result == {"result": "VALID", "stage_output": {"statistical_model_spec": {}}}
+    assert result == {"result": "VALID", "context_output": {"statistical_model_spec": {}}}
     assert captured == {
         "causal_design": {"latent": {"constructs": []}},
         "current": {"workspace_id": "user-123", "statistical_model_spec": {"parameters": []}},
@@ -350,8 +352,8 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "stage-6": {},
+        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
+        "baseline_report": {},
     }
     args = {
         "start": {"kind": "abducted"},
@@ -417,7 +419,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
 def test_simulate_intervention_dispatches_to_vector_field_path():
     """End-to-end: a vector-field-fitted InferenceResult flows through
-    ``_prepare_stage6_simulation`` and ``_execute_simulate_intervention``
+    ``_prepare_analysis_simulation`` and ``_execute_simulate_intervention``
     without touching the affine deterministic sample shape.
 
     Pins the Phase E dispatch: the tool_server endpoint inspects
@@ -476,8 +478,8 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "stage-6": {},
+        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
+        "baseline_report": {},
     }
     args = {
         "start": {"kind": "baseline"},
@@ -553,8 +555,8 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "stage-1b": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "stage-6": {},
+        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
+        "baseline_report": {},
     }
     args = {
         "start": {"kind": "abducted"},
@@ -579,7 +581,7 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
 def test_get_tool_schemas_exposes_declared_result_schema():
     client = TestClient(tool_server.app)
 
-    response = client.get("/api/tools/stage-6")
+    response = client.get("/api/tools/ranking")
 
     assert response.status_code == 200
     tools = {tool["name"]: tool for tool in response.json()}
@@ -614,7 +616,7 @@ def test_manifest_effects_include_interval_supported_outcome_indicators():
 
 def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():
     ctx = {
-        "stage-1b": {
+        "causal_design": {
             "causal_design": {
                 "latent": {
                     "constructs": [
@@ -671,8 +673,8 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
-        "stage-5b": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
-        "stage-6": {},
+        "posterior": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
+        "baseline_report": {},
         "_prepared_runtime": SimpleNamespace(
             manifest_names=["daily_event_count", "sleep_issue_searches"]
         ),

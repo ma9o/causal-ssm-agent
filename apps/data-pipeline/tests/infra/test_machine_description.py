@@ -20,11 +20,14 @@ def test_machine_description_serves_graph_and_classes():
         assert entry["consumes"] == list(spec.consumes)
         assert entry["produces"] == [spec.produces]
         assert entry["produces_optional"] == list(spec.produces_optional)
-        assert entry["runner_id"] == spec.runner_id
         assert entry["creation_class"] == spec.creation_class
         assert entry["writable"] == spec.writable
     derivations = {entry["produces"]: entry for entry in description["derivations"]}
     assert set(derivations) == {spec.produces for spec in DERIVATIONS}
+    assert "validation_report" in description["topological_artifact_order"]
+    assert description["topological_artifact_order"].index("measurements") < description[
+        "topological_artifact_order"
+    ].index("validation_report")
     assert description["topological_transition_order"][0] == "raw_data"
     assert "question" in description["artifact_ids"]
     assert {entry["action_id"] for entry in description["actions"]} == {

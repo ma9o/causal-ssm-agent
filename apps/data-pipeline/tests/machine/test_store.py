@@ -49,7 +49,7 @@ class TestArtifactStore:
             "causal_design",
             provenance="computed",
             derived_from={"question": 1, "raw_data": 2, "latent_structure": 1},
-            produced_by="stage-1b",
+            produced_by="run:measurement_structure",
             json_files={"causal_design.json": {"latent": {}}},
         )
         loaded = store.read_meta("causal_design", info.version)
@@ -64,7 +64,7 @@ class TestArtifactStore:
             "panel",
             provenance="computed",
             derived_from={},
-            produced_by="stage-2",
+            produced_by="run:measurements",
             parquet_files={"panel.parquet": df},
             pickle_files={"aux.pkl": {"answer": 42}},
         )

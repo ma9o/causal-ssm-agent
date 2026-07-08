@@ -1,4 +1,4 @@
-"""Shared contract primitives for persisted stage payloads and tool schemas."""
+"""Shared contract primitives for persisted artifact payloads and tool schemas."""
 
 from __future__ import annotations
 
@@ -9,15 +9,15 @@ from pydantic import BaseModel, ConfigDict
 
 from nof1_causal_lab.utils.llm import LLMTrace  # noqa: TC001
 
-StageId = Literal[
-    "stage-0",
-    "stage-1a",
-    "stage-1b",
-    "stage-2",
-    "stage-3",
-    "stage-4",
-    "stage-5b",
-    "stage-6",
+ArtifactContractId = Literal[
+    "raw_data",
+    "latent_structure",
+    "measurement_structure",
+    "measurements",
+    "validation_report",
+    "statistical_model_spec",
+    "posterior",
+    "baseline_report",
 ]
 
 
@@ -65,8 +65,8 @@ class ToolContract:
         return _inline_refs(schema)
 
 
-class BaseStageContract(BaseModel):
-    """Shared base for persisted stage payloads.
+class BaseArtifactContract(BaseModel):
+    """Shared base for persisted artifact payloads.
 
     Contracts are pure artifacts: execution failure is a typed exception on
     the transition (state unchanged, attempt journaled), and negative
@@ -77,7 +77,7 @@ class BaseStageContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class LLMStageContract(BaseStageContract):
-    """Base contract for stages that surface an LLM trace."""
+class LLMArtifactContract(BaseArtifactContract):
+    """Base contract for artifacts that surface an LLM trace."""
 
     llm_trace: LLMTrace | None = None

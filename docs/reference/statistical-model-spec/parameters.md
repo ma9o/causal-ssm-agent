@@ -1,13 +1,13 @@
 # Parameters and Priors
 
-Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/04-statistical-model-specification-priors.md#parameterspec) and [`PriorProposal`](../../pipeline/04-statistical-model-specification-priors.md) entries in a [`StatisticalModelSpec`](../../pipeline/04-statistical-model-specification-priors.md#statisticalmodelspec).
+Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#parameterspec) and [`PriorProposal`](../../pipeline/statistical-model-spec.md) entries in a [`StatisticalModelSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspec).
 
 > All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Parameter Roles
 
-The [Stage 4 skeleton](../../pipeline/04-statistical-model-specification-priors.md) creates exactly the following parameters from a [`CausalDesign`](../../pipeline/01b-measurement-structure-identifiability.md#causaldesign):
+The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly the following parameters from a [`CausalDesign`](../../pipeline/measurement-structure.md#causaldesign):
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|
@@ -29,12 +29,12 @@ The [Stage 4 skeleton](../../pipeline/04-statistical-model-specification-priors.
 
 Constraint notes:
 
-- `ar_coefficient`: Stage 4 elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) binds it to the owning decay component and converts to continuous-time decay scale
+- `ar_coefficient`: model-spec elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) binds it to the owning decay component and converts to continuous-time decay scale
 - `fixed_effect`: Causal effects can be positive or negative; compiler binds each coefficient to the owning edge component or known-input effect site
 - `dynamics_parameter`: Used for component-owned dynamics parameters that are not authored as interval-scale effect coefficients.
 - `dynamics_parameter_positive`: Used for positive component-owned dynamics parameters such as Hill Emax and EC50.
 - `static_state_sd`: Used to build low-rank initial-state covariance contributions of the form `B diag(tau^2) B^T`.
-- `loading`: Stage 1b indicator polarity fixes each loading sign as either `positive` or `negative`; Stage 4 no longer chooses loading orientation
+- `loading`: measurement-structure indicator polarity fixes each loading sign as either `positive` or `negative`; model-spec no longer chooses loading orientation
 - `measurement_error_sd`: Surfaced only when measurement error is separately estimated (multi-indicator constructs).
 - `observation_hyperparameter`: Examples include ordered-threshold bases and categorical logit offsets.
 - `observation_hyperparameter_positive`: Examples include Student-t degrees of freedom, Gamma shape, and NB dispersion.
@@ -53,8 +53,8 @@ Constraint notes:
 | `Exponential` | `Exponential(rate)` | `positive` | Positive-only parameters with mass near zero and a single decay rate. |
 | `Delta` | `Delta(value)` | `positive` | Fixed positive value inserted by compiler-owned deterministic repairs. |
 
-The `Family` values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.
-The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.
+The `Family` values are the exact canonical strings accepted by model-spec prior schemas; aliases are not supported.
+The `Use When` column is the authoritative short guidance reused by the model-spec prompts.
 
 ## Common Defaults
 

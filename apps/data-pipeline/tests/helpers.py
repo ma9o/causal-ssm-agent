@@ -14,11 +14,11 @@ def invalid_dict_payload(value: object) -> Any:
 
 
 def make_mock_session_factory(responses: list[str]):
-    """Create a mock ``StageSessionFactory``-shaped object for tests.
+    """Create a mock ``ScopedSessionFactory``-shaped object for tests.
 
     When ``.open(..., tools=[...])`` is entered and ``.turn()`` is called,
     the mock consumes the next canned response, invokes the first tool
-    with it (so ``make_stage_tool`` capture dicts populate the same way
+    with it (so ``make_context_tool`` capture dicts populate the same way
     they do in the real tool loop), and returns it as the turn completion.
 
     ``accumulated_trace`` is present but empty — stages that attach a
@@ -76,7 +76,7 @@ def make_session_factory_from_handler(handler):
     to any tool in ``tools`` and return a completion string.
 
     Useful when a test needs to invoke multiple tools per turn (e.g.
-    Stage 0 ingestion tests that exercise a tool sequence).
+    ingestion ingestion tests that exercise a tool sequence).
     """
     from contextlib import asynccontextmanager
 

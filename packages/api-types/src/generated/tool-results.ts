@@ -6,7 +6,7 @@
  *   cd apps/data-pipeline && uv run python scripts/export_schemas.py
  *   cd packages/api-types && bun run scripts/generate.ts
  *
- * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py
+ * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py
  */
 
 /**
@@ -16,7 +16,7 @@ export type CausalSSMToolResults =
   | ToolErrorContract
   | EffectSummaryContract
   | EffectTrajectoryPointContract
-  | Stage6VisualizationContract
+  | BaselineReportVisualizationContract
   | ScenarioStartResultContract
   | SimulateScenarioResultContract
   | SimulateScenarioToolResultContract;
@@ -37,7 +37,7 @@ export interface EffectTrajectoryPointContract {
   day: number;
   effect: number;
 }
-export interface Stage6VisualizationContract {
+export interface BaselineReportVisualizationContract {
   /**
    * Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.
    */
@@ -76,7 +76,7 @@ export interface SimulateScenarioResultContract {
   estimand: "end_state" | "trajectory";
   summary: EffectSummaryContract;
   effect_trajectory?: EffectTrajectoryPointContract[] | null;
-  visualization?: Stage6VisualizationContract | null;
+  visualization?: BaselineReportVisualizationContract | null;
   manifest_effects?: {
     [k: string]: number | undefined;
   } | null;

@@ -1,7 +1,7 @@
-import type { Stage6SimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "../intervention-dag-types";
 
 /**
- * PROPOSED extension to `Stage6VisualizationContract` — the fields the
+ * PROPOSED extension to `BaselineReportVisualizationContract` — the fields the
  * interactive DAG's rich layers need, which the current contract does NOT carry.
  * This is the concrete spec for the data-pipeline worktree to implement
  * (computed by the exact SSM engines, never client-side). Everything is optional:
@@ -46,9 +46,9 @@ export interface IndicatorSeries {
   cf: number[];
 }
 
-type Visualization = NonNullable<Stage6SimulationResult["visualization"]>;
+type Visualization = NonNullable<AnalysisSimulationResult["visualization"]>;
 
-export interface Stage6VisualizationExt extends Visualization {
+export interface BaselineReportVisualizationExt extends Visualization {
   /** Per-construct realized factual latent path (revealed up to the playhead). */
   node_realized?: { [k: string]: number[] | undefined } | null;
   edge_drift?: EdgeDrift[] | null;
@@ -56,33 +56,36 @@ export interface Stage6VisualizationExt extends Visualization {
   indicators?: IndicatorSeries[] | null;
 }
 
-const ext = (result: Stage6SimulationResult): Stage6VisualizationExt | null =>
-  (result.visualization ?? null) as Stage6VisualizationExt | null;
+const ext = (result: AnalysisSimulationResult): BaselineReportVisualizationExt | null =>
+  (result.visualization ?? null) as BaselineReportVisualizationExt | null;
 
-export function getNodeRealized(result: Stage6SimulationResult, node: string): number[] | null {
+export function getNodeRealized(result: AnalysisSimulationResult, node: string): number[] | null {
   return ext(result)?.node_realized?.[node] ?? null;
 }
 
-export function getAllEdgeDrift(result: Stage6SimulationResult): EdgeDrift[] {
+export function getAllEdgeDrift(result: AnalysisSimulationResult): EdgeDrift[] {
   return ext(result)?.edge_drift ?? [];
 }
 
 export function getEdgeDrift(
-  result: Stage6SimulationResult,
+  result: AnalysisSimulationResult,
   cause: string,
   effect: string,
 ): EdgeDrift | null {
   return ext(result)?.edge_drift?.find((e) => e.cause === cause && e.effect === effect) ?? null;
 }
 
-export function getSelfEffect(result: Stage6SimulationResult, node: string): SelfEffect | null {
+export function getSelfEffect(result: AnalysisSimulationResult, node: string): SelfEffect | null {
   return ext(result)?.self_effects?.find((s) => s.node === node) ?? null;
 }
 
-export function getAllSelfEffects(result: Stage6SimulationResult): SelfEffect[] {
+export function getAllSelfEffects(result: AnalysisSimulationResult): SelfEffect[] {
   return ext(result)?.self_effects ?? [];
 }
 
-export function getNodeIndicators(result: Stage6SimulationResult, node: string): IndicatorSeries[] {
+export function getNodeIndicators(
+  result: AnalysisSimulationResult,
+  node: string,
+): IndicatorSeries[] {
   return (ext(result)?.indicators ?? []).filter((ind) => ind.construct === node);
 }

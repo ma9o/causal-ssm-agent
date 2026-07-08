@@ -1,8 +1,7 @@
-"""Intra-stage telemetry events, persisted for UI polling.
+"""Transition and delegated-context telemetry events, persisted for UI polling.
 
-These are NOT machine transitions: worker fan-out progress (stage 2) and
-agent-graph streaming (stage 4) are live telemetry the web UI renders while
-a stage runs. Events land as one JSON file each under
+Worker fan-out progress and model-spec admission streaming are live telemetry
+the web UI renders while a transition runs. Events land as one JSON file each under
 ``data/{workspace_id}/episode/events/`` (neither local fs nor R2 supports
 atomic append); consumers list the directory and sort by filename, which is
 time-ordered by construction.
@@ -20,9 +19,9 @@ from typing import Any
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
-STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"
-STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2"
-STAGE4_ADMISSION_EVENT_PREFIX = "nof1-causal-lab.stage4.admission"
+TRANSITION_EVENT_PREFIX = "nof1-causal-lab.transition"
+EXTRACTION_EVENT_PREFIX = "nof1-causal-lab.extraction"
+MODEL_SPEC_ADMISSION_EVENT_PREFIX = "nof1-causal-lab.model-spec.admission"
 
 
 def events_dir(workspace_id: str) -> str:
@@ -56,32 +55,32 @@ def read_events(workspace_id: str, *, after: str | None = None) -> list[dict[str
     return events
 
 
-def emit_stage_progress_event(
+def emit_transition_event(
     workspace_id: str,
-    stage_id: str,
+    transition_id: str,
     status: str,
     *,
     error: dict[str, Any] | None = None,
 ) -> None:
-    payload: dict[str, Any] = {"stage_id": stage_id, "status": status}
+    payload: dict[str, Any] = {"transition_id": transition_id, "status": status}
     if error is not None:
         payload["error"] = error
-    emit_event(workspace_id, f"{STAGE_PROGRESS_EVENT_PREFIX}.{status}", payload)
+    emit_event(workspace_id, f"{TRANSITION_EVENT_PREFIX}.{status}", payload)
 
 
-def emit_stage2_plan_event(
+def emit_extraction_plan_event(
     workspace_id: str,
     *,
     total_workers: int,
     max_concurrent_workers: int | None,
     max_rpm: int | None,
 ) -> None:
-    """Emit the static Stage 2 execution plan for replay/bootstrap."""
+    """Emit the static extraction execution plan for replay/bootstrap."""
     emit_event(
         workspace_id,
-        f"{STAGE2_EVENT_PREFIX}.plan",
+        f"{EXTRACTION_EVENT_PREFIX}.plan",
         {
-            "stage_id": "stage-2",
+            "context_id": "measurement",
             "type": "plan",
             "total_workers": total_workers,
             "max_concurrent_workers": max_concurrent_workers,
@@ -90,7 +89,7 @@ def emit_stage2_plan_event(
     )
 
 
-def emit_stage2_worker_event(
+def emit_extraction_worker_event(
     workspace_id: str,
     *,
     worker_id: int,
@@ -100,9 +99,9 @@ def emit_stage2_worker_event(
     n_llm_calls: int | None = None,
     error: str | None = None,
 ) -> None:
-    """Emit a Stage 2 worker state transition."""
+    """Emit an extraction worker state transition."""
     payload: dict[str, Any] = {
-        "stage_id": "stage-2",
+        "context_id": "measurement",
         "type": "worker",
         "worker_id": worker_id,
         "state": state,
@@ -114,20 +113,20 @@ def emit_stage2_worker_event(
         payload["n_llm_calls"] = n_llm_calls
     if error is not None:
         payload["error"] = error
-    emit_event(workspace_id, f"{STAGE2_EVENT_PREFIX}.worker", payload)
+    emit_event(workspace_id, f"{EXTRACTION_EVENT_PREFIX}.worker", payload)
 
 
-def emit_stage2_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -> None:
-    """Emit a Stage 2 runtime snapshot."""
+def emit_extraction_snapshot_event(workspace_id: str, *, snapshot: dict[str, Any]) -> None:
+    """Emit an extraction runtime snapshot."""
     emit_event(
         workspace_id,
-        f"{STAGE2_EVENT_PREFIX}.snapshot",
-        {"stage_id": "stage-2", "type": "snapshot", **snapshot},
+        f"{EXTRACTION_EVENT_PREFIX}.snapshot",
+        {"context_id": "measurement", "type": "snapshot", **snapshot},
     )
 
 
-def emit_stage4_admission_event(workspace_id: str, event: str, payload: dict[str, Any]) -> None:
-    """Emit one Stage 4 construct-admission telemetry event.
+def emit_model_spec_admission_event(workspace_id: str, event: str, payload: dict[str, Any]) -> None:
+    """Emit one model-spec construct-admission telemetry event.
 
     ``event`` is the sub-name (``plan`` / ``construct_started`` / ``construct_checking`` /
     ``construct_report`` / ``done`` / ``failed``); the web UI reduces the stream into the live
@@ -136,21 +135,21 @@ def emit_stage4_admission_event(workspace_id: str, event: str, payload: dict[str
     """
     emit_event(
         workspace_id,
-        f"{STAGE4_ADMISSION_EVENT_PREFIX}.{event}",
-        {"stage_id": "stage-4", **payload},
+        f"{MODEL_SPEC_ADMISSION_EVENT_PREFIX}.{event}",
+        {"context_id": "statistical-model-spec", **payload},
     )
 
 
 __all__ = [
-    "STAGE2_EVENT_PREFIX",
-    "STAGE4_ADMISSION_EVENT_PREFIX",
-    "STAGE_PROGRESS_EVENT_PREFIX",
+    "EXTRACTION_EVENT_PREFIX",
+    "MODEL_SPEC_ADMISSION_EVENT_PREFIX",
+    "TRANSITION_EVENT_PREFIX",
     "emit_event",
-    "emit_stage2_plan_event",
-    "emit_stage2_snapshot_event",
-    "emit_stage2_worker_event",
-    "emit_stage4_admission_event",
-    "emit_stage_progress_event",
+    "emit_extraction_plan_event",
+    "emit_extraction_snapshot_event",
+    "emit_extraction_worker_event",
+    "emit_model_spec_admission_event",
+    "emit_transition_event",
     "events_dir",
     "read_events",
 ]

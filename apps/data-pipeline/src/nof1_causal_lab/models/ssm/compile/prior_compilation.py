@@ -71,7 +71,7 @@ _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 _NONDEGENERATE_TOL = 1e-12
 
 _DEGENERATE_PRIOR_PREAMBLE = (
-    "Stage 4 priors must have strictly positive variance. Zero-width priors assert "
+    "model-spec priors must have strictly positive variance. Zero-width priors assert "
     "the parameter's value with infinite certainty, which is a structural claim "
     "rather than a Bayesian belief. Legitimate fixed-value cases (identification "
     "fixings, baseline policies) belong on the structural surface — the skeleton "

@@ -41,7 +41,7 @@ each transition's creation class and the derivation graph:
 ## Staleness
 
 A `write` becomes a new provenance root and marks everything downstream stale
-until re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag
+until re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag
 stale provenance chains in their warnings — never report numbers past those
 flags.
 
@@ -79,7 +79,8 @@ Ensure the episode workflow exists; optionally seed the `question` root.
 Idempotent: attaches to an existing episode or starts a fresh one. Passing
 `question` writes the `question` root artifact with `human` provenance. Raw
 data enters separately by placing files under `data/{workspace_id}/input/`
-before running stage-0. Returns the same shape as `GET /api/episodes/{id}`.
+before running the `raw_data` transition. Returns the same shape as
+`GET /api/episodes/{id}`.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes" \
@@ -165,7 +166,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/aut
 
 ### GET `/api/episodes/{workspace_id}/events`
 
-Intra-stage telemetry (e.g. stage-2 worker fan-out, stage progress).
+Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).
 
 Pass the last-seen event id as `after` to page forward; omit it for the full
 stream. This is finer-grained than the timeline, which records only whole
@@ -213,7 +214,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/mov
 The transition journal: every move attempt in order.
 
 Each record is `applied` (state advanced), `rejected` (illegal move, state
-unchanged), or `raised` (the stage ran but threw — the record carries the
+unchanged), or `raised` (the transition ran but threw — the record carries the
 typed error). Re-running after a `raised`/`rejected` is just proposing the
 move again.
 
@@ -240,39 +241,39 @@ by writing the produced artifact directly — these are flagged `writable`).
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/machine"
 ```
 
-### GET `/api/tools/{stage_id}`
+### GET `/api/tools/{context_id}`
 
-List a stage's validation/query tools — the same tools the in-service LLM loops use.
+List a context's validation/query tools — the same tools the in-service LLM loops use.
 
 Each entry is `{name, description, parameters, result}` where `parameters`
 and `result` are JSON Schemas. Fetch this first to learn a tool's argument
-shape, then call `POST /api/tools/{stage_id}/{tool_name}`. Examples:
-stage-6 `simulate` / `get_model_info`, stage-4 `submit_statistical_model_spec`.
+shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
+ranking `simulate` / `get_model_info`, statistical-model-spec `submit_statistical_model_spec`.
 
 **Parameters**
 
-- `stage_id` (path, required)
+- `context_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/STAGE_ID"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/CONTEXT_ID"
 ```
 
-### POST `/api/tools/{stage_id}/{tool_name}`
+### POST `/api/tools/{context_id}/{tool_name}`
 
-Execute a stage tool against the workspace's current artifact-store versions.
+Execute a context tool against the workspace's current artifact-store versions.
 
 Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
-tool's `parameters` schema from `GET /api/tools/{stage_id}`; 422 on a schema
+tool's `parameters` schema from `GET /api/tools/{context_id}`; 422 on a schema
 violation. Numeric tools hard-flag stale provenance chains in their result
 warnings — do not report numbers past those flags.
 
 **Parameters**
 
-- `stage_id` (path, required)
+- `context_id` (path, required)
 - `tool_name` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/STAGE_ID/TOOL_NAME" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/CONTEXT_ID/TOOL_NAME" \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"workspace_id": "string", "input": {}}'

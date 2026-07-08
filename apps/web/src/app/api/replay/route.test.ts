@@ -10,10 +10,10 @@ vi.mock("@/lib/server/episode-runs", () => ({
       this.status = status;
     }
   },
-  STAGE_EDIT_ARTIFACTS: {
-    "stage-1a": "latent_structure",
-    "stage-1b": "measurement_structure",
-    "stage-6": "baseline_report",
+  WRITABLE_ARTIFACTS: {
+    latent_structure: "latent_structure",
+    measurement_structure: "measurement_structure",
+    baseline_report: "baseline_report",
   },
   proposeMove: vi.fn(),
   startAutoRun: vi.fn(),
@@ -55,25 +55,29 @@ describe("POST /api/replay", () => {
     expect(response.status).toBe(400);
   });
 
-  it("rejects stages without a writable artifact", async () => {
+  it("rejects non-writable artifacts", async () => {
     const response = await POST(
-      makeRequest({ workspaceId: "user-1", stageId: "stage-3", stageData: { is_valid: true } }),
+      makeRequest({
+        workspaceId: "user-1",
+        artifactId: "validation_report",
+        payload: { is_valid: true },
+      }),
     );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Stage stage-3 has no writable artifact",
+      error: "Artifact validation_report is not writable",
     });
     expect(proposeMove).not.toHaveBeenCalled();
   });
 
-  it("writes the stage artifact with human provenance and starts auto-run", async () => {
+  it("writes the artifact with human provenance and starts auto-run", async () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
     vi.mocked(startAutoRun).mockResolvedValue();
 
-    const stageData = { latent_structure: { constructs: [] } };
+    const payload = { latent_structure: { constructs: [] } };
     const response = await POST(
-      makeRequest({ workspaceId: "user-1", stageId: "stage-1a", stageData }),
+      makeRequest({ workspaceId: "user-1", artifactId: "latent_structure", payload }),
     );
 
     expect(response.status).toBe(200);
@@ -81,17 +85,25 @@ describe("POST /api/replay", () => {
     expect(proposeMove).toHaveBeenCalledWith(
       "user-1",
       { kind: "write", artifact_id: "latent_structure", provenance: "human" },
-      stageData,
+      payload,
     );
     expect(startAutoRun).toHaveBeenCalledWith("user-1");
   });
 
-  it("maps stage ids to their edited artifacts", async () => {
+  it("writes requested writable artifacts directly", async () => {
     vi.mocked(proposeMove).mockResolvedValue(appliedOutcome());
     vi.mocked(startAutoRun).mockResolvedValue();
 
-    await POST(makeRequest({ workspaceId: "user-1", stageId: "stage-1b", stageData: { a: 1 } }));
-    await POST(makeRequest({ workspaceId: "user-1", stageId: "stage-6", stageData: { b: 2 } }));
+    await POST(
+      makeRequest({
+        workspaceId: "user-1",
+        artifactId: "measurement_structure",
+        payload: { a: 1 },
+      }),
+    );
+    await POST(
+      makeRequest({ workspaceId: "user-1", artifactId: "baseline_report", payload: { b: 2 } }),
+    );
 
     expect(proposeMove).toHaveBeenNthCalledWith(
       1,
@@ -115,7 +127,7 @@ describe("POST /api/replay", () => {
     });
 
     const response = await POST(
-      makeRequest({ workspaceId: "user-1", stageId: "stage-1a", stageData: { a: 1 } }),
+      makeRequest({ workspaceId: "user-1", artifactId: "latent_structure", payload: { a: 1 } }),
     );
 
     expect(response.status).toBe(400);
@@ -134,7 +146,7 @@ describe("POST /api/replay", () => {
     });
 
     const response = await POST(
-      makeRequest({ workspaceId: "user-1", stageId: "stage-1a", stageData: { a: 1 } }),
+      makeRequest({ workspaceId: "user-1", artifactId: "latent_structure", payload: { a: 1 } }),
     );
 
     expect(response.status).toBe(502);
@@ -150,7 +162,7 @@ describe("POST /api/replay", () => {
     );
 
     const response = await POST(
-      makeRequest({ workspaceId: "user-1", stageId: "stage-1a", stageData: { a: 1 } }),
+      makeRequest({ workspaceId: "user-1", artifactId: "latent_structure", payload: { a: 1 } }),
     );
 
     expect(response.status).toBe(409);

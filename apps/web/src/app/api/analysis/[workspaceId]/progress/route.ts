@@ -7,7 +7,7 @@ import { normalizeWorkspaceId } from "@/lib/workspace-id";
  *
  * Server-side proxy over the episode facade for client polling: episode
  * status (auto_running plus the per-artifact freshness report), the
- * transition journal, and intra-stage telemetry events after the given
+ * transition journal, and transition telemetry events after the given
  * cursor.
  */
 export async function GET(

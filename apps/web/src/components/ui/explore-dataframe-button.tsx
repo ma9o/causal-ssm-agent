@@ -3,16 +3,16 @@
 import { Table2, Download } from "lucide-react";
 
 export function ExploreDataframeButton({
-  stage,
+  artifactId,
   workspaceId,
 }: {
-  stage: string;
+  artifactId: string;
   workspaceId: string;
 }) {
   return (
     <div className="flex items-center gap-1">
       <a
-        href={`/explore/${encodeURIComponent(workspaceId)}/${encodeURIComponent(stage)}`}
+        href={`/explore/${encodeURIComponent(workspaceId)}/${encodeURIComponent(artifactId)}`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
@@ -21,7 +21,7 @@ export function ExploreDataframeButton({
         Explore full dataset
       </a>
       <a
-        href={`/api/results/${workspaceId}/${stage}/dataframe`}
+        href={`/api/artifacts/${workspaceId}/${artifactId}/dataframe`}
         download
         className="inline-flex items-center gap-1 rounded-md border border-muted bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted"
         title="Download parquet"

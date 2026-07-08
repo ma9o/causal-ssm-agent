@@ -23,8 +23,8 @@ import json
 
 from evaluation.inspect_evals.common import (
     format_labeled_candidates,
+    get_extraction_eval_chunks,
     get_generate_config,
-    get_stage2_eval_chunks,
     load_eval_config,
     make_anonymous_label_mapping,
     make_generate_fn,
@@ -137,20 +137,20 @@ def create_eval_dataset(
     Args:
         n_chunks: Number of chunks per question
         seed: Random seed for reproducibility
-        workspace_id: Workspace to load persisted Stage 2 inputs from.
+        workspace_id: Workspace to load persisted Target 2 inputs from.
 
     Returns:
         MemoryDataset with samples
     """
-    stage2_inputs = get_stage2_eval_chunks(n_chunks, seed, workspace_id)
-    causal_design = stage2_inputs["causal_design"]
+    extraction_inputs = get_extraction_eval_chunks(n_chunks, seed, workspace_id)
+    causal_design = extraction_inputs["causal_design"]
     indicators_text = _format_indicators(causal_design)
     outcome_description = _get_outcome_description(causal_design)
 
     samples = []
-    for i, chunk in enumerate(stage2_inputs["sampled_chunk_texts"]):
+    for i, chunk in enumerate(extraction_inputs["sampled_chunk_texts"]):
         worker_user_prompt = USER.format(
-            question=stage2_inputs["question"],
+            question=extraction_inputs["question"],
             outcome_description=outcome_description,
             indicators=indicators_text,
             chunk=chunk,
@@ -158,11 +158,11 @@ def create_eval_dataset(
 
         samples.append(
             Sample(
-                input=f"Workspace: {stage2_inputs['workspace_id']}\nChunk index: {i}",
-                id=f"workspace_{stage2_inputs['workspace_id']}_chunk{i}",
+                input=f"Workspace: {extraction_inputs['workspace_id']}\nChunk index: {i}",
+                id=f"workspace_{extraction_inputs['workspace_id']}_chunk{i}",
                 metadata={
-                    "workspace_id": stage2_inputs["workspace_id"],
-                    "question": stage2_inputs["question"],
+                    "workspace_id": extraction_inputs["workspace_id"],
+                    "question": extraction_inputs["question"],
                     "chunk": chunk,
                     "chunk_index": i,
                     "causal_design": causal_design,
@@ -300,7 +300,7 @@ def worker_measurement_adherence_eval(
     Args:
         n_chunks: Number of semantic worker chunks to evaluate
         seed: Random seed for chunk sampling
-        workspace_id: Workspace to load persisted Stage 2 inputs from.
+        workspace_id: Workspace to load persisted Target 2 inputs from.
         models: Comma-separated model IDs to compete, or None for all
         worker_timeout: Timeout in seconds for each worker (default: from config, 180s)
     """

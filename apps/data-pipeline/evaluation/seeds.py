@@ -1,4 +1,4 @@
-"""Default registry seed: Stage 2 identification gates + the Stage 4 recovery row.
+"""Default registry seed: Target 2 identification gates + the Target 4 recovery row.
 
 Importing this module registers the seed entries into the global ``REGISTRY``:
 the identification gates (FREE/CI) and the synthetic-nonlinear recovery benchmark
@@ -8,7 +8,7 @@ the lifted ``evaluation.recovery`` extraction.
 
 from __future__ import annotations
 
-from .contracts import Cadence, Cost, Mode, Stage
+from .contracts import Cadence, Cost, Mode, Target
 from .registry import RegistryEntry, register
 from .scenarios import identification as id_scenarios
 from .scenarios.recovery import SyntheticNonlinearRecoveryScenario
@@ -22,7 +22,7 @@ _ID_SCORER = IdentificationScorer()
 def _id_entry(scenario: id_scenarios.IdentificationScenario) -> RegistryEntry:
     return RegistryEntry(
         scenario=scenario,
-        stage=Stage.IDENTIFICATION,
+        target=Target.IDENTIFICATION,
         runner=_ID_RUNNER,
         scorer=_ID_SCORER,
         cost=Cost.FREE,
@@ -36,7 +36,7 @@ def _id_entry(scenario: id_scenarios.IdentificationScenario) -> RegistryEntry:
 # extraction. COMPUTE/MANUAL — not a CI gate.
 _RECOVERY_ENTRY = RegistryEntry(
     scenario=SyntheticNonlinearRecoveryScenario(),
-    stage=Stage.INFERENCE,
+    target=Target.INFERENCE,
     runner=SyntheticNonlinearRecoveryRunner(),
     scorer=SyntheticNonlinearRecoveryScorer(),
     cost=Cost.COMPUTE,

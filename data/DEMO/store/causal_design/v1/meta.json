@@ -1,1 +1,1 @@
-{"artifact_id":"causal_design","version":1,"provenance":"computed","derived_from":{"question":1,"raw_data":1,"latent_structure":1},"produced_by":"stage-1b","created_at":"2026-07-06T12:46:33.346020+00:00"}
+{"artifact_id":"causal_design","version":1,"provenance":"computed","derived_from":{"latent_structure":1,"measurement_structure":1},"produced_by":"derive:causal_design","created_at":"2026-07-08T11:57:26.408539+00:00"}

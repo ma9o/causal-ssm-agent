@@ -453,13 +453,13 @@ cannot express.
 
 ## Implementation Notes
 
-- `measurements` consumes `measurement_structure` directly. The Stage 2 prompt was checked:
+- `measurements` consumes `measurement_structure` directly. The extraction prompt was checked:
   extraction workers use the causal question, indicator `how_to_measure`, measurement dtype,
   support semantics, source columns, and support windows; they do not need latent edges or
   construct definitions.
-- Transitions are keyed by produced artifact on the machine move surface. Runner ids such as
-  `stage-2` remain implementation labels exposed by `GET /api/machine` for progress events,
-  legacy stage-contract validation, and UI display.
+- Transitions are keyed by produced artifact on the machine move surface. Progress events,
+  provenance, tool contexts, and web views use artifact/context ids rather than a parallel
+  stage-number namespace.
 - Derivation bodies execute inside move activities. The workflow installs the returned
   `TransitionEffects` atomically into current state; failed cascades remove versions written by
   that failed move.
@@ -491,11 +491,11 @@ Formerly open, now decided:
 - **`identification_report` carries the positive identification finding.** It is derived from
   `causal_design.identifiability`, exists only when at least one treatment is estimable, and gates
   downstream fitting.
-- **`measurements` consumes true extraction dependencies.** The Stage 2 prompt cites the question
+- **`measurements` consumes true extraction dependencies.** The extraction prompt cites the question
   and measurement metadata, not latent edges or construct definitions, so it consumes
   `measurement_structure` directly.
 - **Retractions carry causes.** Envelope `retracted` entries are `{artifact_id, reason_ref}`.
 - **Transition naming lands with the core.** Artifact-named transitions are the machine move
-  surface; runner ids remain implementation labels.
+  surface and runtime event identity.
 - **Code-version staleness is out.** Editing a runner, prompt, or derivation body currently
   stales nothing downstream.

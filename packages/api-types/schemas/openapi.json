@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every\ntransition with what it consumes, produces, and optionally co-produces \u2014 plus\neach transition's creation class and the derivation graph:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These transitions are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}` to run a transition, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long transitions (`statistical_model_spec`, `posterior` \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled transitions in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed transition error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (stage-6 `simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning the `raw_data` transition. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
+    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every\ntransition with what it consumes, produces, and optionally co-produces \u2014 plus\neach transition's creation class and the derivation graph:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These transitions are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}` to run a transition, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long transitions (`statistical_model_spec`, `posterior` \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled transitions in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed transition error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning the `raw_data` transition. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -51,7 +51,7 @@
     "/api/episodes/{workspace_id}/timeline": {
       "get": {
         "summary": "Get Timeline",
-        "description": "The transition journal: every move attempt in order.\n\nEach record is `applied` (state advanced), `rejected` (illegal move, state\nunchanged), or `raised` (the stage ran but threw \u2014 the record carries the\ntyped error). Re-running after a `raised`/`rejected` is just proposing the\nmove again.",
+        "description": "The transition journal: every move attempt in order.\n\nEach record is `applied` (state advanced), `rejected` (illegal move, state\nunchanged), or `raised` (the transition ran but threw \u2014 the record carries the\ntyped error). Re-running after a `raised`/`rejected` is just proposing the\nmove again.",
         "operationId": "get_timeline_api_episodes__workspace_id__timeline_get",
         "parameters": [
           {
@@ -93,7 +93,7 @@
     "/api/episodes/{workspace_id}/events": {
       "get": {
         "summary": "Get Events",
-        "description": "Intra-stage telemetry (e.g. stage-2 worker fan-out, stage progress).\n\nPass the last-seen event id as `after` to page forward; omit it for the full\nstream. This is finer-grained than the timeline, which records only whole\nmove outcomes.",
+        "description": "Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).\n\nPass the last-seen event id as `after` to page forward; omit it for the full\nstream. This is finer-grained than the timeline, which records only whole\nmove outcomes.",
         "operationId": "get_events_api_episodes__workspace_id__events_get",
         "parameters": [
           {
@@ -322,7 +322,7 @@
     "/api/episodes": {
       "post": {
         "summary": "Start Episode",
-        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance. Raw\ndata enters separately by placing files under `data/{workspace_id}/input/`\nbefore running stage-0. Returns the same shape as `GET /api/episodes/{id}`.",
+        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance. Raw\ndata enters separately by placing files under `data/{workspace_id}/input/`\nbefore running the `raw_data` transition. Returns the same shape as\n`GET /api/episodes/{id}`.",
         "operationId": "start_episode_api_episodes_post",
         "requestBody": {
           "content": {
@@ -506,19 +506,19 @@
         }
       }
     },
-    "/api/tools/{stage_id}": {
+    "/api/tools/{context_id}": {
       "get": {
         "summary": "Get Tool Schemas",
-        "description": "List a stage's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{stage_id}/{tool_name}`. Examples:\nstage-6 `simulate` / `get_model_info`, stage-4 `submit_statistical_model_spec`.",
-        "operationId": "get_tool_schemas_api_tools__stage_id__get",
+        "description": "List a context's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:\nranking `simulate` / `get_model_info`, statistical-model-spec `submit_statistical_model_spec`.",
+        "operationId": "get_tool_schemas_api_tools__context_id__get",
         "parameters": [
           {
-            "name": "stage_id",
+            "name": "context_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Stage Id"
+              "title": "Context Id"
             }
           }
         ],
@@ -533,7 +533,7 @@
                     "type": "object",
                     "additionalProperties": true
                   },
-                  "title": "Response Get Tool Schemas Api Tools  Stage Id  Get"
+                  "title": "Response Get Tool Schemas Api Tools  Context Id  Get"
                 }
               }
             }
@@ -551,19 +551,19 @@
         }
       }
     },
-    "/api/tools/{stage_id}/{tool_name}": {
+    "/api/tools/{context_id}/{tool_name}": {
       "post": {
         "summary": "Execute Tool",
-        "description": "Execute a stage tool against the workspace's current artifact-store versions.\n\nBody is `{\"workspace_id\": \"...\", \"input\": {...}}` where `input` matches the\ntool's `parameters` schema from `GET /api/tools/{stage_id}`; 422 on a schema\nviolation. Numeric tools hard-flag stale provenance chains in their result\nwarnings \u2014 do not report numbers past those flags.",
-        "operationId": "execute_tool_api_tools__stage_id___tool_name__post",
+        "description": "Execute a context tool against the workspace's current artifact-store versions.\n\nBody is `{\"workspace_id\": \"...\", \"input\": {...}}` where `input` matches the\ntool's `parameters` schema from `GET /api/tools/{context_id}`; 422 on a schema\nviolation. Numeric tools hard-flag stale provenance chains in their result\nwarnings \u2014 do not report numbers past those flags.",
+        "operationId": "execute_tool_api_tools__context_id___tool_name__post",
         "parameters": [
           {
-            "name": "stage_id",
+            "name": "context_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Stage Id"
+              "title": "Context Id"
             }
           },
           {
@@ -594,7 +594,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Execute Tool Api Tools  Stage Id   Tool Name  Post"
+                  "title": "Response Execute Tool Api Tools  Context Id   Tool Name  Post"
                 }
               }
             }

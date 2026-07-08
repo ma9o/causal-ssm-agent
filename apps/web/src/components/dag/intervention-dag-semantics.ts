@@ -1,4 +1,4 @@
-import type { LatentClamp, Stage6SimulationResult } from "./intervention-dag-types";
+import type { LatentClamp, AnalysisSimulationResult } from "./intervention-dag-types";
 
 function formatSignedAmount(value: number, digits = 1): string {
   const magnitude = Math.abs(value).toFixed(digits);
@@ -20,25 +20,25 @@ export function formatClampValue(clamp: LatentClamp): string {
 }
 
 /** do(...) description joining every clamp in the scenario. */
-export function formatScenarioActionDescription(result: Stage6SimulationResult): string {
+export function formatScenarioActionDescription(result: AnalysisSimulationResult): string {
   return result.clamps
     .map((clamp) => `do(${clamp.variable} ${formatClampValue(clamp)})`)
     .join(", ");
 }
 
-export function getEffectTrajectoryDays(result: Stage6SimulationResult): number[] {
+export function getEffectTrajectoryDays(result: AnalysisSimulationResult): number[] {
   return result.effect_trajectory?.map((point) => point.day) ?? [];
 }
 
 export function getNodeReferenceSeries(
-  result: Stage6SimulationResult,
+  result: AnalysisSimulationResult,
   nodeName: string,
 ): number[] | null {
   return result.visualization?.reference_node_trajectories?.[nodeName] ?? null;
 }
 
 export function getNodeActionSeries(
-  result: Stage6SimulationResult,
+  result: AnalysisSimulationResult,
   nodeName: string,
 ): number[] | null {
   return result.visualization?.action_node_trajectories?.[nodeName] ?? null;

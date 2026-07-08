@@ -32,12 +32,9 @@ CreationClass = Literal["deterministic", "batch_llm", "judgment"]
 class Transition:
     """How a produced artifact is computed from its inputs.
 
-    ``produces`` is the transition identity. ``runner_id`` names the legacy
-    stage implementation used to execute the transition and is not part of the
-    move surface.
+    ``produces`` is the transition identity.
     """
 
-    runner_id: str
     consumes: tuple[ArtifactId, ...]
     produces: ArtifactId
     creation_class: CreationClass
@@ -72,34 +69,29 @@ class Root:
 
 ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition(
-        runner_id="stage-0",
         consumes=(),
         produces="raw_data",
         creation_class="batch_llm",
     ),
     Transition(
-        runner_id="stage-1a",
         consumes=("question",),
         produces="latent_structure",
         creation_class="judgment",
         writable=True,
     ),
     Transition(
-        runner_id="stage-1b",
         consumes=("question", "raw_data", "latent_structure"),
         produces="measurement_structure",
         creation_class="judgment",
         writable=True,
     ),
     Transition(
-        runner_id="stage-2",
         consumes=("question", "raw_data", "measurement_structure"),
         produces="measurements",
         creation_class="batch_llm",
         produces_optional=("panel",),
     ),
     Transition(
-        runner_id="stage-4",
         consumes=(
             "question",
             "causal_design",
@@ -112,13 +104,11 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
         writable=True,
     ),
     Transition(
-        runner_id="stage-5b",
         consumes=("compiled_ssm", "panel"),
         produces="posterior",
         creation_class="deterministic",
     ),
     Transition(
-        runner_id="stage-6",
         consumes=("posterior", "causal_design", "identification_report"),
         produces="baseline_report",
         creation_class="judgment",
@@ -204,6 +194,16 @@ def topological_transition_order() -> tuple[ArtifactId, ...]:
     return tuple(graphlib.TopologicalSorter(dep_graph).static_order())
 
 
+def topological_artifact_order() -> tuple[ArtifactId, ...]:
+    """Artifacts sorted by the complete artifact dependency graph."""
+    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+
+    dependencies = _artifact_dependency_graph()
+    for artifact_id in ARTIFACT_IDS:
+        dependencies.setdefault(artifact_id, set())
+    return tuple(graphlib.TopologicalSorter(dependencies).static_order())
+
+
 def _artifact_dependency_graph() -> dict[ArtifactId, set[ArtifactId]]:
     dependencies: dict[ArtifactId, set[ArtifactId]] = {}
     for spec in ARTIFACT_GRAPH:
@@ -258,6 +258,7 @@ def _assert_graph_consistent() -> None:
             )
 
     graphlib.TopologicalSorter(dependencies).static_order()
+    topological_artifact_order()
     topological_transition_order()
     topological_derivation_order()
 

@@ -137,8 +137,8 @@ function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
 /**
  * Generate tools.ts from the tools.json schema exported by Python.
  *
- * Produces a typed constant with tool definitions per stage and a
- * INTERACTIVE_STAGES set, directly consumable by the refinement route.
+ * Produces a typed constant with tool definitions per context and an
+ * INTERACTIVE_CONTEXTS set, directly consumable by the refinement route.
  */
 function generateTools(): void {
   const toolsSchema = JSON.parse(readFileSync(TOOLS_SCHEMA_PATH, "utf-8"));
@@ -153,7 +153,7 @@ function generateTools(): void {
     " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
-    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py",
+    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py",
     " */",
     "",
     "export interface ToolDefinition {",
@@ -165,19 +165,19 @@ function generateTools(): void {
     "  result?: Record<string, unknown> | null;",
     "}",
     "",
-    "export const STAGE_TOOLS: Record<string, ToolDefinition[]> = {",
+    "export const CONTEXT_TOOLS: Record<string, ToolDefinition[]> = {",
   ];
 
   let totalTools = 0;
-  for (const [stageId, tools] of Object.entries(toolsSchema)) {
-    if (stageId.startsWith("_")) continue;
+  for (const [contextId, tools] of Object.entries(toolsSchema)) {
+    if (contextId.startsWith("_")) continue;
     const toolArray = tools as Array<{
       name: string;
       description: string;
       parameters: unknown;
       result?: unknown;
     }>;
-    lines.push(`  ${JSON.stringify(stageId)}: [`);
+    lines.push(`  ${JSON.stringify(contextId)}: [`);
     for (const tool of toolArray) {
       lines.push("    {");
       lines.push(`      name: ${JSON.stringify(tool.name)},`);
@@ -195,7 +195,7 @@ function generateTools(): void {
   lines.push("};");
   lines.push("");
   lines.push(
-    `export const INTERACTIVE_STAGES: readonly string[] = ${JSON.stringify(interactive)} as const;`,
+    `export const INTERACTIVE_CONTEXTS: readonly string[] = ${JSON.stringify(interactive)} as const;`,
   );
   lines.push("");
 
@@ -219,7 +219,7 @@ async function generateToolResults(): Promise<void> {
       " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
-      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py\n" +
+      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: true,
@@ -284,7 +284,7 @@ async function main() {
       " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
-      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py\n" +
+      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: true,

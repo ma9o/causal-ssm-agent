@@ -1,4 +1,4 @@
-import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@nof1-causal-lab/api-types";
+import { INTERACTIVE_CONTEXTS, CONTEXT_TOOLS } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import { isRecord } from "@/lib/utils/type-guards";
@@ -34,30 +34,30 @@ async function readToolErrorMessage(response: Response): Promise<string> {
 /**
  * POST /api/tools/dispatch
  *
- * Direct (no-LLM) stage-tool execution — e.g. the Stage 6 interactive DAG's
+ * Direct (no-LLM) context-tool execution — e.g. the ranking interactive DAG's
  * `simulate`. Proxies to the tool server, which reads pinned artifact
  * versions and hard-flags stale provenance.
  *
- * Body: { workspaceId, stageId, tool, input }
+ * Body: { workspaceId, contextId, tool, input }
  */
 export async function POST(req: Request) {
   const body = (await req.json()) as unknown;
   if (!isRecord(body)) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
-  const { workspaceId, stageId, tool, input } = body;
+  const { workspaceId, contextId, tool, input } = body;
 
   const safeWorkspaceId =
     typeof workspaceId === "string" ? normalizeWorkspaceId(workspaceId) : null;
   if (!safeWorkspaceId) {
     return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
-  const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
-  if (!safeStageId || /[\\/]/.test(safeStageId)) {
-    return NextResponse.json({ error: "Invalid stageId" }, { status: 400 });
+  const safeContextId = typeof contextId === "string" ? contextId.trim() : "";
+  if (!safeContextId || /[\\/]/.test(safeContextId)) {
+    return NextResponse.json({ error: "Invalid contextId" }, { status: 400 });
   }
-  if (!INTERACTIVE_STAGES.includes(safeStageId)) {
-    return NextResponse.json({ error: "Stage has no dispatchable tools" }, { status: 400 });
+  if (!INTERACTIVE_CONTEXTS.includes(safeContextId)) {
+    return NextResponse.json({ error: "Context has no dispatchable tools" }, { status: 400 });
   }
   if (typeof tool !== "string" || !tool.trim()) {
     return NextResponse.json({ error: "Missing tool name" }, { status: 400 });
@@ -66,15 +66,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "input must be an object" }, { status: 400 });
   }
 
-  const toolDef = (STAGE_TOOLS[safeStageId] ?? []).find((t) => t.name === tool);
+  const toolDef = (CONTEXT_TOOLS[safeContextId] ?? []).find((t) => t.name === tool);
   if (!toolDef) {
     return NextResponse.json(
-      { error: `Tool '${tool}' is not registered for stage ${safeStageId}` },
+      { error: `Tool '${tool}' is not registered for context ${safeContextId}` },
       { status: 400 },
     );
   }
 
-  const toolResponse = await fetch(`${TOOL_SERVER}/api/tools/${safeStageId}/${tool}`, {
+  const toolResponse = await fetch(`${TOOL_SERVER}/api/tools/${safeContextId}/${tool}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

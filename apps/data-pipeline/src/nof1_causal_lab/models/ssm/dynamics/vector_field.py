@@ -2,7 +2,7 @@
 
 ``VectorField`` owns a tuple of ``VectorFieldComponent``s (see ``edges.py``);
 each component contributes to the derivative vector. The dense linear case
-(the existing Stage 5b posterior shape) is one component (``DenseLinear``);
+(the existing posterior posterior shape) is one component (``DenseLinear``);
 the non-linear pharmacology case is many components (``DiagonalDecay`` +
 ``Intercept`` + per-edge Linear / Hill / Multiplicative).
 

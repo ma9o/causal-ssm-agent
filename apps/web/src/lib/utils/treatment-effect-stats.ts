@@ -1,7 +1,7 @@
 /**
  * Pure numeric reductions over a {@link TreatmentEffect}'s posterior draws and
  * temporal decomposition. These are the single source for the summary statistics
- * surfaced by both the treatment-ranking table and the Stage 6 scenario rail —
+ * surfaced by both the treatment-ranking table and the analysis scenario rail —
  * no statistical logic is duplicated across the frontend.
  */
 

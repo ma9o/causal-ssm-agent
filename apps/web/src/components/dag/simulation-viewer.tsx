@@ -5,9 +5,9 @@ import { Bot, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Stage6Scenario } from "@/components/pipeline/stage-contents/stage-6-scenarios";
-import { ManifestProjection } from "@/components/stages/inference/treatment-effect-visuals";
-import { TreatmentRankingTable } from "@/components/stages/inference/treatment-ranking-table";
+import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
+import { ManifestProjection } from "@/components/analysis-widgets/posterior/treatment-effect-visuals";
+import { TreatmentRankingTable } from "@/components/analysis-widgets/posterior/treatment-ranking-table";
 import {
   Accordion,
   AccordionContent,
@@ -27,7 +27,7 @@ export interface SimulationViewerGraph {
 }
 
 export interface SimulationViewerProps {
-  scenarios: Stage6Scenario[];
+  scenarios: BaselineReportScenario[];
   graph: SimulationViewerGraph;
   selectedKey?: string | null;
   onSelect?: (key: string) => void;
@@ -41,7 +41,7 @@ export interface SimulationViewerProps {
  * The LLM's explanation produced with the focused scenario — reasoning behind the
  * intervention and what the simulation shows. Sits directly under the carousel.
  */
-function ScenarioBlurb({ scenario }: { scenario: Stage6Scenario }) {
+function ScenarioBlurb({ scenario }: { scenario: BaselineReportScenario }) {
   if (!scenario.blurb?.trim()) {
     return null;
   }
@@ -74,7 +74,7 @@ function ScenarioDetail({
   graph,
   onSimulate,
 }: {
-  scenario: Stage6Scenario;
+  scenario: BaselineReportScenario;
   graph: SimulationViewerGraph;
   onSimulate?: SimulateFn;
 }) {
@@ -99,7 +99,7 @@ function ScenarioDetail({
 }
 
 /**
- * Stage 6 simulation viewer. The left (content) column of the stage: a rail of
+ * analysis simulation viewer. The left output column: a rail of
  * scenarios (the no-intervention baseline first, then chat-minted interventions),
  * the LLM's blurb for the focused scenario, and the living DAG. The chat that
  * mints new scenarios lives in the shell's trace pane and shares selection via

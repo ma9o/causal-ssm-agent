@@ -13,10 +13,10 @@ Two backends are supported:
   ``codex exec`` and exposes tools over an in-process MCP server
   (see :mod:`nof1_causal_lab.utils.harness`).
 
-Stages don't talk to those modules directly: they receive a
-:class:`StageSessionFactory` that already knows the stage's
-:class:`StageLLMConfig` and accumulates LLM traces across every session
-it opens. ``StageSessionFactory.open(...)`` returns an async context
+Transitions do not talk to those modules directly: they receive a
+:class:`ScopedSessionFactory` that already knows the stage's
+:class:`LLMProfileConfig` and accumulates LLM traces across every session
+it opens. ``ScopedSessionFactory.open(...)`` returns an async context
 manager yielding a live :class:`AgentSession`.
 """
 
@@ -31,7 +31,7 @@ from nof1_causal_lab.utils.llm import LLMTrace, _merge_trace
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.config import LLMDefaults, LLMProfileConfig
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 
@@ -69,28 +69,28 @@ class AgentSession(Protocol):
     def result(self) -> AgentResult: ...
 
 
-class StageSessionFactory:
+class ScopedSessionFactory:
     """Opens :class:`AgentSession` instances for a stage, accumulating traces.
 
-    Stages receive an instance of this class instead of a plain generate
+    Transitions receive an instance of this class instead of a plain generate
     function; each ``.open(...)`` call yields a fresh session bound to
     the configured backend. After every session closes, its
     :class:`LLMTrace` is merged into :attr:`accumulated_trace` so the
-    outer stage wrapper can attach one combined trace to its output
+    outer transition wrapper can attach one combined trace to its output
     payload.
     """
 
     def __init__(
         self,
-        stage_llm: StageLLMConfig,
+        profile_llm: LLMProfileConfig,
         llm_defaults: LLMDefaults,
         *,
-        stage_id: str,
+        context_id: str,
         max_tool_turns: int | None = None,
     ) -> None:
-        self._stage_llm = stage_llm
+        self._profile_llm = profile_llm
         self._llm_defaults = llm_defaults
-        self._stage_id = stage_id
+        self._context_id = context_id
         self._max_tool_turns = max_tool_turns
         self.accumulated_trace: LLMTrace = LLMTrace()
 
@@ -106,11 +106,11 @@ class StageSessionFactory:
         from nof1_causal_lab.utils.agent_session_factory import open_session
 
         async with open_session(
-            self._stage_llm,
+            self._profile_llm,
             self._llm_defaults,
             system_prompt=system_prompt,
             tools=tools or [],
-            log_label=log_label or self._stage_id,
+            log_label=log_label or self._context_id,
             max_tool_turns=self._max_tool_turns,
         ) as session:
             try:

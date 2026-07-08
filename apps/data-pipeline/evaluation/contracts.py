@@ -1,14 +1,14 @@
 """Core contracts for the capability-evaluation registry.
 
-The pipeline is validated as a matrix of ``(scenario x stage)`` cells. A
+The pipeline is validated as a matrix of ``(scenario x target)`` cells. A
 :class:`Scenario` supplies inputs and ground truth for whichever stages it
-covers; a :class:`StageRunner` drives the live stage core to produce an output;
-a :class:`StageScorer` compares that output against the scenario's ground truth.
+covers; a :class:`TargetRunner` drives the live target core to produce an output;
+a :class:`TargetScorer` compares that output against the scenario's ground truth.
 
 This module is backend-agnostic on purpose: the same registry entries are
 driven by pytest (gates), CLI/Modal benchmark scripts (graded benchmarks), and
 Inspect tasks (paid LLM cells). The Prefect flow, the test suite, and these
-runners are all adapters over the same importable stage cores.
+runners are all adapters over the same importable target cores.
 """
 
 from __future__ import annotations
@@ -19,16 +19,16 @@ from enum import StrEnum
 from typing import Any
 
 
-class Stage(StrEnum):
-    """A pipeline stage a scenario can carry ground truth for.
+class Target(StrEnum):
+    """A pipeline target a scenario can carry ground truth for.
 
-    The enum grows with the matrix: a stage gains a member when its first
-    scorer lands. Planned next: constructs (stage1a), measurement (stage1b),
-    statistical_model_spec (stage4), effects (stage6).
+    The enum grows with the matrix: a target gains a member when its first
+    scorer lands. Planned next: constructs (latent_structure), measurement (measurement_structure),
+    statistical_model_spec (model_spec), effects (analysis).
     """
 
-    IDENTIFICATION = "identification"  # stage1b: y0 identification verdict
-    INFERENCE = "inference"  # stage5b: parameter recovery
+    IDENTIFICATION = "identification"  # measurement_structure: y0 identification verdict
+    INFERENCE = "inference"  # posterior: parameter recovery
 
 
 class Cost(StrEnum):
@@ -82,7 +82,7 @@ class Capability(StrEnum):
 
 @dataclass(frozen=True)
 class Score:
-    """Outcome of scoring one ``(scenario, stage)`` cell."""
+    """Outcome of scoring one ``(scenario, target)`` cell."""
 
     name: str
     mode: Mode
@@ -100,27 +100,27 @@ class Scenario(ABC):
 
     @abstractmethod
     def inputs(self) -> dict[str, Any]:
-        """Inputs fed to the stage runner."""
+        """Inputs fed to the target runner."""
 
     @abstractmethod
-    def truth_for(self, stage: Stage) -> Any | None:
-        """Ground truth for ``stage``, or ``None`` when this scenario omits it."""
+    def truth_for(self, target: Target) -> Any | None:
+        """Ground truth for ``target``, or ``None`` when this scenario omits it."""
 
 
-class StageRunner(ABC):
-    """Adapter that drives one stage's live core to produce an output."""
+class TargetRunner(ABC):
+    """Adapter that drives one target's live core to produce an output."""
 
-    stage: Stage
+    target: Target
 
     @abstractmethod
     def run(self, scenario: Scenario) -> Any:
-        """Invoke the live stage core on the scenario's inputs."""
+        """Invoke the live target core on the scenario's inputs."""
 
 
-class StageScorer(ABC):
-    """Compares a stage's produced output against scenario ground truth."""
+class TargetScorer(ABC):
+    """Compares a target's produced output against scenario ground truth."""
 
-    stage: Stage
+    target: Target
 
     @abstractmethod
     def score(self, produced: Any, truth: Any) -> Score:

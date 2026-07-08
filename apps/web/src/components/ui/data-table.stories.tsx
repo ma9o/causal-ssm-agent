@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage2Data } from "@/components/__fixtures__/stage2-data";
+import { measurementsData } from "@/components/__fixtures__/measurements-data";
 import { DataTable } from "./data-table";
 
-const rows = stage2Data.combined_extractions_sample.slice(0, 50);
+const rows = measurementsData.combined_extractions_sample.slice(0, 50);
 
 const meta = {
   title: "UI/DataTable",

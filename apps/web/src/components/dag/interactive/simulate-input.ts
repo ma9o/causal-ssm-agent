@@ -1,8 +1,8 @@
 import type { LatentClampInput } from "@nof1-causal-lab/api-types";
-import type { Stage6SimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "../intervention-dag-types";
 
 /**
- * Input to the stage-6 `simulate` tool. There is no generated TS interface for
+ * Input to the baseline_report `simulate` tool. There is no generated TS interface for
  * it (the contract ships it as a JSON schema only), so we mirror the shape here.
  */
 export interface SimulateInput {
@@ -21,11 +21,11 @@ export interface SimulateInput {
  * how: Storybook injects a mock; prod injects a `POST /api/tools/dispatch`
  * call (the non-LLM tool seam). Absent this, the DAG is a read-only viewer.
  */
-export type SimulateFn = (input: SimulateInput) => Promise<Stage6SimulationResult>;
+export type SimulateFn = (input: SimulateInput) => Promise<AnalysisSimulationResult>;
 
 /** Re-run `base`'s scenario start with a new set of clamps over the same horizon. */
 export function buildSimulateInput(
-  base: Stage6SimulationResult,
+  base: AnalysisSimulationResult,
   clamps: LatentClampInput[],
   horizonDays: number,
 ): SimulateInput {

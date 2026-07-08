@@ -1,12 +1,12 @@
 """Backend-dispatching factory for :class:`AgentSession` context managers.
 
-Stages call :func:`open_session` with their :class:`StageLLMConfig` (plus
+Stages call :func:`open_session` with their :class:`LLMProfileConfig` (plus
 the global :class:`LLMDefaults`) and a tool list. The factory picks the
-backend, merges per-stage overrides with global defaults, and yields a
+backend, merges per-context overrides with global defaults, and yields a
 live :class:`AgentSession` — the stage doesn't need to know whether it
 got an embedded OpenRouter session or a harness subprocess.
 
-Per-stage overrides (set on ``StageLLMConfig``) take precedence over
+Per-context overrides (set on ``LLMProfileConfig``) take precedence over
 the matching global default; ``None`` means "inherit". Fields that are
 invalid for a given harness are rejected by :func:`validate_config` at
 load time, so dispatch here can trust the shape.
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from nof1_causal_lab.utils.agent_session import AgentSession
-    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.config import LLMDefaults, LLMProfileConfig
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 
@@ -40,7 +40,7 @@ def _first_not_none(*values):
 
 @asynccontextmanager
 async def open_session(
-    stage_llm: StageLLMConfig,
+    profile_llm: LLMProfileConfig,
     llm_defaults: LLMDefaults,
     *,
     system_prompt: str | None,
@@ -50,23 +50,25 @@ async def open_session(
 ) -> AsyncIterator[AgentSession]:
     """Open an :class:`AgentSession` against the configured backend.
 
-    ``stage_llm.harness`` picks between ``"none"`` (embedded OpenRouter),
+    ``profile_llm.harness`` picks between ``"none"`` (embedded OpenRouter),
     ``"claude-code"`` (``claude -p``), and ``"codex"`` (``codex exec``).
-    Per-stage overrides on ``stage_llm`` trump the matching global
+    Per-context overrides on ``profile_llm`` trump the matching global
     default in ``llm_defaults``.
     """
-    harness = stage_llm.harness
+    harness = profile_llm.harness
     label = log_label
 
     if harness == "none":
         embedded = llm_defaults.embedded
         config = GenerateConfig(
-            max_tokens=_first_not_none(stage_llm.max_tokens, embedded.max_tokens),
-            timeout=_first_not_none(stage_llm.timeout, embedded.timeout),
-            reasoning_effort=_first_not_none(stage_llm.reasoning_effort, embedded.reasoning_effort),
+            max_tokens=_first_not_none(profile_llm.max_tokens, embedded.max_tokens),
+            timeout=_first_not_none(profile_llm.timeout, embedded.timeout),
+            reasoning_effort=_first_not_none(
+                profile_llm.reasoning_effort, embedded.reasoning_effort
+            ),
         )
         async with open_embedded_session(
-            model_name=stage_llm.model,
+            model_name=profile_llm.model,
             system_prompt=system_prompt,
             tools=tools,
             config=config,
@@ -81,12 +83,12 @@ async def open_session(
         async with open_claude_harness_session(
             tools=tools,
             system_prompt=system_prompt,
-            model=stage_llm.model,
-            bin=_first_not_none(stage_llm.bin, defaults.bin),
-            effort=_first_not_none(stage_llm.effort, defaults.effort),
-            max_turns=_first_not_none(stage_llm.max_turns, max_tool_turns, defaults.max_turns),
-            max_budget_usd=_first_not_none(stage_llm.max_budget_usd, defaults.max_budget_usd),
-            fallback_model=_first_not_none(stage_llm.fallback_model, defaults.fallback_model),
+            model=profile_llm.model,
+            bin=_first_not_none(profile_llm.bin, defaults.bin),
+            effort=_first_not_none(profile_llm.effort, defaults.effort),
+            max_turns=_first_not_none(profile_llm.max_turns, max_tool_turns, defaults.max_turns),
+            max_budget_usd=_first_not_none(profile_llm.max_budget_usd, defaults.max_budget_usd),
+            fallback_model=_first_not_none(profile_llm.fallback_model, defaults.fallback_model),
             log_label=label,
         ) as session:
             yield session
@@ -97,16 +99,16 @@ async def open_session(
         codex_kwargs: dict[str, Any] = {
             "tools": tools,
             "system_prompt": system_prompt,
-            "model": stage_llm.model,
-            "bin": _first_not_none(stage_llm.bin, defaults.bin),
+            "model": profile_llm.model,
+            "bin": _first_not_none(profile_llm.bin, defaults.bin),
             "reasoning_effort": _first_not_none(
-                stage_llm.reasoning_effort, defaults.reasoning_effort
+                profile_llm.reasoning_effort, defaults.reasoning_effort
             ),
-            "service_tier": _first_not_none(stage_llm.service_tier, defaults.service_tier),
+            "service_tier": _first_not_none(profile_llm.service_tier, defaults.service_tier),
             "log_label": label,
         }
-        if stage_llm.timeout is not None:
-            codex_kwargs["timeout_seconds"] = float(stage_llm.timeout)
+        if profile_llm.timeout is not None:
+            codex_kwargs["timeout_seconds"] = float(profile_llm.timeout)
         async with open_codex_harness_session(**codex_kwargs) as session:
             yield session
         return

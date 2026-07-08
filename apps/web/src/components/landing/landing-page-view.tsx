@@ -111,7 +111,7 @@ export function LandingPageView({
                 <CardTitle>Data Upload</CardTitle>
                 <CardDescription>
                   {linkifyDocRefs(
-                    "Upload a ZIP or text file containing your observational data, without worrying about heterogeneity or sparsity. See docs/pipeline/02-indicator-extraction.md",
+                    "Upload a ZIP or text file containing your observational data, without worrying about heterogeneity or sparsity. See docs/pipeline/extraction.md",
                   )}
                 </CardDescription>
               </CardHeader>

@@ -1,5 +1,4 @@
-import type { StageId } from "@nof1-causal-lab/api-types";
-import { STAGES } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 
 export function isMockMode(): boolean {
   const v = process.env.NEXT_PUBLIC_MOCK_DATA;
@@ -15,14 +14,17 @@ export function getMockFixture(): string {
 }
 
 export interface MockEventHandler {
-  onStageStart: (stageId: StageId) => void;
-  onStageComplete: (stageId: StageId) => void;
+  onTransitionStart: (artifactId: ArtifactViewId) => void;
+  onTransitionComplete: (artifactId: ArtifactViewId) => void;
 }
 
-export function simulatePipelineEvents(handlers: MockEventHandler): () => void {
-  for (const stage of STAGES) {
-    handlers.onStageStart(stage.id);
-    handlers.onStageComplete(stage.id);
+export function simulatePipelineEvents(
+  handlers: MockEventHandler,
+  transitionOrder: readonly ArtifactViewId[],
+): () => void {
+  for (const artifactId of transitionOrder) {
+    handlers.onTransitionStart(artifactId);
+    handlers.onTransitionComplete(artifactId);
   }
 
   return () => {};

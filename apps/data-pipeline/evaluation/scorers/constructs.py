@@ -1,7 +1,7 @@
-"""Latent-model (Stage 1a constructs) scoring.
+"""Latent-model (Target 1a constructs) scoring.
 
 Lifted out of the deleted ``orchestrator.scoring`` so the rule-based latent-structure
-score is a single source shared by the Inspect Stage 1a eval and any registry
+score is a single source shared by the Inspect Target 1a eval and any registry
 constructs row — not duplicated. ``count_rule_points`` is the core logic; the
 ``score_latent_structure*`` functions are the DSPy-metric interface; and
 ``LatentStructureScorer`` is the registry-shaped wrapper.

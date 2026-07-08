@@ -54,8 +54,8 @@ def _export_parameters(*, check: bool) -> bool:
 
     roles_body = "\n".join(
         [
-            "The [Stage 4 skeleton](../../pipeline/04-statistical-model-specification-priors.md) creates exactly "
-            "the following parameters from a [`CausalDesign`](../../pipeline/01b-measurement-structure-identifiability.md#causaldesign):",
+            "The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly "
+            "the following parameters from a [`CausalDesign`](../../pipeline/measurement-structure.md#causaldesign):",
             "",
             render_parameter_roles_markdown_table(),
             "",
@@ -69,8 +69,8 @@ def _export_parameters(*, check: bool) -> bool:
         [
             render_prior_distribution_markdown_table(),
             "",
-            "The `Family` values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.",
-            "The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.",
+            "The `Family` values are the exact canonical strings accepted by model-spec prior schemas; aliases are not supported.",
+            "The `Use When` column is the authoritative short guidance reused by the model-spec prompts.",
         ]
     )
 
@@ -99,10 +99,10 @@ def _export_likelihoods(*, check: bool) -> bool:
 
     dtype_body = "\n".join(
         [
-            "Each indicator's [`measurement_dtype`](../../pipeline/01b-measurement-structure-identifiability.md#indicator) "
+            "Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicator) "
             "determines the default distribution and link function. "
             "Where the dtype admits only one valid combination, the likelihood is locked "
-            "deterministically by the [Stage 4 skeleton](../../pipeline/04-statistical-model-specification-priors.md). "
+            "deterministically by the [model-spec skeleton](../../pipeline/statistical-model-spec.md). "
             "Where alternatives exist, the LLM chooses via a decision card.",
             "",
             render_dtype_likelihood_markdown_table(),

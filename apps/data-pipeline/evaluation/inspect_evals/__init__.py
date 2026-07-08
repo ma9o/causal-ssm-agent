@@ -1,4 +1,4 @@
-"""Inspect-native LLM evals (Stage 1a/1b/2 proposal quality).
+"""Inspect-native LLM evals (Target 1a/1b/2 proposal quality).
 
 These are a deliberately *separate execution framework* from the statistical
 evaluation registry: Inspect supplies the model providers, parallelism and

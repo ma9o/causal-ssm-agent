@@ -5,21 +5,21 @@ import textwrap
 import pytest
 
 from nof1_causal_lab.utils.config import (
+    AnalysisCommentaryConfig,
     ClaudeCodeDefaults,
     CodexDefaults,
     EmbeddedLLMDefaults,
+    ExtractionWorkersConfig,
     InferenceConfig,
+    IngestionConfig,
     LLMDefaults,
+    LLMProfileConfig,
     MAPConfig,
     MarginalParticleGibbsConfig,
     PipelineBehaviorConfig,
     PipelineConfig,
-    Stage0Config,
-    Stage1Config,
-    Stage2Config,
-    Stage4Config,
-    Stage6Config,
-    StageLLMConfig,
+    PriorElicitationConfig,
+    StructureProposalConfig,
     get_secret,
     get_secret_async,
     load_config,
@@ -122,26 +122,26 @@ class TestToSamplerConfig:
 
 
 MINIMAL_CONFIG = textwrap.dedent("""\
-    stage6_commentary:
+    analysis_commentary:
       llm:
         harness: none
         model: openrouter/gpt-4
-    stage0_ingestion:
+    ingestion:
       llm:
         harness: none
         model: openrouter/gpt-4
-    stage1_structure_proposal:
+    structure_proposal:
       sample_chunks: 3
       chunk_size: 500
       llm:
         harness: none
         model: openrouter/gpt-4
-    stage2_workers:
+    extraction_workers:
       chunk_size: 300
       llm:
         harness: none
         model: openrouter/gpt-4
-    stage4_prior_elicitation:
+    prior_elicitation:
       llm:
         harness: none
         model: openrouter/gpt-4
@@ -159,27 +159,27 @@ FULL_CONFIG = textwrap.dedent("""\
         reasoning_effort: medium
         service_tier: fast
 
-    stage0_ingestion:
+    ingestion:
       max_tool_turns: 30
       llm:
         harness: none
         model: openrouter/claude-3
 
-    stage6_commentary:
+    analysis_commentary:
       llm:
         harness: none
         model: openrouter/claude-3
 
-    stage1_structure_proposal:
+    structure_proposal:
       sample_chunks: 5
       chunk_size: 800
-      stage1a_max_tool_turns: 25
-      stage1b_max_tool_turns: 35
+      latent_max_tool_turns: 25
+      measurement_max_tool_turns: 35
       llm:
         harness: none
         model: openrouter/claude-3
 
-    stage2_workers:
+    extraction_workers:
       chunk_size: 400
       max_concurrent_workers: 6
       max_tool_turns: 45
@@ -187,7 +187,7 @@ FULL_CONFIG = textwrap.dedent("""\
         harness: none
         model: openrouter/claude-3
 
-    stage4_prior_elicitation:
+    prior_elicitation:
       max_tool_turns: 100
       literature_search:
         enabled: false
@@ -241,17 +241,17 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        assert cfg.stage1_structure_proposal.llm.model == "openrouter/gpt-4"
-        assert cfg.stage1_structure_proposal.llm.harness == "none"
-        assert cfg.stage1_structure_proposal.sample_chunks == 3
-        assert cfg.stage1_structure_proposal.stage1a_max_tool_turns == 40
-        assert cfg.stage1_structure_proposal.stage1b_max_tool_turns == 40
-        assert cfg.stage2_workers.chunk_size == 300
-        assert cfg.stage2_workers.max_concurrent_workers == 4
-        assert cfg.stage2_workers.max_tool_turns == 40
-        assert cfg.stage4_prior_elicitation.llm.model == "openrouter/gpt-4"
-        assert cfg.stage4_prior_elicitation.max_tool_turns == 40
-        assert cfg.stage6_commentary.llm.model == "openrouter/gpt-4"
+        assert cfg.structure_proposal.llm.model == "openrouter/gpt-4"
+        assert cfg.structure_proposal.llm.harness == "none"
+        assert cfg.structure_proposal.sample_chunks == 3
+        assert cfg.structure_proposal.latent_max_tool_turns == 40
+        assert cfg.structure_proposal.measurement_max_tool_turns == 40
+        assert cfg.extraction_workers.chunk_size == 300
+        assert cfg.extraction_workers.max_concurrent_workers == 4
+        assert cfg.extraction_workers.max_tool_turns == 40
+        assert cfg.prior_elicitation.llm.model == "openrouter/gpt-4"
+        assert cfg.prior_elicitation.max_tool_turns == 40
+        assert cfg.analysis_commentary.llm.model == "openrouter/gpt-4"
         # Defaults for optional sections
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.llm.embedded.max_tokens == 65536
@@ -271,16 +271,16 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        assert cfg.stage0_ingestion.max_tool_turns == 30
-        assert cfg.stage1_structure_proposal.stage1a_max_tool_turns == 25
-        assert cfg.stage1_structure_proposal.stage1b_max_tool_turns == 35
-        assert cfg.stage2_workers.max_concurrent_workers == 6
-        assert cfg.stage2_workers.max_tool_turns == 45
-        assert cfg.stage4_prior_elicitation.max_tool_turns == 100
-        assert cfg.stage4_prior_elicitation.literature_search.enabled is False
-        assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
-        assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
-        assert cfg.stage6_commentary.llm.model == "openrouter/claude-3"
+        assert cfg.ingestion.max_tool_turns == 30
+        assert cfg.structure_proposal.latent_max_tool_turns == 25
+        assert cfg.structure_proposal.measurement_max_tool_turns == 35
+        assert cfg.extraction_workers.max_concurrent_workers == 6
+        assert cfg.extraction_workers.max_tool_turns == 45
+        assert cfg.prior_elicitation.max_tool_turns == 100
+        assert cfg.prior_elicitation.literature_search.enabled is False
+        assert cfg.prior_elicitation.paraphrasing.enabled is True
+        assert cfg.prior_elicitation.paraphrasing.n_paraphrases == 5
+        assert cfg.analysis_commentary.llm.model == "openrouter/claude-3"
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.inference.num_warmup == 500
         assert cfg.inference.num_samples == 2000
@@ -339,22 +339,22 @@ class TestLoadConfig:
 # =============================================================================
 
 
-def _make_pipeline_config(**stage_llm_overrides) -> PipelineConfig:
-    """Build a valid PipelineConfig with optional per-stage llm overrides."""
+def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
+    """Build a valid PipelineConfig with optional per-context llm overrides."""
     defaults = {
-        "stage0_ingestion": StageLLMConfig(harness="none", model="openrouter/x"),
-        "stage1_structure_proposal": StageLLMConfig(harness="none", model="openrouter/x"),
-        "stage2_workers": StageLLMConfig(harness="none", model="openrouter/x"),
-        "stage4_prior_elicitation": StageLLMConfig(harness="none", model="openrouter/x"),
-        "stage6_commentary": StageLLMConfig(harness="none", model="openrouter/x"),
+        "ingestion": LLMProfileConfig(harness="none", model="openrouter/x"),
+        "structure_proposal": LLMProfileConfig(harness="none", model="openrouter/x"),
+        "extraction_workers": LLMProfileConfig(harness="none", model="openrouter/x"),
+        "prior_elicitation": LLMProfileConfig(harness="none", model="openrouter/x"),
+        "analysis_commentary": LLMProfileConfig(harness="none", model="openrouter/x"),
     }
-    defaults.update(stage_llm_overrides)
+    defaults.update(profile_llm_overrides)
     return PipelineConfig(
-        stage0_ingestion=Stage0Config(llm=defaults["stage0_ingestion"]),
-        stage1_structure_proposal=Stage1Config(llm=defaults["stage1_structure_proposal"]),
-        stage2_workers=Stage2Config(llm=defaults["stage2_workers"]),
-        stage4_prior_elicitation=Stage4Config(llm=defaults["stage4_prior_elicitation"]),
-        stage6_commentary=Stage6Config(llm=defaults["stage6_commentary"]),
+        ingestion=IngestionConfig(llm=defaults["ingestion"]),
+        structure_proposal=StructureProposalConfig(llm=defaults["structure_proposal"]),
+        extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]),
+        prior_elicitation=PriorElicitationConfig(llm=defaults["prior_elicitation"]),
+        analysis_commentary=AnalysisCommentaryConfig(llm=defaults["analysis_commentary"]),
         inference=InferenceConfig(),
         llm=LLMDefaults(
             embedded=EmbeddedLLMDefaults(),
@@ -372,53 +372,51 @@ class TestValidateConfig:
 
     def test_stage2_harness_claude_code_rejected(self):
         config = _make_pipeline_config(
-            stage2_workers=StageLLMConfig(harness="claude-code", model="sonnet"),
+            extraction_workers=LLMProfileConfig(harness="claude-code", model="sonnet"),
         )
         errors = validate_config(config)
-        assert any("stage2_workers.llm.harness" in e for e in errors)
+        assert any("extraction_workers.llm.harness" in e for e in errors)
         assert any("must be 'none'" in e for e in errors)
 
     def test_stage2_harness_codex_rejected(self):
         config = _make_pipeline_config(
-            stage2_workers=StageLLMConfig(harness="codex", model="gpt-5.4"),
+            extraction_workers=LLMProfileConfig(harness="codex", model="gpt-5.4"),
         )
         errors = validate_config(config)
-        assert any("stage2_workers.llm.harness" in e for e in errors)
+        assert any("extraction_workers.llm.harness" in e for e in errors)
         assert any("must be 'none'" in e for e in errors)
 
     def test_unknown_harness_value_rejected(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(harness="anthropic", model="openrouter/x"),
+            ingestion=LLMProfileConfig(harness="anthropic", model="openrouter/x"),
         )
         errors = validate_config(config)
-        assert any("stage0_ingestion.llm.harness" in e for e in errors)
+        assert any("ingestion.llm.harness" in e for e in errors)
 
     def test_embedded_model_must_be_openrouter_prefix(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(harness="none", model="gpt-5.4"),
+            ingestion=LLMProfileConfig(harness="none", model="gpt-5.4"),
         )
         errors = validate_config(config)
         assert any("openrouter/" in e for e in errors)
 
     def test_effort_only_valid_for_claude_code(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(harness="none", model="openrouter/x", effort="high"),
+            ingestion=LLMProfileConfig(harness="none", model="openrouter/x", effort="high"),
         )
         errors = validate_config(config)
         assert any(".effort" in e for e in errors)
 
     def test_service_tier_only_valid_for_codex(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(
-                harness="none", model="openrouter/x", service_tier="fast"
-            ),
+            ingestion=LLMProfileConfig(harness="none", model="openrouter/x", service_tier="fast"),
         )
         errors = validate_config(config)
         assert any(".service_tier" in e for e in errors)
 
     def test_claude_code_rejects_reasoning_effort(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(
+            ingestion=LLMProfileConfig(
                 harness="claude-code", model="sonnet", reasoning_effort="high"
             ),
         )
@@ -427,40 +425,40 @@ class TestValidateConfig:
 
     def test_claude_code_effort_enum(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(harness="claude-code", model="sonnet", effort="ultra"),
+            ingestion=LLMProfileConfig(harness="claude-code", model="sonnet", effort="ultra"),
         )
         errors = validate_config(config)
         assert any(".effort" in e and "'ultra'" in e for e in errors)
 
     def test_codex_rejects_claude_only_fields(self):
         config = _make_pipeline_config(
-            stage0_ingestion=StageLLMConfig(harness="codex", model="gpt-5.4", max_budget_usd=5.0),
+            ingestion=LLMProfileConfig(harness="codex", model="gpt-5.4", max_budget_usd=5.0),
         )
         errors = validate_config(config)
         assert any(".max_budget_usd" in e for e in errors)
 
     def test_load_config_raises_on_stage2_harness_violation(self, tmp_path, monkeypatch):
         bad_config = textwrap.dedent("""\
-            stage6_commentary:
+            analysis_commentary:
               llm:
                 harness: none
                 model: openrouter/gpt-4
-            stage0_ingestion:
+            ingestion:
               llm:
                 harness: none
                 model: openrouter/gpt-4
-            stage1_structure_proposal:
+            structure_proposal:
               sample_chunks: 3
               chunk_size: 500
               llm:
                 harness: none
                 model: openrouter/gpt-4
-            stage2_workers:
+            extraction_workers:
               chunk_size: 300
               llm:
                 harness: claude-code
                 model: sonnet
-            stage4_prior_elicitation:
+            prior_elicitation:
               llm:
                 harness: none
                 model: openrouter/gpt-4
@@ -474,7 +472,7 @@ class TestValidateConfig:
 
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
-        with pytest.raises(ValueError, match=r"stage2_workers\.llm\.harness"):
+        with pytest.raises(ValueError, match=r"extraction_workers\.llm\.harness"):
             load_config()
 
         load_config.cache_clear()

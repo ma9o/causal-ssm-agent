@@ -12,7 +12,7 @@ broad kinds live here:
 
 - **Full-vector terms** that contribute to several latents at once:
   ``DenseLinear`` wraps a posterior-shaped ``A @ η + c`` in one XLA op
-  (the fast path for the existing dense-matrix Stage 5b posterior);
+  (the fast path for the existing dense-matrix posterior posterior);
   ``DiagonalDecay`` and ``Intercept`` are full-vector background terms;
   ``StateDecay`` and ``StateIntercept`` are scalar, target-owned versions
   used by compiler-produced component specs.
@@ -66,7 +66,7 @@ class DenseLinear(eqx.Module):
     """``A @ η + c`` contribution as a single matmul.
 
     Reads ``params['drift']`` (``(n, n)``) and optional ``params['cint']``
-    (``(n,)``). This is the fast path for the existing Stage 5b dense
+    (``(n,)``). This is the fast path for the existing posterior dense
     posterior; it consumes the matrix shape directly without the
     per-edge scatter overhead that would otherwise scale as ``n²`` ops.
     Edge-input overrides go through ``eta_per_edge`` so a single

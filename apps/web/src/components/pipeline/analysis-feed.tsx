@@ -2,66 +2,67 @@
 
 import { BackToTop } from "@/components/back-to-top";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AnalysisStageRuns } from "@/lib/api/analysis";
+import type { AnalysisTransitionRuns } from "@/lib/api/analysis";
 import { WorkspaceViewProvider } from "@/lib/contexts/workspace-view-context";
 import { useKeyboardNav } from "@/lib/hooks/use-keyboard-nav";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@nof1-causal-lab/api-types";
+import { TRANSITION_META } from "@nof1-causal-lab/api-types";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
-import { ActiveStageIndicator } from "./active-stage-indicator";
-import { LazyStageMount } from "./lazy-stage-mount";
-import { NewStagesNotification } from "./new-stages-notification";
+import { ActiveTransitionsIndicator } from "./active-transitions-indicator";
+import { LazyOutputMount } from "./lazy-output-mount";
+import { CompletedOutputsNotification } from "./completed-outputs-notification";
 import { PipelineProgressBar } from "./progress-bar";
-import { StageSectionRouter } from "./stage-section-router";
+import { OutputSectionRouter } from "./output-section-router";
 import { StaleRecomputeBanner } from "./stale-recompute-banner";
 
 function FeedContent({
   workspaceId,
-  stageRuns,
+  transitionRuns,
   question,
   progress,
   readOnly,
 }: {
   workspaceId: string;
-  stageRuns?: AnalysisStageRuns;
+  transitionRuns?: AnalysisTransitionRuns;
   question?: string;
   progress: PipelineProgress;
   readOnly: boolean;
 }) {
-  const visibleStageIds = useMemo(
-    () => STAGES.filter((s) => progress.stages[s.id] !== "pending").map((s) => s.id),
+  const visibleArtifactIds = useMemo(
+    () =>
+      progress.transitionOrder.filter((artifactId) => progress.artifacts[artifactId] !== "pending"),
     [progress],
   );
-  useKeyboardNav(visibleStageIds);
+  useKeyboardNav(visibleArtifactIds);
 
-  const visibleStages = STAGES.filter((s) => progress.stages[s.id] !== "pending");
+  const visibleOutputs = visibleArtifactIds.map((artifactId) => TRANSITION_META[artifactId]);
 
   return (
     <div>
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 lg:px-10 2xl:px-12">
         {!readOnly && <StaleRecomputeBanner workspaceId={workspaceId} progress={progress} />}
-        {visibleStages.map((stage) => (
-          <LazyStageMount key={stage.id} stage={stage}>
-            <StageSectionRouter
-              stage={stage}
+        {visibleOutputs.map((output) => (
+          <LazyOutputMount key={output.id} output={output}>
+            <OutputSectionRouter
+              output={output}
               workspaceId={workspaceId}
-              stageRun={stageRuns?.[stage.id]}
-              status={progress.stages[stage.id]}
-              timing={progress.timings[stage.id]}
-              errorMessage={progress.stageErrors[stage.id]}
-              staleArtifactIds={progress.staleArtifactsByStage[stage.id]}
+              transitionRun={transitionRuns?.[output.id]}
+              status={progress.artifacts[output.id]}
+              timing={progress.timings[output.id]}
+              errorMessage={progress.transitionErrors[output.id]}
+              staleArtifactIds={progress.staleArtifactsByProducer[output.id]}
             />
-          </LazyStageMount>
+          </LazyOutputMount>
         ))}
         {!progress.isComplete && (
           <div className="mx-auto w-full max-w-[1600px]">
-            <ActiveStageIndicator stageId={progress.currentStage} />
+            <ActiveTransitionsIndicator artifactIds={progress.runningTransitions} />
           </div>
         )}
       </div>
-      <NewStagesNotification progress={progress} />
+      <CompletedOutputsNotification progress={progress} />
       <BackToTop />
     </div>
   );
@@ -69,13 +70,13 @@ function FeedContent({
 
 export function AnalysisFeed({
   workspaceId,
-  stageRuns,
+  transitionRuns,
   question,
   progress,
   readOnly = false,
 }: {
   workspaceId: string;
-  stageRuns?: AnalysisStageRuns;
+  transitionRuns?: AnalysisTransitionRuns;
   question?: string;
   progress: PipelineProgress | undefined;
   readOnly?: boolean;
@@ -102,7 +103,7 @@ export function AnalysisFeed({
     <WorkspaceViewProvider readOnly={readOnly}>
       <FeedContent
         workspaceId={workspaceId}
-        stageRuns={stageRuns}
+        transitionRuns={transitionRuns}
         question={question}
         progress={progress}
         readOnly={readOnly}

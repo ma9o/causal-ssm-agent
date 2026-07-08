@@ -1,24 +1,25 @@
-import type { StageId } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
-export interface AnalysisStageExecution {
+export interface AnalysisTransitionExecution {
   stateType: string;
   startTime: string | null;
   endTime: string | null;
 }
 
-export interface AnalysisStageRun {
-  execution: AnalysisStageExecution | null;
+export interface AnalysisTransitionRun {
+  execution: AnalysisTransitionExecution | null;
 }
 
-export type AnalysisStageRuns = Record<StageId, AnalysisStageRun>;
+export type AnalysisTransitionRuns = Record<ArtifactViewId, AnalysisTransitionRun>;
 
 export interface MachineTransition {
   transition_id: string;
-  runner_id: string;
 }
 
 export interface MachineDescription {
+  topological_artifact_order: string[];
+  topological_transition_order: string[];
   transitions: MachineTransition[];
 }
 
@@ -26,12 +27,13 @@ export interface AnalysisManifest {
   workspaceId: string;
   createdAt: string;
   question?: string;
-  stages: AnalysisStageRuns;
+  transitionOrder: ArtifactViewId[];
+  transitionRuns: AnalysisTransitionRuns;
   /** Read-only artifact (e.g. a shared workspace): the UI hides LLM interaction. */
   readOnly: boolean;
 }
 
-/** One intra-stage telemetry event from the episode event stream. */
+/** One runtime telemetry event from the episode event stream. */
 export interface EpisodeEventRecord {
   event: string;
   payload: Record<string, unknown>;
@@ -92,7 +94,7 @@ export async function getEpisodeProgress(
   return apiFetch<EpisodeProgressPayload>(`/api/analysis/${workspaceId}/progress${search}`);
 }
 
-export async function recomputeStaleStages(
+export async function recomputeStaleArtifacts(
   workspaceId: string,
 ): Promise<{ ok: true; workspaceId: string }> {
   return apiFetch<{ ok: true; workspaceId: string }>(`/api/analysis/${workspaceId}/recompute`, {

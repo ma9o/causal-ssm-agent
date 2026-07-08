@@ -9,13 +9,13 @@ The main domain spine is the sequence of artifacts the pipeline produces and ref
 | Layer | Primary artifact | Produced in | Owner doc | Purpose |
 |---|---|---|---|---|
 | Research intent | Natural-language question | Pipeline request | [pipeline.md](../pipeline.md) | Declares the causal query |
-| Theoretical causal structure | `LatentStructure` | Stage 1a | [../pipeline/01a-latent-structure.md](../pipeline/01a-latent-structure.md) | Defines constructs, edges, and the designated outcome |
-| Measurement and identification | `CausalDesign` | Stage 1b | [../pipeline/01b-measurement-structure-identifiability.md](../pipeline/01b-measurement-structure-identifiability.md) | Binds constructs to indicators and records identifiability |
-| Observational evidence | `ObservationRecord`s and the encoded observation table (`data_for_model`) | Stage 2 | [../pipeline/02-indicator-extraction.md](../pipeline/02-indicator-extraction.md) | Converts source data into time-indexed indicator values |
-| Data-quality surface | `IndicatorAudit` | Stage 3 | [../pipeline/03-extraction-validation.md](../pipeline/03-extraction-validation.md) | Describes whether extracted observations are usable |
-| Functional specification | `StatisticalModelSpec` plus priors | Stage 4 | [../pipeline/04-statistical-model-specification-priors.md](../pipeline/04-statistical-model-specification-priors.md) | Chooses likelihoods, parameters, and prior beliefs |
-| Fitted runtime artifact | `FittedArtifact` plus diagnostics | Stage 5b | [../pipeline/05b-inference-diagnostics.md](../pipeline/05b-inference-diagnostics.md) | Holds posterior inference outputs used downstream |
-| Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | Stage 6 | [../pipeline/06-intervention-analysis.md](../pipeline/06-intervention-analysis.md) | Answers interventional (`do`) and counterfactual queries |
+| Theoretical causal structure | `LatentStructure` | `latent_structure` transition | [../pipeline/latent-structure.md](../pipeline/latent-structure.md) | Defines constructs, edges, and the designated outcome |
+| Measurement and identification | `CausalDesign` | `measurement_structure` transition | [../pipeline/measurement-structure.md](../pipeline/measurement-structure.md) | Binds constructs to indicators and records identifiability |
+| Observational evidence | `ObservationRecord`s and the encoded observation table (`data_for_model`) | `measurements` transition | [../pipeline/extraction.md](../pipeline/extraction.md) | Converts source data into time-indexed indicator values |
+| Data-quality surface | `IndicatorAudit` | `validation_report` derivation | [../pipeline/extraction-validation.md](../pipeline/extraction-validation.md) | Describes whether extracted observations are usable |
+| Functional specification | `StatisticalModelSpec` plus priors | `statistical_model_spec` transition | [../pipeline/statistical-model-spec.md](../pipeline/statistical-model-spec.md) | Chooses likelihoods, parameters, and prior beliefs |
+| Fitted runtime artifact | `FittedArtifact` plus diagnostics | `posterior` transition | [../pipeline/inference.md](../pipeline/inference.md) | Holds posterior inference outputs used downstream |
+| Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | `baseline_report` transition | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers interventional (`do`) and counterfactual queries |
 
 ## Temporal Semantics
 
@@ -23,11 +23,11 @@ Time appears in five distinct roles across the pipeline. They answer different q
 
 | Concept | Primary owner | What it answers |
 |---|---|---|
-| **`model_clock`** | [Stage 1b](../pipeline/01b-measurement-structure-identifiability.md#observation_window-and-model_clock) | What is the shared tick width used for extraction, discretization, and the default lag unit? A global setting (e.g. `"1d"`) that aligns all indicators onto a common grid. |
-| **`observation_window`** | [Stage 1b](../pipeline/01b-measurement-structure-identifiability.md#observation_window-and-model_clock) | Over what support interval is a single indicator value measured or aggregated? May differ per indicator (e.g. daily mood vs. weekly incident count) as long as windows align back onto the `model_clock`. |
-| **`anchor_time`** | [Stage 2](../pipeline/02-indicator-extraction.md#observationrecord) | Which timestamp attaches the extracted value to the latent grid? Derived from the indicator's [`anchor_policy`](../pipeline/01b-measurement-structure-identifiability.md#derived-observation-semantics) — usually `support_end` for interval summaries, `support_start` for `first`. |
+| **`model_clock`** | [`measurement_structure` transition](../pipeline/measurement-structure.md#observation_window-and-model_clock) | What is the shared tick width used for extraction, discretization, and the default lag unit? A global setting (e.g. `"1d"`) that aligns all indicators onto a common grid. |
+| **`observation_window`** | [`measurement_structure` transition](../pipeline/measurement-structure.md#observation_window-and-model_clock) | Over what support interval is a single indicator value measured or aggregated? May differ per indicator (e.g. daily mood vs. weekly incident count) as long as windows align back onto the `model_clock`. |
+| **`anchor_time`** | [`measurements` transition](../pipeline/extraction.md#observationrecord) | Which timestamp attaches the extracted value to the latent grid? Derived from the indicator's [`anchor_policy`](../pipeline/measurement-structure.md#derived-observation-semantics) — usually `support_end` for interval summaries, `support_start` for `first`. |
 | **`dt`** | [estimation.md](estimation.md#2-discretization-ct-to-dt) | What is the elapsed time between consecutive observations used to discretize the continuous-time SDE? Computed from successive `anchor_time` values; drives `A_d = exp(A·dt)` and the discrete process noise. |
-| **Intervention horizon** | [Stage 6](../pipeline/06-intervention-analysis.md) | How far forward is a trajectory intervention projected? Default 30 days, discretized at the `model_clock` step, yielding snapshots at 1 d, 7 d, and 30 d plus peak effect and time-to-peak. |
+| **Intervention horizon** | [`baseline_report` transition](../pipeline/analysis.md) | How far forward is a trajectory intervention projected? Default 30 days, discretized at the `model_clock` step, yielding snapshots at 1 d, 7 d, and 30 d plus peak effect and time-to-peak. |
 
 ### Worked example: one observation through the pipeline
 
@@ -58,11 +58,11 @@ The pipeline has several kinds of checks. They target different failure modes an
 |---|---|---|---|
 | A1. Reflective measurement structure | MeasurementStructure | Stages 1b, 3, 4 | [measurement-structure/assumptions.md](measurement-structure/assumptions.md) |
 | A3. Markov property for temporal dynamics | LatentStructure | Stages 1a, 4, runtime | [latent-structure/assumptions.md](latent-structure/assumptions.md) |
-| A3a. Latent confounders have bounded temporal reach | CausalDesign identifiability | Stage 1b | [causal-design/identifiability.md](causal-design/identifiability.md) |
+| A3a. Latent confounders have bounded temporal reach | CausalDesign identifiability | `measurement_structure` transition | [causal-design/identifiability.md](causal-design/identifiability.md) |
 | A4. Acyclicity within time slice | LatentStructure | Stages 1a, 1b | [latent-structure/assumptions.md](latent-structure/assumptions.md) |
 | A4b. Endogenous time-varying directed effects are drift-mediated | LatentStructure | Stages 1a, 4, runtime | [latent-structure/assumptions.md](latent-structure/assumptions.md) |
-| A5. Time-invariant latents as subject-level static states | LatentStructure | Stage 1a, runtime | [latent-structure/assumptions.md](latent-structure/assumptions.md) |
+| A5. Time-invariant latents as subject-level static states | LatentStructure | `latent_structure` transition, runtime | [latent-structure/assumptions.md](latent-structure/assumptions.md) |
 | A6. Measurement error handling depends on indicator count | MeasurementStructure | Stages 1b, 4 | [measurement-structure/assumptions.md](measurement-structure/assumptions.md) |
-| A7. Measurement structure identification enables causal identification | CausalDesign identifiability | Stage 1b | [causal-design/identifiability.md](causal-design/identifiability.md) |
+| A7. Measurement structure identification enables causal identification | CausalDesign identifiability | `measurement_structure` transition | [causal-design/identifiability.md](causal-design/identifiability.md) |
 | A8. Indicator residuals are temporally independent | MeasurementStructure | Stages 1b, 4, runtime | [measurement-structure/assumptions.md](measurement-structure/assumptions.md) |
 | A9. Single-indicator constructs absorb measurement error | MeasurementStructure | Stages 1b, 4 | [measurement-structure/assumptions.md](measurement-structure/assumptions.md) |

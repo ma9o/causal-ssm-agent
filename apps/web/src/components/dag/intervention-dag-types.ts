@@ -6,8 +6,8 @@ export interface EdgePosterior {
   ci_upper: number;
 }
 
-/** A composable Stage 6 scenario result: a start state + a list of timed latent clamps. */
-export type Stage6SimulationResult = SimulateScenarioResult;
+/** A composable analysis scenario result: a start state + a list of timed latent clamps. */
+export type AnalysisSimulationResult = SimulateScenarioResult;
 
 /** One do-operator clamp within a scenario. */
 export type LatentClamp = LatentClampInput;

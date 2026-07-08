@@ -16,28 +16,28 @@ type Story = StoryObj<typeof meta>;
 
 export const Stale: Story = {
   args: {
-    staleStageCount: 3,
+    staleTransitionCount: 3,
     recomputing: false,
   },
 };
 
-export const SingleStage: Story = {
+export const SingleArtifact: Story = {
   args: {
-    staleStageCount: 1,
+    staleTransitionCount: 1,
     recomputing: false,
   },
 };
 
 export const Recomputing: Story = {
   args: {
-    staleStageCount: 3,
+    staleTransitionCount: 3,
     recomputing: true,
   },
 };
 
 export const WithError: Story = {
   args: {
-    staleStageCount: 2,
+    staleTransitionCount: 2,
     recomputing: false,
     error: "Recompute failed",
   },

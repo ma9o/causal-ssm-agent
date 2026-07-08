@@ -19,6 +19,7 @@ elementwise
 Emax
 enabledness
 estimand
+evals
 Gaussianity
 hessmc
 Langevin
@@ -41,4 +42,5 @@ unmodeled
 vmap
 vmapped
 warmstart
+worktree
 writability

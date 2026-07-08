@@ -53,10 +53,10 @@ dirs). The Web UI is served at `http://localhost:8233`.
 ```text
 data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
-│   ├── input/             # Raw uploaded files for stage 0
+│   ├── input/             # Raw uploaded files for the raw_data transition
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
 │   ├── episode/           # Transition journal, state read model, telemetry events
-│   └── run/               # Internal sidecars only, such as stage-4 compile cache
+│   └── run/               # Internal sidecars only, such as model-spec compile cache
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
@@ -82,8 +82,8 @@ There is no auth: the facade is the source of truth for what is allowed, and
 plane is available (`moves_enabled` is `false` on a read-only facade).
 
 This writes the `question` artifact and starts the **auto-run driver**: a
-default navigation policy that proposes `run(stage)` moves in dependency
-order while stage outputs are missing or stale, stopping when the episode
+default navigation policy that proposes artifact-named `run` moves in dependency
+order while transition outputs are missing or stale, stopping when the episode
 is quiescent or a move fails.
 
 ### 2. Observe the episode
@@ -98,19 +98,19 @@ curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID | jq '.artifacts'
 curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \
   | jq '.transitions[] | {seq, status, move, error_type}'
 
-# Intra-stage telemetry (stage-2 worker fan-out, stage-4 agent graph)
+# Transition telemetry (extraction worker fan-out, model-spec agent graph)
 curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[-3:]'
 ```
 
 ### 3. Verify via browser automation
 
-Navigate to `http://localhost:3000/analysis/{WORKSPACE_ID}`, screenshot the progress bar, then poll and screenshot each stage section as it completes through the final "Complete" badge.
+Navigate to `http://localhost:3000/analysis/{WORKSPACE_ID}`, screenshot the progress bar, then poll and screenshot each artifact section as it completes through the final "Complete" badge.
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 
-## Resuming After a Stage Failure
+## Resuming After a Transition Failure
 
-A failed stage run is a `"raised"` transition in the journal — state is
+A failed transition run is a `"raised"` transition in the journal — state is
 unchanged, and the typed error plus diagnostics ride on the record:
 
 ```bash
@@ -135,7 +135,7 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
 The question does not need re-supplying: it is a versioned root artifact,
 not a run parameter.
 
-## Editing artifacts (replaces stage overrides)
+## Editing artifacts
 
 A human/LLM edit is a `write` move: schema-validated, provenance-stamped,
 and journaled. Editing `measurement_structure` fans out a recomputed
@@ -160,14 +160,15 @@ Through the web app, [`/api/replay`](../../apps/web/src/app/api/replay/route.ts)
 performs the same write-then-auto sequence; an external agent proposes the
 same moves over MCP (see the [agent quickstart](agent_quickstart.md)).
 
-### Valid stage IDs
+### Valid Run Artifact IDs
 
-Dependencies are artifact-level (see
-`apps/data-pipeline/src/nof1_causal_lab/machine/graph.py` for the
-authoritative graph); the default topological order is:
+Dependencies are artifact-level; `GET /api/machine` exposes
+`topological_artifact_order` and `topological_transition_order` from
+[`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py).
+The runnable transition ids are:
 
 ```text
-stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-5b → stage-6
+raw_data → latent_structure → measurement_structure → measurements → statistical_model_spec → posterior → baseline_report
 ```
 
 Note the machine is not a tape: any transition whose consumed artifacts exist

@@ -261,7 +261,7 @@ class TestPivotToWide:
 
 
 class TestPivotToWideSparsity:
-    """Test post-pivot sparsity detection (moved from test_stage4.py)."""
+    """Test post-pivot sparsity detection (moved from test_model_spec.py)."""
 
     def test_pivot_warns_on_sparse_matrix(self, caplog):
         """Sparse multi-granularity data triggers a warning."""

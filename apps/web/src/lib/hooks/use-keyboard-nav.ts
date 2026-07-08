@@ -1,19 +1,19 @@
 "use client";
 
-import type { StageId } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useRef } from "react";
 
-export function useKeyboardNav(visibleStageIds: StageId[]) {
+export function useKeyboardNav(visibleArtifactIds: ArtifactViewId[]) {
   const currentIndex = useRef(-1);
 
-  const scrollToStage = useCallback(
+  const scrollToArtifact = useCallback(
     (index: number) => {
-      if (index < 0 || index >= visibleStageIds.length) return;
+      if (index < 0 || index >= visibleArtifactIds.length) return;
       currentIndex.current = index;
-      const el = document.getElementById(visibleStageIds[index]);
+      const el = document.getElementById(visibleArtifactIds[index]);
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
-    [visibleStageIds],
+    [visibleArtifactIds],
   );
 
   useEffect(() => {
@@ -29,14 +29,14 @@ export function useKeyboardNav(visibleStageIds: StageId[]) {
 
       if (e.key === "j") {
         e.preventDefault();
-        scrollToStage(Math.min(currentIndex.current + 1, visibleStageIds.length - 1));
+        scrollToArtifact(Math.min(currentIndex.current + 1, visibleArtifactIds.length - 1));
       } else if (e.key === "k") {
         e.preventDefault();
-        scrollToStage(Math.max(currentIndex.current - 1, 0));
+        scrollToArtifact(Math.max(currentIndex.current - 1, 0));
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [visibleStageIds, scrollToStage]);
+  }, [visibleArtifactIds, scrollToArtifact]);
 }

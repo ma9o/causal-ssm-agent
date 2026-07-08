@@ -65,9 +65,7 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
     gpu=GPU_A100_80GB,
     secrets=[secrets],
 )
-# Modal function identity is operational metadata, so keep the old stage word
-# stable while passing artifact-named transition ids in the payload.
-async def _run_stage_gpu(
+async def _run_transition_gpu(
     workspace_id: str,
     artifact_id: str,
     pins: dict[str, int],
@@ -102,8 +100,7 @@ def read_facade():
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
-# See ``_run_stage_gpu`` for the naming note.
-async def _run_stage_cpu(
+async def _run_transition_cpu(
     workspace_id: str,
     artifact_id: str,
     pins: dict[str, int],
@@ -142,7 +139,7 @@ async def run_transition_on_modal(
     """Invoke a transition remotely; credentials come from the Modal secret block."""
     from nof1_causal_lab.machine.moves import TransitionEffects
 
-    remote_fn = _run_stage_gpu if artifact_id in _GPU_TRANSITIONS else _run_stage_cpu
+    remote_fn = _run_transition_gpu if artifact_id in _GPU_TRANSITIONS else _run_transition_cpu
     raw = await remote_fn.remote.aio(
         workspace_id,
         artifact_id,

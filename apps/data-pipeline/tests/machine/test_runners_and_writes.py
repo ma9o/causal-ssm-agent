@@ -3,7 +3,9 @@
 import polars as pl
 import pytest
 
-from nof1_causal_lab.flows.stages.stage1b.identification import derive_identification_report
+from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
+    derive_identification_report,
+)
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
 from nof1_causal_lab.machine.graph import transition_spec
@@ -130,8 +132,8 @@ class TestIdentificationReportDerivation:
 
 class TestStage2Gate:
     async def _run_measurements(self, workspace, monkeypatch, observation_rows):
-        from nof1_causal_lab.flows.stages.stage2 import flow as stage2_flow
-        from nof1_causal_lab.flows.stages.stage2 import materialization
+        from nof1_causal_lab.flows.transitions.extraction import flow as stage2_flow
+        from nof1_causal_lab.flows.transitions.extraction import materialization
 
         store = ArtifactStore(workspace)
         state = EpisodeState().with_versions(
@@ -147,7 +149,7 @@ class TestStage2Gate:
                     "raw_data",
                     provenance="computed",
                     derived_from={},
-                    produced_by="stage-0",
+                    produced_by="run:raw_data",
                     json_files={"profile.json": {"column_descriptions": []}},
                     parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
                 ),
@@ -155,7 +157,7 @@ class TestStage2Gate:
                     "measurement_structure",
                     provenance="computed",
                     derived_from={},
-                    produced_by="stage-1b",
+                    produced_by="run:measurement_structure",
                     json_files={
                         "measurement_structure.json": {
                             "measurement_structure": _measurement_structure()
@@ -174,8 +176,8 @@ class TestStage2Gate:
                 "worker_statuses": result["worker_statuses"],
             }
 
-        monkeypatch.setattr(stage2_flow, "run_stage2_extraction", fake_extraction)
-        monkeypatch.setattr(materialization, "materialize_stage2_outputs", fake_materialize)
+        monkeypatch.setattr(stage2_flow, "run_extraction", fake_extraction)
+        monkeypatch.setattr(materialization, "materialize_extraction_outputs", fake_materialize)
 
         spec = transition_spec("measurements")
         return await execute_transition_locally(
@@ -261,7 +263,7 @@ class TestMeasurementStructureArtifactWrite:
             "raw_data",
             provenance="computed",
             derived_from={},
-            produced_by="stage-0",
+            produced_by="run:raw_data",
             json_files={"profile.json": {"column_descriptions": []}},
             parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
         )
@@ -269,7 +271,7 @@ class TestMeasurementStructureArtifactWrite:
             "latent_structure",
             provenance="computed",
             derived_from={"question": question.version},
-            produced_by="stage-1a",
+            produced_by="run:latent_structure",
             json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
         )
         old_measurement = store.write_version(
@@ -280,7 +282,7 @@ class TestMeasurementStructureArtifactWrite:
                 "raw_data": raw_data.version,
                 "latent_structure": latent_structure.version,
             },
-            produced_by="stage-1b",
+            produced_by="run:measurement_structure",
             json_files={
                 "measurement_structure.json": {"measurement_structure": _measurement_structure()}
             },
@@ -316,7 +318,7 @@ class TestMeasurementStructureArtifactWrite:
                 "raw_data": raw_data.version,
                 "measurement_structure": old_measurement.version,
             },
-            produced_by="stage-2",
+            produced_by="run:measurements",
             parquet_files={
                 "panel.parquet": pl.DataFrame(
                     {
@@ -350,7 +352,7 @@ class TestMeasurementStructureArtifactWrite:
                 "panel": panel.version,
                 "validation_report": validation.version,
             },
-            produced_by="stage-4",
+            produced_by="run:statistical_model_spec",
             json_files={
                 "statistical_model_spec.json": {
                     "statistical_model_spec": {"likelihoods": [], "parameters": []},

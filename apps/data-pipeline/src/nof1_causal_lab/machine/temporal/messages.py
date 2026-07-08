@@ -31,7 +31,7 @@ class EpisodeInit(BaseModel):
     workspace_id: str
     # Rehydration seed: reconstructed from the on-disk episode journal so a
     # workflow (re)started after Temporal lost its in-memory history resumes
-    # with the artifacts already produced, instead of re-running from stage-0.
+    # with the artifacts already produced, instead of re-running from raw_data.
     # Empty/0 for a genuinely new episode; ignored when attaching to a live
     # workflow (USE_EXISTING).
     initial_state: EpisodeState | None = None

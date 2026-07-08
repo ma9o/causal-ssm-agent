@@ -1,6 +1,6 @@
 """Fit-time consistency checks between observed data, spec, and priors.
 
-The semantic pipeline layers (stage-4 auto-centering, prior-predictive scale
+The semantic pipeline layers (model-spec auto-centering, prior-predictive scale
 gates) only protect models that pass through them. Callers that drive
 ``inference.fit()`` directly — benchmarks, notebooks, manual runs — can hand
 the sampler a configuration whose ground truth has essentially zero prior

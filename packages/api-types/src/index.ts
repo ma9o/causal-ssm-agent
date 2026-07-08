@@ -2,9 +2,15 @@
 // Hand-written (frontend-only) — not generated from Python
 // ---------------------------------------------------------------------------
 
-export type { PipelineRun, RunStatus, StageState, StageStatus } from "./run";
-export type { StageId, StageLogScopePolicy, StageMeta } from "./stages";
-export { STAGE_IDS, STAGES } from "./stages";
+export type { ArtifactStatus, ArtifactViewState, PipelineRun, RunStatus } from "./run";
+export type {
+  ArtifactId,
+  ArtifactViewId,
+  TransitionId,
+  TransitionLogScopePolicy,
+  TransitionMeta,
+} from "./transitions";
+export { ARTIFACT_IDS, ARTIFACT_VIEW_IDS, TRANSITION_META, TRANSITIONS } from "./transitions";
 export type {
   CausalDesign,
   IdentifiabilityStatus,
@@ -17,7 +23,7 @@ export type {
 // Re-exported with aliases where the generated name differs from frontend usage
 // ---------------------------------------------------------------------------
 
-// Stage contracts as Stage*Data aliases (frontend convention)
+// Artifact contracts re-exported as view data aliases (frontend convention)
 // Latent structure types
 // Measurement structure types
 // Causal design types
@@ -53,6 +59,7 @@ export type {
   ParameterSpec,
   PosteriorMarginal,
   PosteriorPair,
+  PosteriorContract as PosteriorData,
   PPCOverlay,
   PPCResultContract as PPCResult,
   PPCTestStat,
@@ -62,16 +69,16 @@ export type {
   PriorSource,
   RankHistogram,
   RankHistogramChain,
+  RawDataContract as RawDataPersistedData,
   Role,
   SMCDiagnostics,
-  Stage0Contract as Stage0PersistedData,
-  Stage1AContract as Stage1aData,
-  Stage1BContract as Stage1bData,
-  Stage2Contract as Stage2PersistedData,
-  Stage3Contract as Stage3Data,
-  Stage5BContract as Stage5bData,
-  Stage6Contract as Stage6Data,
+  BaselineReportContract as BaselineReportData,
+  LatentStructureContract as LatentStructureData,
+  MeasurementStructureContract as MeasurementStructureData,
+  MeasurementsContract as MeasurementsPersistedData,
+  ValidationReportContract as ValidationReportData,
   StatisticalModelSpec,
+  StatisticalModelSpecContract as StatisticalModelSpecPersistedData,
   TemporalStatus,
   TraceChain,
   TraceData,
@@ -89,12 +96,12 @@ export type {
   ScenarioStartResultContract as ScenarioStartResult,
   SimulateScenarioResultContract as SimulateScenarioResult,
   SimulateScenarioToolResultContract as SimulateScenarioToolResult,
-  Stage6VisualizationContract as Stage6Visualization,
+  BaselineReportVisualizationContract as BaselineReportVisualization,
   ToolErrorContract as ToolError,
 } from "./generated/tool-results";
 
-export type Stage4PersistedData = Omit<
-  import("./generated/models").Stage4Contract,
+export type StatisticalModelSpecPersistedViewData = Omit<
+  import("./generated/models").StatisticalModelSpecContract,
   "resolved_priors"
 > & {
   resolved_priors: import("./generated/models").PriorProposal[];
@@ -104,19 +111,19 @@ export interface HistogramBin {
   count: number;
 }
 
-export interface Stage4LikelihoodDiagnostics {
+export interface ModelSpecLikelihoodDiagnostics {
   variable: string;
   profile: import("./generated/models").IndicatorEmpiricalProfileContract | null;
   histogram: HistogramBin[];
 }
 
-export type Stage4Data = Stage4PersistedData & {
+export type StatisticalModelSpecData = StatisticalModelSpecPersistedViewData & {
   likelihood_diagnostics: {
-    [k: string]: Stage4LikelihoodDiagnostics | undefined;
+    [k: string]: ModelSpecLikelihoodDiagnostics | undefined;
   };
 };
 
-export type Stage1bViewData = import("./generated/models").Stage1BContract & {
+export type MeasurementStructureViewData = import("./generated/models").MeasurementStructureContract & {
   causal_design: import("./causal-design").CausalDesign;
 };
 
@@ -125,10 +132,10 @@ export type { ObservationHyperparameter } from "./generated/metadata";
 export { OBSERVATION_HYPERPARAMETERS_BY_DISTRIBUTION } from "./generated/metadata";
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
-export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";
+export { CONTEXT_TOOLS, INTERACTIVE_CONTEXTS } from "./generated/tools";
 
-export interface StageData<T = unknown> {
-  stage: string;
+export interface ArtifactData<T = unknown> {
+  artifactId: string;
   data: T;
   context: string;
 }
@@ -139,26 +146,26 @@ export type CellStatus = "ok" | "warning" | "error";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
 
-export interface Stage0DateRange {
+export interface RawDataDateRange {
   start: string;
   end: string;
 }
 
-export interface Stage0ColumnDescription {
+export interface RawDataColumnDescription {
   name: string;
   dtype: string;
   description: string;
 }
 
-export interface Stage0Data {
+export interface RawDataData {
   llm_trace?: import("./generated/models").LLMTrace | null;
   n_records: number;
   n_columns: number;
-  date_range: Stage0DateRange;
+  date_range: RawDataDateRange;
   sample: {
     [k: string]: (string | null) | undefined;
   }[];
-  column_descriptions: Stage0ColumnDescription[];
+  column_descriptions: RawDataColumnDescription[];
 }
 
 export interface ObservationRecord {
@@ -173,7 +180,7 @@ export interface ObservationRecord {
   support_end?: string | null;
 }
 
-export interface Stage2Data {
+export interface MeasurementsData {
   llm_trace?: import("./generated/models").LLMTrace | null;
   workers: import("./generated/models").WorkerStatusContract[];
   per_indicator_counts: {

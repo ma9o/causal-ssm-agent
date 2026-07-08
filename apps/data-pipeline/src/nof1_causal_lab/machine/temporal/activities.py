@@ -1,6 +1,6 @@
 """Activities: the machine's I/O, executed outside the workflow sandbox.
 
-Typed stage failures map to non-retryable ``ApplicationError``s whose
+Typed transition failures map to non-retryable ``ApplicationError``s whose
 details carry the diagnostics dict — the workflow journals them and hands
 them to the navigator as the move's outcome. Anything else (network,
 OOM, Modal preemption) is transient infra: the retry policy re-runs it
@@ -12,7 +12,7 @@ from __future__ import annotations
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nof1_causal_lab.machine.errors import ArtifactWriteRejected, StageExecutionError
+from nof1_causal_lab.machine.errors import ArtifactWriteRejected, TransitionExecutionError
 
 # Runtime imports (not TYPE_CHECKING): temporalio resolves activity type
 # hints at registration time to drive payload conversion.
@@ -27,10 +27,8 @@ from nof1_causal_lab.machine.temporal.messages import (  # noqa: TC001
 from nof1_causal_lab.machine.writes import execute_write
 
 
-# Keep the activity name stable for Temporal history replay. The payload is
-# artifact-named; only the registered activity symbol retains the old stage word.
 @activity.defn
-async def run_stage_activity(input: RunArtifactInput) -> TransitionEffects:
+async def run_transition_activity(input: RunArtifactInput) -> TransitionEffects:
     try:
         return await execute_transition(
             input.workspace_id,
@@ -38,7 +36,7 @@ async def run_stage_activity(input: RunArtifactInput) -> TransitionEffects:
             input.state,
             input.options,
         )
-    except StageExecutionError as exc:
+    except TransitionExecutionError as exc:
         raise ApplicationError(
             str(exc),
             exc.diagnostics,
@@ -84,4 +82,4 @@ async def journal_activity(input: JournalInput) -> None:
     )
 
 
-ALL_ACTIVITIES = [run_stage_activity, write_artifact_activity, journal_activity]
+ALL_ACTIVITIES = [run_transition_activity, write_artifact_activity, journal_activity]

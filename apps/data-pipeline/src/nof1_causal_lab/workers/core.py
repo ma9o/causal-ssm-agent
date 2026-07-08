@@ -10,7 +10,7 @@ from typing import Any
 
 import polars as pl
 
-from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
 from nof1_causal_lab.utils.llm import (
     make_validation_tool,
     scoped_log,
@@ -91,7 +91,7 @@ async def run_worker_extraction(
     window_starts: list[str],
     question: str,
     measurement_structure: dict,
-    session_factory: StageSessionFactory,
+    session_factory: ScopedSessionFactory,
     logger: Any | None = None,
     call_label: str | None = None,
 ) -> WorkerResult:

@@ -45,7 +45,7 @@ async def _failing_runner(workspace_id, store, pins, options):
     del workspace_id, store, pins, options
     raise ModelCompileError(
         "stub compile failure",
-        stage_id="stage-4",
+        transition_id="statistical_model_spec",
         diagnostics={"hint": "prior scale unidentifiable"},
     )
 
@@ -66,18 +66,18 @@ def machine_env(monkeypatch, tmp_path):
         complete_without_derivations,
     )
     monkeypatch.setitem(
-        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "stage-0"))
+        runners_module._TRANSITION_RUNNERS, "raw_data", _fake_runner(("raw_data", "run:raw_data"))
     )
     monkeypatch.setitem(
         runners_module._TRANSITION_RUNNERS,
         "latent_structure",
-        _fake_runner(("latent_structure", "stage-1a")),
+        _fake_runner(("latent_structure", "run:latent_structure")),
     )
     monkeypatch.setitem(
         runners_module._TRANSITION_RUNNERS,
         "measurement_structure",
         _fake_runner(
-            ("measurement_structure", "stage-1b"),
+            ("measurement_structure", "run:measurement_structure"),
             ("causal_design", "derive:causal_design"),
             ("identification_report", "derive:identification_report"),
         ),
@@ -86,8 +86,8 @@ def machine_env(monkeypatch, tmp_path):
         runners_module._TRANSITION_RUNNERS,
         "measurements",
         _fake_runner(
-            ("measurements", "stage-2"),
-            ("panel", "stage-2"),
+            ("measurements", "run:measurements"),
+            ("panel", "run:measurements"),
             ("validation_report", "derive:validation_report"),
         ),
     )
@@ -174,11 +174,11 @@ def test_episode_workflow_journey(machine_env):
                 assert statuses == [
                     "rejected",
                     "applied",  # question
-                    "applied",  # stage-0
-                    "applied",  # stage-1a
-                    "applied",  # stage-1b
-                    "applied",  # stage-2
-                    "raised",  # stage-4
+                    "applied",  # ingestion
+                    "applied",  # latent-structure
+                    "applied",  # measurement-structure
+                    "applied",  # extraction
+                    "raised",  # model-spec
                     "applied",  # question rewrite
                 ]
                 assert records[-2].error_type == "ModelCompileError"

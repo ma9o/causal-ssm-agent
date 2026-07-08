@@ -1,4 +1,4 @@
-"""Deterministic semantic helpers shared across Stage 4 and SSM compilation."""
+"""Deterministic semantic helpers shared across model-spec and SSM compilation."""
 
 from __future__ import annotations
 

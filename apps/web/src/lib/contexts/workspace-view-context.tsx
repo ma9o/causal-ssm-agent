@@ -5,9 +5,9 @@ import { createContext, type ReactNode, useCallback, useContext, useMemo, useSta
 interface WorkspaceViewState {
   /** Move affordances hidden: the backing facade is read-only (hosted viewer). */
   readOnly: boolean;
-  /** Currently focused Stage 6 scenario key (simulate tool-call id or `baseline:<treatment>`). */
+  /** Currently focused analysis scenario key (simulate tool-call id or `baseline:<treatment>`). */
   selectedScenarioKey: string | null;
-  /** Focus a Stage 6 scenario in the viewer (null clears the selection). */
+  /** Focus a analysis scenario in the viewer (null clears the selection). */
   selectScenario: (key: string | null) => void;
 }
 

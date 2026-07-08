@@ -7,11 +7,11 @@ import { LLMTracePanelView } from "./llm-trace-panel-view";
 export { LLMTracePanelView } from "./llm-trace-panel-view";
 
 /**
- * Read-only rendering of a stage's persisted LLM trace. Interactive
+ * Read-only rendering of a output's persisted LLM trace. Interactive
  * refinement moved out of the app entirely — an external agent drives the
  * episode machine over MCP/HTTP, and the journal is the conversation.
  * Clicking a `simulate` tool call still focuses that scenario in the
- * Stage 6 viewer.
+ * analysis viewer.
  */
 export function LLMTracePanel({ trace }: { trace: LLMTrace }) {
   const { selectedScenarioKey, selectScenario } = useWorkspaceView();

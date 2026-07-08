@@ -1,32 +1,32 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CausalSSMContracts",
-  "description": "Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.",
+  "description": "Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.",
   "type": "object",
   "properties": {
-    "stage-0": {
-      "$ref": "#/$defs/Stage0Contract"
+    "raw_data": {
+      "$ref": "#/$defs/RawDataContract"
     },
-    "stage-1a": {
-      "$ref": "#/$defs/Stage1aContract"
+    "latent_structure": {
+      "$ref": "#/$defs/LatentStructureContract"
     },
-    "stage-1b": {
-      "$ref": "#/$defs/Stage1bContract"
+    "measurement_structure": {
+      "$ref": "#/$defs/MeasurementStructureContract"
     },
-    "stage-2": {
-      "$ref": "#/$defs/Stage2Contract"
+    "measurements": {
+      "$ref": "#/$defs/MeasurementsContract"
     },
-    "stage-3": {
-      "$ref": "#/$defs/Stage3Contract"
+    "validation_report": {
+      "$ref": "#/$defs/ValidationReportContract"
     },
-    "stage-4": {
-      "$ref": "#/$defs/Stage4Contract"
+    "statistical_model_spec": {
+      "$ref": "#/$defs/StatisticalModelSpecContract"
     },
-    "stage-5b": {
-      "$ref": "#/$defs/Stage5bContract"
+    "posterior": {
+      "$ref": "#/$defs/PosteriorContract"
     },
-    "stage-6": {
-      "$ref": "#/$defs/Stage6Contract"
+    "baseline_report": {
+      "$ref": "#/$defs/BaselineReportContract"
     }
   },
   "$defs": {
@@ -38,6 +38,61 @@
       ],
       "title": "AnchorPolicy",
       "type": "string"
+    },
+    "BaselineReportContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "intervention_results": {
+          "items": {
+            "$ref": "#/$defs/TreatmentEffectContract"
+          },
+          "title": "Intervention Results",
+          "type": "array"
+        },
+        "saved_scenarios": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SavedScenarioContract"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Saved Scenarios"
+        },
+        "final_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Summary"
+        }
+      },
+      "required": [
+        "intervention_results"
+      ],
+      "title": "BaselineReportContract",
+      "type": "object"
     },
     "CausalEdge": {
       "description": "A directed causal relationship between constructs.",
@@ -833,6 +888,30 @@
       "title": "LatentStructure",
       "type": "object"
     },
+    "LatentStructureContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "latent_structure": {
+          "$ref": "#/$defs/LatentStructure"
+        }
+      },
+      "required": [
+        "latent_structure"
+      ],
+      "title": "LatentStructureContract",
+      "type": "object"
+    },
     "LikelihoodSource": {
       "description": "A source of evidence for a likelihood distribution choice.",
       "properties": {
@@ -1144,6 +1223,58 @@
       "title": "MeasurementStructure",
       "type": "object"
     },
+    "MeasurementStructureContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "measurement_structure": {
+          "$ref": "#/$defs/MeasurementStructure"
+        }
+      },
+      "required": [
+        "measurement_structure"
+      ],
+      "title": "MeasurementStructureContract",
+      "type": "object"
+    },
+    "MeasurementsContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "workers": {
+          "items": {
+            "$ref": "#/$defs/WorkerStatusContract"
+          },
+          "title": "Workers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "workers"
+      ],
+      "title": "MeasurementsContract",
+      "type": "object"
+    },
     "ObservationInterceptPolicy": {
       "description": "Global policy for whether eligible manifest intercepts remain free.",
       "enum": [
@@ -1434,6 +1565,86 @@
       "title": "ParameterSpec",
       "type": "object"
     },
+    "PosteriorContract": {
+      "additionalProperties": false,
+      "properties": {
+        "ppc": {
+          "$ref": "#/$defs/PPCResultContract"
+        },
+        "inference_metadata": {
+          "$ref": "#/$defs/InferenceMetadataContract"
+        },
+        "mcmc_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MCMCDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "smc_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SMCDiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "loo_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LOODiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "posterior_marginals": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorMarginal"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Marginals"
+        },
+        "posterior_pairs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PosteriorPair"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posterior Pairs"
+        }
+      },
+      "required": [
+        "inference_metadata",
+        "ppc"
+      ],
+      "title": "PosteriorContract",
+      "type": "object"
+    },
     "PosteriorMarginal": {
       "description": "Marginal posterior density for a single scalar parameter.",
       "properties": {
@@ -1535,7 +1746,7 @@
       "type": "object"
     },
     "PriorDistributionFamily": {
-      "description": "Distribution families allowed in Stage 4 prior proposals.",
+      "description": "Distribution families allowed in model-spec prior proposals.",
       "enum": [
         "Normal",
         "HalfNormal",
@@ -1741,6 +1952,53 @@
       "title": "RankHistogramChain",
       "type": "object"
     },
+    "RawDataColumnDescriptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "name"
+      ],
+      "title": "RawDataColumnDescriptionContract",
+      "type": "object"
+    },
+    "RawDataContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "column_descriptions": {
+          "items": {
+            "$ref": "#/$defs/RawDataColumnDescriptionContract"
+          },
+          "title": "Column Descriptions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "column_descriptions"
+      ],
+      "title": "RawDataContract",
+      "type": "object"
+    },
     "Role": {
       "description": "Whether a variable is modeled or treated as given.",
       "enum": [
@@ -1824,160 +2082,53 @@
       "title": "SavedScenarioContract",
       "type": "object"
     },
-    "Stage0ColumnDescriptionContract": {
-      "additionalProperties": false,
+    "StatisticalModelSpec": {
+      "description": "Complete statistical model specification.",
       "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "description": {
-          "title": "Description",
-          "type": "string"
-        }
-      },
-      "required": [
-        "description",
-        "name"
-      ],
-      "title": "Stage0ColumnDescriptionContract",
-      "type": "object"
-    },
-    "Stage0Contract": {
-      "additionalProperties": false,
-      "properties": {
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "column_descriptions": {
+        "likelihoods": {
+          "description": "Likelihood specifications for each observed indicator",
           "items": {
-            "$ref": "#/$defs/Stage0ColumnDescriptionContract"
+            "$ref": "#/$defs/LikelihoodSpec"
           },
-          "title": "Column Descriptions",
+          "title": "Likelihoods",
           "type": "array"
-        }
-      },
-      "required": [
-        "column_descriptions"
-      ],
-      "title": "Stage0Contract",
-      "type": "object"
-    },
-    "Stage1aContract": {
-      "additionalProperties": false,
-      "properties": {
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
-        "latent_structure": {
-          "$ref": "#/$defs/LatentStructure"
-        }
-      },
-      "required": [
-        "latent_structure"
-      ],
-      "title": "Stage1aContract",
-      "type": "object"
-    },
-    "Stage1bContract": {
-      "additionalProperties": false,
-      "properties": {
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "measurement_structure": {
-          "$ref": "#/$defs/MeasurementStructure"
-        }
-      },
-      "required": [
-        "measurement_structure"
-      ],
-      "title": "Stage1bContract",
-      "type": "object"
-    },
-    "Stage2Contract": {
-      "additionalProperties": false,
-      "properties": {
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "workers": {
+        "parameters": {
+          "description": "All parameters requiring priors",
           "items": {
-            "$ref": "#/$defs/WorkerStatusContract"
+            "$ref": "#/$defs/ParameterSpec"
           },
-          "title": "Workers",
+          "title": "Parameters",
           "type": "array"
-        }
-      },
-      "required": [
-        "workers"
-      ],
-      "title": "Stage2Contract",
-      "type": "object"
-    },
-    "Stage3Contract": {
-      "additionalProperties": false,
-      "properties": {
-        "is_valid": {
-          "title": "Is Valid",
+        },
+        "initialization_policy": {
+          "$ref": "#/$defs/InitializationPolicy",
+          "default": "stationary",
+          "description": "Whether dynamic-state initial conditions are stationary-derived or free"
+        },
+        "observation_intercept_policy": {
+          "$ref": "#/$defs/ObservationInterceptPolicy",
+          "default": "free",
+          "description": "Whether eligible manifest intercepts remain free or are fixed"
+        },
+        "equilibrium_forcing": {
+          "default": false,
+          "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
+          "title": "Equilibrium Forcing",
           "type": "boolean"
-        },
-        "indicators": {
-          "additionalProperties": {
-            "$ref": "#/$defs/IndicatorAuditContract"
-          },
-          "title": "Indicators",
-          "type": "object"
-        },
-        "dataset_issues": {
-          "items": {
-            "$ref": "#/$defs/ValidationIssueContract"
-          },
-          "title": "Dataset Issues",
-          "type": "array"
         }
       },
       "required": [
-        "dataset_issues",
-        "indicators",
-        "is_valid"
+        "equilibrium_forcing",
+        "initialization_policy",
+        "likelihoods",
+        "observation_intercept_policy",
+        "parameters"
       ],
-      "title": "Stage3Contract",
+      "title": "StatisticalModelSpec",
       "type": "object"
     },
-    "Stage4Contract": {
+    "StatisticalModelSpecContract": {
       "additionalProperties": false,
       "properties": {
         "llm_trace": {
@@ -2062,188 +2213,7 @@
         "resolved_priors",
         "statistical_model_spec"
       ],
-      "title": "Stage4Contract",
-      "type": "object"
-    },
-    "Stage5bContract": {
-      "additionalProperties": false,
-      "properties": {
-        "ppc": {
-          "$ref": "#/$defs/PPCResultContract"
-        },
-        "inference_metadata": {
-          "$ref": "#/$defs/InferenceMetadataContract"
-        },
-        "mcmc_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MCMCDiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "smc_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SMCDiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "loo_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LOODiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "posterior_marginals": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorMarginal"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Marginals"
-        },
-        "posterior_pairs": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorPair"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Pairs"
-        }
-      },
-      "required": [
-        "inference_metadata",
-        "ppc"
-      ],
-      "title": "Stage5bContract",
-      "type": "object"
-    },
-    "Stage6Contract": {
-      "additionalProperties": false,
-      "properties": {
-        "llm_trace": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LLMTrace"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "intervention_results": {
-          "items": {
-            "$ref": "#/$defs/TreatmentEffectContract"
-          },
-          "title": "Intervention Results",
-          "type": "array"
-        },
-        "saved_scenarios": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/SavedScenarioContract"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Saved Scenarios"
-        },
-        "final_summary": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Final Summary"
-        }
-      },
-      "required": [
-        "intervention_results"
-      ],
-      "title": "Stage6Contract",
-      "type": "object"
-    },
-    "StatisticalModelSpec": {
-      "description": "Complete statistical model specification.",
-      "properties": {
-        "likelihoods": {
-          "description": "Likelihood specifications for each observed indicator",
-          "items": {
-            "$ref": "#/$defs/LikelihoodSpec"
-          },
-          "title": "Likelihoods",
-          "type": "array"
-        },
-        "parameters": {
-          "description": "All parameters requiring priors",
-          "items": {
-            "$ref": "#/$defs/ParameterSpec"
-          },
-          "title": "Parameters",
-          "type": "array"
-        },
-        "initialization_policy": {
-          "$ref": "#/$defs/InitializationPolicy",
-          "default": "stationary",
-          "description": "Whether dynamic-state initial conditions are stationary-derived or free"
-        },
-        "observation_intercept_policy": {
-          "$ref": "#/$defs/ObservationInterceptPolicy",
-          "default": "free",
-          "description": "Whether eligible manifest intercepts remain free or are fixed"
-        },
-        "equilibrium_forcing": {
-          "default": false,
-          "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
-          "title": "Equilibrium Forcing",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "equilibrium_forcing",
-        "initialization_policy",
-        "likelihoods",
-        "observation_intercept_policy",
-        "parameters"
-      ],
-      "title": "StatisticalModelSpec",
+      "title": "StatisticalModelSpecContract",
       "type": "object"
     },
     "SummaryOperator": {
@@ -2573,6 +2543,36 @@
       "title": "ValidationIssueContract",
       "type": "object"
     },
+    "ValidationReportContract": {
+      "additionalProperties": false,
+      "properties": {
+        "is_valid": {
+          "title": "Is Valid",
+          "type": "boolean"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/IndicatorAuditContract"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "dataset_issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssueContract"
+          },
+          "title": "Dataset Issues",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_issues",
+        "indicators",
+        "is_valid"
+      ],
+      "title": "ValidationReportContract",
+      "type": "object"
+    },
     "WorkerStatusContract": {
       "additionalProperties": false,
       "properties": {
@@ -2622,13 +2622,13 @@
     }
   },
   "required": [
-    "stage-0",
-    "stage-1a",
-    "stage-1b",
-    "stage-2",
-    "stage-3",
-    "stage-4",
-    "stage-5b",
-    "stage-6"
+    "baseline_report",
+    "latent_structure",
+    "measurement_structure",
+    "measurements",
+    "posterior",
+    "raw_data",
+    "statistical_model_spec",
+    "validation_report"
   ]
 }

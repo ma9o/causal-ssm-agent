@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { buildStage6Scenarios } from "@/components/pipeline/stage-contents/stage-6-scenarios";
+import { buildBaselineReportScenarios } from "@/components/pipeline/output-views/baseline-report-scenarios";
 import { withContainer } from "@/components/story-decorators";
-import { materializedTrace } from "./__fixtures__/stage-6-materialized-fixture";
+import { materializedTrace } from "./__fixtures__/baseline_report-materialized-fixture";
 import { ScenarioRail } from "./scenario-rail";
 
-const scenarios = buildStage6Scenarios({ trace: materializedTrace });
+const scenarios = buildBaselineReportScenarios({ trace: materializedTrace });
 
 function RailDemo() {
   const [selected, setSelected] = useState<string | null>(scenarios[0]?.key ?? null);
@@ -13,7 +13,7 @@ function RailDemo() {
 }
 
 const meta = {
-  title: "Pipeline/Stages/6 – Treatment Effects/Scenario Rail",
+  title: "Pipeline/Outputs/Baseline Report/Scenario Rail",
   component: ScenarioRail,
   decorators: [withContainer("max-w-4xl")],
 } satisfies Meta<typeof ScenarioRail>;

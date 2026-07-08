@@ -1,10 +1,10 @@
 /**
  * DEV-ONLY mock for the interactive DAG. While the backend `simulate` tool isn't
- * in the local loop (and real stage-6 traces carry no `simulate` calls), this
+ * in the local loop (and real baseline_report traces carry no `simulate` calls), this
  * synthesizes the per-node trajectories / drift / indicator visuals so the living
- * DAG is visible and editable on the live stage-6 page.
+ * DAG is visible and editable on the live baseline_report page.
  *
- * The scenario *set* is data-driven: each `saved_scenarios` entry in the stage-6
+ * The scenario *set* is data-driven: each `saved_scenarios` entry in the baseline_report
  * artifact carries its own `clamps` (the intervention) and `summary` (the shown
  * explanation), and this synthesizes one scenario per entry against a single
  * shared reference world. When a workspace has no clamp-bearing saved scenarios
@@ -12,14 +12,19 @@
  * treatment so the DAG is still demonstrable. Gated by `NODE_ENV` at the
  * call site.
  */
-import type { CausalEdge, Construct, Indicator, Stage6Data } from "@nof1-causal-lab/api-types";
+import type {
+  CausalEdge,
+  Construct,
+  Indicator,
+  BaselineReportData,
+} from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
-import type { Stage6SimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "../intervention-dag-types";
 import type {
   EdgeDrift,
   IndicatorSeries,
   SelfEffect,
-  Stage6VisualizationExt,
+  BaselineReportVisualizationExt,
 } from "./contract-extension";
 import type { SimulateFn } from "./simulate-input";
 
@@ -61,8 +66,8 @@ const sigmoid = (z: number) => 1 / (1 + Math.exp(-z));
 
 const DAYS = Array.from({ length: HORIZON + 1 }, (_, i) => i);
 
-/** Element of Stage 6's `saved_scenarios` (the contract type isn't re-exported by name). */
-type SavedScenario = NonNullable<Stage6Data["saved_scenarios"]>[number];
+/** Element of analysis's `saved_scenarios` (the contract type isn't re-exported by name). */
+type SavedScenario = NonNullable<BaselineReportData["saved_scenarios"]>[number];
 
 /** A timed latent clamp the mock can read off a saved scenario. */
 interface MockClamp {
@@ -84,7 +89,7 @@ interface ScenarioSpec {
 /** One synthesized scenario: its result + the explanation shown beside it. */
 export interface MockScenario {
   id: string;
-  result: Stage6SimulationResult;
+  result: AnalysisSimulationResult;
   blurb: string;
   query?: string;
 }
@@ -276,7 +281,7 @@ export function synthesizeMockScenarios(
   const zeros = DAYS.map(() => 0);
   const baselineLevelOutcome = baselineLevel[outcome] ?? 0;
 
-  const vizFor = (action: Record<string, number[]>): Stage6VisualizationExt => ({
+  const vizFor = (action: Record<string, number[]>): BaselineReportVisualizationExt => ({
     reference_node_trajectories: reference,
     action_node_trajectories: action,
     node_effect_trajectories: Object.fromEntries(
@@ -293,14 +298,14 @@ export function synthesizeMockScenarios(
   });
 
   // ── baseline scenario ──────────────────────────────────────────────────────
-  const baselineViz: Stage6VisualizationExt = {
+  const baselineViz: BaselineReportVisualizationExt = {
     ...vizFor(reference),
     action_node_trajectories: Object.fromEntries(
       constructs.map((c) => [c.name, reference[c.name].slice()]),
     ),
     node_effect_trajectories: Object.fromEntries(constructs.map((c) => [c.name, zeros.slice()])),
   };
-  const baselineResult: Stage6SimulationResult = {
+  const baselineResult: AnalysisSimulationResult = {
     start: {
       kind: "baseline",
       time_index: null,
@@ -327,7 +332,7 @@ export function synthesizeMockScenarios(
       effect: round4((action[outcome]?.[t] ?? 0) - (reference[outcome]?.[t] ?? 0)),
     }));
     const mean = effectTrajectory[HORIZON]?.effect ?? 0;
-    const result: Stage6SimulationResult = {
+    const result: AnalysisSimulationResult = {
       start: {
         kind: "baseline",
         time_index: null,
@@ -405,7 +410,7 @@ function deriveSpecs(
 const signed = (v: number): string => `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
 const pretty = (name: string): string => name.replace(/_/g, " ");
 
-function blurbFor(result: Stage6SimulationResult): string {
+function blurbFor(result: AnalysisSimulationResult): string {
   if (result.clamps.length === 0) {
     return [
       "**No intervention — staying on the medication.**",
@@ -423,7 +428,7 @@ function blurbFor(result: Stage6SimulationResult): string {
   ].join(" ");
 }
 
-/** Wrap the synthesized scenarios as refinement messages so `buildStage6Scenarios` picks them up. */
+/** Wrap the synthesized scenarios as refinement messages so `buildBaselineReportScenarios` picks them up. */
 export function buildDevMockMessages({ baseline, interventions }: MockScenarios): UIMessage[] {
   const mkMessages = (scenario: MockScenario): UIMessage[] => {
     const messages: UIMessage[] = [];
@@ -460,7 +465,7 @@ export function buildDevMockMessages({ baseline, interventions }: MockScenarios)
  * the clamp onset and nudges everything downstream. Spreads the base
  * visualization so extension fields (drift, self, indicators) carry through.
  */
-export function makeMockSimulate(base: Stage6SimulationResult): SimulateFn {
+export function makeMockSimulate(base: AnalysisSimulationResult): SimulateFn {
   return async (input) => {
     await new Promise((resolve) => setTimeout(resolve, 350));
     const viz = base.visualization;

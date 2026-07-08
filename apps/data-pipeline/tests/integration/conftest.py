@@ -28,9 +28,9 @@ def artifact_store(integration_workspace: str) -> ArtifactStore:
 
 
 @pytest.fixture
-def install_scripted_stage_factory(monkeypatch):
+def install_scripted_transition_factory(monkeypatch):
     def _install(handler: ScriptedTurnHandler) -> None:
-        from nof1_causal_lab.flows import llm_stage_runtime
+        from nof1_causal_lab.flows import llm_transition_runtime
 
         class _ScriptedSession:
             def __init__(self, tools: list[Any] | None) -> None:
@@ -66,8 +66,8 @@ def install_scripted_stage_factory(monkeypatch):
                 yield _ScriptedSession(tools)
 
         monkeypatch.setattr(
-            llm_stage_runtime,
-            "build_stage_session_factory",
+            llm_transition_runtime,
+            "build_scoped_session_factory",
             lambda _config: _ScriptedFactory(),
         )
 

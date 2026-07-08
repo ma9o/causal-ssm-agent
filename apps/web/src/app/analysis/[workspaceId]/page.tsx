@@ -4,7 +4,7 @@ import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
 import { getAnalysisManifest, getAnalysisManifestQueryKey } from "@/lib/api/analysis";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@nof1-causal-lab/api-types";
+import { TRANSITION_META } from "@nof1-causal-lab/api-types";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useEffect, useMemo } from "react";
@@ -32,7 +32,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ workspaceId
     return manifestQuery.error.message;
   }, [manifest, manifestQuery.error]);
 
-  useRunEvents(workspaceId);
+  useRunEvents(workspaceId, manifest?.transitionOrder);
 
   useEffect(() => {
     if (!progress) {
@@ -50,14 +50,17 @@ export default function AnalysisPage({ params }: { params: Promise<{ workspaceId
       return;
     }
 
-    const completed = STAGES.filter((s) => progress.stages[s.id] === "completed").length;
-    const current = progress.currentStage
-      ? STAGES.find((s) => s.id === progress.currentStage)?.label
-      : null;
+    const completed = progress.transitionOrder.filter(
+      (artifactId) => progress.artifacts[artifactId] === "completed",
+    ).length;
+    const currentLabels = progress.runningTransitions.map(
+      (artifactId) => TRANSITION_META[artifactId].label,
+    );
+    const current = currentLabels.length > 0 ? currentLabels.join(", ") : null;
 
     document.title = current
-      ? `(${completed}/${STAGES.length}) ${current} | nof1-causal-lab`
-      : `(${completed}/${STAGES.length}) Running | nof1-causal-lab`;
+      ? `(${completed}/${progress.transitionOrder.length}) ${current} | nof1-causal-lab`
+      : `(${completed}/${progress.transitionOrder.length}) Running | nof1-causal-lab`;
   }, [progress]);
 
   const mainContent = manifestError ? (
@@ -77,7 +80,7 @@ export default function AnalysisPage({ params }: { params: Promise<{ workspaceId
     <AnalysisFeed
       workspaceId={workspaceId}
       question={manifest?.question}
-      stageRuns={manifest?.stages}
+      transitionRuns={manifest?.transitionRuns}
       progress={progress}
       readOnly={manifest?.readOnly ?? false}
     />

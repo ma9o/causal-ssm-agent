@@ -1,7 +1,7 @@
-"""Runner + scorer for the identification gates (Stage 2).
+"""Runner + scorer for the identification gates (Target 2).
 
 The runner imports the live ``check_identifiability`` — the same function the
-stage and the causal tests call — so the gate scores the production code path,
+target and the causal tests call — so the gate scores the production code path,
 not a copy.
 """
 
@@ -13,16 +13,16 @@ from evaluation.contracts import (
     Mode,
     Scenario,
     Score,
-    Stage,
-    StageRunner,
-    StageScorer,
+    Target,
+    TargetRunner,
+    TargetScorer,
 )
 
 
-class IdentificationRunner(StageRunner):
+class IdentificationRunner(TargetRunner):
     """Drives the live y0 identification check on a scenario's graph."""
 
-    stage = Stage.IDENTIFICATION
+    target = Target.IDENTIFICATION
 
     def run(self, scenario: Scenario) -> dict[str, Any]:
         from nof1_causal_lab.utils.identifiability import check_identifiability
@@ -35,10 +35,10 @@ class IdentificationRunner(StageRunner):
         )
 
 
-class IdentificationScorer(StageScorer):
+class IdentificationScorer(TargetScorer):
     """Compares the produced ID verdict against the expected per-treatment map."""
 
-    stage = Stage.IDENTIFICATION
+    target = Target.IDENTIFICATION
 
     def score(self, produced: dict[str, Any], truth: dict[str, bool]) -> Score:
         identifiable = set(produced.get("identifiable_treatments", {}))

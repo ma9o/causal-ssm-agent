@@ -51,12 +51,12 @@ with workflow.unsafe.imports_passed_through():
         WriteArtifactInput,
     )
 
-_RUN_STAGE_TIMEOUT = timedelta(hours=4)  # stage-4/5b run up to 3h on Modal
+_RUN_TRANSITION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _JOURNAL_TIMEOUT = timedelta(minutes=1)
 
 _NON_RETRYABLE_ERRORS = [
-    "StageExecutionError",
+    "TransitionExecutionError",
     "ModelCompileError",
     "ModelFitError",
     "ArtifactWriteRejected",
@@ -120,7 +120,7 @@ class EpisodeWorkflow:
             try:
                 if isinstance(move, RunArtifact):
                     effects = await workflow.execute_activity(
-                        "run_stage_activity",
+                        "run_transition_activity",
                         RunArtifactInput(
                             workspace_id=self._workspace_id,
                             artifact_id=move.artifact_id,
@@ -128,7 +128,7 @@ class EpisodeWorkflow:
                             options=request.options,
                         ),
                         result_type=TransitionEffects,
-                        start_to_close_timeout=_RUN_STAGE_TIMEOUT,
+                        start_to_close_timeout=_RUN_TRANSITION_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
                 else:

@@ -1,13 +1,13 @@
 # Likelihoods
 
-Defines the observation-model vocabulary for [`LikelihoodSpec`](../../pipeline/04-statistical-model-specification-priors.md#likelihoodspec) entries in a [`StatisticalModelSpec`](../../pipeline/04-statistical-model-specification-priors.md#statisticalmodelspec).
+Defines the observation-model vocabulary for [`LikelihoodSpec`](../../pipeline/statistical-model-spec.md#likelihoodspec) entries in a [`StatisticalModelSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspec).
 
 > The sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Dtype-to-Distribution Mapping
 
-Each indicator's [`measurement_dtype`](../../pipeline/01b-measurement-structure-identifiability.md#indicator) determines the default distribution and link function. Where the dtype admits only one valid combination, the likelihood is locked deterministically by the [Stage 4 skeleton](../../pipeline/04-statistical-model-specification-priors.md). Where alternatives exist, the LLM chooses via a decision card.
+Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicator) determines the default distribution and link function. Where the dtype admits only one valid combination, the likelihood is locked deterministically by the [model-spec skeleton](../../pipeline/statistical-model-spec.md). Where alternatives exist, the LLM chooses via a decision card.
 
 | `measurement_dtype` | Default distribution | Link | Alternatives |
 |---|---|---|---|

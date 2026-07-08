@@ -1,155 +1,177 @@
-import type { StageId, StageStatus } from "@nof1-causal-lab/api-types";
-import { STAGES } from "@nof1-causal-lab/api-types";
-import type { StaleArtifactsByStage } from "@/lib/artifact-staleness";
+import type { ArtifactViewId, ArtifactStatus } from "@nof1-causal-lab/api-types";
+import type { StaleArtifactsByProducer } from "@/lib/artifact-staleness";
 
-export type StageRunStatus = Exclude<StageStatus, "blocked">;
+export type TransitionRunStatus = Exclude<ArtifactStatus, "blocked">;
 
-export interface StageTiming {
+export interface TransitionTiming {
   startedAt: number;
   completedAt?: number;
 }
 
 export interface PipelineProgress {
-  stages: Record<StageId, StageRunStatus>;
-  timings: Partial<Record<StageId, StageTiming>>;
-  /** Failure detail per stage (raised transition / failed telemetry event). */
-  stageErrors: Partial<Record<StageId, string>>;
-  /** Backend-computed freshness report, grouped by producing stage for display. */
-  staleArtifactsByStage: StaleArtifactsByStage;
+  artifacts: Record<ArtifactViewId, TransitionRunStatus>;
+  timings: Partial<Record<ArtifactViewId, TransitionTiming>>;
+  /** Failure detail per transition (raised transition / failed telemetry event). */
+  transitionErrors: Partial<Record<ArtifactViewId, string>>;
+  /** Backend-computed freshness report, grouped by producing artifact for display. */
+  staleArtifactsByProducer: StaleArtifactsByProducer;
   /** Whether the facade's auto-run driver is currently active. */
   autoRunning: boolean;
-  currentStage: StageId | null;
+  /** Artifact display order from the machine's topological artifact order. */
+  transitionOrder: ArtifactViewId[];
+  /** Currently running transitions; plural because independent branches can execute concurrently. */
+  runningTransitions: ArtifactViewId[];
   isComplete: boolean;
   isFailed: boolean;
 }
 
-const STAGE_STATUS_PRIORITY: Record<StageRunStatus, number> = {
+const TRANSITION_STATUS_PRIORITY: Record<TransitionRunStatus, number> = {
   pending: 0,
   running: 1,
   completed: 2,
   failed: 2,
 };
 
-function getCurrentRunningStage(stages: Record<StageId, StageRunStatus>): StageId | null {
-  for (let i = STAGES.length - 1; i >= 0; i -= 1) {
-    const stageId = STAGES[i]?.id;
-    if (stageId && stages[stageId] === "running") {
-      return stageId;
-    }
-  }
-  return null;
+function getRunningTransitions(
+  artifacts: Record<ArtifactViewId, TransitionRunStatus>,
+  transitionOrder: readonly ArtifactViewId[],
+): ArtifactViewId[] {
+  return transitionOrder.filter((artifactId) => artifacts[artifactId] === "running");
 }
 
-export function initialProgress(): PipelineProgress {
-  const stages = {} as Record<StageId, StageRunStatus>;
-  for (const stage of STAGES) {
-    stages[stage.id] = "pending";
+function requireTransitionOrder(
+  prev: PipelineProgress | undefined,
+  transitionOrder: readonly ArtifactViewId[] | undefined,
+): readonly ArtifactViewId[] {
+  const order = transitionOrder ?? prev?.transitionOrder;
+  if (!order) {
+    throw new Error("Transition progress requires machine topological artifact order");
   }
+  return order;
+}
+
+function createPendingArtifacts(
+  transitionOrder: readonly ArtifactViewId[],
+): Record<ArtifactViewId, TransitionRunStatus> {
+  const artifacts = {} as Record<ArtifactViewId, TransitionRunStatus>;
+  for (const artifactId of transitionOrder) {
+    artifacts[artifactId] = "pending";
+  }
+  return artifacts;
+}
+
+export function initialProgress(transitionOrder: readonly ArtifactViewId[]): PipelineProgress {
+  const artifacts = createPendingArtifacts(transitionOrder);
 
   return {
-    stages,
+    artifacts,
     timings: {},
-    stageErrors: {},
-    staleArtifactsByStage: {},
+    transitionErrors: {},
+    staleArtifactsByProducer: {},
     autoRunning: false,
-    currentStage: null,
+    transitionOrder: [...transitionOrder],
+    runningTransitions: [],
     isComplete: false,
     isFailed: false,
   };
 }
 
 /**
- * A `running` telemetry event begins a new attempt: unlike applyStageUpdate
+ * A `running` telemetry event begins a new attempt: unlike applyTransitionUpdate
  * (which merges unordered signals by priority), the ordered event stream may
- * legitimately re-run a completed or failed stage after its inputs changed,
+ * legitimately re-run a completed or failed transition after its inputs changed,
  * so a terminal state is reset rather than preserved.
  */
-export function restartStageAttempt(
+export function restartTransitionAttempt(
   prev: PipelineProgress | undefined,
-  stageId: StageId,
+  artifactId: ArtifactViewId,
   eventTime?: number,
+  transitionOrder?: readonly ArtifactViewId[],
 ): PipelineProgress {
-  const current = prev ?? initialProgress();
-  if (current.stages[stageId] === "running") {
-    return applyStageUpdate(current, stageId, "running", eventTime);
+  const order = requireTransitionOrder(prev, transitionOrder);
+  const current = prev ?? initialProgress(order);
+  if (current.artifacts[artifactId] === "running") {
+    return applyTransitionUpdate(current, artifactId, "running", eventTime, undefined, order);
   }
 
   const ts = eventTime ?? Date.now();
-  const stages = { ...current.stages, [stageId]: "running" as StageRunStatus };
-  const stageErrors = { ...current.stageErrors };
-  delete stageErrors[stageId];
+  const artifacts = { ...current.artifacts, [artifactId]: "running" as TransitionRunStatus };
+  const transitionErrors = { ...current.transitionErrors };
+  delete transitionErrors[artifactId];
 
   return {
     ...current,
-    stages,
-    timings: { ...current.timings, [stageId]: { startedAt: ts } },
-    stageErrors,
-    currentStage: getCurrentRunningStage(stages),
+    artifacts,
+    timings: { ...current.timings, [artifactId]: { startedAt: ts } },
+    transitionErrors,
+    runningTransitions: getRunningTransitions(artifacts, order),
     isComplete: false,
-    isFailed: STAGES.some((stage) => stages[stage.id] === "failed"),
+    isFailed: order.some((transitionId) => artifacts[transitionId] === "failed"),
   };
 }
 
-export function applyStageUpdate(
+export function applyTransitionUpdate(
   prev: PipelineProgress | undefined,
-  stageId: StageId,
-  status: StageRunStatus,
+  artifactId: ArtifactViewId,
+  status: TransitionRunStatus,
   eventTime?: number,
   errorMessage?: string,
+  transitionOrder?: readonly ArtifactViewId[],
 ): PipelineProgress {
-  const current = prev ?? initialProgress();
-  const previousStatus = current.stages[stageId];
+  const order = requireTransitionOrder(prev, transitionOrder);
+  const current = prev ?? initialProgress(order);
+  const previousStatus = current.artifacts[artifactId];
 
   // A lower-priority signal never clobbers a higher one: a stale pending/running
-  // must not undo a terminal state (genuine re-runs arrive via restartStageAttempt).
-  if (STAGE_STATUS_PRIORITY[status] < STAGE_STATUS_PRIORITY[previousStatus]) {
+  // must not undo a terminal state (genuine re-runs arrive via restartTransitionAttempt).
+  if (TRANSITION_STATUS_PRIORITY[status] < TRANSITION_STATUS_PRIORITY[previousStatus]) {
     return current;
   }
   // completed and failed are equal-priority terminal states; the latest one wins
-  // so a stage that failed then succeeded (or vice versa) shows its most recent
+  // so a transition that failed then succeeded (or vice versa) shows its most recent
   // outcome. Only ignore a terminal signal that predates the recorded one.
   if (
-    STAGE_STATUS_PRIORITY[status] === STAGE_STATUS_PRIORITY[previousStatus] &&
+    TRANSITION_STATUS_PRIORITY[status] === TRANSITION_STATUS_PRIORITY[previousStatus] &&
     previousStatus !== status
   ) {
-    const prevCompletedAt = current.timings[stageId]?.completedAt;
+    const prevCompletedAt = current.timings[artifactId]?.completedAt;
     if (eventTime !== undefined && prevCompletedAt !== undefined && eventTime < prevCompletedAt) {
       return current;
     }
   }
 
-  const stages = { ...current.stages, [stageId]: status };
+  const artifacts = { ...current.artifacts, [artifactId]: status };
   const ts = eventTime ?? Date.now();
-  const existingTiming = current.timings[stageId];
+  const existingTiming = current.timings[artifactId];
   const timings = { ...current.timings };
 
   if (status === "running") {
-    timings[stageId] = {
+    timings[artifactId] = {
       startedAt: existingTiming?.startedAt ?? ts,
       completedAt: existingTiming?.completedAt,
     };
   } else {
-    timings[stageId] = {
+    timings[artifactId] = {
       startedAt: existingTiming?.startedAt ?? ts,
       completedAt: ts,
     };
   }
 
-  const isComplete = STAGES.every((stage) => stages[stage.id] === "completed");
-  const hasFailedStage = STAGES.some((stage) => stages[stage.id] === "failed");
+  const isComplete = order.every((transitionId) => artifacts[transitionId] === "completed");
+  const hasFailedTransition = order.some((transitionId) => artifacts[transitionId] === "failed");
 
-  const stageErrors =
+  const transitionErrors =
     status === "failed" && errorMessage
-      ? { ...current.stageErrors, [stageId]: errorMessage }
-      : current.stageErrors;
+      ? { ...current.transitionErrors, [artifactId]: errorMessage }
+      : current.transitionErrors;
 
   return {
     ...current,
-    stages,
+    artifacts,
     timings,
-    stageErrors,
-    currentStage: getCurrentRunningStage(stages),
+    transitionErrors,
+    runningTransitions: getRunningTransitions(artifacts, order),
     isComplete,
-    isFailed: current.isFailed || hasFailedStage,
+    isFailed: current.isFailed || hasFailedTransition,
   };
 }
