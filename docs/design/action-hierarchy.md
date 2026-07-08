@@ -65,7 +65,9 @@ The important separation is:
   staleness) happens inside the move, run-to-completion.
 
 Outer operations compile to reads, derived queries, or machine moves. Lower-context tools never
-become public workflow steps; they are private to the scoped context that opened them.
+become public machine moves; the [Temporal LLM orchestration](temporal-llm-orchestration.md)
+doc describes which lower-context calls are still visible as Temporal child workflows and
+activities.
 
 ## The Artifact Machine
 

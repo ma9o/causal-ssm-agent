@@ -25,6 +25,7 @@
 | Topic | Open |
 |---|---|
 | Artifact lineage, temporal layers, assurance surfaces | [reference/pipeline-dimensions.md](reference/pipeline-dimensions.md) |
+| Temporal workflow/activity structure for LLM transitions | [design/temporal-llm-orchestration.md](design/temporal-llm-orchestration.md) |
 | Compilation from `statistical_model_spec` outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
 | Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
