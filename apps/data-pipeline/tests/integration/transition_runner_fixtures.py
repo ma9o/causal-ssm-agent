@@ -153,53 +153,6 @@ def panel_frame(n_days: int = 20) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-def validation_report() -> dict[str, Any]:
-    return {
-        "is_valid": True,
-        "indicators": {
-            "stress_score": {
-                "profile": {
-                    "measurement_dtype": "continuous",
-                    "n_obs": 20,
-                    "mean": 3.0,
-                    "std": 1.41,
-                    "min": 1.0,
-                    "max": 5.0,
-                    "q25": 2.0,
-                    "q50": 3.0,
-                    "q75": 4.0,
-                    "variance": 2.0,
-                    "time_coverage_ratio": 1.0,
-                    "max_gap_ratio": 0.05,
-                    "dtype_violations": 0,
-                    "duplicate_pct": 0.0,
-                    "arithmetic_sequence_detected": False,
-                    "n_unparseable_timestamps": 0,
-                    "zero_fraction": 0.0,
-                    "is_nonnegative": True,
-                    "is_unit_interval": False,
-                    "looks_integer_valued": True,
-                    "variance_to_mean_ratio": 0.67,
-                },
-                "validation": {
-                    "issues": [],
-                    "checks": {
-                        "n_obs": "ok",
-                        "variance": "ok",
-                        "n_unparseable_timestamps": "ok",
-                        "time_coverage_ratio": "ok",
-                        "max_gap_ratio": "ok",
-                        "dtype_violations": "ok",
-                        "duplicate_pct": "ok",
-                        "arithmetic_sequence_detected": "ok",
-                    },
-                },
-            }
-        },
-        "dataset_issues": [],
-    }
-
-
 def statistical_model_spec() -> dict[str, Any]:
     return {
         "likelihoods": [
@@ -402,24 +355,6 @@ def seed_panel(
         },
         produced_by="run:measurements",
         parquet_files={parquet_filename("panel", "panel"): panel_frame()},
-    )
-
-
-def seed_validation_report(
-    store: ArtifactStore,
-    *,
-    causal_design_version: int = 1,
-    panel_version: int = 1,
-) -> ArtifactVersionInfo:
-    return store.write_version(
-        "validation_report",
-        provenance="computed",
-        derived_from={
-            "causal_design": causal_design_version,
-            "panel": panel_version,
-        },
-        produced_by="derive:validation_report",
-        json_files={json_filename("validation_report", "validation_report"): validation_report()},
     )
 
 

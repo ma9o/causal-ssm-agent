@@ -49,7 +49,7 @@ INGESTION_TOOL_CONTRACTS: list[ToolContract] = [
     ),
     ToolContract(
         name="execute_python",
-        description="Execute Python code in a Modal sandbox to parse files into a Polars DataFrame.",
+        description="Execute Python code in the local pipeline process to parse files into a Polars DataFrame.",
         input_schema=ExecutePythonInput,
     ),
     ToolContract(

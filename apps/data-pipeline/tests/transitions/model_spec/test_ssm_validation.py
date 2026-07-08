@@ -15,12 +15,10 @@ from nof1_causal_lab.models.ssm.testing import (
 )
 from tests.transitions.model_spec._support import (
     Any,
-    GenerateConfig,
     PredictiveObservationMeanOverflow,
     PriorValidationResult,
     SimpleNamespace,
     _make_polars_data,
-    _model_spec_generate_config,
     _with_positive_indicator_polarity,
     compile_ssm_inputs_from_statistical_model_spec,
     compile_ssm_priors,
@@ -115,25 +113,6 @@ def _require_text(value: str | None) -> str:
     """Assert an optional diagnostic field is present before string matching."""
     assert value is not None
     return value
-
-
-def test_model_spec_generate_config_sets_stage4_timeout(monkeypatch):
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.transitions.model_spec.flow.get_generate_config",
-        lambda: GenerateConfig(
-            max_tokens=65536,
-            timeout=321,
-            reasoning_effort="high",
-            max_tool_output=1234,
-        ),
-    )
-
-    config = _model_spec_generate_config()
-
-    assert config.max_tokens is None
-    assert config.timeout == 180
-    assert config.reasoning_effort == "high"
-    assert config.max_tool_output is None
 
 
 # --- SSM model construction tests ---

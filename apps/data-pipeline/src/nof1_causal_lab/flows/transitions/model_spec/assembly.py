@@ -1,7 +1,7 @@
 """model-spec Assembly Validation.
 
 Shared compile + prior-predictive validation pipeline used by both
-``model_spec_grounding()`` (interactive) and ``model_spec_agentic_flow()`` (batch).
+``model_spec_grounding()`` (interactive) and the Temporal model-spec workflow.
 
 The two paths differ only in their failure policy - domain logic is defined
 once here.
@@ -71,7 +71,7 @@ def validate_assembly(
     """Validate stage 4 assembly: compile check + prior predictive.
 
     This is the single source of truth for the validation sequence.
-    Both ``model_spec_grounding()`` and ``model_spec_agentic_flow()`` use this.
+    Both ``model_spec_grounding()`` and the Temporal model-spec workflow use this.
 
     Steps:
         1. Compile check: trial compile (no priors) or real compile (with priors)

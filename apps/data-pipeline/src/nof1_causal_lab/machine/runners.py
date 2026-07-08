@@ -20,7 +20,6 @@ from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field a
     EpisodeState,
 )
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import ModelCompileError
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
@@ -67,29 +66,6 @@ def _measurement_structure_dict(
 
 def _panel_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
     return store.read_parquet_file("panel", pins["panel"], parquet_filename("panel", "panel"))
-
-
-async def _run_raw_data(
-    workspace_id: str,
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-    options: ExecOptions,
-) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.flows.pipeline_helpers import build_raw_data_payload
-    from nof1_causal_lab.flows.transitions.ingestion.flow import agentic_ingest
-
-    del options
-    result = await agentic_ingest(workspace_id)
-    payload = build_raw_data_payload(result)
-    info = store.write_version(
-        "raw_data",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="run:raw_data",
-        json_files={json_filename("raw_data", "profile"): payload},
-        parquet_files={parquet_filename("raw_data", "raw"): result.dataframe},
-    )
-    return [info]
 
 
 async def _run_latent_structure(
@@ -223,58 +199,6 @@ async def _run_measurements(
     return produced
 
 
-async def _run_statistical_model_spec(
-    workspace_id: str,
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-    options: ExecOptions,
-) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.flows.artifact_contracts import StatisticalModelSpecContract
-    from nof1_causal_lab.flows.transitions.model_spec.flow import model_spec_agentic_flow
-    from nof1_causal_lab.utils.config import get_config
-
-    question = _question_text(store, pins)
-    causal_design = _causal_design_dict(store, pins)
-    panel = _panel_df(store, pins)
-    validation_report = store.read_json_file(
-        "validation_report",
-        pins["validation_report"],
-        json_filename("validation_report", "validation_report"),
-    )
-
-    lit_enabled = (
-        options.enable_literature
-        if options.enable_literature is not None
-        else get_config().prior_elicitation.literature_search.enabled
-    )
-    result = await model_spec_agentic_flow(
-        causal_design=causal_design,
-        question=question,
-        data_for_model=panel,
-        indicator_audits=validation_report.get("indicators", {}),
-        enable_literature=lit_enabled,
-        workspace_id=workspace_id,
-    )
-
-    compiled_ssm = result.pop("_compiled_ssm", None)
-    report = _filter_to_contract(StatisticalModelSpecContract, result)
-    if compiled_ssm is None:
-        raise ModelCompileError(
-            "statistical_model_spec produced no compilable SSM from the proposed spec",
-            transition_id="statistical_model_spec",
-            diagnostics={"report": report},
-        )
-
-    info = store.write_version(
-        "statistical_model_spec",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="run:statistical_model_spec",
-        json_files={json_filename("statistical_model_spec", "statistical_model_spec"): report},
-    )
-    return [info]
-
-
 async def _run_posterior(
     workspace_id: str,
     store: ArtifactStore,
@@ -359,16 +283,16 @@ async def _run_baseline_report(
 
 
 _TRANSITION_RUNNERS = {
-    "raw_data": _run_raw_data,
     "latent_structure": _run_latent_structure,
     "measurement_structure": _run_measurement_structure,
     "measurements": _run_measurements,
-    "statistical_model_spec": _run_statistical_model_spec,
     "posterior": _run_posterior,
     "baseline_report": _run_baseline_report,
 }
 
-_MODAL_TRANSITIONS = frozenset({"statistical_model_spec", "posterior"})
+_TEMPORAL_ONLY_TRANSITIONS = frozenset({"raw_data", "statistical_model_spec"})
+
+_MODAL_TRANSITIONS = frozenset({"posterior"})
 
 
 async def execute_transition_locally(
@@ -382,6 +306,8 @@ async def execute_transition_locally(
     from nof1_causal_lab.flows.runtime_events import emit_transition_event
 
     store = ArtifactStore(workspace_id)
+    if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
+        raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
     runner = _TRANSITION_RUNNERS[artifact_id]
     spec = transition_spec(artifact_id)
     emit_transition_event(workspace_id, artifact_id, "running")
@@ -410,6 +336,8 @@ async def execute_transition(
     """Run a transition, routing heavy transitions to Modal in production."""
     spec = transition_spec(artifact_id)
     pins = input_pins(state, spec)
+    if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
+        raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
     if os.environ.get("DEPLOYMENT_ENV") == "production" and artifact_id in _MODAL_TRANSITIONS:
         from nof1_causal_lab.flows.modal_runners import run_transition_on_modal
 

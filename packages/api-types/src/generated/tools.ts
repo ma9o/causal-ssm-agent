@@ -34,7 +34,7 @@ export const CONTEXT_TOOLS: Record<string, ToolDefinition[]> = {
     },
     {
       name: "execute_python",
-      description: "Execute Python code in a Modal sandbox to parse files into a Polars DataFrame.",
+      description: "Execute Python code in the local pipeline process to parse files into a Polars DataFrame.",
       parameters: {"additionalProperties":false,"properties":{"code":{"description":"Python code to execute.","title":"Code","type":"string"}},"required":["code"],"title":"ExecutePythonInput","type":"object"},
       result: null,
     },

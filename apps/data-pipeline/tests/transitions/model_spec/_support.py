@@ -17,7 +17,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from nof1_causal_lab.flows.transitions.model_spec.flow import _model_spec_generate_config
 from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
 from nof1_causal_lab.models.prior_predictive import (
     get_failed_parameters,
@@ -29,7 +28,6 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_ssm_inputs_from_statistical_model_spec,
 )
-from nof1_causal_lab.utils.openrouter_client import GenerateConfig
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 

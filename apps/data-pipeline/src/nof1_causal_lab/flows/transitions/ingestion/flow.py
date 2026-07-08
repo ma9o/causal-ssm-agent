@@ -1,36 +1,14 @@
-"""ingestion: Agentic ingestion logic and Prefect entrypoint.
+"""ingestion shared contracts, prompts, and input staging helpers."""
 
-An LLM agent explores a prepared input directory, writes Python code to parse
-the contents, and produces a single Polars DataFrame. Code execution happens
-inside a Modal CPU sandbox for isolation.
-"""
-
-import logging
 import shutil
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
 import polars as pl
 
-from nof1_causal_lab.flows.llm_transition_runtime import (
-    LLMTransitionRuntimeConfig,
-    attach_trace,
-    open_llm_transition,
-)
 from nof1_causal_lab.utils import storage
-from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
-from nof1_causal_lab.utils.config import get_config
 from nof1_causal_lab.utils.data import input_dir
-
-from .tools import ModalCodeSandbox, make_ingestion_tools
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Result type
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -70,7 +48,7 @@ single Polars DataFrame.
 
 ## Code Environment
 
-Your code runs inside an isolated sandbox container. \
+Your code runs in the local pipeline process. \
 Available in the namespace:
 - `polars` / `pl` — Polars library
 - `csv`, `json`, `re`, `math`, `io`, `datetime` — standard library
@@ -107,44 +85,6 @@ The uploaded input files have been staged and are available via DATA_DIR.
 
 Explore the contents and parse all relevant data into a single Polars DataFrame.
 """
-
-# ---------------------------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------------------------
-
-
-async def run_agentic_ingestion(
-    extract_dir: Path,
-    session_factory: ScopedSessionFactory,
-) -> IngestionResult:
-    """Run the agentic ingestion loop.
-
-    Spins up a Modal CPU sandbox, then lets the LLM agent explore the
-    prepared input directory using tools and produce a Polars DataFrame.
-    """
-    with ModalCodeSandbox(extract_dir) as sandbox:
-        tools, capture = make_ingestion_tools(extract_dir, sandbox)
-        async with session_factory.open(
-            system_prompt=SYSTEM_PROMPT,
-            tools=tools,
-            log_label="ingestion",
-        ) as session:
-            await session.turn(USER_PROMPT)
-
-    df = capture.get("dataframe")
-    if df is None or df.is_empty():
-        raise ValueError("Ingestion agent did not produce a valid DataFrame")
-
-    column_descriptions = capture.get("column_descriptions")
-    if column_descriptions is None:
-        column_descriptions = {}
-    elif not isinstance(column_descriptions, dict) or set(column_descriptions) != set(df.columns):
-        raise ValueError("Ingestion agent produced invalid column descriptions")
-
-    return IngestionResult(
-        dataframe=df,
-        column_descriptions=column_descriptions,
-    )
 
 
 def _find_raw_input(workspace_id: str) -> str:
@@ -184,40 +124,3 @@ def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:
 
     shutil.copy2(raw_path, dest_dir / raw_path.name)
     return dest_dir
-
-
-async def agentic_ingest(workspace_id: str = "test_workspace") -> IngestionResult:
-    """Run ingestion end to end for the latest uploaded file."""
-    raw_storage_path = _find_raw_input(workspace_id)
-    raw_name = raw_storage_path.rsplit("/", 1)[-1]
-    logger.info("Ingesting %s for workspace %s", raw_name, workspace_id)
-
-    config = get_config()
-    runtime_config = LLMTransitionRuntimeConfig(
-        context_id="ingestion",
-        profile_llm=config.ingestion.llm,
-        llm_defaults=config.llm,
-        max_tool_turns=config.ingestion.max_tool_turns,
-    )
-    async with open_llm_transition(
-        config=runtime_config,
-        logger=logger,
-    ) as factory:
-        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-            if storage.is_remote():
-                local_raw = Path(tmpdir) / "download" / raw_name
-                local_raw.parent.mkdir(parents=True, exist_ok=True)
-                storage.get_fs().get(raw_storage_path, str(local_raw))
-            else:
-                local_raw = Path(raw_storage_path)
-
-            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
-            result = await run_agentic_ingestion(extract_dir, factory)
-
-        attach_trace(result.__dict__, factory.accumulated_trace)
-        logger.info(
-            "Ingested %d rows x %d columns",
-            result.dataframe.shape[0],
-            result.dataframe.shape[1],
-        )
-        return result
