@@ -336,6 +336,7 @@ class LLMSubroutineTraceInput(BaseModel):
     workspace_id: str
     run_id: str
     subroutine_id: str
+    context_kind: str
     conversation_ref: str
     call_ref_base: str
     harness_trace_refs: list[str] = Field(default_factory=list)
@@ -443,6 +444,7 @@ class StatisticalModelSpecFinalizeInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
+    run_id: str
     state: EpisodeState
     pins: dict[ArtifactId, int]
     state_ref: str

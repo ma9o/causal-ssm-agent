@@ -1,7 +1,7 @@
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { ArtifactViewId, LLMTrace, UploadResponse } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
-export async function uploadFile(file: File, workspaceId: string): Promise<{ path: string }> {
+export async function uploadFile(file: File, workspaceId: string): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("workspaceId", workspaceId);
@@ -18,4 +18,9 @@ export async function getArtifactView<T>(
   artifactId: ArtifactViewId,
 ): Promise<T> {
   return apiFetch<T>(`/api/artifacts/${workspaceId}/${artifactId}/view`);
+}
+
+export async function getLLMTrace(workspaceId: string, ref: string): Promise<LLMTrace> {
+  const search = new URLSearchParams({ ref }).toString();
+  return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }

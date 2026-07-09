@@ -58,5 +58,5 @@ def materialize_extraction_outputs(
     return {
         "data_for_model": data_for_model,
         "worker_statuses": extraction_result.get("worker_statuses", []),
-        "llm_trace": extraction_result.get("llm_trace"),
+        "llm_trace_ref": extraction_result.get("llm_trace_ref"),
     }

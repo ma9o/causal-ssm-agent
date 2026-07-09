@@ -51,9 +51,9 @@ async def plan_measurement_structure_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
     from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
-    from nof1_causal_lab.flows.transitions.measurement_structure.prompting import templates
-    from nof1_causal_lab.flows.transitions.measurement_structure.run import (
-        _build_measurement_structure_user_prompt,
+    from nof1_causal_lab.flows.transitions.measurement_structure.prompting import (
+        build_measurement_structure_user_prompt,
+        templates,
     )
     from nof1_causal_lab.utils.config import get_config
 
@@ -100,7 +100,7 @@ async def plan_measurement_structure_activity(
         {
             "system_prompt": templates.SYSTEM,
             "user_messages": [
-                _build_measurement_structure_user_prompt(
+                build_measurement_structure_user_prompt(
                     question,
                     latent_structure,
                     [dataset_schema],
@@ -141,7 +141,7 @@ async def finalize_measurement_structure_activity(
         ).model_dump(mode="json")
         report = {
             "measurement_structure": measurement_structure,
-            "llm_trace": _read_measurement_structure_json(input.trace_ref),
+            "llm_trace_ref": input.trace_ref,
         }
         fields = set(MeasurementStructureContract.model_fields.keys())
         report = {key: value for key, value in report.items() if key in fields}

@@ -10,7 +10,7 @@ import {
   counterfactualResult,
   interventionResult,
 } from "@/components/dag/__fixtures__/intervention-dag-fixture";
-import { materializedTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
+import { demoBaselineTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
 import { buildEdgePosteriors, buildBaselineReportScenarios } from "./baseline-report-scenarios";
 
 /** A refinement assistant turn carrying a live (object-valued) simulation result. */
@@ -39,7 +39,7 @@ function refinementSimMessage(
 
 describe("buildBaselineReportScenarios — baseline (no intervention)", () => {
   it("surfaces the clamp-less simulation as the single baseline, first", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: materializedTrace });
+    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     const baselines = scenarios.filter((scenario) => scenario.provenance === "baseline");
     expect(baselines).toHaveLength(1);
@@ -56,7 +56,7 @@ describe("buildBaselineReportScenarios — baseline (no intervention)", () => {
 
 describe("buildBaselineReportScenarios — interventions from a persisted trace", () => {
   it("recovers interventions from the trace where tool_result is a JSON string (reload path)", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: materializedTrace });
+    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     // One baseline + four interventions (newest first).
     expect(scenarios).toHaveLength(5);
@@ -78,7 +78,7 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
   });
 
   it("captures abducted counterfactual fields and manifest projection", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: materializedTrace });
+    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     const counterfactual = scenarios.find((scenario) => scenario.result.start.kind === "abducted");
     expect(counterfactual?.key).toBe("sim-3");
@@ -98,7 +98,7 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
     };
 
     const scenarios = buildBaselineReportScenarios({
-      trace: materializedTrace,
+      trace: demoBaselineTrace,
       extraMessages: [refinementSimMessage("sim-4", edited)],
     });
 
@@ -111,7 +111,7 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   });
 
   it("places the baseline first, then interventions newest-first", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: materializedTrace });
+    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     expect(scenarios[0].provenance).toBe("baseline");
     expect(scenarios.slice(1).map((scenario) => scenario.key)).toEqual([

@@ -7,10 +7,11 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import RawDataView from "./raw-data-view";
-import fixture from "../../__fixtures__/demo-run/raw_data.json";
+import { demoRawData } from "../../__fixtures__/demo-artifacts";
+import { demoTraces } from "../../__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "raw_data")!;
-const data = fixture as unknown as RawDataData;
+const data = demoRawData as RawDataData;
 const workspaceId = "demo-user";
 
 const meta = {
@@ -29,7 +30,7 @@ export const Completed = createCompletedOutputStory({
   output,
   args: { data, workspaceId },
   elapsedMs: 4_320,
-  trace: data.llm_trace ?? undefined,
+  trace: demoTraces.raw_data,
   renderContent: (args) => <RawDataView {...args} />,
 });
 
@@ -37,8 +38,8 @@ export const OpenPanel = createCompletedOutputStory({
   output,
   args: { data, workspaceId },
   elapsedMs: 4_320,
-  trace: data.llm_trace ?? undefined,
   defaultPanelOpen: true,
+  trace: demoTraces.raw_data,
   renderContent: (args) => <RawDataView {...args} />,
 });
 

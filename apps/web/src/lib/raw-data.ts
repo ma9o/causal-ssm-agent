@@ -265,7 +265,7 @@ export async function deriveRawDataData(
   );
 
   return {
-    llm_trace: payload.llm_trace ?? null,
+    llm_trace_ref: payload.llm_trace_ref ?? null,
     n_records: Number(metadata.num_rows),
     n_columns: columns.length,
     date_range: await deriveDateRange(file, metadata, temporalColumns),

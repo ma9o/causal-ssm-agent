@@ -1,14 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EpisodeArtifactId } from "@/lib/server/artifacts";
 
-vi.mock("@/lib/storage", () => ({
-  readData: vi.fn(),
-  readBinary: vi.fn(),
-  LOCAL_DATA_DIR: "/tmp/data",
-  isStorageNotFoundError: (error: unknown) =>
-    error instanceof Error && "code" in error && error.code === "ENOENT",
-}));
-
 vi.mock("@/lib/raw-data", () => ({
   deriveRawDataData: vi.fn(() => ({ marker: "raw_data-derived" })),
 }));
@@ -24,58 +16,97 @@ vi.mock("@/lib/model-spec-derived-data", () => ({
 import { deriveRawDataData } from "@/lib/raw-data";
 import { deriveMeasurementsData } from "@/lib/measurements-data";
 import { deriveStatisticalModelSpecData } from "@/lib/model-spec-derived-data";
-import { readBinary, readData } from "@/lib/storage";
 import { GET } from "./route";
 
-function artifactInfo(artifactId: EpisodeArtifactId) {
+function artifactResponse(
+  artifactId: EpisodeArtifactId,
+  payload: Record<string, unknown>,
+  binaryFiles: string[] = [],
+) {
   return {
+    workspace_id: "user",
     artifact_id: artifactId,
     version: 1,
-    provenance: "computed",
-    derived_from: {},
-    produced_by: null,
-    created_at: "",
+    meta: {
+      artifact_id: artifactId,
+      version: 1,
+      provenance: "computed",
+      derived_from: {},
+      produced_by: null,
+      created_at: "",
+    },
+    payload,
+    binary_files: binaryFiles,
   };
 }
 
-function stateFor(...artifactIds: EpisodeArtifactId[]) {
+function jsonFetchResponse(value: unknown, status = 200): Response {
   return {
-    current: Object.fromEntries(
-      artifactIds.map((artifactId) => [artifactId, artifactInfo(artifactId)]),
-    ),
-  };
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(value),
+    json: async () => value,
+  } as Response;
 }
 
-function artifactPath(
+function binaryFetchResponse(value: Uint8Array, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => "",
+    arrayBuffer: async () => value.buffer.slice(value.byteOffset, value.byteOffset + value.length),
+  } as Response;
+}
+
+function facadeArtifactPath(workspaceId: string, artifactId: EpisodeArtifactId): string {
+  return `/api/episodes/${workspaceId}/artifacts/${artifactId}`;
+}
+
+function facadeFilePath(
   workspaceId: string,
   artifactId: EpisodeArtifactId,
   filename: string,
 ): string {
-  return `${workspaceId}/store/${artifactId}/v1/${filename}`;
+  return `${facadeArtifactPath(workspaceId, artifactId)}/files/${filename}`;
 }
 
-function storageMissing(path: string): Error & { code: string } {
-  return Object.assign(new Error(`Missing test storage fixture: ${path}`), { code: "ENOENT" });
-}
-
-function mockJsonFiles(files: Record<string, unknown>): void {
-  vi.mocked(readData).mockImplementation(async (path) => {
-    if (!(path in files)) throw storageMissing(path);
-    const value = files[path];
-    return typeof value === "string" ? value : JSON.stringify(value);
-  });
+function mockFacade(options: {
+  artifacts?: Record<string, unknown>;
+  files?: Record<string, Uint8Array>;
+}): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (options.artifacts && path in options.artifacts) {
+        return jsonFetchResponse(options.artifacts[path]);
+      }
+      if (options.files && path in options.files) {
+        return binaryFetchResponse(options.files[path]);
+      }
+      return jsonFetchResponse({ detail: `missing ${path}` }, 404);
+    }),
+  );
 }
 
 describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it("normalizes payloads that contain non-finite numbers instead of returning a fake 404", async () => {
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("posterior"),
-      [artifactPath("user", "posterior", "diagnostics.json")]:
-        '{"value":1e999,"upper":1e999,"lower":-1e999,"label":"Infinity should stay a string"}',
+  it("normalizes facade payloads that contain non-finite numbers instead of returning a fake 404", async () => {
+    mockFacade({
+      artifacts: {
+        [facadeArtifactPath("user", "posterior")]: artifactResponse("posterior", {
+          "diagnostics.json": {
+            value: Infinity,
+            upper: Infinity,
+            lower: -Infinity,
+            label: "Infinity should stay a string",
+          },
+        }),
+      },
     });
 
     const response = await GET(new Request("http://localhost/api/artifacts/user/posterior/view"), {
@@ -91,29 +122,11 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     });
   });
 
-  it("normalizes top-level non-finite numbers in persisted artifact payloads", async () => {
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("posterior"),
-      [artifactPath("user", "posterior", "diagnostics.json")]:
-        '{"outcome":"warn","inference_metadata":{"duration_seconds":1e999}}',
-    });
-
-    const response = await GET(new Request("http://localhost/api/artifacts/user/posterior/view"), {
-      params: Promise.resolve({ workspaceId: "user", artifactId: "posterior" }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      outcome: "warn",
-      inference_metadata: { duration_seconds: null },
-    });
-  });
-
-  it("returns a parse error when the persisted payload is invalid", async () => {
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("posterior"),
-      [artifactPath("user", "posterior", "diagnostics.json")]: '{"value":',
-    });
+  it("surfaces facade failures as read errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonFetchResponse({ detail: "facade failed" }, 500)),
+    );
 
     const response = await GET(new Request("http://localhost/api/artifacts/user/posterior/view"), {
       params: Promise.resolve({ workspaceId: "user", artifactId: "posterior" }),
@@ -134,13 +147,17 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     };
     const rawParquet = new Uint8Array([1, 2, 3]);
 
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("raw_data"),
-      [artifactPath("user", "raw_data", "profile.json")]: persisted,
-    });
-    vi.mocked(readBinary).mockImplementation(async (path: string) => {
-      if (path === artifactPath("user", "raw_data", "raw.parquet")) return rawParquet;
-      throw storageMissing(path);
+    mockFacade({
+      artifacts: {
+        [facadeArtifactPath("user", "raw_data")]: artifactResponse(
+          "raw_data",
+          { "profile.json": persisted },
+          ["raw.parquet"],
+        ),
+      },
+      files: {
+        [facadeFilePath("user", "raw_data", "raw.parquet")]: rawParquet,
+      },
     });
 
     const response = await GET(new Request("http://localhost/api/artifacts/user/raw_data/view"), {
@@ -167,13 +184,15 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     };
     const parquet = new Uint8Array([4, 5, 6]);
 
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("measurements", "panel"),
-      [artifactPath("user", "measurements", "measurements.json")]: persisted,
-    });
-    vi.mocked(readBinary).mockImplementation(async (path: string) => {
-      if (path === artifactPath("user", "panel", "panel.parquet")) return parquet;
-      throw storageMissing(path);
+    mockFacade({
+      artifacts: {
+        [facadeArtifactPath("user", "measurements")]: artifactResponse("measurements", {
+          "measurements.json": persisted,
+        }),
+      },
+      files: {
+        [facadeFilePath("user", "panel", "panel.parquet")]: parquet,
+      },
     });
 
     const response = await GET(
@@ -204,14 +223,19 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     };
     const parquet = new Uint8Array([7, 8, 9]);
 
-    mockJsonFiles({
-      "user/episode/state.json": stateFor("statistical_model_spec", "validation_report", "panel"),
-      [artifactPath("user", "statistical_model_spec", "statistical_model_spec.json")]: modelSpec,
-      [artifactPath("user", "validation_report", "validation_report.json")]: validationReport,
-    });
-    vi.mocked(readBinary).mockImplementation(async (path: string) => {
-      if (path === artifactPath("user", "panel", "panel.parquet")) return parquet;
-      throw storageMissing(path);
+    mockFacade({
+      artifacts: {
+        [facadeArtifactPath("user", "statistical_model_spec")]: artifactResponse(
+          "statistical_model_spec",
+          { "statistical_model_spec.json": modelSpec },
+        ),
+        [facadeArtifactPath("user", "validation_report")]: artifactResponse("validation_report", {
+          "validation_report.json": validationReport,
+        }),
+      },
+      files: {
+        [facadeFilePath("user", "panel", "panel.parquet")]: parquet,
+      },
     });
 
     const response = await GET(

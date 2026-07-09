@@ -11,9 +11,8 @@ interface UseDagLayoutResult extends DagLayoutResult {
 }
 
 /**
- * Async ELK layout for the bespoke DAG renderer. Mirrors the stale-guard
- * pattern of the legacy `useElkLayout`: re-layouts whenever the serialized
- * graph changes and ignores results that arrive after a newer input.
+ * Async ELK layout for the bespoke DAG renderer. Re-layouts whenever the
+ * serialized graph changes and ignores results that arrive after a newer input.
  */
 export function useDagLayout(graph: DagGraphInput): UseDagLayoutResult {
   const [result, setResult] = useState<{ data: DagLayoutResult; key: string }>({

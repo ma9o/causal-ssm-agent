@@ -1,5 +1,5 @@
 import type { PosteriorData } from "@nof1-causal-lab/api-types";
-import posteriorFixture from "./demo-run/posterior.json";
+import { demoPosterior } from "./demo-artifacts";
 
-export const posterior = posteriorFixture as PosteriorData;
-export const posteriorAuxKalmanMCMC = posteriorFixture as PosteriorData;
+export const posterior = demoPosterior as PosteriorData;
+export const posteriorAuxKalmanMCMC = demoPosterior as PosteriorData;

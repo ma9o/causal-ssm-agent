@@ -285,10 +285,12 @@ async function main() {
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
       " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py\n" +
+      " * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/episode_api.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: true,
     enableConstEnums: false,
+    unreachableDefinitions: true,
     unknownAny: false,
     style: {
       semi: true,

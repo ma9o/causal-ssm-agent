@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { IndicatorTable } from "./indicator-table";
-import fixture from "../../__fixtures__/demo-run/measurement_structure.json";
+import { demoMeasurementStructure } from "../../__fixtures__/demo-artifacts";
 
-const data = fixture as unknown as MeasurementStructureViewData;
+const data = demoMeasurementStructure as MeasurementStructureViewData;
 const indicators = data.causal_design.measurement.indicators;
 
 const meta = {

@@ -11,7 +11,7 @@ import {
   type MachineDescription,
   type TransitionRecord,
 } from "@/lib/server/episode-runs";
-import { isStorageNotFoundError, readData } from "@/lib/storage";
+import { ArtifactNotFoundError, readArtifactJson } from "@/lib/server/artifacts";
 import { TRANSITIONS, type ArtifactViewId } from "@nof1-causal-lab/api-types";
 
 function emptyTransitionRun(): AnalysisTransitionRun {
@@ -39,17 +39,15 @@ async function readEpisodeQuestion(
   workspaceId: string,
   status: EpisodeStatus,
 ): Promise<string | undefined> {
-  const version = status.state.current.question?.version;
-  if (version == null) {
+  if (status.state.current.question == null) {
     return undefined;
   }
 
   try {
-    const raw = await readData(`${workspaceId}/store/question/v${version}/question.json`);
-    const parsed = JSON.parse(raw) as { text?: unknown };
+    const parsed = await readArtifactJson<{ text?: unknown }>(workspaceId, "question", "question");
     return typeof parsed.text === "string" && parsed.text.trim() ? parsed.text.trim() : undefined;
   } catch (e: unknown) {
-    if (isStorageNotFoundError(e)) {
+    if (e instanceof ArtifactNotFoundError) {
       return undefined;
     }
     throw e;

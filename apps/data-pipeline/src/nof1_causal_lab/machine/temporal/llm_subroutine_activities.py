@@ -449,10 +449,17 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
 async def finalize_llm_subroutine_trace_activity(
     input: LLMSubroutineTraceInput,
 ) -> LLMSubroutineTraceResult:
+    from nof1_causal_lab.machine.trace_store import TraceMetadata, write_trace
     from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage, _merge_trace
 
     root = subroutine_root(input.workspace_id, input.run_id, input.subroutine_id)
-    trace_ref = storage.join(root, "trace.json")
+    trace_path = storage.join(root, "trace.json")
+    metadata = TraceMetadata(
+        workspace_id=input.workspace_id,
+        run_id=input.run_id,
+        subroutine_id=input.subroutine_id,
+        context_kind=input.context_kind,
+    )
 
     if input.harness_trace_refs:
         trace = LLMTrace()
@@ -460,7 +467,7 @@ async def finalize_llm_subroutine_trace_activity(
             trace = _merge_trace(
                 trace, LLMTrace.model_validate(read_subroutine_json(harness_trace_ref))
             )
-        write_subroutine_json(trace_ref, trace.model_dump(mode="json"))
+        trace_ref = write_trace(trace, metadata, target_path=trace_path)
         return LLMSubroutineTraceResult(trace_ref=trace_ref)
 
     conversation = read_subroutine_json(input.conversation_ref)
@@ -505,7 +512,7 @@ async def finalize_llm_subroutine_trace_activity(
             reasoning_tokens=reasoning_tokens if has_reasoning_tokens else None,
         ),
     )
-    write_subroutine_json(trace_ref, trace.model_dump(mode="json"))
+    trace_ref = write_trace(trace, metadata, target_path=trace_path)
     return LLMSubroutineTraceResult(trace_ref=trace_ref)
 
 

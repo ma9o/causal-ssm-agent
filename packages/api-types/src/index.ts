@@ -2,6 +2,12 @@
 // Hand-written (frontend-only) — not generated from Python
 // ---------------------------------------------------------------------------
 
+export type {
+  CausalDesign,
+  IdentifiabilityStatus,
+  IdentifiedTreatmentStatus,
+  NonIdentifiableTreatmentStatus,
+} from "./causal-design";
 export type { ArtifactStatus, ArtifactViewState, PipelineRun, RunStatus } from "./run";
 export type {
   ArtifactId,
@@ -11,12 +17,6 @@ export type {
   TransitionMeta,
 } from "./transitions";
 export { ARTIFACT_IDS, ARTIFACT_VIEW_IDS, TRANSITION_META, TRANSITIONS } from "./transitions";
-export type {
-  CausalDesign,
-  IdentifiabilityStatus,
-  IdentifiedTreatmentStatus,
-  NonIdentifiableTreatmentStatus,
-} from "./causal-design";
 
 // ---------------------------------------------------------------------------
 // Generated from Python contracts
@@ -34,6 +34,10 @@ export type {
 // LLM trace types
 // Inference diagnostic types
 export type {
+  ArtifactEnvelope,
+  ArtifactVersionInfo,
+  BaselineReportContract as BaselineReportData,
+  CapabilitiesResponse,
   CausalEdge,
   Construct,
   DistributionFamily,
@@ -46,6 +50,7 @@ export type {
   IndicatorValidationContract as IndicatorValidation,
   InferenceMetadataContract as InferenceMetadata,
   LatentStructure,
+  LatentStructureContract as LatentStructureData,
   LikelihoodSource,
   LikelihoodSpec,
   LinkFunction,
@@ -54,12 +59,14 @@ export type {
   MCMCDiagnostics,
   MCMCParamDiagnostic,
   MeasurementStructure,
+  MeasurementStructureContract as MeasurementStructureData,
+  MeasurementsContract as MeasurementsPersistedData,
   ParameterConstraint,
   ParameterRole,
   ParameterSpec,
+  PosteriorContract as PosteriorData,
   PosteriorMarginal,
   PosteriorPair,
-  PosteriorContract as PosteriorData,
   PPCOverlay,
   PPCResultContract as PPCResult,
   PPCTestStat,
@@ -72,11 +79,6 @@ export type {
   RawDataContract as RawDataPersistedData,
   Role,
   SMCDiagnostics,
-  BaselineReportContract as BaselineReportData,
-  LatentStructureContract as LatentStructureData,
-  MeasurementStructureContract as MeasurementStructureData,
-  MeasurementsContract as MeasurementsPersistedData,
-  ValidationReportContract as ValidationReportData,
   StatisticalModelSpec,
   StatisticalModelSpecContract as StatisticalModelSpecPersistedData,
   TemporalStatus,
@@ -85,18 +87,22 @@ export type {
   TraceMessage,
   TraceUsage,
   TreatmentEffectContract as TreatmentEffect,
+  UploadResponse,
   ValidationIssueContract as ValidationIssue,
+  ValidationReportContract as ValidationReportData,
   WorkerStatusContract as WorkerStatus,
+  WorkspaceEntry,
+  WorkspaceList,
 } from "./generated/models";
 
 export type {
+  BaselineReportVisualizationContract as BaselineReportVisualization,
   EffectSummaryContract as EffectSummary,
   EffectTrajectoryPointContract as EffectTrajectoryPoint,
   LatentClampInput,
   ScenarioStartResultContract as ScenarioStartResult,
   SimulateScenarioResultContract as SimulateScenarioResult,
   SimulateScenarioToolResultContract as SimulateScenarioToolResult,
-  BaselineReportVisualizationContract as BaselineReportVisualization,
   ToolErrorContract as ToolError,
 } from "./generated/tool-results";
 
@@ -123,9 +129,10 @@ export type StatisticalModelSpecData = StatisticalModelSpecPersistedViewData & {
   };
 };
 
-export type MeasurementStructureViewData = import("./generated/models").MeasurementStructureContract & {
-  causal_design: import("./causal-design").CausalDesign;
-};
+export type MeasurementStructureViewData =
+  import("./generated/models").MeasurementStructureContract & {
+    causal_design: import("./causal-design").CausalDesign;
+  };
 
 // Distribution catalog metadata (codegen'd from Python)
 export type { ObservationHyperparameter } from "./generated/metadata";
@@ -158,7 +165,7 @@ export interface RawDataColumnDescription {
 }
 
 export interface RawDataData {
-  llm_trace?: import("./generated/models").LLMTrace | null;
+  llm_trace_ref?: string | null;
   n_records: number;
   n_columns: number;
   date_range: RawDataDateRange;
@@ -181,7 +188,7 @@ export interface ObservationRecord {
 }
 
 export interface MeasurementsData {
-  llm_trace?: import("./generated/models").LLMTrace | null;
+  llm_trace_ref?: string | null;
   workers: import("./generated/models").WorkerStatusContract[];
   per_indicator_counts: {
     [k: string]: number | undefined;

@@ -784,11 +784,10 @@ async def multi_turn_generate(
 
 
 # ---------------------------------------------------------------------------
-# Legacy note
+# Trace capture note
 # ---------------------------------------------------------------------------
-# The previous ``LLMStageContext`` + ``attach_trace`` helpers have been
-# removed; stages now use :class:`nof1_causal_lab.utils.agent_session.ScopedSessionFactory`
-# which subsumes both trace accumulation and lifecycle logging. The
+# Stages use :class:`nof1_causal_lab.utils.agent_session.ScopedSessionFactory`,
+# which owns trace accumulation and lifecycle logging. The
 # ``multi_turn_generate`` + ``make_generate_fn`` pair is kept for eval
-# scripts outside the main pipeline; new production code should use
+# scripts outside the main pipeline; production code should use
 # :func:`nof1_causal_lab.utils.agent_session_factory.open_session`.

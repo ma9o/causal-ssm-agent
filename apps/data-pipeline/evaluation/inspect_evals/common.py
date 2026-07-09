@@ -1,9 +1,12 @@
 """Shared utilities for evals."""
 
 import json
+import logging
 import random
 import re
+import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -274,7 +277,7 @@ def make_eval_session_factory(
 ):
     """Open a real ``ScopedSessionFactory`` for the model under test.
 
-    Returns the ``open_llm_transition`` async context manager, which yields a
+    Returns an async context manager, which yields a
     :class:`~nof1_causal_lab.utils.agent_session.ScopedSessionFactory` bound to
     the project's embedded OpenRouter backend — the same path production uses, so
     the eval exercises the live target code rather than an Inspect-mediated copy.
@@ -282,25 +285,31 @@ def make_eval_session_factory(
     ``model`` defaults to the configured Target 1 model and must be an
     ``openrouter/...`` slug. Relies on ``OPENROUTER_API_KEY`` in the environment.
     """
-    from nof1_causal_lab.flows import get_prefect_logger
-    from nof1_causal_lab.flows.llm_transition_runtime import (
-        LLMTransitionRuntimeConfig,
-        open_llm_transition,
-    )
+    from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
     from nof1_causal_lab.utils.config import LLMProfileConfig, get_config
 
     config = get_config()
     resolved_model = model or config.structure_proposal.llm.model
-    runtime = LLMTransitionRuntimeConfig(
-        context_id=context_id,
-        profile_llm=LLMProfileConfig(harness="none", model=resolved_model),
-        llm_defaults=config.llm,
-        max_tool_turns=max_tool_turns,
-    )
-    return open_llm_transition(
-        config=runtime,
-        logger=get_prefect_logger(context_id),
-    )
+    logger = logging.getLogger(f"nof1_causal_lab.evals.{context_id}")
+
+    @asynccontextmanager
+    async def _open():
+        started_at = time.monotonic()
+        logger.info("[%s] starting", context_id)
+        factory = ScopedSessionFactory(
+            LLMProfileConfig(harness="none", model=resolved_model),
+            config.llm,
+            context_id=context_id,
+            max_tool_turns=max_tool_turns,
+        )
+        try:
+            yield factory
+        except Exception:
+            logger.exception("[%s] failed after %.1fs", context_id, time.monotonic() - started_at)
+            raise
+        logger.info("[%s] completed in %.1fs", context_id, time.monotonic() - started_at)
+
+    return _open()
 
 
 def _dict_messages_to_chat(messages: list[dict[str, Any]]) -> list[Any]:

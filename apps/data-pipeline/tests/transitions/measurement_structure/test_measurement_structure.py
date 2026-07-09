@@ -1,19 +1,11 @@
 """Test measurement-structure measurement structure proposal and related assembly helpers."""
 
-import asyncio
-import json
-
 import pytest
 
 from nof1_causal_lab.artifacts import CausalDesign
-from nof1_causal_lab.flows.transitions.measurement_structure.flow import build_causal_design
-from nof1_causal_lab.flows.transitions.measurement_structure.run import (
-    MeasurementStructureResult,
-    run_measurement_structure,
-)
+from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
 from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_structure
 from nof1_causal_lab.utils.causal_design import get_outcome_name
-from tests.helpers import make_mock_session_factory
 
 
 def _assert_same_declared_measurement(actual: dict, expected: dict) -> None:
@@ -340,63 +332,6 @@ class TestStage1bGrounding:
 
         assert causal_design["estimation"]["state_order"] == ["Treatment", "Outcome"]
         assert causal_design["estimation"]["edges"] == []
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INTEGRATION TESTS: Full measurement-structure Flow
-# ══════════════════════════════════════════════════════════════════════════════
-
-
-class TestStage1bFlow:
-    """Integration tests for the full measurement-structure flow."""
-
-    def test_all_identifiable(
-        self,
-        stage1b_simple_latent,
-        stage1b_measurement_all_observed,
-        stage1b_dummy_chunks,
-    ):
-        """When all effects are identifiable, result has empty non_identifiable_treatments."""
-        factory = make_mock_session_factory([json.dumps(stage1b_measurement_all_observed)])
-
-        result = asyncio.run(
-            run_measurement_structure(
-                question="Does treatment improve outcome?",
-                latent_structure=stage1b_simple_latent,
-                chunks=stage1b_dummy_chunks,
-                session_factory=factory,
-            )
-        )
-
-        assert isinstance(result, MeasurementStructureResult)
-        _assert_same_declared_measurement(
-            result.measurement_structure,
-            stage1b_measurement_all_observed,
-        )
-
-    def test_non_identifiable_still_produces_result(
-        self,
-        stage1b_confounded_latent,
-        stage1b_measurement_all_observed,
-        stage1b_dummy_chunks,
-    ):
-        """Non-identifiable model still produces a result (fat tool captures on structural validity)."""
-        factory = make_mock_session_factory([json.dumps(stage1b_measurement_all_observed)])
-
-        result = asyncio.run(
-            run_measurement_structure(
-                question="Does treatment improve outcome?",
-                latent_structure=stage1b_confounded_latent,
-                chunks=stage1b_dummy_chunks,
-                session_factory=factory,
-            )
-        )
-
-        assert isinstance(result, MeasurementStructureResult)
-        _assert_same_declared_measurement(
-            result.measurement_structure,
-            stage1b_measurement_all_observed,
-        )
 
 
 if __name__ == "__main__":

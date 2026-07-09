@@ -2,7 +2,6 @@
 
 import type {
   ArtifactViewId,
-  LLMTrace,
   RawDataData,
   LatentStructureData,
   MeasurementStructureViewData,
@@ -25,6 +24,7 @@ import {
 import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
 import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
 import { useArtifactView } from "@/lib/hooks/use-artifact-view";
+import { useLLMTrace } from "@/lib/hooks/use-llm-trace";
 import { resolveTransitionObservedStatus } from "@/lib/transition-runtime";
 import {
   buildEdgePosteriors,
@@ -68,7 +68,7 @@ type AnyOutputData =
 
 type ArtifactViewData = AnyOutputData & {
   context?: string;
-  llm_trace?: LLMTrace;
+  llm_trace_ref?: string | null;
 };
 
 type OutputSectionRouterProps = {
@@ -112,6 +112,8 @@ function OutputSectionRouterInner({
     output.id,
     isCompleted,
   );
+  const traceRef = artifactData?.llm_trace_ref ?? null;
+  const { data: llmTrace } = useLLMTrace(workspaceId, traceRef, isCompleted && !!traceRef);
 
   return (
     <OutputPresentationShell
@@ -134,9 +136,9 @@ function OutputSectionRouterInner({
         ) : undefined
       }
       panelContent={
-        artifactData?.llm_trace ? (
+        llmTrace ? (
           <Suspense fallback={null}>
-            <LLMTracePanel trace={artifactData.llm_trace} />
+            <LLMTracePanel trace={llmTrace} />
           </Suspense>
         ) : undefined
       }
@@ -230,6 +232,11 @@ function BaselineReportConnectedContent({
     true,
   );
   const { data: posterior } = useArtifactView<PosteriorData>(workspaceId, "posterior", true);
+  const { data: llmTrace } = useLLMTrace(
+    workspaceId,
+    data.llm_trace_ref ?? null,
+    !!data.llm_trace_ref,
+  );
 
   const outcomeName = useMemo(
     () =>
@@ -282,10 +289,10 @@ function BaselineReportConnectedContent({
   const scenarios = useMemo(
     () =>
       buildBaselineReportScenarios({
-        trace: data.llm_trace,
+        trace: llmTrace,
         extraMessages: mockScenarios ? buildDevMockMessages(mockScenarios) : [],
       }),
-    [data.llm_trace, mockScenarios],
+    [llmTrace, mockScenarios],
   );
   const onSimulate = useMemo(
     () =>

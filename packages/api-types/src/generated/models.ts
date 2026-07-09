@@ -7,34 +7,56 @@
  *   cd packages/api-types && bun run scripts/generate.ts
  *
  * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py
+ * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/episode_api.py
  */
 
 /**
  * Whether a variable is modeled or treated as given.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Role".
  */
 export type Role = "endogenous" | "exogenous";
 /**
  * Whether a construct changes within-person over time.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TemporalStatus".
  */
 export type TemporalStatus = "time_varying" | "time_invariant";
 /**
  * Direction of an indicator relative to its construct.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorPolarity".
  */
 export type IndicatorPolarity = "positive" | "negative";
 /**
  * Whether the measurement equation is point-local or interval-summary.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SupportKind".
  */
 export type SupportKind = "point" | "interval";
 /**
  * Supported summary operators for indicator observations.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SummaryOperator".
  */
 export type SummaryOperator = "first" | "last" | "sum" | "count" | "mean" | "std";
 /**
  * Which support boundary receives the observation anchor.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "AnchorPolicy".
  */
 export type AnchorPolicy = "support_start" | "support_end";
 /**
  * Distribution families for observation and process noise.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DistributionFamily".
  */
 export type DistributionFamily =
   | "gaussian"
@@ -48,10 +70,16 @@ export type DistributionFamily =
   | "categorical";
 /**
  * Link functions mapping linear predictor to distribution mean.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LinkFunction".
  */
 export type LinkFunction = "identity" | "log" | "inverse" | "logit" | "probit" | "cumulative_logit" | "softmax";
 /**
  * Role of a parameter in the model.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterRole".
  */
 export type ParameterRole =
   | "fixed_effect"
@@ -72,18 +100,30 @@ export type ParameterRole =
   | "observation_hyperparameter_positive";
 /**
  * Constraints on parameter values.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterConstraint".
  */
 export type ParameterConstraint = "none" | "positive" | "negative" | "unit_interval" | "correlation";
 /**
  * Global initial-state policy for retained dynamic states.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InitializationPolicy".
  */
 export type InitializationPolicy = "stationary" | "free";
 /**
  * Global policy for whether eligible manifest intercepts remain free.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ObservationInterceptPolicy".
  */
 export type ObservationInterceptPolicy = "fixed" | "free";
 /**
  * Distribution families allowed in model-spec prior proposals.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorDistributionFamily".
  */
 export type PriorDistributionFamily =
   | "Normal"
@@ -97,7 +137,7 @@ export type PriorDistributionFamily =
   | "Delta";
 
 /**
- * Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.
+ * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
  */
 export interface CausalSSMContracts {
   raw_data: RawDataContract;
@@ -109,54 +149,35 @@ export interface CausalSSMContracts {
   posterior: PosteriorContract;
   baseline_report: BaselineReportContract;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataContract".
+ */
 export interface RawDataContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   column_descriptions: RawDataColumnDescriptionContract[];
 }
 /**
- * Full trace of an LLM multi-turn conversation.
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataColumnDescriptionContract".
  */
-export interface LLMTrace {
-  messages: TraceMessage[];
-  model: string;
-  total_time_seconds: number;
-  usage: TraceUsage;
-}
-/**
- * A single message in an LLM trace.
- */
-export interface TraceMessage {
-  role: string;
-  content: string;
-  reasoning?: string | null;
-  tool_calls?:
-    | {
-        [k: string]: any | undefined;
-      }[]
-    | null;
-  tool_call_id?: string | null;
-  tool_name?: string | null;
-  tool_result?: string | null;
-  tool_is_error: boolean;
-}
-/**
- * Token usage for an LLM trace.
- */
-export interface TraceUsage {
-  input_tokens: number;
-  output_tokens: number;
-  reasoning_tokens?: number | null;
-}
 export interface RawDataColumnDescriptionContract {
   name: string;
   description: string;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LatentStructureContract".
+ */
 export interface LatentStructureContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   latent_structure: LatentStructure;
 }
 /**
  * Theoretical causal structure over constructs.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LatentStructure".
  */
 export interface LatentStructure {
   /**
@@ -170,6 +191,9 @@ export interface LatentStructure {
 }
 /**
  * A theoretical entity in the latent causal model.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Construct".
  */
 export interface Construct {
   /**
@@ -189,6 +213,9 @@ export interface Construct {
 }
 /**
  * A directed causal relationship between constructs.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CausalEdge".
  */
 export interface CausalEdge {
   /**
@@ -214,6 +241,9 @@ export interface CausalEdge {
 }
 /**
  * A source of evidence supporting a causal edge.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EdgeSource".
  */
 export interface EdgeSource {
   /**
@@ -229,12 +259,19 @@ export interface EdgeSource {
    */
   snippet: string;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MeasurementStructureContract".
+ */
 export interface MeasurementStructureContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   measurement_structure: MeasurementStructure;
 }
 /**
  * Operationalization of constructs into observed indicators.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MeasurementStructure".
  */
 export interface MeasurementStructure {
   /**
@@ -248,6 +285,9 @@ export interface MeasurementStructure {
 }
 /**
  * An observed variable that reflects a construct.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Indicator".
  */
 export interface Indicator {
   /**
@@ -297,6 +337,9 @@ export interface Indicator {
 }
 /**
  * Deterministic per-window expression for computed indicators.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ComputedRule".
  */
 export interface ComputedRule {
   /**
@@ -304,10 +347,18 @@ export interface ComputedRule {
    */
   window_expr: string;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MeasurementsContract".
+ */
 export interface MeasurementsContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   workers: WorkerStatusContract[];
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "WorkerStatusContract".
+ */
 export interface WorkerStatusContract {
   worker_id: number;
   status: "pending" | "running" | "completed" | "failed";
@@ -315,6 +366,10 @@ export interface WorkerStatusContract {
   n_windows: number;
   error?: string | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ValidationReportContract".
+ */
 export interface ValidationReportContract {
   is_valid: boolean;
   indicators: {
@@ -322,10 +377,18 @@ export interface ValidationReportContract {
   };
   dataset_issues: ValidationIssueContract[];
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorAuditContract".
+ */
 export interface IndicatorAuditContract {
   profile?: IndicatorEmpiricalProfileContract | null;
   validation: IndicatorValidationContract;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorEmpiricalProfileContract".
+ */
 export interface IndicatorEmpiricalProfileContract {
   measurement_dtype?: string | null;
   n_obs: number;
@@ -349,20 +412,32 @@ export interface IndicatorEmpiricalProfileContract {
   looks_integer_valued?: boolean | null;
   variance_to_mean_ratio?: number | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorValidationContract".
+ */
 export interface IndicatorValidationContract {
   issues: ValidationIssueContract[];
   checks: {
     [k: string]: ("ok" | "warning" | "error") | undefined;
   };
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ValidationIssueContract".
+ */
 export interface ValidationIssueContract {
   indicator?: string | null;
   issue_type: string;
   severity: "error" | "warning" | "info";
   message: string;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StatisticalModelSpecContract".
+ */
 export interface StatisticalModelSpecContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   statistical_model_spec: StatisticalModelSpec;
   authored_priors: {
     [k: string]: PriorProposal | undefined;
@@ -378,6 +453,9 @@ export interface StatisticalModelSpecContract {
 }
 /**
  * Complete statistical model specification.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StatisticalModelSpec".
  */
 export interface StatisticalModelSpec {
   /**
@@ -397,6 +475,9 @@ export interface StatisticalModelSpec {
 }
 /**
  * Specification for a likelihood (observed variable distribution).
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LikelihoodSpec".
  */
 export interface LikelihoodSpec {
   /**
@@ -420,6 +501,9 @@ export interface LikelihoodSpec {
 }
 /**
  * A source of evidence for a likelihood distribution choice.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LikelihoodSource".
  */
 export interface LikelihoodSource {
   /**
@@ -437,6 +521,9 @@ export interface LikelihoodSource {
 }
 /**
  * Specification for a parameter requiring a prior.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterSpec".
  */
 export interface ParameterSpec {
   /**
@@ -452,6 +539,9 @@ export interface ParameterSpec {
 }
 /**
  * A proposed prior distribution for a parameter.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorProposal".
  */
 export interface PriorProposal {
   /**
@@ -488,6 +578,9 @@ export interface PriorProposal {
 }
 /**
  * A source of evidence for a prior distribution.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorSource".
  */
 export interface PriorSource {
   /**
@@ -511,6 +604,10 @@ export interface PriorSource {
    */
   study_interval_days?: number | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PosteriorContract".
+ */
 export interface PosteriorContract {
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
@@ -520,6 +617,10 @@ export interface PosteriorContract {
   posterior_marginals?: PosteriorMarginal[] | null;
   posterior_pairs?: PosteriorPair[] | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCResultContract".
+ */
 export interface PPCResultContract {
   per_variable_warnings: PPCWarning[];
   checked?: boolean | null;
@@ -529,6 +630,9 @@ export interface PPCResultContract {
 }
 /**
  * A single diagnostic warning for one manifest variable.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCWarning".
  */
 export interface PPCWarning {
   variable: string;
@@ -543,6 +647,9 @@ export interface PPCWarning {
  * Provides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:
  * observed time series vs posterior predictive quantile bands.
  * Optionally includes individual y_rep draw lines for spaghetti plots.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCOverlay".
  */
 export interface PPCOverlay {
   variable: string;
@@ -559,6 +666,9 @@ export interface PPCOverlay {
  *
  * Provides the data for Gabry's ppc_stat plots: histogram of T(y_rep)
  * with a vertical line at T(y_observed).
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCTestStat".
  */
 export interface PPCTestStat {
   variable: string;
@@ -566,6 +676,10 @@ export interface PPCTestStat {
   observed_value: number;
   rep_values: number[];
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InferenceMetadataContract".
+ */
 export interface InferenceMetadataContract {
   method: string;
   n_samples: number;
@@ -573,6 +687,9 @@ export interface InferenceMetadataContract {
 }
 /**
  * Top-level MCMC diagnostics container.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MCMCDiagnostics".
  */
 export interface MCMCDiagnostics {
   per_parameter: MCMCParamDiagnostic[];
@@ -589,6 +706,9 @@ export interface MCMCDiagnostics {
 }
 /**
  * Per-parameter MCMC convergence diagnostics.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MCMCParamDiagnostic".
  */
 export interface MCMCParamDiagnostic {
   parameter: string;
@@ -599,6 +719,9 @@ export interface MCMCParamDiagnostic {
 }
 /**
  * Per-parameter trace data across chains.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceData".
  */
 export interface TraceData {
   parameter: string;
@@ -606,6 +729,9 @@ export interface TraceData {
 }
 /**
  * Thinned trace values for a single chain.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceChain".
  */
 export interface TraceChain {
   chain: number;
@@ -613,6 +739,9 @@ export interface TraceChain {
 }
 /**
  * Per-parameter rank histogram for chain mixing assessment.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RankHistogram".
  */
 export interface RankHistogram {
   parameter: string;
@@ -622,6 +751,9 @@ export interface RankHistogram {
 }
 /**
  * Rank histogram bin counts for a single chain.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RankHistogramChain".
  */
 export interface RankHistogramChain {
   chain: number;
@@ -629,6 +761,9 @@ export interface RankHistogramChain {
 }
 /**
  * Hamiltonian energy diagnostics.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EnergyDiagnostics".
  */
 export interface EnergyDiagnostics {
   energy_hist: EnergyHistogram;
@@ -637,6 +772,9 @@ export interface EnergyDiagnostics {
 }
 /**
  * Histogram of energy values (bin centers + density).
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EnergyHistogram".
  */
 export interface EnergyHistogram {
   bin_centers: number[];
@@ -644,6 +782,9 @@ export interface EnergyHistogram {
 }
 /**
  * Sequential Monte Carlo diagnostics.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SMCDiagnostics".
  */
 export interface SMCDiagnostics {
   beta_schedule: number[];
@@ -658,6 +799,9 @@ export interface SMCDiagnostics {
  * Uses one-step-ahead predictive log-likelihoods from the filter's
  * innovation decomposition. Each LOO "observation" is one complete
  * timestep (all manifest variables at time t), not individual cells.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LOODiagnostics".
  */
 export interface LOODiagnostics {
   elpd_loo: number;
@@ -671,6 +815,9 @@ export interface LOODiagnostics {
 }
 /**
  * Marginal posterior density for a single scalar parameter.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PosteriorMarginal".
  */
 export interface PosteriorMarginal {
   parameter: string;
@@ -683,6 +830,9 @@ export interface PosteriorMarginal {
 }
 /**
  * Pairwise posterior scatter data for joint visualization.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PosteriorPair".
  */
 export interface PosteriorPair {
   param_x: string;
@@ -691,12 +841,20 @@ export interface PosteriorPair {
   y_values: number[];
   divergent?: boolean[] | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "BaselineReportContract".
+ */
 export interface BaselineReportContract {
-  llm_trace?: LLMTrace | null;
+  llm_trace_ref?: string | null;
   intervention_results: TreatmentEffectContract[];
   saved_scenarios?: SavedScenarioContract[] | null;
   final_summary?: string | null;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TreatmentEffectContract".
+ */
 export interface TreatmentEffectContract {
   treatment: string;
   posterior_draws?: number[] | null;
@@ -707,6 +865,9 @@ export interface TreatmentEffectContract {
 }
 /**
  * Temporal decomposition of a treatment effect.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TemporalEffect".
  */
 export interface TemporalEffect {
   effect_1d: number;
@@ -715,8 +876,148 @@ export interface TemporalEffect {
   peak_effect: number;
   time_to_peak_days: number;
 }
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SavedScenarioContract".
+ */
 export interface SavedScenarioContract {
   label: string;
   query: string;
   summary?: string | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactEnvelope".
+ */
+export interface ArtifactEnvelope {
+  workspace_id: string;
+  artifact_id:
+    | "question"
+    | "raw_data"
+    | "latent_structure"
+    | "measurement_structure"
+    | "causal_design"
+    | "identification_report"
+    | "measurements"
+    | "panel"
+    | "validation_report"
+    | "statistical_model_spec"
+    | "compiled_ssm"
+    | "posterior"
+    | "baseline_report"
+    | "saved_scenarios";
+  version: number;
+  meta: ArtifactVersionInfo;
+  payload: {
+    [k: string]: any | undefined;
+  };
+  binary_files: string[];
+}
+/**
+ * Immutable metadata for one artifact version (payload lives in the store).
+ *
+ * ``derived_from`` pins the exact input versions the payload was computed
+ * from. For root artifacts (user writes) it is empty. ``created_at`` is
+ * stamped by the activity that produced the version — never inside workflow
+ * code, where wall-clock time is non-deterministic.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactVersionInfo".
+ */
+export interface ArtifactVersionInfo {
+  artifact_id:
+    | "question"
+    | "raw_data"
+    | "latent_structure"
+    | "measurement_structure"
+    | "causal_design"
+    | "identification_report"
+    | "measurements"
+    | "panel"
+    | "validation_report"
+    | "statistical_model_spec"
+    | "compiled_ssm"
+    | "posterior"
+    | "baseline_report"
+    | "saved_scenarios";
+  version: number;
+  provenance: "computed" | "human" | "llm";
+  derived_from: {
+    [k: string]: number | undefined;
+  };
+  produced_by?: string | null;
+  created_at: string;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CapabilitiesResponse".
+ */
+export interface CapabilitiesResponse {
+  moves_enabled: boolean;
+}
+/**
+ * Full trace of an LLM multi-turn conversation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LLMTrace".
+ */
+export interface LLMTrace {
+  messages: TraceMessage[];
+  model: string;
+  total_time_seconds: number;
+  usage: TraceUsage;
+}
+/**
+ * A single message in an LLM trace.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceMessage".
+ */
+export interface TraceMessage {
+  role: string;
+  content: string;
+  reasoning?: string | null;
+  tool_calls?:
+    | {
+        [k: string]: any | undefined;
+      }[]
+    | null;
+  tool_call_id?: string | null;
+  tool_name?: string | null;
+  tool_result?: string | null;
+  tool_is_error: boolean;
+}
+/**
+ * Token usage for an LLM trace.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceUsage".
+ */
+export interface TraceUsage {
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens?: number | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "UploadResponse".
+ */
+export interface UploadResponse {
+  path: string;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "WorkspaceEntry".
+ */
+export interface WorkspaceEntry {
+  href: string;
+  question?: string | null;
+  workspaceId: string;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "WorkspaceList".
+ */
+export interface WorkspaceList {
+  workspaces: WorkspaceEntry[];
 }

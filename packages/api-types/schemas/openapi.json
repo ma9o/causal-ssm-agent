@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every\ntransition with what it consumes, produces, and optionally co-produces \u2014 plus\neach transition's creation class and the derivation graph:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These transitions are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}` to run a transition, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long transitions (`statistical_model_spec`, `posterior` \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled transitions in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed transition error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nRaw data enters by placing files under `data/{workspace_id}/input/` before\nrunning the `raw_data` transition. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
+    "description": "The episode machine is the single interface to an N-of-1 causal analysis. An\nexternal agent drives it entirely over this HTTP API \u2014 the same surface the web\nviewer uses. There is no SDK and no MCP server: `curl` is the interface.\n\n## Orientation\n\nCall `GET /api/machine` once. It returns the static artifact graph \u2014 every\ntransition with what it consumes, produces, and optionally co-produces \u2014 plus\neach transition's creation class and the derivation graph:\n\n- `deterministic` \u2014 pure compute, no credentials (e.g. identification).\n- `batch_llm` \u2014 bulk LLM compute on the service's ambient key. You trigger it\n  with a `run` move; you never supply a key.\n- `judgment` \u2014 proposal work you can do yourself by writing the produced\n  artifact directly. These transitions are flagged `writable`.\n\n## The loop\n\n1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live\n   state: per-artifact freshness, the legal moves, and whether an auto-run is\n   active.\n2. Propose a move at `POST /api/episodes/{workspace_id}/moves` \u2014 either\n   `{\"move\": {\"kind\": \"run\", \"artifact_id\": \"latent_structure\"}}` to run a transition, or\n   `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"latent_structure\", \"provenance\": \"llm\"}, \"payload\": {...}}`\n   to author a judgment artifact directly.\n3. Long transitions (`statistical_model_spec`, `posterior` \u2014 minutes to hours) can outlive a client\n   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver\n   that runs enabled transitions in dependency order) and poll the state.\n4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,\n   `rejected` (illegal, state unchanged), or `raised` (typed transition error).\n\n## Staleness\n\nA `write` becomes a new provenance root and marks everything downstream stale\nuntil re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag\nstale provenance chains in their warnings \u2014 never report numbers past those\nflags.\n\n## Data in, results out\n\nUpload raw data at `POST /api/upload` (`multipart/form-data` with `workspaceId`\nand `file`) before running the `raw_data` transition. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files\n(parquet, pickle) are served individually from `.../files/{filename}`.\n\n## Read-only deployments\n\nThe hosted viewer's backend serves these same read endpoints against a published\nstore with no move plane. `GET /api/capabilities` reports `moves_enabled`; every\nmove returns 403 when it is `false`.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -211,9 +211,56 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Artifact Api Episodes  Workspace Id  Artifacts  Artifact Id  Get"
+                  "$ref": "#/components/schemas/ArtifactEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/traces": {
+      "get": {
+        "summary": "Get Trace",
+        "description": "Resolve an artifact ``llm_trace_ref`` through the configured trace store.",
+        "operationId": "get_trace_api_episodes__workspace_id__traces_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "ref",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ref"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMTrace"
                 }
               }
             }
@@ -322,7 +369,7 @@
     "/api/episodes": {
       "post": {
         "summary": "Start Episode",
-        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance. Raw\ndata enters separately by placing files under `data/{workspace_id}/input/`\nbefore running the `raw_data` transition. Returns the same shape as\n`GET /api/episodes/{id}`.",
+        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance.\nUpload raw data at `POST /api/upload` before running the `raw_data`\ntransition. Returns the same shape as\n`GET /api/episodes/{id}`.",
         "operationId": "start_episode_api_episodes_post",
         "requestBody": {
           "content": {
@@ -475,9 +522,65 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Capabilities Api Capabilities Get"
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "summary": "List Workspaces",
+        "description": "Published/local workspaces visible through this facade.",
+        "operationId": "list_workspaces_api_workspaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/upload": {
+      "post": {
+        "summary": "Upload File",
+        "description": "Stage one raw input file for the raw_data transition.",
+        "operationId": "upload_file_api_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_file_api_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -615,6 +718,151 @@
   },
   "components": {
     "schemas": {
+      "ArtifactEnvelope": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ArtifactVersionInfo"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "binary_files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Binary Files"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "artifact_id",
+          "version",
+          "meta",
+          "payload",
+          "binary_files"
+        ],
+        "title": "ArtifactEnvelope"
+      },
+      "ArtifactVersionInfo": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "computed",
+              "human",
+              "llm"
+            ],
+            "title": "Provenance"
+          },
+          "derived_from": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "question",
+                "raw_data",
+                "latent_structure",
+                "measurement_structure",
+                "causal_design",
+                "identification_report",
+                "measurements",
+                "panel",
+                "validation_report",
+                "statistical_model_spec",
+                "compiled_ssm",
+                "posterior",
+                "baseline_report",
+                "saved_scenarios"
+              ]
+            },
+            "type": "object",
+            "title": "Derived From"
+          },
+          "produced_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produced By"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "version",
+          "provenance"
+        ],
+        "title": "ArtifactVersionInfo",
+        "description": "Immutable metadata for one artifact version (payload lives in the store).\n\n``derived_from`` pins the exact input versions the payload was computed\nfrom. For root artifacts (user writes) it is empty. ``created_at`` is\nstamped by the activity that produced the version \u2014 never inside workflow\ncode, where wall-clock time is non-deterministic."
+      },
       "AutoRunBody": {
         "properties": {
           "options": {
@@ -624,6 +872,39 @@
         "additionalProperties": false,
         "type": "object",
         "title": "AutoRunBody"
+      },
+      "Body_upload_file_api_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          },
+          "workspaceId": {
+            "type": "string",
+            "title": "Workspaceid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "workspaceId"
+        ],
+        "title": "Body_upload_file_api_upload_post"
+      },
+      "CapabilitiesResponse": {
+        "properties": {
+          "moves_enabled": {
+            "type": "boolean",
+            "title": "Moves Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "moves_enabled"
+        ],
+        "title": "CapabilitiesResponse"
       },
       "ExecOptions": {
         "properties": {
@@ -678,6 +959,33 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LLMTrace": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/TraceMessage"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": ""
+          },
+          "total_time_seconds": {
+            "type": "number",
+            "title": "Total Time Seconds",
+            "default": 0.0
+          },
+          "usage": {
+            "$ref": "#/components/schemas/TraceUsage"
+          }
+        },
+        "type": "object",
+        "title": "LLMTrace",
+        "description": "Full trace of an LLM multi-turn conversation."
       },
       "MoveBody": {
         "properties": {
@@ -802,6 +1110,131 @@
         ],
         "title": "ToolCallRequest"
       },
+      "TraceMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "tool_calls": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls"
+          },
+          "tool_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Call Id"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "tool_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Result"
+          },
+          "tool_is_error": {
+            "type": "boolean",
+            "title": "Tool Is Error",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "TraceMessage",
+        "description": "A single message in an LLM trace."
+      },
+      "TraceUsage": {
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "default": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens",
+            "default": 0
+          },
+          "reasoning_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Tokens"
+          }
+        },
+        "type": "object",
+        "title": "TraceUsage",
+        "description": "Token usage for an LLM trace."
+      },
+      "UploadResponse": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "UploadResponse"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -841,6 +1274,53 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkspaceEntry": {
+        "properties": {
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "workspaceId": {
+            "type": "string",
+            "title": "Workspaceid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "href",
+          "workspaceId"
+        ],
+        "title": "WorkspaceEntry"
+      },
+      "WorkspaceList": {
+        "properties": {
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceEntry"
+            },
+            "type": "array",
+            "title": "Workspaces"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspaces"
+        ],
+        "title": "WorkspaceList"
       },
       "WriteArtifact": {
         "properties": {

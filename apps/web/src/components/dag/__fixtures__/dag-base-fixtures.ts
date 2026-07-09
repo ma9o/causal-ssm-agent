@@ -1,9 +1,8 @@
 import type { LatentStructureData, MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
-import latentFixture from "../../__fixtures__/demo-run/latent_structure.json";
-import measurementFixture from "../../__fixtures__/demo-run/measurement_structure.json";
+import { demoLatentStructure, demoMeasurementStructure } from "../../__fixtures__/demo-artifacts";
 
-const latentStructure = latentFixture as unknown as LatentStructureData;
-const measurementStructure = measurementFixture as unknown as MeasurementStructureViewData;
+const latentStructure = demoLatentStructure as LatentStructureData;
+const measurementStructure = demoMeasurementStructure as MeasurementStructureViewData;
 
 export const constructs = latentStructure.latent_structure.constructs;
 export const edges = latentStructure.latent_structure.edges;

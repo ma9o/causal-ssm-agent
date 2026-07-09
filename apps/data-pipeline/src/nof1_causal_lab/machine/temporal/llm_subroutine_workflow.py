@@ -353,6 +353,7 @@ class LLMSubroutineWorkflow:
                 workspace_id=input.workspace_id,
                 run_id=input.run_id,
                 subroutine_id=input.subroutine_id,
+                context_kind=input.context_kind,
                 conversation_ref=conversation_ref,
                 call_ref_base=start.call_ref_base,
                 harness_trace_refs=harness_trace_refs,

@@ -1,4 +1,5 @@
-import { readBinary, readData } from "@/lib/storage";
+import { getToolServerUrl } from "@/lib/runtime-urls";
+import type { ArtifactEnvelope } from "@nof1-causal-lab/api-types";
 
 export type EpisodeArtifactId =
   | "question"
@@ -24,16 +25,6 @@ type ArtifactFileSpec = {
   pickle?: Record<string, string>;
 };
 
-type ArtifactVersionInfo = {
-  artifact_id: EpisodeArtifactId;
-  version: number;
-  derived_from: Partial<Record<EpisodeArtifactId, number>>;
-};
-
-type EpisodeState = {
-  current?: Partial<Record<EpisodeArtifactId, ArtifactVersionInfo>>;
-};
-
 export class ArtifactNotFoundError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,7 +32,9 @@ export class ArtifactNotFoundError extends Error {
   }
 }
 
-export const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = {
+const TOOL_SERVER = getToolServerUrl();
+
+const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = {
   question: { json: { question: "question.json" } },
   raw_data: { json: { profile: "profile.json" }, parquet: { raw: "raw.parquet" } },
   latent_structure: { json: { latent_structure: "latent-structure.json" } },
@@ -66,29 +59,43 @@ function artifactFileName(artifactId: EpisodeArtifactId, kind: FileKind, key: st
   return filename;
 }
 
-async function readEpisodeState(workspaceId: string): Promise<EpisodeState> {
-  return JSON.parse(await readData(`${workspaceId}/episode/state.json`)) as EpisodeState;
-}
-
-async function currentArtifactVersion(
+async function fetchArtifact(
   workspaceId: string,
   artifactId: EpisodeArtifactId,
-): Promise<number> {
-  const state = await readEpisodeState(workspaceId);
-  const info = state.current?.[artifactId];
-  if (!info) {
-    throw new ArtifactNotFoundError(`No current '${artifactId}' artifact for ${workspaceId}`);
+): Promise<ArtifactEnvelope> {
+  const response = await fetch(
+    `${TOOL_SERVER}/api/episodes/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(
+      artifactId,
+    )}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) {
+    throw new ArtifactNotFoundError(await response.text());
   }
-  return info.version;
+  if (!response.ok) {
+    throw new Error(`Artifact facade error ${response.status}: ${await response.text()}`);
+  }
+  return response.json() as Promise<ArtifactEnvelope>;
 }
 
-function artifactPath(
+async function fetchArtifactFile(
   workspaceId: string,
   artifactId: EpisodeArtifactId,
-  version: number,
   filename: string,
-): string {
-  return `${workspaceId}/store/${artifactId}/v${version}/${filename}`;
+): Promise<Uint8Array> {
+  const response = await fetch(
+    `${TOOL_SERVER}/api/episodes/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(
+      artifactId,
+    )}/files/${encodeURIComponent(filename)}`,
+    { cache: "no-store" },
+  );
+  if (response.status === 404) {
+    throw new ArtifactNotFoundError(await response.text());
+  }
+  if (!response.ok) {
+    throw new Error(`Artifact facade file error ${response.status}: ${await response.text()}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export async function readArtifactJson<T>(
@@ -96,9 +103,12 @@ export async function readArtifactJson<T>(
   artifactId: EpisodeArtifactId,
   key: string,
 ): Promise<T> {
-  const version = await currentArtifactVersion(workspaceId, artifactId);
   const filename = artifactFileName(artifactId, "json", key);
-  return JSON.parse(await readData(artifactPath(workspaceId, artifactId, version, filename))) as T;
+  const artifact = await fetchArtifact(workspaceId, artifactId);
+  if (!(filename in artifact.payload)) {
+    throw new ArtifactNotFoundError(`${artifactId} has no payload file '${filename}'`);
+  }
+  return artifact.payload[filename] as T;
 }
 
 export async function readArtifactBinary(
@@ -107,10 +117,9 @@ export async function readArtifactBinary(
   kind: Exclude<FileKind, "json">,
   key: string,
 ): Promise<{ data: Uint8Array; filename: string }> {
-  const version = await currentArtifactVersion(workspaceId, artifactId);
   const filename = artifactFileName(artifactId, kind, key);
   return {
-    data: await readBinary(artifactPath(workspaceId, artifactId, version, filename)),
+    data: await fetchArtifactFile(workspaceId, artifactId, filename),
     filename,
   };
 }

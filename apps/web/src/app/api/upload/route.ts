@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { ensureDir, writeBinary } from "@/lib/storage";
+import { getToolServerUrl } from "@/lib/runtime-urls";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
+
+const TOOL_SERVER = getToolServerUrl();
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -24,11 +26,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid file name" }, { status: 400 });
   }
 
-  const relativePath = `${safeWorkspaceId}/input/${safeFileName}`;
-  await ensureDir(`${safeWorkspaceId}/input`);
+  formData.set("workspaceId", safeWorkspaceId);
+  const upstream = await fetch(`${TOOL_SERVER}/api/upload`, {
+    method: "POST",
+    body: formData,
+  });
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await writeBinary(relativePath, buffer);
-
-  return NextResponse.json({ path: relativePath });
+  const body = await upstream.text();
+  return new Response(body, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
+    },
+  });
 }

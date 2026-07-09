@@ -53,5 +53,5 @@ def build_raw_data_payload(ingestion_result: IngestionResult) -> dict:
             }
             for col, desc in ingestion_result.column_descriptions.items()
         ],
-        "llm_trace": ingestion_result.llm_trace,
+        "llm_trace_ref": ingestion_result.llm_trace_ref,
     }

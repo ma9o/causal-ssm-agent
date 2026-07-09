@@ -1,50 +1,13 @@
-import { isStorageNotFoundError, listTopLevelDirs, readData } from "@/lib/storage";
+import { getToolServerUrl } from "@/lib/runtime-urls";
+export type { WorkspaceEntry, WorkspaceList } from "@nof1-causal-lab/api-types";
+import type { WorkspaceList } from "@nof1-causal-lab/api-types";
 
-export type WorkspaceEntry = {
-  href: string;
-  question: string | null;
-  workspaceId: string;
-};
+const TOOL_SERVER = getToolServerUrl();
 
-export type WorkspaceList = {
-  workspaces: WorkspaceEntry[];
-};
-
-/** Current question text from the workspace's episode store, if any. */
-async function readWorkspaceQuestion(workspaceId: string): Promise<string | null> {
-  try {
-    const state = JSON.parse(await readData(`${workspaceId}/episode/state.json`)) as {
-      current?: { question?: { version?: number } };
-    };
-    const version = state.current?.question?.version;
-    if (version == null) {
-      return null;
-    }
-    const raw = JSON.parse(
-      await readData(`${workspaceId}/store/question/v${version}/question.json`),
-    ) as { text?: unknown };
-    return typeof raw.text === "string" && raw.text.trim() ? raw.text.trim() : null;
-  } catch (e: unknown) {
-    if (isStorageNotFoundError(e)) {
-      return null;
-    }
-    throw e;
-  }
-}
-
-/**
- * Workspaces are whatever lives under the data root: with hosted-interactive
- * mode gone there is no ownership model — a local store lists local work, and
- * the hosted store lists exactly what was deliberately published.
- */
 export async function listWorkspaces(): Promise<WorkspaceList> {
-  const workspaceIds = await listTopLevelDirs();
-  const workspaces = await Promise.all(
-    workspaceIds.map(async (workspaceId) => ({
-      href: `/analysis/${workspaceId}`,
-      question: await readWorkspaceQuestion(workspaceId),
-      workspaceId,
-    })),
-  );
-  return { workspaces };
+  const response = await fetch(`${TOOL_SERVER}/api/workspaces`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Workspace facade error ${response.status}: ${await response.text()}`);
+  }
+  return response.json() as Promise<WorkspaceList>;
 }

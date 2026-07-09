@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CausalSSMContracts",
-  "description": "Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.",
+  "description": "Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.",
   "type": "object",
   "properties": {
     "raw_data": {
@@ -39,19 +39,168 @@
       "title": "AnchorPolicy",
       "type": "string"
     },
-    "BaselineReportContract": {
+    "ArtifactEnvelope": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "workspace_id": {
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "artifact_id": {
+          "enum": [
+            "question",
+            "raw_data",
+            "latent_structure",
+            "measurement_structure",
+            "causal_design",
+            "identification_report",
+            "measurements",
+            "panel",
+            "validation_report",
+            "statistical_model_spec",
+            "compiled_ssm",
+            "posterior",
+            "baseline_report",
+            "saved_scenarios"
+          ],
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "meta": {
+          "$ref": "#/$defs/ArtifactVersionInfo"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "binary_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Binary Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "binary_files",
+        "meta",
+        "payload",
+        "version",
+        "workspace_id"
+      ],
+      "title": "ArtifactEnvelope",
+      "type": "object"
+    },
+    "ArtifactVersionInfo": {
+      "additionalProperties": false,
+      "description": "Immutable metadata for one artifact version (payload lives in the store).\n\n``derived_from`` pins the exact input versions the payload was computed\nfrom. For root artifacts (user writes) it is empty. ``created_at`` is\nstamped by the activity that produced the version \u2014 never inside workflow\ncode, where wall-clock time is non-deterministic.",
+      "properties": {
+        "artifact_id": {
+          "enum": [
+            "question",
+            "raw_data",
+            "latent_structure",
+            "measurement_structure",
+            "causal_design",
+            "identification_report",
+            "measurements",
+            "panel",
+            "validation_report",
+            "statistical_model_spec",
+            "compiled_ssm",
+            "posterior",
+            "baseline_report",
+            "saved_scenarios"
+          ],
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "provenance": {
+          "enum": [
+            "computed",
+            "human",
+            "llm"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
+        "derived_from": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ]
+          },
+          "title": "Derived From",
+          "type": "object"
+        },
+        "produced_by": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Produced By"
+        },
+        "created_at": {
+          "default": "",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "created_at",
+        "derived_from",
+        "provenance",
+        "version"
+      ],
+      "title": "ArtifactVersionInfo",
+      "type": "object"
+    },
+    "BaselineReportContract": {
+      "additionalProperties": false,
+      "properties": {
+        "llm_trace_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "intervention_results": {
           "items": {
@@ -92,6 +241,20 @@
         "intervention_results"
       ],
       "title": "BaselineReportContract",
+      "type": "object"
+    },
+    "CapabilitiesResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "moves_enabled": {
+          "title": "Moves Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "moves_enabled"
+      ],
+      "title": "CapabilitiesResponse",
       "type": "object"
     },
     "CausalEdge": {
@@ -891,16 +1054,17 @@
     "LatentStructureContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "llm_trace_ref": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "latent_structure": {
           "$ref": "#/$defs/LatentStructure"
@@ -1226,16 +1390,17 @@
     "MeasurementStructureContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "llm_trace_ref": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "measurement_structure": {
           "$ref": "#/$defs/MeasurementStructure"
@@ -1250,16 +1415,17 @@
     "MeasurementsContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "llm_trace_ref": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "workers": {
           "items": {
@@ -1974,16 +2140,17 @@
     "RawDataContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "llm_trace_ref": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "column_descriptions": {
           "items": {
@@ -2131,16 +2298,17 @@
     "StatisticalModelSpecContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace": {
+        "llm_trace_ref": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LLMTrace"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Llm Trace Ref"
         },
         "statistical_model_spec": {
           "$ref": "#/$defs/StatisticalModelSpec"
@@ -2502,6 +2670,20 @@
       "title": "TreatmentEffectContract",
       "type": "object"
     },
+    "UploadResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "UploadResponse",
+      "type": "object"
+    },
     "ValidationIssueContract": {
       "additionalProperties": false,
       "properties": {
@@ -2618,6 +2800,54 @@
         "worker_id"
       ],
       "title": "WorkerStatusContract",
+      "type": "object"
+    },
+    "WorkspaceEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "href": {
+          "title": "Href",
+          "type": "string"
+        },
+        "question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question"
+        },
+        "workspaceId": {
+          "title": "Workspaceid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "href",
+        "workspaceId"
+      ],
+      "title": "WorkspaceEntry",
+      "type": "object"
+    },
+    "WorkspaceList": {
+      "additionalProperties": false,
+      "properties": {
+        "workspaces": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceEntry"
+          },
+          "title": "Workspaces",
+          "type": "array"
+        }
+      },
+      "required": [
+        "workspaces"
+      ],
+      "title": "WorkspaceList",
       "type": "object"
     }
   },

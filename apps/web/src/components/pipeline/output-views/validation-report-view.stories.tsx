@@ -7,11 +7,11 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import ValidationReportView from "./validation-report-view";
-import fixture from "../../__fixtures__/demo-run/validation_report.json";
+import { demoValidationReport } from "../../__fixtures__/demo-artifacts";
 
 const output = TRANSITIONS.find((s) => s.id === "validation_report")!;
 
-const data = normalizeValidationReportData(fixture);
+const data = normalizeValidationReportData(demoValidationReport);
 
 const meta = {
   title: "Pipeline/Outputs/Validation Report/Panel",

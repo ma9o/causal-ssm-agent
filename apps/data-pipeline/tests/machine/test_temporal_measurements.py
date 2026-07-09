@@ -624,9 +624,11 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     assert result.result_ref is not None
     assert result.trace_ref is not None
     assert storage.read_json(result.result_ref)["dataframe"][0]["value"] == "1000"
-    trace = storage.read_json(result.trace_ref)
-    assert trace["model"] == "openrouter/mock-extraction"
-    assert trace["usage"]["input_tokens"] == 3
+    from nof1_causal_lab.machine.trace_store import read_trace
+
+    trace = read_trace(workspace_id, result.trace_ref)
+    assert trace.model == "openrouter/mock-extraction"
+    assert trace.usage.input_tokens == 3
 
 
 def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_path):
@@ -700,9 +702,11 @@ def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_p
     assert result.result_ref is None
     assert result.n_llm_calls == 1
     assert result.trace_ref is not None
-    trace = storage.read_json(result.trace_ref)
-    assert trace["model"] == "openrouter/mock-analysis"
-    assert trace["messages"][-1]["content"] == "Summary text."
+    from nof1_causal_lab.machine.trace_store import read_trace
+
+    trace = read_trace(workspace_id, result.trace_ref)
+    assert trace.model == "openrouter/mock-analysis"
+    assert trace.messages[-1].content == "Summary text."
 
 
 @pytest.mark.parametrize(

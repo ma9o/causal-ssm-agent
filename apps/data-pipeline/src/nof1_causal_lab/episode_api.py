@@ -17,14 +17,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+import re
+from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.runtime_events import read_events
-from nof1_causal_lab.machine.artifacts import ArtifactId  # noqa: TC001 (FastAPI runtime annotation)
+from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (FastAPI runtime annotation)
+    ArtifactId,
+    ArtifactVersionInfo,
+)
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_transition_order
+from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
@@ -45,6 +50,55 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/episodes")
 
 capabilities_router = APIRouter(prefix="/api")
+workspaces_router = APIRouter(prefix="/api")
+uploads_router = APIRouter(prefix="/api")
+
+
+class CapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    moves_enabled: bool
+
+
+class WorkspaceEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    href: str
+    question: str | None = None
+    workspaceId: str
+
+
+class WorkspaceList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspaces: list[WorkspaceEntry]
+
+
+class UploadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
+class ArtifactEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    artifact_id: ArtifactId
+    version: int
+    meta: ArtifactVersionInfo
+    payload: dict[str, Any]
+    binary_files: list[str]
+
+
+EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
+    CapabilitiesResponse,
+    WorkspaceEntry,
+    WorkspaceList,
+    UploadResponse,
+    ArtifactEnvelope,
+    LLMTrace,
+)
 
 
 def moves_enabled() -> bool:
@@ -62,15 +116,84 @@ def _require_moves_enabled() -> None:
         raise HTTPException(403, "This facade is read-only: the move plane is not deployed here")
 
 
-@capabilities_router.get("/capabilities")
-def get_capabilities() -> dict[str, Any]:
+def _safe_workspace_id(value: str) -> str:
+    workspace_id = value.strip()
+    if (
+        not workspace_id
+        or len(workspace_id) > 200
+        or re.fullmatch(r"[A-Za-z0-9_-]+", workspace_id) is None
+    ):
+        raise HTTPException(400, "Invalid workspaceId format")
+    return workspace_id
+
+
+@capabilities_router.get("/capabilities", response_model=CapabilitiesResponse)
+def get_capabilities() -> CapabilitiesResponse:
     """Whether this deployment serves the move plane.
 
     `moves_enabled` is `false` on the hosted read-only viewer backend, where
     every `POST` (moves, auto-run, start-episode) returns 403 and only the read
     endpoints are live.
     """
-    return {"moves_enabled": moves_enabled()}
+    return CapabilitiesResponse(moves_enabled=moves_enabled())
+
+
+def _workspace_question(workspace_id: str) -> str | None:
+    from nof1_causal_lab.machine.artifact_files import json_filename
+    from nof1_causal_lab.machine.store import ArtifactStore
+
+    info = EpisodeJournal(workspace_id).latest_state().get("question")
+    if info is None:
+        return None
+    payload = ArtifactStore(workspace_id).read_json_file(
+        "question", info.version, json_filename("question", "question")
+    )
+    text = payload.get("text")
+    return text.strip() if isinstance(text, str) and text.strip() else None
+
+
+@workspaces_router.get("/workspaces", response_model=WorkspaceList)
+def list_workspaces() -> WorkspaceList:
+    """Published/local workspaces visible through this facade."""
+    from nof1_causal_lab.utils import data as data_module
+    from nof1_causal_lab.utils import storage
+
+    workspaces: list[WorkspaceEntry] = []
+    for entry in sorted(storage.listdir(data_module.DATA_URI)):
+        workspace_id = entry.rstrip("/").rsplit("/", 1)[-1]
+        if not workspace_id or workspace_id.startswith("."):
+            continue
+        workspaces.append(
+            WorkspaceEntry(
+                href=f"/analysis/{workspace_id}",
+                question=_workspace_question(workspace_id),
+                workspaceId=workspace_id,
+            )
+        )
+    return WorkspaceList(workspaces=workspaces)
+
+
+@uploads_router.post("/upload", response_model=UploadResponse)
+async def upload_file(
+    file: Annotated[UploadFile, File()],
+    workspace_id: Annotated[str, Form(alias="workspaceId")],
+) -> UploadResponse:
+    """Stage one raw input file for the raw_data transition."""
+    from nof1_causal_lab.utils import data as data_module
+    from nof1_causal_lab.utils import storage
+
+    _require_moves_enabled()
+    safe_workspace_id = _safe_workspace_id(workspace_id)
+    filename = (file.filename or "").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not filename:
+        raise HTTPException(400, "Invalid file name")
+
+    upload_dir = storage.join(data_module.DATA_URI, safe_workspace_id, "input")
+    storage.makedirs(upload_dir)
+    path = storage.join(upload_dir, filename)
+    with storage.open_file(path, "wb") as handle:
+        handle.write(await file.read())
+    return UploadResponse(path=f"{safe_workspace_id}/input/{filename}")
 
 
 machine_router = APIRouter(prefix="/api")
@@ -290,10 +413,10 @@ def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
     }
 
 
-@router.get("/{workspace_id}/artifacts/{artifact_id}")
+@router.get("/{workspace_id}/artifacts/{artifact_id}", response_model=ArtifactEnvelope)
 def get_artifact(
     workspace_id: str, artifact_id: ArtifactId, version: int | None = None
-) -> dict[str, Any]:
+) -> ArtifactEnvelope:
     """One artifact version: meta + inline JSON payloads.
 
     Defaults to the episode's *current* version (the journal projection,
@@ -327,14 +450,27 @@ def get_artifact(
         else:
             binary_files.append(name)
 
-    return {
-        "workspace_id": workspace_id,
-        "artifact_id": artifact_id,
-        "version": version,
-        "meta": store.read_meta(artifact_id, version).model_dump(mode="json"),
-        "payload": payload,
-        "binary_files": sorted(binary_files),
-    }
+    return ArtifactEnvelope(
+        workspace_id=workspace_id,
+        artifact_id=artifact_id,
+        version=version,
+        meta=store.read_meta(artifact_id, version),
+        payload=payload,
+        binary_files=sorted(binary_files),
+    )
+
+
+@router.get("/{workspace_id}/traces", response_model=LLMTrace)
+def get_trace(workspace_id: str, ref: str) -> LLMTrace:
+    """Resolve an artifact ``llm_trace_ref`` through the configured trace store."""
+    from nof1_causal_lab.machine.trace_store import read_trace
+
+    try:
+        return read_trace(workspace_id, ref)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/{workspace_id}/artifacts/{artifact_id}/files/{filename}")
@@ -385,9 +521,9 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
     """Ensure the episode workflow exists; optionally seed the `question` root.
 
     Idempotent: attaches to an existing episode or starts a fresh one. Passing
-    `question` writes the `question` root artifact with `human` provenance. Raw
-    data enters separately by placing files under `data/{workspace_id}/input/`
-    before running the `raw_data` transition. Returns the same shape as
+    `question` writes the `question` root artifact with `human` provenance.
+    Upload raw data at `POST /api/upload` before running the `raw_data`
+    transition. Returns the same shape as
     `GET /api/episodes/{id}`.
     """
     _require_moves_enabled()

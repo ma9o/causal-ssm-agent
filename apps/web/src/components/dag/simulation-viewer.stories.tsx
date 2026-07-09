@@ -9,7 +9,7 @@ import {
   edges,
   indicators,
   materializedBaselineReportData,
-  materializedTrace,
+  demoBaselineTrace,
   outcomeName,
 } from "./__fixtures__/baseline_report-materialized-fixture";
 import {
@@ -36,7 +36,7 @@ import { SimulationViewer } from "./simulation-viewer";
 
 const mockScenarios = synthesizeMockScenarios(constructs, edges, indicators, outcomeName);
 const scenarios = buildBaselineReportScenarios({
-  trace: materializedTrace,
+  trace: demoBaselineTrace,
   extraMessages: buildDevMockMessages(mockScenarios),
 });
 
@@ -58,7 +58,7 @@ function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
       />
       <div className="flex h-[760px] min-h-0 flex-col rounded-lg border bg-muted/30 p-3">
         <LLMTracePanelView
-          trace={materializedTrace}
+          trace={demoBaselineTrace}
           selectedSimulationKey={selectedKey ?? undefined}
           onSelectSimulation={(key) => setSelectedKey(key)}
         />

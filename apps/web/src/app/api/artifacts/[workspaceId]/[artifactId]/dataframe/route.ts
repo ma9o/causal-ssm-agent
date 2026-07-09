@@ -1,5 +1,4 @@
 import { ArtifactNotFoundError, readArtifactBinary } from "@/lib/server/artifacts";
-import { isStorageNotFoundError } from "@/lib/storage";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 const PARQUET_MAP: Record<string, { artifact: "raw_data" | "panel"; key: "raw" | "panel" }> = {
@@ -41,7 +40,7 @@ export async function GET(
       },
     });
   } catch (e) {
-    if (e instanceof ArtifactNotFoundError || isStorageNotFoundError(e)) {
+    if (e instanceof ArtifactNotFoundError) {
       return new Response("Parquet file not found", { status: 404 });
     }
     throw e;

@@ -1,6 +1,6 @@
-"""Export Pydantic contract schemas as JSON Schema for TypeScript codegen.
+"""Export Pydantic schemas as JSON Schema for TypeScript codegen.
 
-Imports all contract models and their nested domain models, generates a
+Imports all contract/API models and their nested domain models, generates a
 combined JSON Schema document, and writes it to the api-types package.
 
 Usage:
@@ -14,9 +14,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
+from nof1_causal_lab.episode_api import EXPORTED_API_MODELS
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.flows.artifact_contracts import (
@@ -26,6 +27,9 @@ from nof1_causal_lab.flows.artifact_contracts import (
     INTERACTIVE_CONTEXTS,
 )
 from nof1_causal_lab.models.ssm.parameterization import SiteKind
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
@@ -106,27 +110,30 @@ def _is_nullable(prop_schema: dict) -> bool:
     return any(isinstance(item, dict) and item.get("type") == "null" for item in any_of)
 
 
+def _collect_model_schema(model_cls: type[BaseModel], all_defs: dict[str, Any]) -> dict[str, str]:
+    schema = model_cls.model_json_schema(mode="serialization")
+    defs = schema.pop("$defs", {})
+    all_defs.update(defs)
+    model_name = model_cls.__name__
+    all_defs[model_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
+    return {"$ref": f"#/$defs/{model_name}"}
+
+
 def export_schemas() -> dict:
-    """Build a combined JSON Schema with all artifact contracts in $defs."""
+    """Build a combined JSON Schema with exported Python models in $defs."""
     all_defs: dict = {}
     artifact_refs: dict[str, dict] = {}
 
     for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
-        schema = model_cls.model_json_schema(mode="serialization")
+        artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs)
 
-        # Collect nested $defs
-        defs = schema.pop("$defs", {})
-        all_defs.update(defs)
-
-        # Store the top-level contract under a clean name
-        contract_name = model_cls.__name__
-        all_defs[contract_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
-        artifact_refs[artifact_id] = {"$ref": f"#/$defs/{contract_name}"}
+    for model_cls in EXPORTED_API_MODELS:
+        _collect_model_schema(model_cls, all_defs)
 
     combined = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "CausalSSMContracts",
-        "description": "Combined JSON Schema for all artifact contracts. Generated from Python Pydantic models.",
+        "description": "Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.",
         "type": "object",
         "properties": artifact_refs,
         "$defs": dict(sorted(all_defs.items())),

@@ -447,8 +447,9 @@ def test_run_semantic_chunks_asyncio_emits_extraction_plan_worker_and_snapshot_e
         question,
         measurement_structure,
         workspace_id=None,
+        root_run_id=None,
     ):
-        del window_starts, question, measurement_structure, workspace_id
+        del window_starts, question, measurement_structure, workspace_id, root_run_id
         extracted_texts.append(window_text)
         if chunk_idx == 0:
             return {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
@@ -471,6 +472,7 @@ def test_run_semantic_chunks_asyncio_emits_extraction_plan_worker_and_snapshot_e
             chunk_contexts=[{"measurement": {}}, {"measurement": {}}],
             question="Q",
             workspace_id="ws-456",
+            root_run_id="test-run",
             max_concurrent_workers=6,
             max_rpm=450,
         )
@@ -593,8 +595,9 @@ def test_run_measurements_extraction_buckets_semantic_indicators_by_observation_
         question,
         causal_design,
         workspace_id=None,
+        root_run_id=None,
     ):
-        del window_starts, question, workspace_id
+        del window_starts, question, workspace_id, root_run_id
         captured_texts[chunk_idx] = window_text
         captured_contexts[chunk_idx] = causal_design
         return {"dataframe": [], "n_extractions": 0, "status": "completed"}
@@ -678,8 +681,9 @@ def test_run_measurements_extraction_annotates_medical_imaging_monthly_summary_s
         question,
         causal_design,
         workspace_id=None,
+        root_run_id=None,
     ):
-        del chunk_idx, question, causal_design, workspace_id
+        del chunk_idx, question, causal_design, workspace_id, root_run_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -770,8 +774,9 @@ def test_run_measurements_extraction_annotates_semantic_rows_into_canonical_obse
         question,
         causal_design,
         workspace_id=None,
+        root_run_id=None,
     ):
-        del chunk_idx, question, causal_design, workspace_id
+        del chunk_idx, question, causal_design, workspace_id, root_run_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {
@@ -883,8 +888,9 @@ def test_run_measurements_extraction_merges_computed_rule_rows_with_semantic_row
         question,
         causal_design,
         workspace_id=None,
+        root_run_id=None,
     ):
-        del chunk_idx, question, causal_design, workspace_id
+        del chunk_idx, question, causal_design, workspace_id, root_run_id
         assert window_text == "chunk:2024-01-01T00:00:00+00:00"
         assert window_starts == ["2024-01-01T00:00:00+00:00"]
         return {

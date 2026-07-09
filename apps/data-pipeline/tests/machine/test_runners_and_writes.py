@@ -1,5 +1,7 @@
 """Runner/write executors: optional outputs and derivation cascade."""
 
+import json
+
 import polars as pl
 import pytest
 
@@ -9,8 +11,7 @@ from nof1_causal_lab.flows.transitions.measurement_structure.identification impo
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import ExecOptions, apply_transition, input_pins
-from nof1_causal_lab.machine.runners import execute_transition_locally
+from nof1_causal_lab.machine.moves import apply_transition, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.writes import execute_write
 
@@ -131,9 +132,13 @@ class TestIdentificationReportDerivation:
 
 
 class TestStage2Gate:
-    async def _run_measurements(self, workspace, monkeypatch, observation_rows):
-        from nof1_causal_lab.flows.transitions.extraction import flow as stage2_flow
-        from nof1_causal_lab.flows.transitions.extraction import materialization
+    async def _finalize_measurements(self, workspace, observation_rows):
+        from nof1_causal_lab.machine.temporal.measurement_activities import (
+            finalize_measurements_activity,
+        )
+        from nof1_causal_lab.machine.temporal.messages import MeasurementsFinalizeInput
+        from nof1_causal_lab.utils import data as data_module
+        from nof1_causal_lab.utils import storage
 
         store = ArtifactStore(workspace)
         state = EpisodeState().with_versions(
@@ -167,39 +172,48 @@ class TestStage2Gate:
             ]
         )
 
-        async def fake_extraction(raw_df, question, causal_design, **kwargs):
-            return {"observation_rows": observation_rows, "worker_statuses": []}
-
-        def fake_materialize(result, causal_design):
-            return {
-                "data_for_model": pl.DataFrame(result["observation_rows"]),
-                "worker_statuses": result["worker_statuses"],
-            }
-
-        monkeypatch.setattr(stage2_flow, "run_extraction", fake_extraction)
-        monkeypatch.setattr(materialization, "materialize_extraction_outputs", fake_materialize)
-
         spec = transition_spec("measurements")
-        return await execute_transition_locally(
-            workspace,
-            "measurements",
-            input_pins(state, spec),
-            state,
-            ExecOptions(),
+        pins = input_pins(state, spec)
+        run_id = "run-1"
+        plan_ref = storage.join(
+            data_module.runs_dir(workspace),
+            "temporal-measurements",
+            run_id,
+            "plan.json",
+        )
+        storage.write_text(
+            plan_ref,
+            json.dumps(
+                {
+                    "measurement_structure": _measurement_structure(),
+                    "computed_dicts": observation_rows,
+                    "chunks": [],
+                }
+            ),
         )
 
-    def test_empty_extraction_withholds_panel(self, workspace, monkeypatch):
+        return await finalize_measurements_activity(
+            MeasurementsFinalizeInput(
+                workspace_id=workspace,
+                state=state,
+                run_id=run_id,
+                plan_ref=plan_ref,
+                pins=pins,
+            )
+        )
+
+    def test_empty_extraction_withholds_panel(self, workspace):
         import asyncio
 
-        effects = asyncio.run(self._run_measurements(workspace, monkeypatch, []))
+        effects = asyncio.run(self._finalize_measurements(workspace, []))
         produced = {info.artifact_id for info in effects.produced}
         assert produced == {"measurements"}
 
-    def test_nonempty_extraction_produces_panel(self, workspace, monkeypatch):
+    def test_nonempty_extraction_produces_panel(self, workspace):
         import asyncio
 
         rows = [{"indicator": "stress_score", "value": 3.0, "timestamp": "2026-01-01"}]
-        effects = asyncio.run(self._run_measurements(workspace, monkeypatch, rows))
+        effects = asyncio.run(self._finalize_measurements(workspace, rows))
         produced = {info.artifact_id for info in effects.produced}
         assert produced == {"measurements", "panel"}
         panel = next(info for info in effects.produced if info.artifact_id == "panel")

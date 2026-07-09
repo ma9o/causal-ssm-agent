@@ -23,6 +23,7 @@ import { MeasurementsRunningView } from "./measurements-running-view";
 import { OutputStoryTemplate } from "../output-story-template";
 import { useEffect, useMemo, useState } from "react";
 import { measurementsData as data } from "@/components/__fixtures__/measurements-data";
+import { demoTraces } from "@/components/__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "measurements")!;
 const workspaceId = "demo-user";
@@ -424,6 +425,7 @@ export const Completed = createCompletedOutputStory({
   output,
   args: { data, workspaceId },
   elapsedMs: 45_200,
+  trace: demoTraces.measurements,
   renderContent: (args) => <MeasurementsView {...args} />,
 });
 

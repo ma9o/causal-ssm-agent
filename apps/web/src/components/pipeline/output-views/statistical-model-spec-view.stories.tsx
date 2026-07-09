@@ -7,11 +7,12 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import StatisticalModelSpecView from "./statistical-model-spec-view";
+import { demoTraces } from "@/components/__fixtures__/demo-traces";
+import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
 import { modelSpecData } from "@/components/analysis-widgets/statistical-model-spec/__fixtures__/statistical-model-spec-fixtures";
-import measurementFixture from "../../__fixtures__/demo-run/measurement_structure.json";
 
 const output = TRANSITIONS.find((s) => s.id === "statistical_model_spec")!;
-const indicators = (measurementFixture as unknown as MeasurementStructureViewData).causal_design
+const indicators = (demoMeasurementStructure as MeasurementStructureViewData).causal_design
   .measurement.indicators;
 
 const meta = {
@@ -30,7 +31,7 @@ export const Completed = createCompletedOutputStory({
   output,
   args: { data: modelSpecData, indicators },
   elapsedMs: 15_600,
-  trace: modelSpecData.llm_trace ?? undefined,
+  trace: demoTraces.statistical_model_spec,
   renderContent: (args) => <StatisticalModelSpecView {...args} />,
 });
 
@@ -38,8 +39,8 @@ export const OpenPanel = createCompletedOutputStory({
   output,
   args: { data: modelSpecData, indicators },
   elapsedMs: 15_600,
-  trace: modelSpecData.llm_trace ?? undefined,
   defaultPanelOpen: true,
+  trace: demoTraces.statistical_model_spec,
   renderContent: (args) => <StatisticalModelSpecView {...args} />,
 });
 

@@ -58,7 +58,7 @@ async def collect_worker_results(
     emit_worker_event: Any | None = None,
     get_tracker: Any | None = None,
     emit_snapshot: Any | None = None,
-) -> tuple[list[dict], list[dict], int, dict | None]:
+) -> tuple[list[dict], list[dict], int, str | None]:
     """Await worker tasks in completion order while preserving output order.
 
     A worker that exhausts its retries is recorded as failed and the batch
@@ -71,7 +71,7 @@ async def collect_worker_results(
     batch_total = len(meta_by_task)
     rows_by_worker: dict[int, list[dict]] = {}
     statuses_by_worker: dict[int, dict] = {}
-    sampled_trace: dict | None = None
+    sampled_trace_ref: str | None = None
     n_total = 0
     batch_completed = 0
 
@@ -120,17 +120,11 @@ async def collect_worker_results(
             n_ext = result.get("n_extractions", 0)
             output_rows = result.get("dataframe", [])
             status = result.get("status", "completed")
-            llm_trace = result.get("llm_trace")
-            if sampled_trace is None and llm_trace is not None:
-                sampled_trace = llm_trace
+            llm_trace_ref = result.get("llm_trace_ref")
+            if sampled_trace_ref is None and isinstance(llm_trace_ref, str):
+                sampled_trace_ref = llm_trace_ref
 
-            worker_llm_calls = 0
-            if llm_trace and isinstance(llm_trace, dict):
-                worker_llm_calls = sum(
-                    1
-                    for message in llm_trace.get("messages", [])
-                    if message.get("role") == "assistant"
-                )
+            worker_llm_calls = int(result.get("n_llm_calls") or 0)
             n_total += n_ext
             rows_by_worker[worker_id] = output_rows
             statuses_by_worker[worker_id] = {
@@ -171,4 +165,4 @@ async def collect_worker_results(
         )
     ordered_statuses = [statuses_by_worker[worker_id] for worker_id in batch_indices]
     logger.info("extraction: collected %d/%d workers", len(statuses_by_worker), total_chunks)
-    return ordered_rows, ordered_statuses, n_total, sampled_trace
+    return ordered_rows, ordered_statuses, n_total, sampled_trace_ref

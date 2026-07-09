@@ -188,13 +188,14 @@ async def finalize_baseline_report_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
     from nof1_causal_lab.flows.transitions.analysis.contracts import BaselineReportContract
+    from nof1_causal_lab.machine.trace_store import read_trace
 
     try:
         context = _read_baseline_json(input.context_ref)
-        trace = _read_baseline_json(input.trace_ref)
+        trace = read_trace(input.workspace_id, input.trace_ref).model_dump(mode="json")
         payload: dict[str, Any] = {
             "intervention_results": context["intervention_results"],
-            "llm_trace": trace,
+            "llm_trace_ref": input.trace_ref,
         }
         final_summary = _first_baseline_assistant_summary(trace)
         if final_summary:

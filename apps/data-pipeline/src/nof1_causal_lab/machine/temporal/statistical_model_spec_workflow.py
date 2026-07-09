@@ -170,6 +170,7 @@ class StatisticalModelSpecWorkflow:
                 "finalize_statistical_model_spec_activity",
                 StatisticalModelSpecFinalizeInput(
                     workspace_id=input.workspace_id,
+                    run_id=plan.run_id,
                     state=input.state,
                     pins=plan.pins,
                     state_ref=plan.state_ref,

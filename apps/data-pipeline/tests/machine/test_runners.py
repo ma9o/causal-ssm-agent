@@ -8,7 +8,17 @@ from nof1_causal_lab.machine.runners import execute_transition_locally
 from tests.helpers import run_async
 
 
-@pytest.mark.parametrize("artifact_id", ["raw_data", "statistical_model_spec"])
+@pytest.mark.parametrize(
+    "artifact_id",
+    [
+        "raw_data",
+        "latent_structure",
+        "measurement_structure",
+        "measurements",
+        "statistical_model_spec",
+        "baseline_report",
+    ],
+)
 def test_temporal_only_transitions_reject_local_execution(monkeypatch, tmp_path, artifact_id):
     from nof1_causal_lab.utils import data as data_module
 

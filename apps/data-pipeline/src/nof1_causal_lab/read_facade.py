@@ -20,7 +20,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from nof1_causal_lab.episode_api import capabilities_router, machine_router
+from nof1_causal_lab.episode_api import (
+    capabilities_router,
+    machine_router,
+    uploads_router,
+    workspaces_router,
+)
 from nof1_causal_lab.episode_api import router as episode_router
 
 
@@ -28,5 +33,7 @@ def create_read_facade_app() -> FastAPI:
     app = FastAPI(title="Episode Read Facade")
     app.include_router(episode_router)
     app.include_router(capabilities_router)
+    app.include_router(workspaces_router)
+    app.include_router(uploads_router)
     app.include_router(machine_router)
     return app

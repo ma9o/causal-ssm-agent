@@ -1,4 +1,9 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
+import type {
+  ArtifactVersionInfo,
+  CapabilitiesResponse,
+  LLMTrace,
+} from "@nof1-causal-lab/api-types";
 
 const TOOL_SERVER = getToolServerUrl();
 
@@ -23,15 +28,6 @@ export type EpisodeArtifactId =
 export type EpisodeMove =
   | { kind: "run"; artifact_id: EpisodeArtifactId }
   | { kind: "write"; artifact_id: EpisodeArtifactId; provenance: EpisodeProvenance };
-
-export interface ArtifactVersionInfo {
-  artifact_id: EpisodeArtifactId;
-  version: number;
-  provenance: EpisodeProvenance;
-  derived_from: Partial<Record<EpisodeArtifactId, number>>;
-  produced_by: string | null;
-  created_at: string;
-}
 
 export interface EpisodeState {
   current: Partial<Record<EpisodeArtifactId, ArtifactVersionInfo>>;
@@ -189,6 +185,20 @@ export async function getEpisodeEvents(
   return episodeFetch(`/${workspaceId}/events${search}`);
 }
 
+export async function getEpisodeTrace(workspaceId: string, ref: string): Promise<LLMTrace> {
+  const search = new URLSearchParams({ ref }).toString();
+  const response = await fetch(`${TOOL_SERVER}/api/episodes/${workspaceId}/traces?${search}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new EpisodeRunError(
+      response.status === 404 ? 404 : 502,
+      `Trace API error ${response.status}: ${await response.text()}`,
+    );
+  }
+  return response.json() as Promise<LLMTrace>;
+}
+
 export async function getMachineDescription(): Promise<MachineDescription> {
   const response = await fetch(`${TOOL_SERVER}/api/machine`, { cache: "no-store" });
   if (!response.ok) {
@@ -201,10 +211,10 @@ export async function getMachineDescription(): Promise<MachineDescription> {
  * Facade deployment capabilities. A read-only facade (the hosted viewer's
  * backend) reports moves_enabled=false; the UI hides move affordances.
  */
-export async function getFacadeCapabilities(): Promise<{ moves_enabled: boolean }> {
+export async function getFacadeCapabilities(): Promise<CapabilitiesResponse> {
   const response = await fetch(`${TOOL_SERVER}/api/capabilities`, { cache: "no-store" });
   if (!response.ok) {
     throw new EpisodeRunError(502, `Capabilities error ${response.status}`);
   }
-  return response.json() as Promise<{ moves_enabled: boolean }>;
+  return response.json() as Promise<CapabilitiesResponse>;
 }

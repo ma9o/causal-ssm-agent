@@ -7,10 +7,11 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import MeasurementStructureView from "./measurement-structure-view";
-import fixture from "../../__fixtures__/demo-run/measurement_structure.json";
+import { demoMeasurementStructure } from "../../__fixtures__/demo-artifacts";
+import { demoTraces } from "../../__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "measurement_structure")!;
-const data = fixture as unknown as MeasurementStructureViewData;
+const data = demoMeasurementStructure as MeasurementStructureViewData;
 
 const meta = {
   title: "Pipeline/Outputs/Measurement Structure/Panel",
@@ -28,7 +29,7 @@ export const Completed = createCompletedOutputStory({
   output,
   args: { data },
   elapsedMs: 18_900,
-  trace: data.llm_trace ?? undefined,
+  trace: demoTraces.measurement_structure,
   renderContent: (args) => <MeasurementStructureView {...args} />,
 });
 
@@ -36,8 +37,8 @@ export const OpenPanel = createCompletedOutputStory({
   output,
   args: { data },
   elapsedMs: 18_900,
-  trace: data.llm_trace ?? undefined,
   defaultPanelOpen: true,
+  trace: demoTraces.measurement_structure,
   renderContent: (args) => <MeasurementStructureView {...args} />,
 });
 

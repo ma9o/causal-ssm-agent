@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { RawDataData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { DataSummaryStats } from "./data-summary-stats";
-import fixture from "../../__fixtures__/demo-run/raw_data.json";
+import { demoRawData } from "../../__fixtures__/demo-artifacts";
 
-const data = fixture as unknown as RawDataData;
+const data = demoRawData as RawDataData;
 
 const meta = {
   title: "Pipeline/Outputs/Raw Data/DataSummaryStats",

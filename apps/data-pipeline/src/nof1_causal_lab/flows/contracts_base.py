@@ -7,8 +7,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from nof1_causal_lab.utils.llm import LLMTrace  # noqa: TC001
-
 ArtifactContractId = Literal[
     "raw_data",
     "latent_structure",
@@ -78,6 +76,6 @@ class BaseArtifactContract(BaseModel):
 
 
 class LLMArtifactContract(BaseArtifactContract):
-    """Base contract for artifacts that surface an LLM trace."""
+    """Base contract for artifacts that surface an LLM trace reference."""
 
-    llm_trace: LLMTrace | None = None
+    llm_trace_ref: str | None = None

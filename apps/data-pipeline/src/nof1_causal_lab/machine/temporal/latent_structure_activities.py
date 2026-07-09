@@ -163,7 +163,7 @@ async def finalize_latent_structure_activity(
         if input.result_ref is None:
             raise RuntimeError("latent-structure subroutine completed without a result ref")
         payload = _read_latent_json(input.result_ref)
-        payload["llm_trace"] = _read_latent_json(input.trace_ref)
+        payload["llm_trace_ref"] = input.trace_ref
         fields = set(LatentStructureContract.model_fields.keys())
         payload = {key: value for key, value in payload.items() if key in fields}
 

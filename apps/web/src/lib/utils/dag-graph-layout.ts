@@ -4,9 +4,7 @@ import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
  * Generic ELK layout for the bespoke DAG renderer (shared by the static
  * structure DAG and the interactive simulation DAG).
  *
- * Unlike the legacy `dag-layout.ts` — which used ELK only to *place* nodes and
- * then discarded the routing in favour of React Flow's smoothstep edges — this
- * returns ELK's ORTHOGONAL edge routing (start + bend points + end) so the
+ * Returns ELK's ORTHOGONAL edge routing (start + bend points + end) so the
  * renderer can draw the lines itself. Input is a plain `{nodes, edges}` graph,
  * not the construct/edge domain types, so callers build whatever graph they
  * need (structure graph, or the unrolled / glyph-split simulation graph) and

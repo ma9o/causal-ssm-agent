@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { LatentStructureData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { EdgeList } from "./edge-list";
-import fixture from "../../__fixtures__/demo-run/latent_structure.json";
+import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
 
-const data = fixture as unknown as LatentStructureData;
+const data = demoLatentStructure as LatentStructureData;
 const edges = data.latent_structure.edges;
 
 const meta = {

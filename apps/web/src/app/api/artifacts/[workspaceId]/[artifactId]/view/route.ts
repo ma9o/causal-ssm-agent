@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { ArtifactNotFoundError } from "@/lib/server/artifacts";
 import { loadArtifactView } from "@/lib/artifact-view-loader";
-import { isStorageNotFoundError } from "@/lib/storage";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function GET(
@@ -22,7 +21,7 @@ export async function GET(
   try {
     return NextResponse.json(await loadArtifactView(safeArtifactId, safeWorkspaceId));
   } catch (e: unknown) {
-    if (e instanceof ArtifactNotFoundError || isStorageNotFoundError(e)) {
+    if (e instanceof ArtifactNotFoundError) {
       return NextResponse.json({ error: `No data for ${artifactId}` }, { status: 404 });
     }
     return NextResponse.json(

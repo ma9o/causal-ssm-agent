@@ -7,10 +7,11 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import LatentStructureView from "./latent-structure-view";
-import fixture from "../../__fixtures__/demo-run/latent_structure.json";
+import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
+import { demoTraces } from "../../__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "latent_structure")!;
-const data = fixture as unknown as LatentStructureData;
+const data = demoLatentStructure as LatentStructureData;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/Panel",
@@ -28,7 +29,7 @@ export const Completed = createCompletedOutputStory({
   output,
   args: { data },
   elapsedMs: 12_450,
-  trace: data.llm_trace ?? undefined,
+  trace: demoTraces.latent_structure,
   renderContent: (args) => <LatentStructureView {...args} />,
 });
 
@@ -36,8 +37,8 @@ export const OpenPanel = createCompletedOutputStory({
   output,
   args: { data },
   elapsedMs: 12_450,
-  trace: data.llm_trace ?? undefined,
   defaultPanelOpen: true,
+  trace: demoTraces.latent_structure,
   renderContent: (args) => <LatentStructureView {...args} />,
 });
 

@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { BaselineReportData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { TreatmentRankingTable } from "./treatment-ranking-table";
-import fixture from "../../__fixtures__/demo-run/baseline_report.json";
+import { demoBaselineReport } from "../../__fixtures__/demo-artifacts";
 
-const data = fixture as unknown as BaselineReportData;
+const data = demoBaselineReport as BaselineReportData;
 
 const meta = {
   title: "Pipeline/Outputs/Posterior/TreatmentRankingTable",

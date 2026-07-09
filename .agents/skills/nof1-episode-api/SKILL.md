@@ -47,8 +47,8 @@ flags.
 
 ## Data in, results out
 
-Raw data enters by placing files under `data/{workspace_id}/input/` before
-running the `raw_data` transition. Read artifact payloads at
+Upload raw data at `POST /api/upload` (`multipart/form-data` with `workspaceId`
+and `file`) before running the `raw_data` transition. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
 (parquet, pickle) are served individually from `.../files/{filename}`.
 
@@ -77,9 +77,9 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/capabilities"
 Ensure the episode workflow exists; optionally seed the `question` root.
 
 Idempotent: attaches to an existing episode or starts a fresh one. Passing
-`question` writes the `question` root artifact with `human` provenance. Raw
-data enters separately by placing files under `data/{workspace_id}/input/`
-before running the `raw_data` transition. Returns the same shape as
+`question` writes the `question` root artifact with `human` provenance.
+Upload raw data at `POST /api/upload` before running the `raw_data`
+transition. Returns the same shape as
 `GET /api/episodes/{id}`.
 
 ```bash
@@ -226,6 +226,19 @@ move again.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/timeline"
 ```
 
+### GET `/api/episodes/{workspace_id}/traces`
+
+Resolve an artifact ``llm_trace_ref`` through the configured trace store.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `ref` (query, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/traces"
+```
+
 ### GET `/api/machine`
 
 The static artifact graph and action hierarchy — read once to orient.
@@ -277,4 +290,23 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/CONTEXT_ID/TOOL_NAM
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"workspace_id": "string", "input": {}}'
+```
+
+### POST `/api/upload`
+
+Stage one raw input file for the raw_data transition.
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/upload" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+### GET `/api/workspaces`
+
+Published/local workspaces visible through this facade.
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/workspaces"
 ```

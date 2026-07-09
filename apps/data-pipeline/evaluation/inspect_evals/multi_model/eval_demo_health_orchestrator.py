@@ -43,7 +43,7 @@ from nof1_causal_lab.flows.transitions.latent_structure.run import (
     LatentStructureResult,
     run_latent_structure,
 )
-from nof1_causal_lab.flows.transitions.measurement_structure.flow import build_causal_design
+from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
 from nof1_causal_lab.flows.transitions.measurement_structure.run import (
     MeasurementStructureResult,
     run_measurement_structure,

@@ -119,7 +119,7 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
         ingestion_result = IngestionResult(
             dataframe=dataframe,
             column_descriptions=dict(result["column_descriptions"]),
-            llm_trace=_read_raw_data_json(input.trace_ref),
+            llm_trace_ref=input.trace_ref,
         )
         payload = build_raw_data_payload(ingestion_result)
 

@@ -252,6 +252,7 @@ async def finalize_statistical_model_spec_activity(
     from nof1_causal_lab.flows.transitions.model_spec.assembly import (
         materialize_model_spec_result,
     )
+    from nof1_causal_lab.machine.trace_store import TraceMetadata, read_trace, write_trace
     from nof1_causal_lab.utils.llm import LLMTrace, _merge_trace
 
     try:
@@ -262,7 +263,7 @@ async def finalize_statistical_model_spec_activity(
 
         trace = LLMTrace()
         for trace_ref in input.trace_refs:
-            trace = _merge_trace(trace, LLMTrace.model_validate(_read_model_spec_json(trace_ref)))
+            trace = _merge_trace(trace, read_trace(input.workspace_id, trace_ref))
 
         metadata = _read_model_spec_json(input.context_ref)
         statistical_model_spec = state.admission.statistical_model_spec().model_dump(mode="json")
@@ -277,7 +278,19 @@ async def finalize_statistical_model_spec_activity(
             skip_ppc=True,
         )
         if trace.messages or trace.usage.input_tokens or trace.usage.output_tokens:
-            materialized["llm_trace"] = trace.model_dump(mode="json")
+            materialized["llm_trace_ref"] = write_trace(
+                trace,
+                TraceMetadata(
+                    workspace_id=input.workspace_id,
+                    run_id=input.run_id,
+                    subroutine_id="statistical_model_spec",
+                    context_kind="statistical_model_spec",
+                ),
+                target_path=storage.join(
+                    _model_spec_root(input.workspace_id, input.run_id),
+                    "trace.json",
+                ),
+            )
 
         compiled_ssm = materialized.pop("_compiled_ssm", None)
         report = _filter_model_spec_contract(StatisticalModelSpecContract, materialized)

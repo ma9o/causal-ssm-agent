@@ -369,7 +369,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
 
         semantic_dicts: list[dict[str, Any]] = []
         worker_statuses: list[dict[str, Any]] = []
-        sampled_llm_trace: dict[str, Any] | None = None
+        sampled_llm_trace_ref: str | None = None
 
         for chunk_spec in chunk_specs:
             worker_id = int(chunk_spec["worker_id"])
@@ -387,8 +387,8 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
             if result.status == "completed" and result.result_ref is not None:
                 chunk_payload = _read_json(result.result_ref)
                 semantic_dicts.extend(chunk_payload.get("dataframe") or [])
-                if sampled_llm_trace is None and result.trace_ref is not None:
-                    sampled_llm_trace = _read_json(result.trace_ref)
+                if sampled_llm_trace_ref is None and result.trace_ref is not None:
+                    sampled_llm_trace_ref = result.trace_ref
 
         all_dicts = computed_dicts + semantic_dicts
         observation_rows = cast(
@@ -407,15 +407,15 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                 if result.status == "completed"
             ),
         }
-        if sampled_llm_trace is not None:
-            extraction_result["llm_trace"] = sampled_llm_trace
+        if sampled_llm_trace_ref is not None:
+            extraction_result["llm_trace_ref"] = sampled_llm_trace_ref
 
         materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
         panel = materialized["data_for_model"]
         report: dict[str, Any] = {"workers": materialized["worker_statuses"]}
-        llm_trace = materialized.get("llm_trace")
-        if llm_trace is not None:
-            report["llm_trace"] = llm_trace
+        llm_trace_ref = materialized.get("llm_trace_ref")
+        if llm_trace_ref is not None:
+            report["llm_trace_ref"] = llm_trace_ref
         report = _filter_measurements_contract(MeasurementsContract, report)
 
         store = ArtifactStore(input.workspace_id)

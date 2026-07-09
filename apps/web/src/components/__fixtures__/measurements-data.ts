@@ -1,5 +1,5 @@
 import type { ObservationRecord, MeasurementsData } from "@nof1-causal-lab/api-types";
-import measurementsFixture from "./demo-run/measurements.json";
+import { demoMeasurements } from "./demo-artifacts";
 import extractionsSample from "./extraction-sample.json";
 
 // The persisted `measurements.json` no longer inlines observation rows — production derives
@@ -12,7 +12,7 @@ export const combinedExtractionsSample =
 export const perIndicatorCounts = extractionsSample.per_indicator_counts as Record<string, number>;
 
 export const measurementsData = {
-  ...(measurementsFixture as object),
+  ...(demoMeasurements as object),
   combined_extractions_sample: combinedExtractionsSample,
   per_indicator_counts: perIndicatorCounts,
 } as MeasurementsData;

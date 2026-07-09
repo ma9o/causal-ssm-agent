@@ -7,12 +7,11 @@ import {
   outputStoryDecorators,
 } from "../output-story-helpers";
 import PosteriorView from "./posterior-view";
-import fixture from "../../__fixtures__/demo-run/posterior.json";
-import auxKalmanMCMCFixture from "../../__fixtures__/demo-run/posterior.json";
+import { demoPosterior } from "../../__fixtures__/demo-artifacts";
 
 const output = TRANSITIONS.find((s) => s.id === "posterior")!;
-const data = fixture as PosteriorData;
-const auxKalmanMCMCData = auxKalmanMCMCFixture as PosteriorData;
+const data = demoPosterior as PosteriorData;
+const auxKalmanMCMCData = demoPosterior as PosteriorData;
 
 const meta = {
   title: "Pipeline/Outputs/Posterior/Panel",

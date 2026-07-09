@@ -118,7 +118,7 @@ export async function deriveMeasurementsData(
   const metadata = parquetMetadata(file) as ParquetMetadata;
 
   return {
-    llm_trace: payload.llm_trace ?? null,
+    llm_trace_ref: payload.llm_trace_ref ?? null,
     workers: payload.workers ?? [],
     per_indicator_counts: await derivePerIndicatorCounts(file, metadata),
     combined_extractions_sample: await deriveExtractionSample(file, metadata),

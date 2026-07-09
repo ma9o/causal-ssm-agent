@@ -8,7 +8,7 @@ import {
   edges,
   indicators,
   materializedBaselineReportData,
-  materializedTrace,
+  demoBaselineTrace,
 } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
 import { SimulationViewer } from "@/components/dag/simulation-viewer";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
@@ -24,7 +24,7 @@ function scenariosFor(trace: LLMTrace | null) {
   return buildBaselineReportScenarios({ trace });
 }
 
-const withSimsScenarios = scenariosFor(materializedTrace);
+const withSimsScenarios = scenariosFor(demoBaselineTrace);
 const noSimsScenarios = scenariosFor(null);
 
 const meta = {
@@ -53,10 +53,10 @@ function CompletedInShell({
       output={output}
       status="completed"
       elapsedMs={9_400}
-      trace={materializedTrace}
+      trace={demoBaselineTrace}
       panelContent={
         <LLMTracePanelView
-          trace={materializedTrace}
+          trace={demoBaselineTrace}
           selectedSimulationKey={selectedKey ?? undefined}
           onSelectSimulation={(key) => setSelectedKey(key)}
         />

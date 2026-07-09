@@ -29,6 +29,8 @@ from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 from nof1_causal_lab.episode_api import (
     capabilities_router,
     machine_router,
+    uploads_router,
+    workspaces_router,
 )
 from nof1_causal_lab.episode_api import router as episode_router
 from nof1_causal_lab.flows.artifact_contracts import CONTEXT_TOOLS
@@ -109,8 +111,8 @@ flags.
 
 ## Data in, results out
 
-Raw data enters by placing files under `data/{workspace_id}/input/` before
-running the `raw_data` transition. Read artifact payloads at
+Upload raw data at `POST /api/upload` (`multipart/form-data` with `workspaceId`
+and `file`) before running the `raw_data` transition. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
 (parquet, pickle) are served individually from `.../files/{filename}`.
 
@@ -136,6 +138,8 @@ app.add_middleware(
 
 app.include_router(episode_router)
 app.include_router(capabilities_router)
+app.include_router(workspaces_router)
+app.include_router(uploads_router)
 app.include_router(machine_router)
 
 

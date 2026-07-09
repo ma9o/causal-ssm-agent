@@ -7,6 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any, cast
+from uuid import uuid4
 
 import polars as pl
 
@@ -32,7 +33,7 @@ from nof1_causal_lab.flows.transitions.extraction.progress import (
 
 logger = logging.getLogger(__name__)
 
-SemanticChunkRunner = Callable[..., "Awaitable[tuple[list[dict], list[dict], int, dict | None]]"]
+SemanticChunkRunner = Callable[..., "Awaitable[tuple[list[dict], list[dict], int, str | None]]"]
 
 __all__ = [
     "extract_window_chunk",
@@ -49,6 +50,7 @@ async def extract_window_chunk(
     question: str,
     measurement_structure: dict,
     workspace_id: str | None = None,
+    root_run_id: str | None = None,
 ) -> dict:
     """Extract indicator values from a chunk of support windows.
 
@@ -132,7 +134,32 @@ async def extract_window_chunk(
         "status": "completed",
     }
     if factory.accumulated_trace.messages:
-        result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+        result_dict["n_llm_calls"] = sum(
+            1 for message in factory.accumulated_trace.messages if message.role == "assistant"
+        )
+        if workspace_id is None or root_run_id is None:
+            raise ValueError("workspace_id and root_run_id are required to persist LLM traces")
+        from nof1_causal_lab.machine.trace_store import TraceMetadata, write_trace
+        from nof1_causal_lab.utils import data as data_module
+        from nof1_causal_lab.utils import storage
+
+        subroutine_id = f"extraction-worker-{chunk_idx:06d}"
+        result_dict["llm_trace_ref"] = write_trace(
+            factory.accumulated_trace,
+            TraceMetadata(
+                workspace_id=workspace_id,
+                run_id=root_run_id,
+                subroutine_id=subroutine_id,
+                context_kind="measurement_extraction",
+            ),
+            target_path=storage.join(
+                data_module.runs_dir(workspace_id),
+                "asyncio-extraction",
+                root_run_id,
+                subroutine_id,
+                "trace.json",
+            ),
+        )
     return result_dict
 
 
@@ -143,9 +170,10 @@ async def _run_semantic_chunks_asyncio(
     chunk_contexts: list[dict],
     question: str,
     workspace_id: str | None,
+    root_run_id: str,
     max_concurrent_workers: int,
     max_rpm: int,
-) -> tuple[list[dict], list[dict], int, dict | None]:
+) -> tuple[list[dict], list[dict], int, str | None]:
     """Execute semantic chunks concurrently with a semaphore and retries."""
     from nof1_causal_lab.utils.openrouter_client import RpmLimiter, set_limiter
 
@@ -174,6 +202,7 @@ async def _run_semantic_chunks_asyncio(
                 question,
                 chunk_contexts[chunk_idx],
                 workspace_id=workspace_id,
+                root_run_id=root_run_id,
             )
 
         async def _bounded() -> dict:
@@ -265,7 +294,7 @@ async def run_extraction_core(
 
     semantic_dicts: list[dict] = []
     worker_statuses: list[dict] = []
-    sampled_llm_trace: dict | None = None
+    sampled_llm_trace_ref: str | None = None
     n_semantic_total = 0
 
     if semantic_inds:
@@ -285,13 +314,14 @@ async def run_extraction_core(
                 semantic_dicts,
                 worker_statuses,
                 n_semantic_total,
-                sampled_llm_trace,
+                sampled_llm_trace_ref,
             ) = await semantic_chunk_runner(
                 chunk_texts=chunk_texts,
                 chunk_window_starts=chunk_window_starts,
                 chunk_contexts=chunk_contexts,
                 question=question,
                 workspace_id=workspace_id,
+                root_run_id=f"asyncio-{uuid4().hex}",
                 max_concurrent_workers=extraction_workers.max_concurrent_workers,
                 max_rpm=extraction_workers.max_rpm,
             )
@@ -316,8 +346,8 @@ async def run_extraction_core(
         "worker_statuses": worker_statuses,
         "n_total_extractions": n_total,
     }
-    if sampled_llm_trace is not None:
-        result["llm_trace"] = sampled_llm_trace
+    if sampled_llm_trace_ref is not None:
+        result["llm_trace_ref"] = sampled_llm_trace_ref
     return result
 
 

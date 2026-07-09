@@ -6,18 +6,20 @@ import type {
 import { collectModelSpecUiPriors } from "@/lib/model-spec-data";
 import { buildModelSpecLikelihoodDiagnostics } from "@/lib/model-spec-likelihood-diagnostics";
 import { combinedExtractionsSample } from "@/components/__fixtures__/measurements-data";
-import measurementFixture from "../../../__fixtures__/demo-run/measurement_structure.json";
-import validationFixture from "../../../__fixtures__/demo-run/validation_report.json";
-import modelSpecFixture from "../../../__fixtures__/demo-run/statistical_model_spec.json";
+import {
+  demoMeasurementStructure,
+  demoStatisticalModelSpec,
+  demoValidationReport,
+} from "../../../__fixtures__/demo-artifacts";
 
-const validationReport = validationFixture as unknown as ValidationReportData;
-const measurementStructure = measurementFixture as unknown as MeasurementStructureViewData;
-const modelSpec = modelSpecFixture as unknown as StatisticalModelSpecData;
+const validationReport = demoValidationReport as ValidationReportData;
+const measurementStructure = demoMeasurementStructure as MeasurementStructureViewData;
+const modelSpec = demoStatisticalModelSpec as StatisticalModelSpecData;
 
 // Mirrors the production loader `deriveStatisticalModelSpecData`: likelihood diagnostics are built from the
 // validation indicator audits and the extraction observation sample, not recomputed in the story layer.
 export const modelSpecData = {
-  ...(modelSpecFixture as object),
+  ...(demoStatisticalModelSpec as object),
   likelihood_diagnostics: buildModelSpecLikelihoodDiagnostics({
     likelihoods: modelSpec.statistical_model_spec.likelihoods,
     indicatorAudits: validationReport.indicators,

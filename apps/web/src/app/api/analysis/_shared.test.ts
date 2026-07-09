@@ -7,9 +7,9 @@ vi.mock("@/lib/server/episode-runs", () => ({
   getEpisodeTimeline: vi.fn(),
 }));
 
-vi.mock("@/lib/storage", () => ({
-  isStorageNotFoundError: (e: unknown) => e instanceof Error && e.message.startsWith("not found"),
-  readData: vi.fn(),
+vi.mock("@/lib/server/artifacts", () => ({
+  ArtifactNotFoundError: class ArtifactNotFoundError extends Error {},
+  readArtifactJson: vi.fn(),
 }));
 
 import {
@@ -17,7 +17,7 @@ import {
   getEpisodeTimeline,
   getMachineDescription,
 } from "@/lib/server/episode-runs";
-import { readData } from "@/lib/storage";
+import { readArtifactJson } from "@/lib/server/artifacts";
 import { buildAnalysisManifest } from "./_shared";
 
 function emptyStatus(workspaceId: string): EpisodeStatus {
@@ -120,7 +120,7 @@ describe("buildAnalysisManifest", () => {
 
   it("builds transition executions from journal run transitions", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(statusWithQuestion("user-1"));
-    vi.mocked(readData).mockResolvedValue(JSON.stringify({ text: "Does exercise help sleep?" }));
+    vi.mocked(readArtifactJson).mockResolvedValue({ text: "Does exercise help sleep?" });
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
       workspace_id: "user-1",
       transitions: [
@@ -169,7 +169,7 @@ describe("buildAnalysisManifest", () => {
       "posterior",
       "baseline_report",
     ]);
-    expect(vi.mocked(readData)).toHaveBeenCalledWith("user-1/store/question/v1/question.json");
+    expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith("user-1", "question", "question");
     expect(manifest?.transitionRuns["raw_data"]).toEqual({
       execution: {
         stateType: "COMPLETED",

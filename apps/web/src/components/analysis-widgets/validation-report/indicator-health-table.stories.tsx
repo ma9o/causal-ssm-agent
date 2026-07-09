@@ -2,9 +2,9 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { normalizeValidationReportData } from "./__fixtures__/normalize-validation-report";
 import { IndicatorHealthTable } from "./indicator-health-table";
-import fixture from "../../__fixtures__/demo-run/validation_report.json";
+import { demoValidationReport } from "../../__fixtures__/demo-artifacts";
 
-const data = normalizeValidationReportData(fixture);
+const data = normalizeValidationReportData(demoValidationReport);
 
 const meta = {
   title: "Pipeline/Outputs/Validation Report/IndicatorHealthTable",
