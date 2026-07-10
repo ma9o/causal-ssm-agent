@@ -46,7 +46,6 @@ export interface TransitionRecord {
   diagnostics: Record<string, unknown>;
   produced: ArtifactVersionInfo[];
   retracted: RetractedArtifact[];
-  state_after: EpisodeState;
 }
 
 export interface RetractedArtifact {

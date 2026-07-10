@@ -61,7 +61,6 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
 def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
     import polars as pl
 
-    from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import RunArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
     from nof1_causal_lab.models.ssm.testing import block_ssm_spec, full_dense_matrix_dynamics_spec
@@ -85,23 +84,47 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     )
 
     store = ArtifactStore("user-123")
-    causal_design_info = store.write_version(
-        "causal_design",
+    latent_structure = store.write_version(
+        "latent_structure",
         provenance="llm",
         derived_from={},
+        produced_by="run:latent_structure",
+        json_files={"latent-structure.json": {"latent_structure": {"constructs": []}}},
+    )
+    measurement_structure = store.write_version(
+        "measurement_structure",
+        provenance="llm",
+        derived_from={},
+        produced_by="run:measurement_structure",
+        json_files={"measurement_structure.json": {"measurement_structure": {"indicators": []}}},
+    )
+    causal_design = store.write_version(
+        "causal_design",
+        provenance="llm",
+        derived_from={
+            "latent_structure": latent_structure.version,
+            "measurement_structure": measurement_structure.version,
+        },
         produced_by="run:measurement_structure",
         json_files={
             "causal_design.json": {"causal_design": {"identifiability": {}, "measurement": {}}}
         },
     )
-    panel_info = store.write_version(
+    measurements = store.write_version(
+        "measurements",
+        provenance="computed",
+        derived_from={},
+        produced_by="run:measurements",
+        json_files={"measurements.json": {"workers": []}},
+    )
+    panel = store.write_version(
         "panel",
         provenance="computed",
         derived_from={"causal_design": 1},
         produced_by="run:measurements",
         parquet_files={"panel.parquet": model_data},
     )
-    identification_report_info = store.write_version(
+    identification_report = store.write_version(
         "identification_report",
         provenance="computed",
         derived_from={"causal_design": 1},
@@ -114,7 +137,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
             }
         },
     )
-    posterior_info = store.write_version(
+    posterior = store.write_version(
         "posterior",
         provenance="computed",
         derived_from={"panel": 1},
@@ -122,18 +145,26 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         json_files={"diagnostics.json": {"outcome": "warn"}},
         pickle_files={"fitted.pkl": fitted_artifact},
     )
-    EpisodeJournal("user-123").append(
-        TransitionRecord(
-            seq=1,
-            ts="2026-07-03T00:00:00+00:00",
-            move=RunArtifact(artifact_id="posterior"),
-            status="applied",
-            produced=[posterior_info],
-            state_after=EpisodeState().with_versions(
-                [causal_design_info, panel_info, identification_report_info, posterior_info]
-            ),
+    journal = EpisodeJournal("user-123")
+    for seq, move, produced in (
+        (1, RunArtifact(artifact_id="latent_structure"), [latent_structure]),
+        (
+            2,
+            RunArtifact(artifact_id="measurement_structure"),
+            [measurement_structure, causal_design, identification_report],
+        ),
+        (3, RunArtifact(artifact_id="measurements"), [measurements, panel]),
+        (4, RunArtifact(artifact_id="posterior"), [posterior]),
+    ):
+        journal.append(
+            TransitionRecord(
+                seq=seq,
+                ts="2026-07-03T00:00:00+00:00",
+                move=move,
+                status="applied",
+                produced=produced,
+            )
         )
-    )
 
     rebuilt_runtime = SimpleNamespace(
         observation_support="support-runtime",
@@ -178,7 +209,6 @@ def test_execute_submit_priors_loads_runtime_via_context_registry(monkeypatch, t
     from nof1_causal_lab.flows.transitions.model_spec.agentic.feedback import (
         make_model_spec_grounding_result,
     )
-    from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import RunArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
     from nof1_causal_lab.utils import data as data_module
@@ -186,6 +216,13 @@ def test_execute_submit_priors_loads_runtime_via_context_registry(monkeypatch, t
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
 
     store = ArtifactStore("user-123")
+    measurements_info = store.write_version(
+        "measurements",
+        provenance="computed",
+        derived_from={},
+        produced_by="run:measurements",
+        json_files={"measurements.json": {"workers": []}},
+    )
     panel_info = store.write_version(
         "panel",
         provenance="computed",
@@ -199,8 +236,7 @@ def test_execute_submit_priors_loads_runtime_via_context_registry(monkeypatch, t
             ts="2026-07-03T00:00:00+00:00",
             move=RunArtifact(artifact_id="measurements"),
             status="applied",
-            produced=[panel_info],
-            state_after=EpisodeState().with_versions([panel_info]),
+            produced=[measurements_info, panel_info],
         )
     )
 

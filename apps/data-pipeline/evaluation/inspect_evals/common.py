@@ -420,9 +420,9 @@ def sample_evenly[T](items: list[T], n: int, seed: int | None = None) -> list[T]
 
 def _workspace_store(workspace_id: str) -> tuple[Any, Any]:
     """Artifact store plus current episode state for an eval workspace."""
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
-    return ArtifactStore(workspace_id), EpisodeJournal(workspace_id).latest_state()
+    return ArtifactStore(workspace_id), derive_current_state(workspace_id)
 
 
 def _current_version(state: Any, workspace_id: str, artifact_id: str) -> int:

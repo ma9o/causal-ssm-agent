@@ -1,10 +1,10 @@
 """Episode facade: HTTP surface over the state machine.
 
 Mounted into the tool server so the web app has a single Python backend.
-CQRS split: reads (status, timeline, events) come straight from the
-journal read model and never touch Temporal; moves go through the
-episode workflow's ``propose`` update, which validates, executes, and
-journals durably.
+Reads derive current state by replaying the append-only transition log and
+serve timeline/events from their execution logs without touching Temporal.
+Moves go through the episode workflow's ``propose`` update, which validates,
+executes, and records outcomes durably.
 
 The ``auto`` endpoint is the default navigation policy — run enabled
 transitions in dependency order while their outputs are missing or stale —
@@ -38,12 +38,13 @@ from nof1_causal_lab.machine.moves import (
     ExecOptions,
     Move,
     RunArtifact,
+    WriteArtifact,
     freshness_report,
     is_stale,
     legal_moves,
     validate_move,
 )
-from nof1_causal_lab.machine.store import EpisodeJournal
+from nof1_causal_lab.machine.store import EpisodeJournal, derive_current_state
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def _workspace_question(workspace_id: str) -> str | None:
     from nof1_causal_lab.machine.artifact_files import json_filename
     from nof1_causal_lab.machine.store import ArtifactStore
 
-    info = EpisodeJournal(workspace_id).latest_state().get("question")
+    info = derive_current_state(workspace_id).get("question")
     if info is None:
         return None
     payload = ArtifactStore(workspace_id).read_json_file(
@@ -292,16 +293,16 @@ async def _episode_handle(workspace_id: str):
     from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
     client = await _get_client()
-    # Reconstruct the resume seed from the durable journal. On a fresh start
-    # this rehydrates a workflow Temporal lost (empty for a new episode); on
-    # attach (USE_EXISTING) the live workflow keeps its own state and the seed
-    # is ignored.
+    # Reconstruct the resume seed from committed transition effects. On a fresh
+    # start this rehydrates a workflow Temporal lost (empty for a new episode);
+    # on attach (USE_EXISTING) the live workflow keeps its own state and the
+    # seed is ignored.
     journal = EpisodeJournal(workspace_id)
     return await client.start_workflow(
         EpisodeWorkflow.run,
         EpisodeInit(
             workspace_id=workspace_id,
-            initial_state=journal.latest_state(),
+            initial_state=derive_current_state(workspace_id),
             initial_seq=journal.latest_seq(),
         ),
         id=episode_workflow_id(workspace_id),
@@ -353,13 +354,13 @@ class AutoRunBody(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Reads: journal-backed (no Temporal dependency)
+# Reads: transition-log-backed (no Temporal dependency)
 # ---------------------------------------------------------------------------
 
 
 def _episode_status(workspace_id: str) -> dict[str, Any]:
     journal = EpisodeJournal(workspace_id)
-    state = journal.latest_state()
+    state = derive_current_state(workspace_id)
     records = journal.read_all()
     return {
         "workspace_id": workspace_id,
@@ -377,8 +378,8 @@ def get_episode(workspace_id: str) -> dict[str, Any]:
 
     Returns per-artifact freshness (existence, staleness, version, provenance),
     the `legal` moves available right now, and `auto_running` — whether the
-    background driver is active. Journal-backed, so it works even against a
-    published read-only store.
+    background driver is active. Replayed from the append-only transition log,
+    so it works even against a published read-only store.
     """
     return _episode_status(workspace_id)
 
@@ -419,16 +420,16 @@ def get_artifact(
 ) -> ArtifactEnvelope:
     """One artifact version: meta + inline JSON payloads.
 
-    Defaults to the episode's *current* version (the journal projection,
-    not merely the highest on disk). Binary payload files (parquet,
-    pickle) are listed by name, never inlined.
+    Defaults to the episode's *current* version from replayed applied transition
+    effects. Binary payload files (parquet, pickle) are listed by name, never
+    inlined.
     """
     from nof1_causal_lab.machine.store import ArtifactStore
     from nof1_causal_lab.utils import storage
 
     store = ArtifactStore(workspace_id)
     if version is None:
-        info = EpisodeJournal(workspace_id).latest_state().get(artifact_id)
+        info = derive_current_state(workspace_id).get(artifact_id)
         if info is None:
             raise HTTPException(
                 404, f"No current '{artifact_id}' artifact for workspace {workspace_id}"
@@ -495,7 +496,7 @@ def get_artifact_file(
 
     store = ArtifactStore(workspace_id)
     if version is None:
-        info = EpisodeJournal(workspace_id).latest_state().get(artifact_id)
+        info = derive_current_state(workspace_id).get(artifact_id)
         if info is None:
             raise HTTPException(
                 404, f"No current '{artifact_id}' artifact for workspace {workspace_id}"
@@ -533,7 +534,7 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
         outcome = await _propose(
             body.workspace_id,
             MoveBody(
-                move={"kind": "write", "artifact_id": "question", "provenance": "human"},
+                move=WriteArtifact(artifact_id="question", provenance="human"),
                 payload={"text": body.question},
             ),
         )
@@ -593,7 +594,7 @@ def _next_auto_move(state: EpisodeState) -> RunArtifact | None:
 async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
     try:
         while True:
-            state = EpisodeJournal(workspace_id).latest_state()
+            state = derive_current_state(workspace_id)
             move = _next_auto_move(state)
             if move is None:
                 logger.info("auto-run %s: quiescent", workspace_id)

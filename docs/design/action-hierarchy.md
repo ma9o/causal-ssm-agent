@@ -39,7 +39,7 @@ flowchart TB
     U["Web UI / coding harness / SDK / curl"]
     U -->|"outer operation"| A["action registry"]
 
-    A -->|"read"| R["journal read model"]
+    A -->|"read"| R["transition-log read model"]
     A -->|"propose run/write"| M["artifact machine"]
     A -->|"derived query"| Q["direct tool dispatch"]
 
@@ -47,7 +47,7 @@ flowchart TB
     C -->|"TransitionEffects"| M
 
     M -->|"derivation cascade (same move)"| M
-    M -->|"current versions + journal"| R
+    M -->|"applied transition effects"| R
     Q -->|"reads fresh artifact versions"| R
 
     R -->|"state, artifacts, timeline, events"| U
@@ -383,7 +383,7 @@ notebooks.
 
 | Namespace | Concern | Typical action names | Machine mapping |
 |---|---|---|---|
-| `nav` | Observe state and history | `state`, `timeline`, `events`, `get`, `versions`, `diff` | Read journal/artifact store |
+| `nav` | Observe state and history | `state`, `timeline`, `events`, `get`, `versions`, `diff` | Replay applied transition effects; read timeline/events from logs |
 | `episode` | Lifecycle and roots | `create`, `attach_data`, `ingest_data`, `refresh` | `write(question)`, staged upload, `run` → `raw_data`, scheduler policy |
 | `specify` | Design causal and measurement structure | `latent_structure`, `measurement`, `edit`, `identify` | `run`/`write` → `latent_structure`/`measurement_structure`; `causal_design` + `identification_report` derive automatically |
 | `measure` | Execute measurement | `extract` | `run` → `measurements` (+ `panel`, `validation_report` derivation) |
@@ -462,9 +462,9 @@ cannot express.
 - Transitions are keyed by produced artifact on the machine move surface. Progress events,
   provenance, tool contexts, and web views use artifact/context ids rather than a parallel
   stage-number namespace.
-- Derivation bodies execute inside move activities. The workflow installs the returned
-  `TransitionEffects` atomically into current state; failed cascades remove versions written by
-  that failed move.
+- Derivation bodies execute inside move activities. The workflow records the returned
+  `TransitionEffects` only after the move succeeds; failed cascades remove versions written by
+  that failed move, and current state is reconstructed by replaying applied effects.
 
 ## Open Decisions
 

@@ -3,13 +3,12 @@
 The machine's state is a versioned artifact store. Each artifact version is
 immutable and stamped with provenance plus the exact input versions it was
 derived from — that stamp is what makes staleness and freshness *derived*
-properties rather than stored flags, and what lets a timeline scrubber
-reconstruct the state at any past transition.
+properties rather than stored flags. Applied transition effects select which
+versions are current and let a timeline scrubber reconstruct past state.
 
 These are pydantic models (frozen) rather than dataclasses because they
 cross serialization boundaries verbatim: Temporal update/activity payloads
-(via the pydantic data converter), the tool-server facade's JSON API, and
-the journal projection.
+(via the pydantic data converter) and the tool-server facade's JSON API.
 """
 
 from __future__ import annotations

@@ -37,12 +37,13 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
 
 
 def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.machine.moves import WriteArtifact
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     store = ArtifactStore("WS-ART")
-    store.write_version(
+    question = store.write_version(
         "question",
         provenance="human",
         derived_from={},
@@ -58,14 +59,27 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     assert body["meta"]["provenance"] == "human"
     assert body["binary_files"] == []
 
-    # No journal projection yet: there is no *current* version to default to.
+    # Explicit version reads can inspect an uncommitted artifact, but it does
+    # not become the current version until an applied move records the effect.
     assert client.get("/api/episodes/WS-ART/artifacts/question").status_code == 404
+    EpisodeJournal("WS-ART").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-07-09T00:00:00+00:00",
+            move=WriteArtifact(artifact_id="question"),
+            status="applied",
+            produced=[question],
+        )
+    )
+    current = client.get("/api/episodes/WS-ART/artifacts/question")
+    assert current.status_code == 200
+    assert current.json()["payload"]["question.json"] == {"text": "does X cause Y?"}
     missing = client.get("/api/episodes/WS-ART/artifacts/question", params={"version": 7})
     assert missing.status_code == 404
 
 
 def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.moves import WriteArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
@@ -79,15 +93,13 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
         produced_by=None,
         json_files={"question.json": {"text": "does X cause Y?"}},
     )
-    state = EpisodeState().with_versions([question])
     EpisodeJournal("WS-LIST").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move={"kind": "write", "artifact_id": "question", "provenance": "human"},
+            move=WriteArtifact(artifact_id="question"),
             status="applied",
             produced=[question],
-            state_after=state,
         )
     )
 

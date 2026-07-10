@@ -81,14 +81,13 @@ async def journal_activity(input: JournalInput) -> None:
             seq=input.seq,
             ts=utc_now_iso(),
             move=input.move,
-            status=input.status,  # type: ignore[arg-type]
+            status=input.status,
             reason=input.reason,
             error_type=input.error_type,
             error_message=input.error_message,
             diagnostics=input.diagnostics,
             produced=input.produced,
             retracted=input.retracted,
-            state_after=input.state_after,
         )
     )
 

@@ -1,11 +1,15 @@
-"""Versioned artifact store + episode journal."""
+"""Versioned artifact store + transition log."""
 
 import polars as pl
 import pytest
 
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import RunArtifact, WriteArtifact
-from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+from nof1_causal_lab.machine.moves import RetractedArtifact, RunArtifact, WriteArtifact
+from nof1_causal_lab.machine.store import (
+    ArtifactStore,
+    EpisodeJournal,
+    TransitionRecord,
+    derive_current_state,
+)
 
 
 @pytest.fixture
@@ -79,13 +83,12 @@ class TestArtifactStore:
 
 
 class TestEpisodeJournal:
-    def _record(self, seq, move, status="applied", state=None, **kwargs):
+    def _record(self, seq, move, status="applied", **kwargs):
         return TransitionRecord(
             seq=seq,
             ts="2026-07-03T00:00:00+00:00",
             move=move,
             status=status,
-            state_after=state or EpisodeState(),
             **kwargs,
         )
 
@@ -129,13 +132,142 @@ class TestEpisodeJournal:
         with pytest.raises(FileExistsError):
             journal.append(self._record(1, WriteArtifact(artifact_id="question")))
 
-    def test_latest_state_is_last_applied_snapshot(self, workspace):
-        from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo
-
+    def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
         journal = EpisodeJournal(workspace)
-        assert journal.latest_state() == EpisodeState()
-        state = EpisodeState().with_versions(
-            [ArtifactVersionInfo(artifact_id="question", version=1, provenance="human")]
+        assert journal.latest_seq() == 0
+        journal.append(self._record(3, WriteArtifact(artifact_id="question")))
+        assert journal.latest_seq() == 3
+
+
+class TestDerivedCurrentState:
+    def _append(self, workspace, seq, move, *, produced=None, retracted=None, status="applied"):
+        EpisodeJournal(workspace).append(
+            TransitionRecord(
+                seq=seq,
+                ts="2026-07-03T00:00:00+00:00",
+                move=move,
+                status=status,
+                produced=produced or [],
+                retracted=retracted or [],
+            )
         )
-        journal.append(self._record(1, WriteArtifact(artifact_id="question"), state=state))
-        assert journal.latest_state().has("question")
+
+    def test_current_state_replays_only_applied_versions(self, workspace):
+        store = ArtifactStore(workspace)
+        first = store.write_version(
+            "question",
+            provenance="human",
+            derived_from={},
+            produced_by=None,
+            json_files={"question.json": {"text": "first"}},
+        )
+        self._append(
+            workspace,
+            1,
+            WriteArtifact(artifact_id="question"),
+            produced=[first],
+        )
+        second = store.write_version(
+            "question",
+            provenance="human",
+            derived_from={},
+            produced_by=None,
+            json_files={"question.json": {"text": "second"}},
+        )
+
+        # Persisting a version is not the commit boundary. Until an applied
+        # transition records it, readers continue to see the prior state.
+        assert derive_current_state(workspace).get("question") == first
+
+        self._append(
+            workspace,
+            2,
+            WriteArtifact(artifact_id="question"),
+            produced=[second],
+        )
+
+        assert derive_current_state(workspace).get("question") == second
+
+    def test_rejected_and_raised_effects_are_not_current(self, workspace):
+        store = ArtifactStore(workspace)
+        rejected = store.write_version(
+            "question",
+            provenance="human",
+            derived_from={},
+            produced_by=None,
+            json_files={"question.json": {"text": "rejected"}},
+        )
+        raised = store.write_version(
+            "raw_data",
+            provenance="computed",
+            derived_from={},
+            produced_by="run:raw_data",
+            json_files={"raw-data.json": {}},
+        )
+        self._append(
+            workspace,
+            1,
+            WriteArtifact(artifact_id="question"),
+            produced=[rejected],
+            status="rejected",
+        )
+        self._append(
+            workspace,
+            2,
+            RunArtifact(artifact_id="raw_data"),
+            produced=[raised],
+            status="raised",
+        )
+
+        assert derive_current_state(workspace).current == {}
+
+    def test_applied_retraction_removes_optional_output(self, workspace):
+        store = ArtifactStore(workspace)
+        measurements_v1 = store.write_version(
+            "measurements",
+            provenance="computed",
+            derived_from={},
+            produced_by="run:measurements",
+            json_files={"measurements.json": {"workers": []}},
+        )
+        panel_v1 = store.write_version(
+            "panel",
+            provenance="computed",
+            derived_from={},
+            produced_by="run:measurements",
+            parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
+        )
+        self._append(
+            workspace,
+            1,
+            RunArtifact(artifact_id="measurements"),
+            produced=[measurements_v1, panel_v1],
+        )
+
+        state_with_panel = derive_current_state(workspace)
+        assert state_with_panel.get("measurements") == measurements_v1
+        assert state_with_panel.get("panel") == panel_v1
+
+        measurements_v2 = store.write_version(
+            "measurements",
+            provenance="computed",
+            derived_from={},
+            produced_by="run:measurements",
+            json_files={"measurements.json": {"workers": []}},
+        )
+        self._append(
+            workspace,
+            2,
+            RunArtifact(artifact_id="measurements"),
+            produced=[measurements_v2],
+            retracted=[
+                RetractedArtifact(
+                    artifact_id="panel",
+                    reason_ref="measurements.produces_optional.panel",
+                )
+            ],
+        )
+
+        state_without_panel = derive_current_state(workspace)
+        assert state_without_panel.get("measurements") == measurements_v2
+        assert state_without_panel.get("panel") is None

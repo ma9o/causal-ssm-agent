@@ -1,4 +1,4 @@
-"""Append-only versioned artifact store and episode journal.
+"""Append-only versioned artifact store and transition log.
 
 Layout under ``data/{workspace_id}/``::
 
@@ -6,14 +6,13 @@ Layout under ``data/{workspace_id}/``::
         meta.json                      ArtifactVersionInfo dump
         <payload files>                artifact-specific (json/parquet/pkl)
     episode/journal/{seq:06d}.json     one transition record per file
-    episode/state.json                 latest projected EpisodeState
 
-Versions are never overwritten — the version log is what makes the state
-machine's history reconstructible (timeline scrubber: state-at-t is a
-filter over this log, plus ``state_after`` snapshots in the journal).
-One JSON file per journal entry because the storage backends (local fs,
-R2) have no atomic append; sequence numbers are assigned by the workflow,
-which serializes moves per episode.
+Versions and transition entries are never overwritten. Current artifact state
+is derived by replaying the produced and retracted versions of applied
+transitions, so there is no written latest-state manifest. One JSON file per
+transition entry because the storage backends (local fs, R2) have no atomic
+append; sequence numbers are assigned by the workflow, which serializes moves
+per episode.
 """
 
 from __future__ import annotations
@@ -31,9 +30,10 @@ from nof1_causal_lab.machine.artifacts import (
     EpisodeState,
     Provenance,
 )
-from nof1_causal_lab.machine.moves import (  # noqa: TC001 (pydantic field annotations)
+from nof1_causal_lab.machine.moves import (
     Move,
     RetractedArtifact,
+    apply_transition,
 )
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -163,7 +163,7 @@ def current_artifact_file(workspace_id: str, artifact_id: ArtifactId, filename: 
     threading explicit pins. Raises FileNotFoundError when the artifact
     does not exist in the episode state.
     """
-    state = EpisodeJournal(workspace_id).latest_state()
+    state = derive_current_state(workspace_id)
     info = state.get(artifact_id)
     if info is None:
         raise FileNotFoundError(f"No current '{artifact_id}' artifact for workspace {workspace_id}")
@@ -171,8 +171,9 @@ def current_artifact_file(workspace_id: str, artifact_id: ArtifactId, filename: 
 
 
 # ---------------------------------------------------------------------------
-# Episode journal (transition log projection / read model)
+# Transition log and derived state
 # ---------------------------------------------------------------------------
+
 
 TransitionStatus = Literal["applied", "rejected", "raised"]
 
@@ -181,8 +182,8 @@ class TransitionRecord(BaseModel):
     """One journaled transition attempt — applied, rejected, or raised.
 
     Rejections are recorded deliberately (a Temporal validator rejection
-    leaves no trace in event history); ``state_after`` snapshots make the
-    timeline scrubber a filter rather than a reconstruction.
+    leaves no trace in event history). Current state is reconstructed by
+    replaying applied effects, not serialized into transition records.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -197,12 +198,10 @@ class TransitionRecord(BaseModel):
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
-    state_after: EpisodeState
 
 
 class EpisodeJournal:
-    """Per-workspace transition log: one JSON file per entry, plus a
-    ``state.json`` read model holding the latest projected state."""
+    """Per-workspace transition log: one JSON file per move attempt."""
 
     def __init__(self, workspace_id: str) -> None:
         self.workspace_id = workspace_id
@@ -217,10 +216,6 @@ class EpisodeJournal:
                 f"Journal seq {record.seq} already exists for {self.workspace_id}"
             )
         storage.write_text(path, record.model_dump_json())
-        storage.write_text(
-            storage.join(self._root, "state.json"),
-            record.state_after.model_dump_json(),
-        )
 
     def read_all(self) -> list[TransitionRecord]:
         if not storage.exists(self._journal_dir):
@@ -230,20 +225,12 @@ class EpisodeJournal:
         )
         return [TransitionRecord.model_validate(storage.read_json(entry)) for entry in entries]
 
-    def latest_state(self) -> EpisodeState:
-        path = storage.join(self._root, "state.json")
-        if not storage.exists(path):
-            return EpisodeState()
-        return EpisodeState.model_validate(storage.read_json(path))
-
     def latest_seq(self) -> int:
         """Highest transition sequence on disk, or 0 if the journal is empty.
 
         Journal filenames are zero-padded sequence numbers, so the max leaf is
         the last assigned seq — read from the directory listing without opening
-        any record. Paired with ``latest_state`` to reseed a fresh workflow so
-        its sequence numbering continues rather than colliding with existing
-        journal entries."""
+        any record."""
         if not storage.exists(self._journal_dir):
             return 0
         seqs = [
@@ -252,3 +239,18 @@ class EpisodeJournal:
             if entry.endswith(".json")
         ]
         return max(seqs, default=0)
+
+
+def derive_current_state(workspace_id: str) -> EpisodeState:
+    """Replay committed transition effects into the current artifact state.
+
+    Artifact activities persist immutable versions before returning their
+    effects to the workflow. Only an ``applied`` transition record establishes
+    that those versions became current, which also makes retractions exact and
+    prevents partial or failed moves from leaking onto the read surface.
+    """
+    state = EpisodeState()
+    for record in EpisodeJournal(workspace_id).read_all():
+        if record.status == "applied":
+            state = apply_transition(state, record.produced, record.retracted)
+    return state

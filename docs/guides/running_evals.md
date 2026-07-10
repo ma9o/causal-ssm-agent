@@ -61,7 +61,7 @@ Multi-model evaluations (`eval3_*`, `eval_demo_health_*`) don't take `--model`; 
 
 Evaluations and manual prompt-sampling tools read the same persisted workspace artifacts
 that the pipeline uses. By default they load `data/DEMO/`, but you can point
-them at any workspace whose artifact store (`store/`) and episode journal were
+them at any workspace whose artifact store (`store/`) and transition log were
 produced by the machine.
 For the full workspace directory layout, see [Agentic Integration Testing](agentic_integration_testing.md#workspace-layout).
 

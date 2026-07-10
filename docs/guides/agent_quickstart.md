@@ -1,8 +1,8 @@
 # Agent Quickstart
 
 The service is headless: an external LLM agent navigates the episode machine
-over HTTP, and the web viewer renders what the journal records. This guide is
-the agent-side setup.
+over HTTP, and the web viewer renders artifact versions selected by the
+append-only transition log. This guide is the agent-side setup.
 
 ## Start the service
 

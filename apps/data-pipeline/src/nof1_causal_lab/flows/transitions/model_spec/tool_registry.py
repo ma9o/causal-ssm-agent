@@ -86,9 +86,9 @@ def _load_extraction_data_for_model(workspace_id: str) -> Any:
 
 def _load_model_spec_current(workspace_id: str) -> dict[str, Any] | None:
     """Load the current accepted model-spec report, if one exists."""
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
-    info = EpisodeJournal(workspace_id).latest_state().get("statistical_model_spec")
+    info = derive_current_state(workspace_id).get("statistical_model_spec")
     if info is None:
         return None
     return ArtifactStore(workspace_id).read_json_file(

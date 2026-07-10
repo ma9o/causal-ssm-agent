@@ -55,7 +55,7 @@ data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Raw uploaded files for the raw_data transition
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
-│   ├── episode/           # Transition journal, state read model, telemetry events
+│   ├── episode/           # Transition journal and telemetry events
 │   └── run/               # Internal sidecars only, such as model-spec compile cache
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
@@ -110,8 +110,8 @@ If the UI behaves unexpectedly, check Next.js devtools MCP errors before debuggi
 
 ## Resuming After a Transition Failure
 
-A failed transition run is a `"raised"` transition in the journal — state is
-unchanged, and the typed error plus diagnostics ride on the record:
+A failed transition run is a `"raised"` transition in the journal — artifact
+state is unchanged, and the typed error plus diagnostics ride on the record:
 
 ```bash
 curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \

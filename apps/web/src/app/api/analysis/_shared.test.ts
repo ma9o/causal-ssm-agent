@@ -59,7 +59,6 @@ function transition(
     diagnostics: {},
     produced: [],
     retracted: [],
-    state_after: { current: {} },
     ...overrides,
   };
 }

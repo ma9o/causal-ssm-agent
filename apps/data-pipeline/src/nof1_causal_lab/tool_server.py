@@ -3,7 +3,7 @@
 Exposes pipeline tool schemas and execution over HTTP so the Next.js
 refinement route can proxy LLM tool calls to the same Python validation
 logic the stages use, plus the episode facade (moves via the Temporal
-workflow, reads via the journal read model).
+workflow, reads via the append-only transition log).
 
 Run alongside the Temporal dev server and episode worker::
 
@@ -341,9 +341,9 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
     hard-flagged rather than silently served.
     """
     from nof1_causal_lab.machine.moves import freshness_report
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
-    state = EpisodeJournal(workspace_id).latest_state()
+    state = derive_current_state(workspace_id)
     posterior_info = state.get("posterior")
     if posterior_info is None:
         raise HTTPException(404, f"No fitted posterior for workspace {workspace_id}")
@@ -979,9 +979,9 @@ _CONTEXT_DEPS: dict[str, list[str]] = {
 
 
 def _load_context_result(workspace_id: str, artifact_id: str) -> dict[str, Any]:
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
-    state = EpisodeJournal(workspace_id).latest_state()
+    state = derive_current_state(workspace_id)
     store = ArtifactStore(workspace_id)
     if artifact_id == "latent_structure":
         info = state.get("latent_structure")

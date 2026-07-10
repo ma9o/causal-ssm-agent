@@ -162,13 +162,6 @@ def test_load_run_context_respects_up_to_when_loading_measurements_artifacts(mon
             present = {"raw_data", "latent_structure", "causal_design"}
             return FakeInfo() if artifact_id in present else None
 
-    class FakeJournal:
-        def __init__(self, _workspace_id: str) -> None:
-            pass
-
-        def latest_state(self) -> FakeState:
-            return FakeState()
-
     class FakeStore:
         def __init__(self, _workspace_id: str) -> None:
             pass
@@ -179,7 +172,7 @@ def test_load_run_context_respects_up_to_when_loading_measurements_artifacts(mon
         def file_path(self, artifact_id: str, _version: int, filename: str) -> str:
             return f"/tmp/ws/store/{artifact_id}/v1/{filename}"
 
-    monkeypatch.setattr(validate_run, "EpisodeJournal", FakeJournal)
+    monkeypatch.setattr(validate_run, "derive_current_state", lambda _workspace_id: FakeState())
     monkeypatch.setattr(validate_run, "ArtifactStore", FakeStore)
 
     def fake_current_artifact_file(_workspace_id: str, artifact_id: str, _filename: str) -> str:

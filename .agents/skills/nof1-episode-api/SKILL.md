@@ -95,8 +95,8 @@ Current episode state: the single read to poll while navigating.
 
 Returns per-artifact freshness (existence, staleness, version, provenance),
 the `legal` moves available right now, and `auto_running` — whether the
-background driver is active. Journal-backed, so it works even against a
-published read-only store.
+background driver is active. Replayed from the append-only transition log,
+so it works even against a published read-only store.
 
 **Parameters**
 
@@ -110,9 +110,9 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID"
 
 One artifact version: meta + inline JSON payloads.
 
-Defaults to the episode's *current* version (the journal projection,
-not merely the highest on disk). Binary payload files (parquet,
-pickle) are listed by name, never inlined.
+Defaults to the episode's *current* version from replayed applied transition
+effects. Binary payload files (parquet, pickle) are listed by name, never
+inlined.
 
 **Parameters**
 

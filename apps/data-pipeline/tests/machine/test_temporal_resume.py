@@ -1,10 +1,10 @@
-"""Resuming a lost EpisodeWorkflow from the durable journal.
+"""Resuming a lost EpisodeWorkflow from the durable transition log.
 
 When Temporal loses a workflow's in-memory history (dev-server restart), the
 artifacts survive on disk but the workflow's version-pointer state does not.
-The facade reseeds a fresh workflow from the journal's ``latest_state`` /
-``latest_seq`` so it resumes with stages already produced and continues its
-sequence numbering, instead of re-running from ingestion.
+The facade replays applied transition effects and reads ``latest_seq`` so a
+fresh workflow resumes with artifacts already produced and continues its
+sequence numbering instead of re-running from ingestion.
 """
 
 import dataclasses
@@ -14,9 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.moves import RunArtifact, TransitionEffects, WriteArtifact
-from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
+from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, derive_current_state
 from nof1_causal_lab.machine.temporal import latent_structure_activities
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
@@ -205,7 +204,6 @@ def test_latest_seq_reads_max_journal_entry(resume_env):
                 ts="2026-01-01T00:00:00Z",
                 move=WriteArtifact(artifact_id="question"),
                 status="applied",
-                state_after=EpisodeState(),
             )
         )
     assert journal.latest_seq() == 3
@@ -245,9 +243,9 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                 assert stage0.status == "applied"
                 await first.terminate()
 
-                # The journal is the only surviving record of what happened.
+                # Applied effects in the transition log are the durable state.
                 journal = EpisodeJournal(workspace_id)
-                seed_state = journal.latest_state()
+                seed_state = derive_current_state(workspace_id)
                 seed_seq = journal.latest_seq()
                 assert seed_state.has("question")
                 assert seed_state.has("raw_data")

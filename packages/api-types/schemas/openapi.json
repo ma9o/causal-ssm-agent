@@ -9,7 +9,7 @@
     "/api/episodes/{workspace_id}": {
       "get": {
         "summary": "Get Episode",
-        "description": "Current episode state: the single read to poll while navigating.\n\nReturns per-artifact freshness (existence, staleness, version, provenance),\nthe `legal` moves available right now, and `auto_running` \u2014 whether the\nbackground driver is active. Journal-backed, so it works even against a\npublished read-only store.",
+        "description": "Current episode state: the single read to poll while navigating.\n\nReturns per-artifact freshness (existence, staleness, version, provenance),\nthe `legal` moves available right now, and `auto_running` \u2014 whether the\nbackground driver is active. Replayed from the append-only transition log,\nso it works even against a published read-only store.",
         "operationId": "get_episode_api_episodes__workspace_id__get",
         "parameters": [
           {
@@ -151,7 +151,7 @@
     "/api/episodes/{workspace_id}/artifacts/{artifact_id}": {
       "get": {
         "summary": "Get Artifact",
-        "description": "One artifact version: meta + inline JSON payloads.\n\nDefaults to the episode's *current* version (the journal projection,\nnot merely the highest on disk). Binary payload files (parquet,\npickle) are listed by name, never inlined.",
+        "description": "One artifact version: meta + inline JSON payloads.\n\nDefaults to the episode's *current* version from replayed applied transition\neffects. Binary payload files (parquet, pickle) are listed by name, never\ninlined.",
         "operationId": "get_artifact_api_episodes__workspace_id__artifacts__artifact_id__get",
         "parameters": [
           {

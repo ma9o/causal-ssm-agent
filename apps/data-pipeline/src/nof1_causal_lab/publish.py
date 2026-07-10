@@ -5,12 +5,11 @@ lives under the R2 store, so copying a workspace there makes it — and
 every artifact payload in it — publicly viewable. Raw N-of-1 data is
 personal data: exclude it unless the workspace is synthetic/demo.
 
-The store is append-only with immutable versions and journal entries, so
-publishing is an idempotent file copy: keys that already exist are
-skipped, except the mutable read model (``episode/state.json``), which is
-always overwritten. Re-running publish while a local episode executes gives
-the hosted viewer a live tail through its normal polling. Internal ``run/``
-sidecars are not published.
+The store is append-only with immutable versions and transition-log entries, so
+publishing is an idempotent file copy: keys that already exist are skipped.
+Re-running publish while a local episode executes gives the hosted viewer a
+live tail through its normal polling. Internal ``run/`` sidecars are not
+published.
 
 Usage (needs the ``cloud`` dependency group and the production R2 env:
 ``R2_ENDPOINT_URL``, ``R2_ACCESS_KEY_ID``, ``R2_SECRET_ACCESS_KEY``,
@@ -35,11 +34,6 @@ def _dest_fs():
         key=os.environ["R2_ACCESS_KEY_ID"],
         secret=os.environ["R2_SECRET_ACCESS_KEY"],
     )
-
-
-def _is_mutable(rel: str) -> bool:
-    """The only non-append-only files in a workspace: latest-state read models."""
-    return rel == "episode/state.json"
 
 
 def _is_internal(rel: str) -> bool:
@@ -79,7 +73,7 @@ def publish_workspace(workspace_id: str, excludes: list[str]) -> dict[str, int]:
             counts["excluded"] += 1
             continue
         dest = f"{dest_root}/{rel}"
-        if dest in existing and not _is_mutable(rel):
+        if dest in existing:
             counts["skipped"] += 1
             continue
         fs.put_file(str(path), dest)

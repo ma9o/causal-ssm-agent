@@ -1,4 +1,4 @@
-"""Publish: idempotent store copy with mutable-read-model overwrite and excludes."""
+"""Publish: idempotent append-only workspace copy with excludes."""
 
 import json
 
@@ -15,7 +15,6 @@ def _seed_workspace(root):
         "store/question/v1/question.json": {"text": "does X cause Y?"},
         "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "version": 1},
         "episode/journal/000001.json": {"seq": 1},
-        "episode/state.json": {"current": {}},
         "run/model-spec-jax-cache-metadata.json": {"schema_version": 1},
         "input/MyActivity.json": {"secret": "personal"},
     }
@@ -42,19 +41,19 @@ def test_publish_excludes_and_is_idempotent(monkeypatch, tmp_path, memory_dest):
     _seed_workspace(ws_root)
 
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 4, "skipped": 0, "excluded": 3}
+    assert counts == {"uploaded": 3, "skipped": 0, "excluded": 3}
     assert memory_dest.exists("pub/data/WS-PUB/store/question/v1/question.json")
     assert not memory_dest.exists("pub/data/WS-PUB/store/raw_data/v1/meta.json")
     assert not memory_dest.exists("pub/data/WS-PUB/input/MyActivity.json")
 
-    # Second run: immutable keys skip, mutable read models re-upload.
+    # Second run: immutable keys skip.
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 1, "skipped": 3, "excluded": 3}
+    assert counts == {"uploaded": 0, "skipped": 3, "excluded": 3}
 
     # A new journal entry (live tail) uploads without touching existing keys.
     (ws_root / "episode/journal/000002.json").write_text(json.dumps({"seq": 2}))
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 2, "skipped": 3, "excluded": 3}
+    assert counts == {"uploaded": 1, "skipped": 3, "excluded": 3}
 
 
 def test_publish_refuses_remote_source(monkeypatch, memory_dest):

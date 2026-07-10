@@ -45,11 +45,11 @@ class EpisodeInit(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    # Rehydration seed: reconstructed from the on-disk episode journal so a
-    # workflow (re)started after Temporal lost its in-memory history resumes
-    # with the artifacts already produced, instead of re-running from raw_data.
-    # Empty/0 for a genuinely new episode; ignored when attaching to a live
-    # workflow (USE_EXISTING).
+    # Rehydration seed: reconstructed from applied effects in the on-disk
+    # transition log so a workflow (re)started after Temporal lost its in-memory
+    # history resumes with the committed artifacts instead of re-running from
+    # raw_data. Empty/0 for a genuinely new episode; ignored when attaching to
+    # a live workflow (USE_EXISTING).
     initial_state: EpisodeState | None = None
     initial_seq: int = 0
 
@@ -613,17 +613,19 @@ class WriteArtifactInput(BaseModel):
     state: EpisodeState
 
 
+JournalStatus = Literal["applied", "rejected", "raised"]
+
+
 class JournalInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     seq: int
     move: Move
-    status: str
+    status: JournalStatus
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
-    state_after: EpisodeState

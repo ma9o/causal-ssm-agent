@@ -38,7 +38,7 @@ from nof1_causal_lab.flows.run_store import load_parquet
 from nof1_causal_lab.flows.artifact_contracts import ARTIFACT_CONTRACTS
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
-from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, current_artifact_file
+from nof1_causal_lab.machine.store import ArtifactStore, current_artifact_file, derive_current_state
 
 Severity = Literal["error", "warning"]
 
@@ -110,7 +110,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
 
     artifacts: dict[str, dict[str, Any]] = {}
     artifact_paths: dict[str, str] = {}
-    state = EpisodeJournal(workspace_id).latest_state()
+    state = derive_current_state(workspace_id)
     store = ArtifactStore(workspace_id)
     for artifact_id in artifact_order:
         key = RESULT_ARTIFACTS[artifact_id]
@@ -291,7 +291,9 @@ def rule_construct_attributes_stable(ctx: RunContext) -> list[LineageIssue]:
     if "latent_structure" not in ctx.artifacts or "causal_design" not in ctx.artifacts:
         return []
     map_1a = _construct_map(ctx.artifacts["latent_structure"].get("latent_structure", {}))
-    map_1b = _construct_map(ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {}))
+    map_1b = _construct_map(
+        ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {})
+    )
     attrs = ("role", "temporal_status", "is_outcome")
     issues: list[LineageIssue] = []
     for name in sorted(map_1a.keys() & map_1b.keys()):
@@ -313,7 +315,9 @@ def rule_outcome_stable(ctx: RunContext) -> list[LineageIssue]:
     if "latent_structure" not in ctx.artifacts or "causal_design" not in ctx.artifacts:
         return []
     outcome_1a = _outcome_name(ctx.artifacts["latent_structure"].get("latent_structure", {}))
-    outcome_1b = _outcome_name(ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {}))
+    outcome_1b = _outcome_name(
+        ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {})
+    )
     if outcome_1a is None:
         return [
             LineageIssue(
@@ -348,7 +352,9 @@ def _edge_tuples(edges: list[dict[str, Any]]) -> set[tuple[str, str, bool]]:
 def rule_causal_design_edges_monotonic(ctx: RunContext) -> list[LineageIssue]:
     if "latent_structure" not in ctx.artifacts or "causal_design" not in ctx.artifacts:
         return []
-    e1a = _edge_tuples(ctx.artifacts["latent_structure"].get("latent_structure", {}).get("edges") or [])
+    e1a = _edge_tuples(
+        ctx.artifacts["latent_structure"].get("latent_structure", {}).get("edges") or []
+    )
     e1b = _edge_tuples(
         ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {}).get("edges") or []
     )
@@ -443,7 +449,11 @@ def rule_indicators_audited_by_validation_report(ctx: RunContext) -> list[Lineag
 
 
 def rule_indicators_in_panel(ctx: RunContext) -> list[LineageIssue]:
-    if "causal_design" not in ctx.artifacts or "measurements" not in ctx.artifacts or ctx.model_indicators is None:
+    if (
+        "causal_design" not in ctx.artifacts
+        or "measurements" not in ctx.artifacts
+        or ctx.model_indicators is None
+    ):
         return []
     indicators_1b = _causal_design_indicator_names(ctx.artifacts["causal_design"])
     missing = indicators_1b - ctx.model_indicators
@@ -466,7 +476,10 @@ def rule_likelihood_variables_in_causal_design_indicators(ctx: RunContext) -> li
     if "causal_design" not in ctx.artifacts or "statistical_model_spec" not in ctx.artifacts:
         return []
     indicators = _causal_design_indicator_names(ctx.artifacts["causal_design"])
-    likelihoods = ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("likelihoods") or []
+    likelihoods = (
+        ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("likelihoods")
+        or []
+    )
     used = {lk.get("variable") for lk in likelihoods if isinstance(lk, dict) and lk.get("variable")}
     unknown = used - indicators
     if not unknown:
@@ -485,7 +498,11 @@ def rule_likelihood_variables_in_causal_design_indicators(ctx: RunContext) -> li
 
 
 def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIssue]:
-    if "latent_structure" not in ctx.artifacts or "causal_design" not in ctx.artifacts or "statistical_model_spec" not in ctx.artifacts:
+    if (
+        "latent_structure" not in ctx.artifacts
+        or "causal_design" not in ctx.artifacts
+        or "statistical_model_spec" not in ctx.artifacts
+    ):
         return []
     outcome = _outcome_name(ctx.artifacts["latent_structure"].get("latent_structure", {}))
     if outcome is None:
@@ -497,7 +514,10 @@ def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIss
     }
     if not outcome_indicators:
         return []  # rule-outcome-has-indicator owns this case
-    likelihoods = ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("likelihoods") or []
+    likelihoods = (
+        ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("likelihoods")
+        or []
+    )
     likelihood_vars = {
         lk.get("variable") for lk in likelihoods if isinstance(lk, dict) and lk.get("variable")
     }
@@ -545,7 +565,10 @@ def rule_statistical_model_spec_priors_target_params(ctx: RunContext) -> list[Li
 def rule_posterior_covers_statistical_model_spec_params(ctx: RunContext) -> list[LineageIssue]:
     if "statistical_model_spec" not in ctx.artifacts or "posterior" not in ctx.artifacts:
         return []
-    params = ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("parameters") or []
+    params = (
+        ctx.artifacts["statistical_model_spec"].get("statistical_model_spec", {}).get("parameters")
+        or []
+    )
     param_names = {p["name"] for p in params if isinstance(p, dict) and "name" in p}
     marginals = ctx.artifacts["posterior"].get("posterior_marginals") or []
     posterior_names = {
@@ -612,7 +635,9 @@ def rule_posterior_pairs_in_marginals(ctx: RunContext) -> list[LineageIssue]:
 def rule_baseline_report_treatments_known(ctx: RunContext) -> list[LineageIssue]:
     if "latent_structure" not in ctx.artifacts or "baseline_report" not in ctx.artifacts:
         return []
-    constructs = set(_construct_names(ctx.artifacts["latent_structure"].get("latent_structure", {})))
+    constructs = set(
+        _construct_names(ctx.artifacts["latent_structure"].get("latent_structure", {}))
+    )
     treatments = {
         ir.get("treatment")
         for ir in (ctx.artifacts["baseline_report"].get("intervention_results") or [])
@@ -670,7 +695,9 @@ def rule_baseline_report_treatments_identifiable(ctx: RunContext) -> list[Lineag
     ]
 
 
-def rule_baseline_report_manifest_effects_on_causal_design_indicators(ctx: RunContext) -> list[LineageIssue]:
+def rule_baseline_report_manifest_effects_on_causal_design_indicators(
+    ctx: RunContext,
+) -> list[LineageIssue]:
     if "causal_design" not in ctx.artifacts or "baseline_report" not in ctx.artifacts:
         return []
     indicators = _causal_design_indicator_names(ctx.artifacts["causal_design"])

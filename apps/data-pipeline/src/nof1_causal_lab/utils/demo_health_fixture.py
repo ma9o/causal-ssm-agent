@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
 from nof1_causal_lab.utils.causal_design import get_indicators
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.machine.artifacts import ArtifactId
 
 FIXTURE_USER_ID = "DEMO"
 EXPECTED_EXTRACTION_COLUMNS = ["indicator", "value", "anchor_time"]
@@ -93,12 +96,12 @@ def _column_descriptions_from_raw_data_df_payload(
 
 def load_demo_health_fixture() -> DemoHealthFixture:
     """Load the tracked DEMO fixture from its artifact store."""
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
     store = ArtifactStore(FIXTURE_USER_ID)
-    state = EpisodeJournal(FIXTURE_USER_ID).latest_state()
+    state = derive_current_state(FIXTURE_USER_ID)
 
-    def _version(artifact_id: str) -> int:
+    def _version(artifact_id: ArtifactId) -> int:
         info = state.get(artifact_id)
         if info is None:
             raise FileNotFoundError(

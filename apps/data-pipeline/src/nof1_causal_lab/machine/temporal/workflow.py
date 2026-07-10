@@ -9,7 +9,7 @@ exactly what the timeline scrubber wants to show. Every attempt
 (applied, rejected, raised) is projected into the episode journal by an
 activity before the outcome returns to the caller.
 
-Handlers stay thin (validate → execute activity → apply → journal) so
+Handlers stay thin (validate → execute activity → journal → apply) so
 workflow-code versioning churn stays small; all semantics live in the
 pure functions, all I/O in activities (referenced by name so the
 sandbox never imports storage/polars/jax).
@@ -101,10 +101,11 @@ class EpisodeWorkflow:
         # workflow.init: updates can be dispatched before the run method's
         # first line executes, and every handler needs workspace_id.
         self._workspace_id = init.workspace_id
-        # Seed from the durable journal when resuming a lost workflow; empty
-        # state / seq 0 for a new episode. The facade reconstructs the seed
-        # (I/O can't happen here in the deterministic workflow) and passes it
-        # as a start argument, so replay stays deterministic.
+        # Seed from durable applied transition effects when resuming a lost
+        # workflow; empty state / seq 0 for a new episode. The facade
+        # reconstructs the seed (I/O can't happen here in the deterministic
+        # workflow) and passes it as a start argument, so replay stays
+        # deterministic.
         self._state = init.initial_state if init.initial_state is not None else EpisodeState()
         self._seq = init.initial_seq
         self._closed = False
@@ -256,8 +257,8 @@ class EpisodeWorkflow:
                     diagnostics=diagnostics,
                 )
 
-            self._state = apply_transition(self._state, produced, retracted)
             await self._journal(seq, move, status="applied", produced=produced, retracted=retracted)
+            self._state = apply_transition(self._state, produced, retracted)
             return self._outcome(seq, status="applied", produced=produced, retracted=retracted)
 
     @workflow.signal
@@ -311,7 +312,6 @@ class EpisodeWorkflow:
                 diagnostics=diagnostics or {},
                 produced=produced or [],
                 retracted=retracted or [],
-                state_after=self._state,
             ),
             start_to_close_timeout=_JOURNAL_TIMEOUT,
             retry_policy=_JOURNAL_RETRY,
