@@ -22,6 +22,6 @@
   "devDependencies": {
     "@nof1-causal-lab/typescript-config": "workspace:*",
     "json-schema-to-typescript": "^15.0.4",
-    "typescript": "^5"
+    "typescript": "^7"
   }
 }
