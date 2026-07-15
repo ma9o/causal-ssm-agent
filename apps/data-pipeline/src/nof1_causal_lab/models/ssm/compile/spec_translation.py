@@ -15,7 +15,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     StatisticalModelSpec,
 )
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
+from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
     HillEdgeSpec,
@@ -493,13 +493,13 @@ def _hill_edge_targets(
     return targets
 
 
-def _build_manifest_centered_flags(
+def _build_manifest_standardized_flags(
     statistical_model_spec: StatisticalModelSpec,
     manifest_cols: list[str],
     *,
     causal_design: dict | None,
 ) -> list[bool]:
-    """Return deterministic centering tags for each manifest channel."""
+    """Return deterministic standardization tags for each manifest channel."""
     likelihood_lookup = {
         likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
     }
@@ -509,7 +509,7 @@ def _build_manifest_centered_flags(
             indicator["name"]: indicator for indicator in get_indicators(causal_design)
         }
 
-    centered: list[bool] = []
+    standardized: list[bool] = []
     for manifest_name in manifest_cols:
         likelihood = likelihood_lookup[manifest_name]
         indicator = indicator_lookup.get(manifest_name) or {}
@@ -523,8 +523,8 @@ def _build_manifest_centered_flags(
             summary_operator = semantics.summary_operator.value
 
         if isinstance(support_kind, str) and isinstance(summary_operator, str):
-            centered.append(
-                should_auto_center_indicator(
+            standardized.append(
+                should_auto_standardize_indicator(
                     likelihood.distribution,
                     likelihood.link,
                     support_kind,
@@ -533,8 +533,8 @@ def _build_manifest_centered_flags(
             )
             continue
 
-        centered.append(bool(likelihood.centered))
-    return centered
+        standardized.append(bool(likelihood.standardized))
+    return standardized
 
 
 def _build_static_factor_structure(
@@ -803,7 +803,7 @@ def translate_spec(
     input_names, input_sources, input_scales, input_policies = get_estimation_input_layout(
         causal_design
     )
-    manifest_centered = _build_manifest_centered_flags(
+    manifest_standardized = _build_manifest_standardized_flags(
         statistical_model_spec,
         manifest_cols,
         causal_design=causal_design,
@@ -945,7 +945,7 @@ def translate_spec(
         diffusion_dists=[DistributionFamily.GAUSSIAN] * n_latent,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
-        manifest_centered=manifest_centered,
+        manifest_standardized=manifest_standardized,
         manifest_level_counts=manifest_level_counts,
         latent_names=latent_names,
         manifest_names=manifest_cols,

@@ -54,10 +54,13 @@ async def _run_posterior(
         build_sampler_config,
         run_inference_with_data,
     )
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.utils.config import get_config
 
-    compiled_ssm = store.read_json_file(
-        "compiled_ssm", pins["compiled_ssm"], json_filename("compiled_ssm", "compiled_ssm")
+    compiled_ssm = CompiledSSMArtifact.model_validate(
+        store.read_json_file(
+            "compiled_ssm", pins["compiled_ssm"], json_filename("compiled_ssm", "compiled_ssm")
+        )
     )
     panel = _panel_df(store, pins)
 

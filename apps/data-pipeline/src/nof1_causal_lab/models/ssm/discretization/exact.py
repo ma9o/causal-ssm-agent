@@ -111,31 +111,6 @@ def compute_discrete_cint_exact(
     return augmented_exp[:n, n]
 
 
-def discretize_system(
-    drift: Float[Array, "D D"],
-    diffusion_cov: Float[Array, "D D"],
-    cint: Array | None,
-    dt: float,
-) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Array | None]:
-    """Discretize the continuous-time system for a given time interval.
-
-    Computes:
-    - discrete_drift = exp(A*dt)
-    - discrete_Q via the Van Loan block exponential
-    - discrete_cint via an augmented matrix exponential when provided
-
-    Args:
-        drift: n x n continuous drift matrix A
-        diffusion_cov: n x n diffusion covariance (G*G')
-        cint: n x 1 continuous intercept (optional)
-        dt: time interval
-
-    Returns:
-        Tuple of (discrete_drift, discrete_Q, discrete_cint)
-    """
-    return discretize_linear_system_exact(drift, diffusion_cov, cint, dt)
-
-
 def _normalize_batched_cint(discrete_cint: jnp.ndarray) -> jnp.ndarray:
     """Drop the trailing singleton axis some solve paths emit for cint."""
     if discrete_cint.ndim > 0 and discrete_cint.shape[-1] == 1:

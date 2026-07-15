@@ -11,7 +11,6 @@ from nof1_causal_lab.models.posterior_predictive import (
     _check_variance_ratio,
     _compute_overlays,
     _compute_test_stats,
-    get_relevant_manifest_variables,
 )
 from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
@@ -21,6 +20,23 @@ from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+
+
+def get_relevant_manifest_variables(
+    lambda_mat: jnp.ndarray,
+    treat_idx: int | None,
+    outcome_idx: int | None,
+    manifest_names: list[str],
+    threshold: float = 0.01,
+) -> set[str]:
+    relevant = set()
+    for idx in (treat_idx, outcome_idx):
+        if idx is None:
+            continue
+        for row in range(lambda_mat.shape[0]):
+            if abs(float(lambda_mat[row, idx])) >= threshold and row < len(manifest_names):
+                relevant.add(manifest_names[row])
+    return relevant
 
 
 def _make_lp_and_samples(
@@ -74,13 +90,17 @@ class TestForwardSimulation:
         with pytest.raises(ValueError, match="Unknown distribution family"):
             get_posterior_predictive_switch_index("nonexistent_distribution")
 
+    def test_switch_index_invalid_family_link_pair_raises(self):
+        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
+            get_posterior_predictive_switch_index("gaussian", link="log")
+
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""
         n_draws, T, n_manifest = 10, 20, 3
         lp, samples = _make_lp_and_samples(n_draws, T, n_manifest)
         times = jnp.arange(T, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp, samples, times, n_subsample=n_draws
         )
 
@@ -92,7 +112,7 @@ class TestForwardSimulation:
         lp, samples = _make_lp_and_samples(50, 15, 2)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp, samples, times, n_subsample=10
         )
 
@@ -106,7 +126,7 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         obs_mask = jnp.array([[False], [False], [True]])
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, expected = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -114,20 +134,23 @@ class TestForwardSimulation:
             observation_support=self._window_average_support(),
             observation_mask=obs_mask,
             n_subsample=1,
-            rng_seed=0,
+            rng_key=random.PRNGKey(0),
         )
 
         assert y_sim.shape == (1, 3, 1)
         assert jnp.isnan(y_sim[0, 0, 0])
         assert jnp.isnan(y_sim[0, 1, 0])
         assert abs(float(y_sim[0, 2, 0]) - 1.0) < 0.05
+        assert jnp.isnan(expected[0, 0, 0])
+        assert jnp.isnan(expected[0, 1, 0])
+        assert float(expected[0, 2, 0]) == pytest.approx(1.0)
 
     def test_forward_simulate_poisson(self):
         """Poisson noise family produces non-negative observations."""
         lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp, samples, times, manifest_dists=["poisson", "poisson"], n_subsample=10
         )
 
@@ -140,7 +163,7 @@ class TestForwardSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.5, obs_df=jnp.array(3.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp, samples, times, manifest_dists=["student_t", "student_t"], n_subsample=10
         )
 
@@ -152,7 +175,7 @@ class TestForwardSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp, samples, times, manifest_dists=["gamma", "gamma"], n_subsample=10
         )
 
@@ -174,7 +197,7 @@ class TestForwardSimulation:
                 manifest_dists=["gamma"],
                 manifest_names=["monthly_eveningness_activity_timing"],
                 n_subsample=1,
-                rng_seed=0,
+                rng_key=random.PRNGKey(0),
             )
 
     def test_forward_simulate_ordered_logistic(self):
@@ -187,7 +210,7 @@ class TestForwardSimulation:
         )
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -212,7 +235,7 @@ class TestForwardSimulation:
         )
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -240,8 +263,8 @@ class TestDiagnosticChecks:
         }
         times = jnp.arange(T, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, n_subsample=n_draws, rng_seed=0
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, n_subsample=n_draws, rng_key=random.PRNGKey(0)
         )
         # Use one draw as "observed data" — should be well-calibrated
         obs_idx = int(random.randint(random.PRNGKey(99), (), 0, n_draws))
@@ -267,8 +290,8 @@ class TestDiagnosticChecks:
             )
         }
         times = jnp.arange(T, dtype=float)
-        y_sim_true, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples_true, times, n_subsample=100, rng_seed=0
+        y_sim_true, _, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples_true, times, n_subsample=100, rng_key=random.PRNGKey(0)
         )
 
         # Observations from a very different model (large shift)
@@ -411,7 +434,7 @@ class TestLinkFunctionSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -430,7 +453,7 @@ class TestLinkFunctionSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, lp=2.0, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -448,7 +471,7 @@ class TestLinkFunctionSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, lp=-1.0, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -465,7 +488,7 @@ class TestLinkFunctionSimulation:
         lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,
@@ -485,7 +508,7 @@ class TestLinkFunctionSimulation:
         times = jnp.arange(10, dtype=float)
 
         # Channel 0: Bernoulli probit, Channel 1: Bernoulli logit (default)
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             lp,
             samples,
             times,

@@ -714,6 +714,7 @@ def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_p
     [
         ("claude-code", "claude/mock-latent"),
         ("codex", "codex/mock-latent"),
+        ("pi", "gpt-5.4-mini"),
     ],
 )
 def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
@@ -725,9 +726,11 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
 
     import nof1_causal_lab.utils.harness.claude as claude_harness
     import nof1_causal_lab.utils.harness.codex as codex_harness
+    import nof1_causal_lab.utils.harness.pi as pi_harness
     from nof1_causal_lab.machine.temporal.client import (
         HARNESS_CLAUDE_TASK_QUEUE,
         HARNESS_CODEX_TASK_QUEUE,
+        HARNESS_PI_TASK_QUEUE,
         pydantic_data_converter,
     )
     from nof1_causal_lab.machine.temporal.worker import build_harness_worker, build_worker
@@ -768,6 +771,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
         def __init__(self, tools):
             self._tools = tools
             self.session_id = "fake-claude-session"
+            self.session_jsonl = '{"type":"session","id":"fake-pi-session"}\n'
             self.raw_events = [{"type": "system", "subtype": "init"}]
             self._tool_output = ""
 
@@ -852,6 +856,10 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     async def fake_open_codex_harness_session(**kwargs):
         yield FakeHarnessSession(kwargs["tools"])
 
+    @asynccontextmanager
+    async def fake_open_pi_harness_session(**kwargs):
+        yield FakeHarnessSession(kwargs["tools"])
+
     monkeypatch.setattr(
         claude_harness,
         "open_claude_harness_session",
@@ -862,9 +870,16 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
         "open_codex_harness_session",
         fake_open_codex_harness_session,
     )
-    harness_task_queue = (
-        HARNESS_CLAUDE_TASK_QUEUE if harness == "claude-code" else HARNESS_CODEX_TASK_QUEUE
+    monkeypatch.setattr(
+        pi_harness,
+        "open_pi_harness_session",
+        fake_open_pi_harness_session,
     )
+    harness_task_queue = {
+        "claude-code": HARNESS_CLAUDE_TASK_QUEUE,
+        "codex": HARNESS_CODEX_TASK_QUEUE,
+        "pi": HARNESS_PI_TASK_QUEUE,
+    }[harness]
 
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
     context_ref = str(tmp_path / "latent-context.json")
@@ -888,7 +903,6 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                 build_harness_worker(
                     env.client,
                     harness_task_queue,
-                    max_concurrent_activities=1,
                 ),
             ):
                 handle = await env.client.start_workflow(

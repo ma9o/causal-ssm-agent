@@ -4,7 +4,6 @@ Provides:
 - SiteDescriptor: metadata for each sample site, derived deterministically from SSMSpec
 - build_site_registry: enumerate all sample sites without model tracing
 - build_prior_runtime_state: create fixed-structure JAX pytree from PriorRegistry
-- log_prior_unconstrained: pure-JAX prior log-density with vectorized family dispatch
 - sample_prior_unconstrained: pure-JAX prior sampling
 
 The site registry is the single authority for "what sample sites exist."
@@ -16,6 +15,7 @@ It replaces the three overlapping conventions:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +31,11 @@ from nof1_causal_lab.distributions import (
     get_positive_runtime_kind_from_index,
     get_real_runtime_family_index,
     get_real_runtime_kind_from_index,
+)
+from nof1_causal_lab.models.ssm.compile.contracts import (
+    CompiledPriorSemantics,
+    CompiledPriorSite,
+    SerializedSiteDescriptor,
 )
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -323,16 +328,6 @@ def build_site_runtime_bundle(
     return _build_site_runtime_bundle_from_registry(registry)
 
 
-def group_sites_by_assembly_role(
-    registry: list[SiteDescriptor],
-) -> dict[str, list[SiteDescriptor]]:
-    """Group site descriptors by assembly role."""
-    grouped: dict[str, list[SiteDescriptor]] = {}
-    for site in registry:
-        grouped.setdefault(site.assembly_group, []).append(site)
-    return grouped
-
-
 def select_site_samples(
     samples: dict[str, jnp.ndarray],
     registry: list[SiteDescriptor],
@@ -517,207 +512,29 @@ def assemble_extra_params_from_registry(
     )
 
 
-# ---------------------------------------------------------------------------
-# Pure-JAX prior log-probability helpers
-# ---------------------------------------------------------------------------
-
-_LOG_2PI = jnp.log(2.0 * jnp.pi)
-
-
-def _normal_log_prob_terms(x, loc, scale):
-    """Element-wise Normal(loc, scale) log-density."""
-    return -0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((x - loc) / scale) ** 2
-
-
-def _truncated_normal_log_prob_terms(x, loc, scale, low, high):
-    """Element-wise TruncatedNormal(loc, scale, low, high) log-density."""
-    return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high).log_prob(x)
-
-
-def _uniform_log_prob_terms(x, low, high):
-    """Element-wise Uniform(low, high) log-density."""
-    width = high - low
-    in_support = (x >= low) & (x <= high) & (width > 0)
-    log_density = -jnp.log(jnp.maximum(width, 1e-30))
-    return jnp.where(in_support, log_density, -jnp.inf)
-
-
-def _half_normal_log_prob_terms(x, scale):
-    """Element-wise HalfNormal(scale) log-density for x > 0."""
-    return jnp.log(2.0) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * (x / scale) ** 2
-
-
-def _log_normal_log_prob_terms(x, loc, scale):
-    """Element-wise LogNormal(loc, scale) log-density."""
-    log_x = jnp.log(x)
-    return -jnp.log(x) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((log_x - loc) / scale) ** 2
-
-
-def _gamma_log_prob_terms(x, concentration, rate):
-    """Element-wise Gamma(concentration, rate) log-density."""
-    return (
-        concentration * jnp.log(rate)
-        - jax.lax.lgamma(concentration)
-        + (concentration - 1.0) * jnp.log(x)
-        - rate * x
-    )
-
-
-def _exponential_log_prob_terms(x, rate):
-    """Element-wise Exponential(rate) log-density."""
-    return jnp.log(rate) - rate * x
-
-
-def _real_log_prob(x, family_idx, loc, scale, low, high):
-    """Log density for a REAL-support site with family dispatch.
-
-    Families:
-        0 — Normal(loc, scale)
-        1 — TruncatedNormal(loc, scale, low, high)
-        2 — Uniform(low, high)
-    """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
-    normal_terms = _normal_log_prob_terms(x, loc, scale)
-    truncated_terms = _truncated_normal_log_prob_terms(x, loc, scale, low, high)
-    uniform_terms = _uniform_log_prob_terms(x, low, high)
-    return jnp.sum(
-        jnp.where(families == 0, normal_terms, 0.0)
-        + jnp.where(families == 1, truncated_terms, 0.0)
-        + jnp.where(families == 2, uniform_terms, 0.0)
-    )
-
-
-def _delta_log_prob_terms(x, value):
-    """Element-wise Delta(value) log mass."""
-    return jnp.where(jnp.isclose(x, value, rtol=1e-9, atol=1e-12), 0.0, -jnp.inf)
-
-
-def _positive_log_prob(x, family_idx, loc, scale, concentration, rate, value):
-    """Log density for a POSITIVE-support site with family dispatch.
-
-    Families:
-        0 — HalfNormal(scale)
-        1 — Gamma(concentration, rate)
-        2 — LogNormal(loc, scale)
-        3 — Exponential(rate)
-        4 — Delta(value)
-    """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
-    half_normal_terms = _half_normal_log_prob_terms(x, scale)
-    gamma_terms = _gamma_log_prob_terms(x, concentration, rate)
-    log_normal_terms = _log_normal_log_prob_terms(x, loc, scale)
-    exponential_terms = _exponential_log_prob_terms(x, rate)
-    delta_terms = _delta_log_prob_terms(x, value)
-    return jnp.sum(
-        jnp.where(families == 0, half_normal_terms, 0.0)
-        + jnp.where(families == 1, gamma_terms, 0.0)
-        + jnp.where(families == 2, log_normal_terms, 0.0)
-        + jnp.where(families == 3, exponential_terms, 0.0)
-        + jnp.where(families == 4, delta_terms, 0.0)
-    )
-
-
-def _correlation_constrain(z: jnp.ndarray) -> jnp.ndarray:
-    """Map unconstrained values to the open interval (-1, 1)."""
-    return 2.0 * jax.nn.sigmoid(z) - 1.0
-
-
-def _correlation_inverse(x: jnp.ndarray) -> jnp.ndarray:
-    """Inverse of ``_correlation_constrain``."""
-    x_safe = jnp.clip(x, -1.0 + 1e-6, 1.0 - 1e-6)
-    p = 0.5 * (x_safe + 1.0)
-    return jnp.log(p) - jnp.log1p(-p)
-
-
-def _correlation_log_abs_det_jacobian(z: jnp.ndarray) -> jnp.ndarray:
-    """Log absolute Jacobian determinant for the correlation transform."""
-    return jnp.log(2.0) + jax.nn.log_sigmoid(z) + jax.nn.log_sigmoid(-z)
-
-
-# ---------------------------------------------------------------------------
-# Joint prior log-density
-# ---------------------------------------------------------------------------
-
 # Type alias: the prior state is a plain nested dict (valid JAX pytree).
 # Structure: {site_name: {family: int64, loc: array, scale: array, ...}}
 PriorRuntimeState = dict[str, dict[str, jnp.ndarray]]
 
 
-def log_prior_unconstrained(
-    z: jnp.ndarray,
-    unravel_fn,
-    registry: list[SiteDescriptor],
-    prior_state: PriorRuntimeState,
-) -> jnp.ndarray:
-    """Log prior density in unconstrained space.
-
-    ``prior_state`` is a fixed-structure JAX pytree whose *values* can
-    change between calls without triggering JAX recompilation.
-
-    Args:
-        z: Flat unconstrained parameter vector ``(D,)``.
-        unravel_fn: Converts *z* to ``dict[site_name, array]``.
-        registry: Site descriptors (static per topology).
-        prior_state: Per-site prior parameters (dynamic JAX pytree).
-
-    Returns:
-        Scalar log density ``log p_unc(z) = Σ_i [log p(T_i(z_i)) + log|J_i|]``.
-    """
-    unc = unravel_fn(z)
-    lp = jnp.array(0.0)
-
-    for site in registry:
-        z_site = unc[site.name]
-        params = prior_state[site.name]
-
-        if site.support == SupportClass.REAL:
-            # Constrained == unconstrained for REAL support
-            low = params.get("low", jnp.full_like(params["loc"], -1e6))
-            high = params.get("high", jnp.full_like(params["loc"], 1e6))
-            lp = lp + _real_log_prob(
-                z_site,
-                params["family"],
-                params["loc"],
-                params["scale"],
-                low,
-                high,
-            )
-            # log|det J| = 0 for identity transform
-
-        elif site.support == SupportClass.POSITIVE:
-            x_site = jnp.exp(z_site)
-            lp = lp + _positive_log_prob(
-                x_site,
-                params["family"],
-                params["loc"],
-                params["scale"],
-                params["concentration"],
-                params["rate"],
-                params["value"],
-            )
-            # log|det J| = sum(z) for exp transform
-            lp = lp + jnp.sum(z_site)
-
-        elif site.support == SupportClass.CORRELATION:
-            x_site = _correlation_constrain(z_site)
-            low = params.get("low", jnp.full_like(params["loc"], -1.0))
-            high = params.get("high", jnp.full_like(params["loc"], 1.0))
-            lp = lp + _real_log_prob(
-                x_site,
-                params["family"],
-                params["loc"],
-                params["scale"],
-                low,
-                high,
-            )
-            lp = lp + jnp.sum(_correlation_log_abs_det_jacobian(z_site))
-
-    return lp
+def _correlation_inverse(x: jnp.ndarray) -> jnp.ndarray:
+    """Map correlation values in ``(-1, 1)`` to the unconstrained real line."""
+    x_safe = jnp.clip(x, -1.0 + 1e-6, 1.0 - 1e-6)
+    p = 0.5 * (x_safe + 1.0)
+    return jnp.log(p) - jnp.log1p(-p)
 
 
 # ---------------------------------------------------------------------------
 # Prior sampling
 # ---------------------------------------------------------------------------
+
+
+def _stable_site_key(rng_key: jnp.ndarray, site_name: str) -> jnp.ndarray:
+    """Derive a site stream that is unchanged by registry insertion or reordering."""
+    digest = hashlib.sha256(site_name.encode()).digest()
+    first = int.from_bytes(digest[:4], "little")
+    second = int.from_bytes(digest[4:8], "little")
+    return random.fold_in(random.fold_in(rng_key, first), second)
 
 
 def sample_prior_unconstrained(
@@ -742,10 +559,11 @@ def sample_prior_unconstrained(
         return jnp.zeros((n_samples, 0), dtype=jnp.float32), rng_key
 
     all_samples = []
-    for _ in range(n_samples):
+    for sample_index in range(n_samples):
+        sample_key = random.fold_in(rng_key, sample_index)
         parts = []
         for site in registry:
-            rng_key, sk = random.split(rng_key)
+            sk = _stable_site_key(sample_key, site.name)
             d = build_site_prior_distribution(site, prior_state[site.name])
             x = d.sample(sk)
 
@@ -761,7 +579,7 @@ def sample_prior_unconstrained(
         else:
             all_samples.append(jnp.zeros((0,), dtype=jnp.float32))
 
-    return jnp.stack(all_samples), rng_key
+    return jnp.stack(all_samples), random.fold_in(rng_key, n_samples)
 
 
 # ---------------------------------------------------------------------------
@@ -893,104 +711,68 @@ def _params_from_prior_spec(
 
 
 # ---------------------------------------------------------------------------
-# Verification
-# ---------------------------------------------------------------------------
-
-
-def verify_registry_matches_trace(
-    registry: list[SiteDescriptor],
-    site_info: dict,
-) -> None:
-    """Assert that registry site names and shapes match a traced site_info.
-
-    Raises ``AssertionError`` with a detailed message on mismatch.
-    """
-    registry_names = {s.name for s in registry}
-    trace_names = set(site_info.keys())
-
-    missing = registry_names - trace_names
-    extra = trace_names - registry_names
-
-    errors = []
-    if missing:
-        errors.append(f"Registry has sites not found in trace: {sorted(missing)}")
-    if extra:
-        errors.append(f"Trace has sites not found in registry: {sorted(extra)}")
-
-    for site in registry:
-        if site.name in site_info:
-            traced_shape = site_info[site.name]["shape"]
-            if site.shape != traced_shape:
-                errors.append(
-                    f"Shape mismatch for {site.name}: registry={site.shape}, trace={traced_shape}"
-                )
-
-    if errors:
-        raise AssertionError("Registry/trace mismatch:\n  " + "\n  ".join(errors))
-
-
-# ---------------------------------------------------------------------------
 # Serialization / deserialization for compiled artifacts
 # ---------------------------------------------------------------------------
 
 
-def serialize_site_registry(registry: list[SiteDescriptor]) -> list[dict]:
+def serialize_site_registry(registry: list[SiteDescriptor]) -> list[SerializedSiteDescriptor]:
     """Serialize site registry for JSON storage inside ``_compiled_ssm``."""
     return [
-        {
-            "name": s.name,
-            "shape": list(s.shape),
-            "support": s.support.value,
-            "assembly_group": s.assembly_group,
-            "site_kind": s.site_kind.value,
-            "transform_kind": s.transform_kind.value,
-            "deterministic_name": s.deterministic_name,
-            "fixed_spec_field": s.fixed_spec_field,
-            "priors_field": s.priors_field,
-            "runtime_prior_key": s.runtime_prior_key,
-            "is_runtime_prior_controlled": s.is_runtime_prior_controlled,
-        }
+        SerializedSiteDescriptor(
+            name=s.name,
+            shape=list(s.shape),
+            support=s.support,
+            assembly_group=s.assembly_group,
+            site_kind=s.site_kind,
+            transform_kind=s.transform_kind,
+            deterministic_name=s.deterministic_name,
+            fixed_spec_field=s.fixed_spec_field,
+            priors_field=s.priors_field,
+            runtime_prior_key=s.runtime_prior_key,
+            is_runtime_prior_controlled=s.is_runtime_prior_controlled,
+        )
         for s in registry
     ]
 
 
-def deserialize_site_registry(payload: list[dict]) -> list[SiteDescriptor]:
+def deserialize_site_registry(payload: list[SerializedSiteDescriptor]) -> list[SiteDescriptor]:
     """Restore site registry from serialized form."""
     return [
         SiteDescriptor(
-            name=d["name"],
-            shape=tuple(d["shape"]),
-            support=SupportClass(d["support"]),
-            assembly_group=d["assembly_group"],
-            site_kind=SiteKind(d["site_kind"]),
-            transform_kind=TransformKind(d["transform_kind"]),
-            deterministic_name=d.get("deterministic_name"),
-            fixed_spec_field=d.get("fixed_spec_field"),
-            priors_field=d.get("priors_field"),
-            runtime_prior_key=d.get("runtime_prior_key"),
-            is_runtime_prior_controlled=d.get("is_runtime_prior_controlled", True),
+            name=d.name,
+            shape=tuple(d.shape),
+            support=d.support,
+            assembly_group=d.assembly_group,
+            site_kind=d.site_kind,
+            transform_kind=d.transform_kind,
+            deterministic_name=d.deterministic_name,
+            fixed_spec_field=d.fixed_spec_field,
+            priors_field=d.priors_field,
+            runtime_prior_key=d.runtime_prior_key,
+            is_runtime_prior_controlled=d.is_runtime_prior_controlled,
         )
         for d in payload
     ]
 
 
-def serialize_prior_runtime_state(state: PriorRuntimeState) -> dict:
+def serialize_prior_runtime_state(state: PriorRuntimeState) -> dict[str, CompiledPriorSite]:
     """Serialize prior runtime state for JSON storage."""
     import numpy as np
 
-    result = {}
+    result: dict[str, CompiledPriorSite] = {}
     for name, params in state.items():
-        result[name] = {}
+        serialized_params = {}
         for k, v in params.items():
             if hasattr(v, "tolist"):
-                result[name][k] = np.asarray(v).tolist()
+                serialized_params[k] = np.asarray(v).tolist()
             else:
-                result[name][k] = v
+                serialized_params[k] = v
+        result[name] = CompiledPriorSite.model_validate(serialized_params)
     return result
 
 
 def deserialize_prior_runtime_state(
-    payload: dict,
+    payload: dict[str, CompiledPriorSite],
     registry: list[SiteDescriptor],
 ) -> PriorRuntimeState:
     """Restore prior runtime state from serialized form.
@@ -1000,7 +782,7 @@ def deserialize_prior_runtime_state(
     """
     state: PriorRuntimeState = {}
     for site in registry:
-        raw = payload[site.name]
+        raw = payload[site.name].model_dump(exclude_none=True)
         params: dict[str, jnp.ndarray] = {}
         for k, v in raw.items():
             if k == "family":
@@ -1014,7 +796,7 @@ def deserialize_prior_runtime_state(
 def compile_prior_semantics(
     spec: SSMSpec,
     priors: PriorRegistry | None = None,
-) -> dict:
+) -> CompiledPriorSemantics:
     """Build the ``compiled_prior_semantics`` block for a compiled artifact.
 
     This is the single cross-stage source of truth for prior/runtime
@@ -1023,11 +805,11 @@ def compile_prior_semantics(
     supported serialized prior/runtime representation.
     """
     bundle = build_prior_runtime_bundle(spec, priors)
-    return {
-        "schema_version": 5,
-        "site_registry": serialize_site_registry(bundle.site_runtime.registry),
-        "prior_state": serialize_prior_runtime_state(bundle.prior_state),
-    }
+    return CompiledPriorSemantics(
+        schema_version=5,
+        site_registry=serialize_site_registry(bundle.site_runtime.registry),
+        prior_state=serialize_prior_runtime_state(bundle.prior_state),
+    )
 
 
 def build_prior_runtime_bundle(
@@ -1044,17 +826,11 @@ def build_prior_runtime_bundle(
 
 
 def load_prior_runtime_bundle(
-    compiled_prior_semantics: dict,
+    compiled_prior_semantics: CompiledPriorSemantics,
 ) -> PriorRuntimeBundle:
     """Restore reusable runtime components from ``compiled_prior_semantics``."""
-    schema_version = compiled_prior_semantics.get("schema_version")
-    if schema_version != 5:
-        raise ValueError(
-            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 5."
-        )
-
-    registry = deserialize_site_registry(compiled_prior_semantics["site_registry"])
-    prior_state = deserialize_prior_runtime_state(compiled_prior_semantics["prior_state"], registry)
+    registry = deserialize_site_registry(compiled_prior_semantics.site_registry)
+    prior_state = deserialize_prior_runtime_state(compiled_prior_semantics.prior_state, registry)
     site_runtime = _build_site_runtime_bundle_from_registry(registry)
     return PriorRuntimeBundle(
         site_runtime=site_runtime,

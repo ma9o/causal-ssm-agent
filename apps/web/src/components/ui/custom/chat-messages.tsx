@@ -291,9 +291,7 @@ function AssistantMessage({
             return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
           }
           case "tool-validate_measurement_structure":
-          case "tool-measurement_structure_grounding":
           case "tool-search_literature":
-          case "tool-elicit_prior_gmm":
             return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
           default:
             return isToolMessagePart(part) ? (

@@ -41,7 +41,7 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
 from nof1_causal_lab.models.ssm.inference.targets.emissions import get_mean_param_log_prob_fn
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
-    compile_measurement_semantics,
+    compile_observation_model,
 )
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
@@ -56,16 +56,20 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     _infer_support_groups,
     _make_support_window_derivatives,
     _point_ieks_mode,
-    _point_laplace_from_mode,
     _predictive_latent_init,
     _should_use_dense_support_laplace,
     _solve_block_banded_from_cholesky,
     _solve_block_tridiagonal,
     _support_aware_ieks_laplace,
     _support_aware_ieks_mode,
-    _support_aware_laplace_from_mode,
     _support_aware_step_halving_search,
     block_profile_logdet_packed_cotangent,
+)
+from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
+    _point_laplace_terms_from_mode,
+)
+from nof1_causal_lab.models.ssm.inference.targets.laplace.support import (
+    _support_aware_laplace_terms_from_mode,
 )
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,
@@ -88,7 +92,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
@@ -301,7 +305,7 @@ class TestLaplaceEMBlockSolver:
 
         z_init = jnp.broadcast_to(init_mean, (T, D))
         grads, J_t = jax.vmap(
-            lambda y_t, z_t, mask_t: obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
+            lambda y_t, z_t, mask_t: obs_kernel.latent_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
         )(observations, z_init, obs_mask.astype(jnp.float32))
         tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_init, grads)
         prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
@@ -367,7 +371,7 @@ class TestLaplaceEMBlockSolver:
 
         def _direct_objective(raw_params):
             R, obs_kernel = _runtime(raw_params)
-            z_mode, mode_aux = _point_ieks_mode(
+            z_mode, _mode_aux = _point_ieks_mode(
                 observations,
                 obs_mask,
                 Ad,
@@ -381,20 +385,21 @@ class TestLaplaceEMBlockSolver:
                 obs_kernel,
                 n_ieks_iters=12,
             )
-            log_lik, _inner_eval_aux = _point_laplace_from_mode(
-                z_mode,
-                mode_aux,
-                observations,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H_rows,
-                d_rows,
-                R,
-                init_mean,
-                init_cov,
-                obs_kernel,
+            log_lik, _mode_log_joint, _laplace_logdet, _min_chol_diag = (
+                _point_laplace_terms_from_mode(
+                    z_mode,
+                    observations,
+                    obs_mask,
+                    Ad,
+                    Qd,
+                    cd,
+                    H_rows,
+                    d_rows,
+                    R,
+                    init_mean,
+                    init_cov,
+                    obs_kernel,
+                )
             )
             return log_lik
 
@@ -422,7 +427,7 @@ class TestLaplaceEMBlockSolver:
         init_cov = jnp.array([[0.6]], dtype=jnp.float32)
 
         def _build_measurement_objects(manifest_cov, runtime_extra_params):
-            return compile_measurement_semantics(
+            return compile_observation_model(
                 [DistributionFamily.STUDENT_T],
                 manifest_cov=manifest_cov,
                 extra_params=runtime_extra_params,
@@ -447,7 +452,7 @@ class TestLaplaceEMBlockSolver:
                 R,
                 init_mean,
                 init_cov,
-                measurement_semantics.obs_kernel,
+                measurement_semantics.kernel,
                 n_ieks_iters=12,
                 build_measurement_objects=_build_measurement_objects,
                 extra_params=extra_params,
@@ -918,7 +923,7 @@ class TestLaplaceSupportAwareGradients:
         init_cov = jnp.array([[0.7]], dtype=jnp.float32)
 
         def _build_measurement_objects(manifest_cov, runtime_extra_params):
-            measurement_semantics = compile_measurement_semantics(
+            measurement_semantics = compile_observation_model(
                 [DistributionFamily.STUDENT_T],
                 manifest_cov=manifest_cov,
                 extra_params=runtime_extra_params,
@@ -931,7 +936,7 @@ class TestLaplaceSupportAwareGradients:
                     n_latent=1,
                     n_manifest=1,
                     summary_operator_codes=summary_operator_codes,
-                    obs_kernel=measurement_semantics.obs_kernel,
+                    obs_kernel=measurement_semantics.kernel,
                     mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
                 )
                 for batch in window_batches
@@ -960,7 +965,7 @@ class TestLaplaceSupportAwareGradients:
                 R,
                 init_mean,
                 init_cov,
-                measurement_semantics.obs_kernel,
+                measurement_semantics.kernel,
                 measurement_semantics.mean_log_prob_fn,
                 support,
                 window_batches,
@@ -977,7 +982,7 @@ class TestLaplaceSupportAwareGradients:
         def _direct_objective(raw_params):
             R, extra_params = _runtime_params(raw_params)
             measurement_semantics, window_derivatives = _build_measurement_objects(R, extra_params)
-            z_mode, mode_aux = _support_aware_ieks_mode(
+            z_mode, _mode_aux = _support_aware_ieks_mode(
                 clean_obs,
                 obs_mask,
                 Ad,
@@ -988,7 +993,7 @@ class TestLaplaceSupportAwareGradients:
                 R,
                 init_mean,
                 init_cov,
-                measurement_semantics.obs_kernel,
+                measurement_semantics.kernel,
                 measurement_semantics.mean_log_prob_fn,
                 support,
                 window_batches,
@@ -1000,29 +1005,30 @@ class TestLaplaceSupportAwareGradients:
                 factor_block_cholesky_fn=_factor_block_banded_cholesky,
                 solve_block_from_cholesky_fn=_solve_block_banded_from_cholesky,
             )
-            log_lik, _inner_eval_aux = _support_aware_laplace_from_mode(
-                z_mode,
-                mode_aux,
-                clean_obs,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H,
-                d,
-                R,
-                init_mean,
-                init_cov,
-                measurement_semantics.obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
-                support,
-                window_batches,
-                point_like_mask,
-                window_derivatives,
-                bandwidth,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-                factor_block_cholesky_fn=_factor_block_banded_cholesky,
+            log_lik, _mode_log_joint, _laplace_logdet, _min_chol_diag = (
+                _support_aware_laplace_terms_from_mode(
+                    z_mode,
+                    clean_obs,
+                    obs_mask,
+                    Ad,
+                    Qd,
+                    cd,
+                    H,
+                    d,
+                    R,
+                    init_mean,
+                    init_cov,
+                    measurement_semantics.kernel,
+                    measurement_semantics.mean_log_prob_fn,
+                    support,
+                    window_batches,
+                    point_like_mask,
+                    window_derivatives,
+                    bandwidth,
+                    row_upper_bandwidths,
+                    row_lower_bandwidths,
+                    factor_block_cholesky_fn=_factor_block_banded_cholesky,
+                )
             )
             return log_lik
 
@@ -1331,11 +1337,10 @@ class TestObservationKernelMissingData:
         y = jnp.array([1.0, -2.0])
         obs_mask = jnp.array([True, False])
 
-        ll = kernel.emission_fn(
+        linear_predictor = jnp.ones((n_manifest, n_latent)) @ x + jnp.zeros(n_manifest)
+        ll = kernel.log_prob_fn(
             y,
-            x,
-            jnp.ones((n_manifest, n_latent)),
-            jnp.zeros(n_manifest),
+            linear_predictor,
             jnp.diag(jnp.array([0.5, 0.5])),
             obs_mask,
         )
@@ -1361,8 +1366,8 @@ class TestInferenceCaching:
         spec = _one_dim_block_spec()
         model = SSMModel(spec)
 
-        backend_a = model.make_likelihood_backend()
-        backend_b = model.make_likelihood_backend()
+        backend_a = model.make_laplace_backend(6)
+        backend_b = model.make_laplace_backend(6)
         laplace_a = model.make_laplace_backend(3)
         laplace_b = model.make_laplace_backend(3)
         laplace_c = model.make_laplace_backend(5)
@@ -1624,7 +1629,7 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
     assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
     assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
-    latent_summary = result.get_latent_posterior_summary()
+    latent_summary = result.diagnostics.get("latent_posterior_summary")
     assert latent_summary is not None
     assert latent_summary["mean"].shape == (3, 1)
     assert bool(jnp.isfinite(latent_summary["mean"]).all())
@@ -1900,7 +1905,7 @@ def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
         trace_key=jax.random.PRNGKey(0),
         reparam=None,
     )
-    dim = int(bundle["flat_example"].shape[0])
+    dim = int(bundle.cached.flat_example.shape[0])
 
     with pytest.raises(ValueError, match="non-finite for chain"):
         fit(

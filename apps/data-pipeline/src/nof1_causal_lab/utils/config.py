@@ -9,10 +9,13 @@ import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import yaml
 from dotenv import load_dotenv
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.sampler_config import SamplerConfig
 
 # Centralized .env loading — all modules that need env vars import from config.py
 # (or from modules that import config.py), so this runs once at import time.
@@ -23,9 +26,10 @@ load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
 # LLM backend defaults (global)
 # ---------------------------------------------------------------------------
 
-HARNESS_VALUES = ("none", "claude-code", "codex")
+HARNESS_VALUES = ("none", "claude-code", "codex", "pi")
 EMBEDDED_REASONING_EFFORT_VALUES = ("none", "minimal", "low", "medium", "high", "xhigh")
 HARNESS_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
+PI_THINKING_VALUES = ("off", "minimal", "low", "medium", "high", "xhigh")
 
 
 @dataclass(frozen=True)
@@ -58,12 +62,22 @@ class CodexDefaults:
 
 
 @dataclass(frozen=True)
+class PiDefaults:
+    """Defaults for ``harness: pi`` contexts."""
+
+    bin: str = "pi"
+    provider: str = "openai-codex"
+    thinking: str = "high"
+
+
+@dataclass(frozen=True)
 class LLMDefaults:
     """Global LLM backend defaults (one section per backend)."""
 
     embedded: EmbeddedLLMDefaults = field(default_factory=EmbeddedLLMDefaults)
     claude_code: ClaudeCodeDefaults = field(default_factory=ClaudeCodeDefaults)
     codex: CodexDefaults = field(default_factory=CodexDefaults)
+    pi: PiDefaults = field(default_factory=PiDefaults)
 
 
 @dataclass(frozen=True)
@@ -86,6 +100,9 @@ class LLMProfileConfig:
     reasoning_effort: str | None = None
     # codex overrides
     service_tier: str | None = None
+    # pi overrides
+    provider: str | None = None
+    thinking: str | None = None
     # claude-code overrides
     effort: str | None = None
     max_turns: int | None = None
@@ -147,24 +164,12 @@ class LiteratureSearchConfig:
 
 
 @dataclass(frozen=True)
-class ParaphrasingConfig:
-    """AutoElicit-style paraphrased prompting configuration."""
-
-    enabled: bool = False
-    n_paraphrases: int = 10
-    gmm_model: str | None = None
-    """Override model name for inner paraphrase calls; inherits the
-    context's ``llm.harness``. ``None`` means use the context's main model."""
-
-
-@dataclass(frozen=True)
 class PriorElicitationConfig:
     """model-spec: Statistical Model Specification & Prior Elicitation."""
 
     llm: LLMProfileConfig
     max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
-    paraphrasing: ParaphrasingConfig = field(default_factory=ParaphrasingConfig)
 
 
 @dataclass(frozen=True)
@@ -260,14 +265,14 @@ class InferenceConfig:
         default_factory=MarginalParticleGibbsConfig
     )
 
-    def to_sampler_config(self, method_override: str | None = None) -> dict:
+    def to_sampler_config(self, method_override: str | None = None) -> SamplerConfig:
         """Build a flat sampler config dict for SSM inference."""
         method = method_override or self.method
         if method != "marginal_particle_gibbs":
             raise ValueError(
                 f"Unsupported inference method {method!r}; expected 'marginal_particle_gibbs'."
             )
-        config: dict = {
+        config = {
             "method": method,
             "num_warmup": self.num_warmup,
             "num_samples": self.num_samples,
@@ -280,7 +285,7 @@ class InferenceConfig:
                 **dataclasses.asdict(self.marginal_particle_gibbs),
             }
         )
-        return config
+        return cast("SamplerConfig", config)
 
 
 # ---------------------------------------------------------------------------
@@ -353,12 +358,14 @@ def _parse_llm_defaults(raw: dict) -> LLMDefaults:
     embedded_raw = raw.get("embedded", {}) or {}
     claude_code_raw = raw.get("claude_code", {}) or {}
     codex_raw = raw.get("codex", {}) or {}
+    pi_raw = raw.get("pi", {}) or {}
     return LLMDefaults(
         embedded=EmbeddedLLMDefaults(**embedded_raw) if embedded_raw else EmbeddedLLMDefaults(),
         claude_code=ClaudeCodeDefaults(**claude_code_raw)
         if claude_code_raw
         else ClaudeCodeDefaults(),
         codex=CodexDefaults(**codex_raw) if codex_raw else CodexDefaults(),
+        pi=PiDefaults(**pi_raw) if pi_raw else PiDefaults(),
     )
 
 
@@ -411,16 +418,12 @@ def load_config() -> PipelineConfig:
     prior_raw = dict(raw.get("prior_elicitation", {}) or {})
     prior_llm = _parse_profile_llm(prior_raw.pop("llm"), "prior_elicitation")
     lit_search_raw = prior_raw.pop("literature_search", {}) or {}
-    paraphrasing_raw = prior_raw.pop("paraphrasing", {}) or {}
     prior_config = PriorElicitationConfig(
         llm=prior_llm,
         max_tool_turns=prior_raw.get("max_tool_turns", 40),
         literature_search=LiteratureSearchConfig(**lit_search_raw)
         if lit_search_raw
         else LiteratureSearchConfig(),
-        paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
-        if paraphrasing_raw
-        else ParaphrasingConfig(),
     )
 
     commentary_raw = raw.get("analysis_commentary", {}) or {}
@@ -495,6 +498,12 @@ def validate_config(config: PipelineConfig) -> list[str]:
             )
 
         # Harness-specific field compatibility
+        if llm.harness != "pi":
+            if llm.provider is not None:
+                errors.append(f"{path}.provider: only valid for harness=pi")
+            if llm.thinking is not None:
+                errors.append(f"{path}.thinking: only valid for harness=pi")
+
         if llm.harness == "none":
             if llm.effort is not None:
                 errors.append(
@@ -508,7 +517,7 @@ def validate_config(config: PipelineConfig) -> list[str]:
             if llm.fallback_model is not None:
                 errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
             if llm.bin is not None:
-                errors.append(f"{path}.bin: only valid for harness=claude-code or codex")
+                errors.append(f"{path}.bin: only valid for a subprocess harness")
             if llm.service_tier is not None:
                 errors.append(f"{path}.service_tier: only valid for harness=codex")
             if (
@@ -559,6 +568,26 @@ def validate_config(config: PipelineConfig) -> list[str]:
                     f"{list(HARNESS_EFFORT_VALUES)}"
                 )
 
+        elif llm.harness == "pi":
+            if llm.max_tokens is not None:
+                errors.append(f"{path}.max_tokens: not configurable for harness=pi")
+            if llm.reasoning_effort is not None:
+                errors.append(f"{path}.reasoning_effort: use 'thinking' for harness=pi")
+            if llm.service_tier is not None:
+                errors.append(f"{path}.service_tier: only valid for harness=codex")
+            if llm.effort is not None:
+                errors.append(f"{path}.effort: only valid for harness=claude-code")
+            if llm.max_turns is not None:
+                errors.append(f"{path}.max_turns: only valid for harness=claude-code")
+            if llm.max_budget_usd is not None:
+                errors.append(f"{path}.max_budget_usd: only valid for harness=claude-code")
+            if llm.fallback_model is not None:
+                errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
+            if llm.thinking is not None and llm.thinking not in PI_THINKING_VALUES:
+                errors.append(
+                    f"{path}.thinking: {llm.thinking!r} not in {list(PI_THINKING_VALUES)}"
+                )
+
     # Global LLM defaults: enum checks
     embedded = config.llm.embedded
     if embedded.reasoning_effort not in EMBEDDED_REASONING_EFFORT_VALUES:
@@ -575,6 +604,10 @@ def validate_config(config: PipelineConfig) -> list[str]:
         errors.append(
             f"llm.codex.reasoning_effort: {config.llm.codex.reasoning_effort!r} not in "
             f"{list(HARNESS_EFFORT_VALUES)}"
+        )
+    if config.llm.pi.thinking not in PI_THINKING_VALUES:
+        errors.append(
+            f"llm.pi.thinking: {config.llm.pi.thinking!r} not in {list(PI_THINKING_VALUES)}"
         )
 
     return errors
@@ -628,25 +661,16 @@ def _check_codex_prereqs(config: PipelineConfig) -> list[str]:
     return errors
 
 
-def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
-    """Check that binaries and credentials required by the configured harnesses exist.
-
-    ``harness: none`` still requires ``OPENROUTER_API_KEY``. ``claude-code``
-    and ``codex`` authenticate via their respective CLIs' subscription
-    logins (Claude Max/Pro and ChatGPT Plus/Pro/Team/Enterprise) — we
-    check that the CLI is logged in via ``claude auth status`` and
-    ``~/.codex/auth.json``. Safe to call repeatedly; the pipeline also
-    runs per-harness subsets of this via :func:`ensure_harness_prereqs`
-    the first time each backend opens a session.
-    """
+def _check_pi_prereqs(config: PipelineConfig) -> list[str]:
     errors: list[str] = []
-    harnesses_used = {llm.harness for _name, llm in _iter_profile_llms(config)}
-    if "none" in harnesses_used:
-        errors.extend(_check_embedded_prereqs())
-    if "claude-code" in harnesses_used:
-        errors.extend(_check_claude_code_prereqs(config))
-    if "codex" in harnesses_used:
-        errors.extend(_check_codex_prereqs(config))
+    bin_name = config.llm.pi.bin
+    if shutil.which(bin_name) is None:
+        errors.append(f"pi binary {bin_name!r} not found on PATH (required for harness=pi)")
+    if not Path("~/.pi/agent/auth.json").expanduser().exists():
+        errors.append(
+            "pi is not logged in — run `pi` and authenticate "
+            "(expected ~/.pi/agent/auth.json to exist)"
+        )
     return errors
 
 
@@ -670,6 +694,8 @@ def ensure_harness_prereqs(harness: str) -> None:
         errors = _check_claude_code_prereqs(config)
     elif harness == "codex":
         errors = _check_codex_prereqs(config)
+    elif harness == "pi":
+        errors = _check_pi_prereqs(config)
     else:
         raise ValueError(f"Unknown harness: {harness!r}")
     if errors:
@@ -677,8 +703,3 @@ def ensure_harness_prereqs(harness: str) -> None:
             f"Harness {harness!r} prereqs not satisfied:\n" + "\n".join(f"  - {e}" for e in errors)
         )
     _verified_harnesses.add(harness)
-
-
-def _reset_verified_harnesses_for_testing() -> None:
-    """Clear the per-process cache; used by tests that patch env/subprocess."""
-    _verified_harnesses.clear()

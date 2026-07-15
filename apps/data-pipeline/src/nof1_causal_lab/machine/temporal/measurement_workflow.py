@@ -24,7 +24,9 @@ with workflow.unsafe.imports_passed_through():
         MeasurementsFinalizeInput,
         MeasurementsPlan,
         MeasurementsWorkflowInput,
+        TransitionRuntimeError,
         TransitionRuntimeEventInput,
+        TransitionRuntimeStatus,
     )
 
 _EVENT_TIMEOUT = timedelta(seconds=30)
@@ -49,8 +51,8 @@ _CHUNK_WORKFLOW_RETRY = RetryPolicy(
 async def _emit_transition_event(
     workspace_id: str,
     transition_id: str,
-    status: str,
-    error: dict | None = None,
+    status: TransitionRuntimeStatus,
+    error: TransitionRuntimeError | None = None,
 ) -> None:
     await workflow.execute_activity(
         "emit_transition_runtime_event_activity",
@@ -308,6 +310,8 @@ class MeasurementsWorkflow:
                 input.workspace_id,
                 "measurements",
                 "failed",
-                error={"type": type(exc).__name__, "message": _failure_message(exc)},
+                error=TransitionRuntimeError(
+                    type=type(exc).__name__, message=_failure_message(exc)
+                ),
             )
             raise

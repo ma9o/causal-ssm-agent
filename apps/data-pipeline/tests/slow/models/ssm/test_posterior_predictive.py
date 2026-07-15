@@ -1,6 +1,7 @@
 """Slow posterior predictive tests."""
 
 import jax.numpy as jnp
+import jax.random
 import pytest
 
 from nof1_causal_lab.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
@@ -26,7 +27,7 @@ class TestForwardSimulation:
         # Exercise every emission family from a neutral observation linear predictor.
         linear_predictors = jnp.zeros((8, 12, 10), dtype=jnp.float32)
 
-        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
             linear_predictors,
             samples,
             times,
@@ -34,7 +35,7 @@ class TestForwardSimulation:
             manifest_links=manifest_links,
             manifest_level_counts=manifest_level_counts,
             n_subsample=8,
-            rng_seed=3,
+            rng_key=jax.random.PRNGKey(3),
         )
 
         assert y_sim.shape == (8, 12, 10)
@@ -59,7 +60,7 @@ class TestRunPPC:
         samples = make_complex_mixed_samples(seed=7)
         times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
         # Reference "observed" series: one neutral-predictor emission draw.
-        reference_y, _ = sample_predictive_observations_from_linear_predictors(
+        reference_y, _, _ = sample_predictive_observations_from_linear_predictors(
             jnp.zeros((8, 12, 10), dtype=jnp.float32),
             samples,
             times,
@@ -67,7 +68,7 @@ class TestRunPPC:
             manifest_links=manifest_links,
             manifest_level_counts=manifest_level_counts,
             n_subsample=8,
-            rng_seed=11,
+            rng_key=jax.random.PRNGKey(11),
         )
         observations = reference_y[3]
 

@@ -7,7 +7,6 @@ the helpers with real transformation or graph logic:
 - ``get_outcome_name``
 - ``get_all_treatments``
 - ``get_estimation_constructs``
-- ``get_estimable_treatments``
 """
 
 import pytest
@@ -15,7 +14,6 @@ import pytest
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
-    get_estimable_treatments,
     get_estimation_constructs,
     get_marginalized_scales,
     get_outcome_name,
@@ -317,8 +315,6 @@ class TestEstimationAccessors:
                 "description": "Theoretical-only path",
             }
         )
-
-        assert get_estimable_treatments(spec) == ["stress"]
 
 
 class TestGetMarginalizedScales:

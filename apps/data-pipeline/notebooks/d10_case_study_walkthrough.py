@@ -23,7 +23,7 @@ def imports():
 
     from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
     from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
-    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_construct_flow import ParamCatalog
+    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import ParamCatalog
     from nof1_causal_lab.models.ssm.construct_admission import (
         AdmissionState,
         ConstructContribution,

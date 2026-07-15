@@ -1,38 +1,12 @@
-"""Agent-driven multi-turn conversation primitives.
-
-An ``AgentSession`` is a live, stateful conversation with a fixed system
-prompt and tool set, opened against a backend. Callers drive the session
-turn by turn; the backend handles the inner tool-use loop and returns
-each turn's assistant output.
-
-Two backends are supported:
-
-* Embedded: calls OpenRouter directly via ``call_model``/``execute_tools``
-  (see :mod:`nof1_causal_lab.utils.agent_session_embedded`).
-* Harness: spawns an external agent CLI such as ``claude -p`` or
-  ``codex exec`` and exposes tools over an in-process MCP server
-  (see :mod:`nof1_causal_lab.utils.harness`).
-
-Transitions do not talk to those modules directly: they receive a
-:class:`ScopedSessionFactory` that already knows the stage's
-:class:`LLMProfileConfig` and accumulates LLM traces across every session
-it opens. ``ScopedSessionFactory.open(...)`` returns an async context
-manager yielding a live :class:`AgentSession`.
-"""
+"""Shared turn and aggregate result values for harness conversations."""
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
-
-from nof1_causal_lab.utils.llm import LLMTrace, _merge_trace
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
-    from nof1_causal_lab.utils.config import LLMDefaults, LLMProfileConfig
-    from nof1_causal_lab.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.llm import LLMTrace
 
 
 @dataclass
@@ -58,68 +32,3 @@ class AgentResult:
     trace: LLMTrace
     terminal_tool_name: str | None = None
     terminal_tool_output: str | None = None
-
-
-class AgentSession(Protocol):
-    """A live multi-turn conversation with a fixed tool set."""
-
-    async def turn(self, user_message: str) -> TurnResult: ...
-
-    @property
-    def result(self) -> AgentResult: ...
-
-
-class ScopedSessionFactory:
-    """Opens :class:`AgentSession` instances for a stage, accumulating traces.
-
-    Transitions receive an instance of this class instead of a plain generate
-    function; each ``.open(...)`` call yields a fresh session bound to
-    the configured backend. After every session closes, its
-    :class:`LLMTrace` is merged into :attr:`accumulated_trace` so the
-    outer transition wrapper can attach one combined trace to its output
-    payload.
-    """
-
-    def __init__(
-        self,
-        profile_llm: LLMProfileConfig,
-        llm_defaults: LLMDefaults,
-        *,
-        context_id: str,
-        max_tool_turns: int | None = None,
-    ) -> None:
-        self._profile_llm = profile_llm
-        self._llm_defaults = llm_defaults
-        self._context_id = context_id
-        self._max_tool_turns = max_tool_turns
-        self.accumulated_trace: LLMTrace = LLMTrace()
-
-    @asynccontextmanager
-    async def open(
-        self,
-        *,
-        system_prompt: str | None = None,
-        tools: list[Tool] | None = None,
-        log_label: str | None = None,
-    ) -> AsyncIterator[AgentSession]:
-        """Open a backend-appropriate :class:`AgentSession`."""
-        from nof1_causal_lab.utils.agent_session_factory import open_session
-
-        async with open_session(
-            self._profile_llm,
-            self._llm_defaults,
-            system_prompt=system_prompt,
-            tools=tools or [],
-            log_label=log_label or self._context_id,
-            max_tool_turns=self._max_tool_turns,
-        ) as session:
-            try:
-                yield session
-            finally:
-                try:
-                    this_trace = session.result.trace
-                except RuntimeError:
-                    # No turns were executed inside the block.
-                    this_trace = None
-                if this_trace is not None:
-                    self.accumulated_trace = _merge_trace(self.accumulated_trace, this_trace)

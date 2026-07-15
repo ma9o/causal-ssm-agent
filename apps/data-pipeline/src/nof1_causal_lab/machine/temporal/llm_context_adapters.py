@@ -11,7 +11,7 @@ def subroutine_context_messages(
     context_ref: str,
 ) -> tuple[str | None, list[str], list[LLMToolSpec]]:
     if context_kind == "measurement_extraction":
-        from nof1_causal_lab.workers.core import WorkerMessages
+        from nof1_causal_lab.workers.messages import WorkerMessages
 
         spec = read_subroutine_json(context_ref)
         messages = WorkerMessages(

@@ -17,23 +17,11 @@ from time import monotonic, perf_counter
 from typing import Any, Literal, cast
 
 from openai import AsyncOpenAI
-from pydantic import Field, ValidationError, create_model
+from pydantic import Field, create_model
 
 from nof1_causal_lab.utils.config import get_secret
 
 logger = logging.getLogger(__name__)
-_RECOVERABLE_TOOL_EXECUTION_ERRORS = (
-    ArithmeticError,
-    AssertionError,
-    AttributeError,
-    LookupError,
-    OSError,
-    RuntimeError,
-    TypeError,
-    ValidationError,
-    ValueError,
-)
-
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
 
@@ -66,13 +54,6 @@ class RpmLimiter:
         while self._timestamps and self._timestamps[0] <= now - self._window:
             self._timestamps.popleft()
 
-    def request_count(self) -> int:
-        """Return the current rolling-window request count."""
-        with self._lock:
-            now = monotonic()
-            self._purge(now)
-            return len(self._timestamps)
-
     async def acquire(self) -> None:
         """Wait until a request slot is available within the window."""
         while True:
@@ -92,34 +73,11 @@ _openrouter_client: AsyncOpenAI | None = None
 _openrouter_client_lock = threading.Lock()
 
 
-def set_limiter(name: str, limiter: RpmLimiter | None) -> None:
-    """Register (or clear) a named rate limiter.
-
-    Usage::
-
-        set_limiter("llm", RpmLimiter(450))          # 450 LLM calls / 60s
-        set_limiter("exa", RpmLimiter(8, 1.0))       # 8 Exa calls / 1s
-        set_limiter("llm", None)                      # remove
-    """
-    if limiter is None:
-        _limiters.pop(name, None)
-    else:
-        _limiters[name] = limiter
-
-
 async def acquire_limiter(name: str) -> None:
     """Acquire a slot from the named limiter (no-op if not registered)."""
     limiter = _limiters.get(name)
     if limiter is not None:
         await limiter.acquire()
-
-
-def get_limiter_request_count(name: str) -> int:
-    """Return the current rolling-window request count for a limiter."""
-    limiter = _limiters.get(name)
-    if limiter is None:
-        return 0
-    return limiter.request_count()
 
 
 def _get_openrouter_client() -> AsyncOpenAI:
@@ -510,70 +468,3 @@ async def call_model(
         "time": elapsed,
         "stop_reason": stop_reason,
     }
-
-
-async def execute_tools(
-    assistant_message: dict[str, Any],
-    tools: list[Tool],
-    max_tool_output: int | None = None,
-    log_label: str | None = None,
-) -> list[dict[str, Any]]:
-    """Execute tool calls from a normalized assistant message."""
-
-    tool_calls = assistant_message.get("tool_calls") or []
-    if not tool_calls:
-        return []
-
-    tool_map = {tool_obj.name: tool_obj for tool_obj in tools}
-    tool_messages: list[dict[str, Any]] = []
-
-    if log_label:
-        logger.info("[%s] executing %d tool call(s)", log_label, len(tool_calls))
-
-    for tool_call in tool_calls:
-        fn = tool_call.get("function") or {}
-        tool_name = str(fn.get("name") or tool_call.get("name", ""))
-        result_text: str
-        error_text: str | None = None
-        tool_obj = tool_map.get(tool_name)
-        started_at = perf_counter()
-
-        if tool_obj is None:
-            result_text = f"Unknown tool: {tool_name}"
-            error_text = result_text
-        else:
-            try:
-                raw_args = str(fn.get("arguments") or tool_call.get("arguments", "{}") or "{}")
-                args = json.loads(raw_args)
-                if not isinstance(args, dict):
-                    raise ValueError("Tool arguments must decode to a JSON object")
-                result = await tool_obj(**args)
-                result_text = str(result)
-            except _RECOVERABLE_TOOL_EXECUTION_ERRORS as exc:
-                result_text = f"Tool execution failed: {exc}"
-                error_text = str(exc)
-
-        if max_tool_output is not None and len(result_text) > max_tool_output:
-            result_text = result_text[:max_tool_output] + "\n...[truncated]"
-
-        if log_label:
-            logger.info(
-                "[%s] tool %s finished: status=%s time=%.1fs output_chars=%d",
-                log_label,
-                tool_name,
-                "error" if error_text else "ok",
-                perf_counter() - started_at,
-                len(result_text),
-            )
-
-        tool_messages.append(
-            {
-                "role": "tool",
-                "content": result_text,
-                "tool_call_id": str(tool_call.get("id", "")),
-                "name": tool_name,
-                "error": error_text,
-            }
-        )
-
-    return tool_messages

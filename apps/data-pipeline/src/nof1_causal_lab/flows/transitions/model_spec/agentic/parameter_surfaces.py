@@ -54,7 +54,7 @@ def parameter_is_active_for_statistical_model_spec(
             link,
             likelihood.get("support_kind"),
             likelihood.get("summary_operator"),
-            centered=bool(likelihood.get("centered")),
+            standardized=bool(likelihood.get("standardized")),
         )
 
     if role == "state_intercept":
@@ -62,7 +62,7 @@ def parameter_is_active_for_statistical_model_spec(
             return False
         construct_name = str(parameter.get("construct") or "")
         return any(
-            bool(likelihood.get("centered"))
+            bool(likelihood.get("standardized"))
             and str(likelihood.get("construct_name") or "") == construct_name
             for likelihood in chosen_likelihood_by_variable.values()
         )

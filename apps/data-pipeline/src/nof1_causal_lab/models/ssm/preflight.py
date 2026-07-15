@@ -1,7 +1,7 @@
 """Fit-time consistency checks between observed data, spec, and priors.
 
-The semantic pipeline layers (model-spec auto-centering, prior-predictive scale
-gates) only protect models that pass through them. Callers that drive
+The semantic pipeline layers (model-spec auto-standardization, prior-predictive
+scale gates) only protect models that pass through them. Callers that drive
 ``inference.fit()`` directly — benchmarks, notebooks, manual runs — can hand
 the sampler a configuration whose ground truth has essentially zero prior
 density (e.g. a raw-scale Gaussian indicator mean of 87 under the canonical
@@ -12,8 +12,9 @@ failure in recovery summaries.
 
 These checks run unconditionally at the ``fit()`` boundary and fail loudly:
 
-- A channel marked ``manifest_centered`` must actually arrive centered.
-- A free manifest mean on an uncentered identity-link location channel must
+- A channel marked ``manifest_standardized`` must actually arrive standardized
+  (column mean near 0 and column sd near 1).
+- A free manifest mean on an unstandardized identity-link location channel must
   have the observed column mean within reach of its prior.
 
 Scope is deliberately limited to checks that cannot false-positive on a
@@ -39,7 +40,8 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMModel
 
 LOCATION_REACH_SIGMAS = 6.0
-CENTERED_MEAN_SD_RATIO = 0.5
+STANDARDIZED_MEAN_SD_RATIO = 0.5
+STANDARDIZED_SD_BAND = (0.5, 2.0)
 
 _LOCATION_FAMILIES = (DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T)
 _REACH_PRIOR_FAMILIES = (
@@ -91,7 +93,7 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
         if spec.manifest_links is not None
         else [LinkFunction.IDENTITY] * spec.n_manifest
     )
-    centered = list(spec.manifest_centered or [False] * spec.n_manifest)
+    standardized = list(spec.manifest_standardized or [False] * spec.n_manifest)
     names = (
         list(spec.manifest_names)
         if spec.manifest_names is not None
@@ -111,12 +113,19 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
         mean_j = float(finite.mean())
         sd_j = float(finite.std())
 
-        if bool(centered[j]):
-            if abs(mean_j) > CENTERED_MEAN_SD_RATIO * sd_j + 1e-4:
+        if bool(standardized[j]):
+            if abs(mean_j) > STANDARDIZED_MEAN_SD_RATIO * sd_j + 1e-4:
                 problems.append(
-                    f"{names[j]}: marked centered but the observed column mean is "
-                    f"{mean_j:.4g} (sd {sd_j:.4g}); apply centering to the data before fit "
-                    "(production applies it in prepare_model_runtime)"
+                    f"{names[j]}: marked standardized but the observed column mean is "
+                    f"{mean_j:.4g} (sd {sd_j:.4g}); apply standardization to the data before "
+                    "fit (production applies it in prepare_model_runtime)"
+                )
+            sd_lo, sd_hi = STANDARDIZED_SD_BAND
+            if finite.size >= 2 and sd_j > 0.0 and not (sd_lo <= sd_j <= sd_hi):
+                problems.append(
+                    f"{names[j]}: marked standardized but the observed column sd is "
+                    f"{sd_j:.4g} (expected ~1); apply standardization to the data before "
+                    "fit (production applies it in prepare_model_runtime)"
                 )
             continue
 
@@ -138,8 +147,8 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
             problems.append(
                 f"{names[j]}: observed mean {mean_j:.4g} lies {z:.1f} prior sd from its free "
                 f"manifest-mean prior {free_prior.family.name}(mu={mu_j:.4g}, sigma={sigma_j:.4g}); "
-                "the posterior cannot reach the data location — mark the indicator centered "
-                "(and center the data) or author the prior on the data scale"
+                "the posterior cannot reach the data location — mark the indicator standardized "
+                "(and standardize the data) or author the prior on the data scale"
             )
 
     if problems:

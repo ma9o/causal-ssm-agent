@@ -51,8 +51,8 @@ class TestGaussianEmission:
         y_close = jnp.array([1.0, 2.0])
         y_far = jnp.array([1.0, 999.0])
         mask = jnp.array([1.0, 0.0])
-        lp_close = emission_log_prob_gaussian(y_close, z, H, d, R, mask)
-        lp_far = emission_log_prob_gaussian(y_far, z, H, d, R, mask)
+        lp_close = emission_log_prob_gaussian(y_close, H @ z + d, R, mask)
+        lp_far = emission_log_prob_gaussian(y_far, H @ z + d, R, mask)
         assert jnp.isclose(lp_close, lp_far, atol=1e-3)
 
     def test_all_missing_returns_zero(self):
@@ -61,7 +61,7 @@ class TestGaussianEmission:
         z = jnp.array([1.0, 2.0])
         y = jnp.array([999.0, 999.0])
         mask = jnp.zeros(2)
-        lp = emission_log_prob_gaussian(y, z, H, d, R, mask)
+        lp = emission_log_prob_gaussian(y, H @ z + d, R, mask)
         assert jnp.isclose(lp, 0.0)
 
 
@@ -79,7 +79,7 @@ class TestPoissonEmission:
         z = jnp.array([jnp.log(5.0)])
         y = jnp.array([3.0])
         mask = jnp.ones(1)
-        lp = emission_log_prob_poisson(y, z, H, d, R, mask)
+        lp = emission_log_prob_poisson(y, H @ z + d, R, mask)
         expected = jstats.poisson.logpmf(3.0, 5.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -91,7 +91,7 @@ class TestPoissonEmission:
         z = jnp.array([jnp.log(5.0), jnp.log(10.0)])
         y = jnp.array([3.0, 999.0])
         mask = jnp.array([1.0, 0.0])
-        lp = emission_log_prob_poisson(y, z, H, d, R, mask)
+        lp = emission_log_prob_poisson(y, H @ z + d, R, mask)
         expected = jstats.poisson.logpmf(3.0, 5.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -108,8 +108,8 @@ class TestStudentTEmission:
         z = jnp.array([0.0])
         y = jnp.array([5.0])
         mask = jnp.ones(1)
-        lp_t = emission_log_prob_student_t(y, z, H, d, R, mask, df=3.0)
-        lp_g = emission_log_prob_gaussian(y, z, H, d, R, mask)
+        lp_t = emission_log_prob_student_t(y, H @ z + d, R, mask, df=3.0)
+        lp_g = emission_log_prob_gaussian(y, H @ z + d, R, mask)
         assert lp_t > lp_g
 
     def test_matches_scipy_univariate(self):
@@ -121,7 +121,7 @@ class TestStudentTEmission:
         y = jnp.array([3.0])
         mask = jnp.ones(1)
         df = 5.0
-        lp = emission_log_prob_student_t(y, z, H, d, R, mask, df=df)
+        lp = emission_log_prob_student_t(y, H @ z + d, R, mask, df=df)
         scale = jnp.sqrt(2.0)
         expected = jstats.t.logpdf(3.0, df, loc=1.0, scale=scale)
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -141,7 +141,7 @@ class TestGammaEmission:
         z = jnp.array([0.5])
         y = jnp.array([1.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
+        lp = emission_log_prob_gamma_inverse(y, H @ z + d, R, mask, shape=2.0)
         # mean = 1/0.5 = 2.0, scale = 2.0/2.0 = 1.0
         expected = jstats.gamma.logpdf(1.5, a=2.0, scale=1.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -154,7 +154,7 @@ class TestGammaEmission:
         y = jnp.array([0.0])
         mask = jnp.ones(1)
         fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
-        lp = fn(y, z, H, d, R, mask)
+        lp = fn(y, H @ z + d, R, mask)
         assert jnp.isneginf(lp)
 
     def test_inverse_link_invalid_linear_predictor_returns_negative_infinity(self):
@@ -164,7 +164,7 @@ class TestGammaEmission:
         z = jnp.array([-0.5])
         y = jnp.array([1.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
+        lp = emission_log_prob_gamma_inverse(y, H @ z + d, R, mask, shape=2.0)
         assert jnp.isneginf(lp)
 
 
@@ -182,8 +182,8 @@ class TestBernoulliEmission:
         z = jnp.array([0.0])
         y = jnp.array([1.0])
         mask = jnp.ones(1)
-        lp_logit = emission_log_prob_bernoulli(y, z, H, d, R, mask)
-        lp_probit = emission_log_prob_bernoulli_probit(y, z, H, d, R, mask)
+        lp_logit = emission_log_prob_bernoulli(y, H @ z + d, R, mask)
+        lp_probit = emission_log_prob_bernoulli_probit(y, H @ z + d, R, mask)
         assert jnp.isclose(lp_logit, jnp.log(0.5), atol=1e-5)
         assert jnp.isclose(lp_probit, jnp.log(0.5), atol=1e-5)
 
@@ -202,8 +202,8 @@ class TestNegBinEmission:
         z = jnp.array([jnp.log(5.0)])
         y = jnp.array([3.0])
         mask = jnp.ones(1)
-        lp_low_r = emission_log_prob_negative_binomial(y, z, H, d, R, mask, r=2.0)
-        lp_high_r = emission_log_prob_negative_binomial(y, z, H, d, R, mask, r=100.0)
+        lp_low_r = emission_log_prob_negative_binomial(y, H @ z + d, R, mask, r=2.0)
+        lp_high_r = emission_log_prob_negative_binomial(y, H @ z + d, R, mask, r=100.0)
         # Higher r (less overdispersion) should give higher log-prob near the mean
         assert lp_high_r > lp_low_r
 
@@ -224,7 +224,7 @@ class TestDiscreteEmission:
         cutpoints = jnp.array([[-1.0, 1.0]])
         level_counts = jnp.array([3])
 
-        lp = emission_log_prob_ordered_logistic(y, z, H, d, R, mask, cutpoints, level_counts)
+        lp = emission_log_prob_ordered_logistic(y, H @ z + d, R, mask, cutpoints, level_counts)
         expected = jnp.log(jax.nn.sigmoid(1.0) - jax.nn.sigmoid(-1.0))
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -241,9 +241,7 @@ class TestDiscreteEmission:
 
         lp = emission_log_prob_categorical(
             y,
-            z,
-            H,
-            d,
+            H @ z + d,
             R,
             mask,
             intercepts,
@@ -269,7 +267,7 @@ class TestBetaEmission:
         z = jnp.array([0.0])
         y = jnp.array([0.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=10.0)
+        lp = emission_log_prob_beta_probit(y, H @ z + d, R, mask, concentration=10.0)
         # Phi(0)=0.5, concentration=10 → alpha=beta=5, y=0.5 is mode → high density
         assert lp > 0.0, f"Log-prob at mode of symmetric Beta should be positive, got {lp}"
 
@@ -282,8 +280,8 @@ class TestBetaEmission:
         y = jnp.array([0.5])
         mask = jnp.ones(1)
         conc = 10.0
-        lp_logit = emission_log_prob_beta(y, z, H, d, R, mask, concentration=conc)
-        lp_probit = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=conc)
+        lp_logit = emission_log_prob_beta(y, H @ z + d, R, mask, concentration=conc)
+        lp_probit = emission_log_prob_beta_probit(y, H @ z + d, R, mask, concentration=conc)
         assert jnp.isclose(lp_logit, lp_probit, atol=1e-4)
 
     def test_invalid_observation_returns_negative_infinity(self):
@@ -293,7 +291,7 @@ class TestBetaEmission:
         z = jnp.array([0.0])
         y = jnp.array([1.0])
         mask = jnp.ones(1)
-        lp = emission_log_prob_beta(y, z, H, d, R, mask, concentration=10.0)
+        lp = emission_log_prob_beta(y, H @ z + d, R, mask, concentration=10.0)
         assert jnp.isneginf(lp)
 
 
@@ -337,8 +335,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
-        expected = emission_log_prob_student_t(y, z, H, d, R, mask, df=10.0)
+        eta = H @ z + d
+        lp = fn(y, eta, R, mask)
+        expected = emission_log_prob_student_t(y, eta, R, mask, df=10.0)
         assert jnp.isclose(lp, expected)
 
     def test_gamma_default_log_matches_direct(self):
@@ -349,7 +348,7 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp = fn(y, z, H, d, R, mask)
+        lp = fn(y, H @ z + d, R, mask)
         # Log link: mean = exp(eta) = 3.0, scale = 3.0/2.0 = 1.5
         expected = jstats.gamma.logpdf(2.0, a=2.0, scale=1.5)
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -362,8 +361,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_gamma_inverse(y, eta, R, mask, shape=2.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_negative_binomial_matches_direct(self):
@@ -374,8 +374,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_negative_binomial(y, z, H, d, R, mask, r=5.0)
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_negative_binomial(y, eta, R, mask, r=5.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_beta_default_logit_matches_direct(self):
@@ -386,8 +387,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_beta(y, z, H, d, R, mask, concentration=10.0)
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_beta(y, eta, R, mask, concentration=10.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_beta_probit_matches_direct(self):
@@ -398,8 +400,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=10.0)
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_beta_probit(y, eta, R, mask, concentration=10.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_ordered_logistic_matches_direct(self):
@@ -419,8 +422,9 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_ordered_logistic(y, z, H, d, R, mask, cutpoints, level_counts)
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_ordered_logistic(y, eta, R, mask, cutpoints, level_counts)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_categorical_matches_direct(self):
@@ -442,12 +446,15 @@ class TestGetEmissionFn:
         d = jnp.zeros(1)
         R = jnp.eye(1)
         mask = jnp.ones(1)
-        lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_categorical(
-            y, z, H, d, R, mask, intercepts, slopes, level_counts
-        )
+        eta = H @ z + d
+        lp_dispatch = fn(y, eta, R, mask)
+        lp_direct = emission_log_prob_categorical(y, eta, R, mask, intercepts, slopes, level_counts)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_unsupported_raises(self):
-        with pytest.raises(ValueError, match="No emission function"):
+        with pytest.raises(ValueError, match="Unknown distribution family"):
             get_emission_fn("unsupported_distribution")
+
+    def test_explicit_invalid_family_link_pair_raises(self):
+        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
+            get_emission_fn("gaussian", link="log")

@@ -14,7 +14,7 @@ from nof1_causal_lab.models.ssm.preflight import (
 )
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import block_ssm_spec
+from tests.ssm_spec_fixtures import block_ssm_spec
 
 RNG = np.random.default_rng(7)
 
@@ -40,7 +40,7 @@ def _model(
     means_template=(0.0, 0.0),
     dists=(DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN),
     links=(LinkFunction.IDENTITY, LinkFunction.IDENTITY),
-    centered=None,
+    standardized=None,
 ):
     spec = block_ssm_spec(
         n_latent=1,
@@ -49,7 +49,7 @@ def _model(
         manifest_means_block=_manifest_means_block(free_means, means_template),
         manifest_dists=list(dists),
         manifest_links=list(links),
-        manifest_centered=list(centered) if centered is not None else None,
+        manifest_standardized=list(standardized) if standardized is not None else None,
         manifest_names=["raw_channel", "small_channel"],
     )
     return SSMModel(spec)
@@ -75,17 +75,25 @@ def test_fixed_manifest_means_are_not_judged():
     validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
-def test_passes_when_centered_flag_matches_centered_data():
-    model = _model(free_means=(True, True), centered=(True, False))
+def test_passes_when_standardized_flag_matches_standardized_data():
+    model = _model(free_means=(True, True), standardized=(True, False))
     obs = _observations(87.0, 0.1)
-    obs[:, 0] -= obs[:, 0].mean()
+    obs[:, 0] = (obs[:, 0] - obs[:, 0].mean()) / obs[:, 0].std(ddof=1)
     validate_observations_for_fit(model, obs)
 
 
-def test_raises_when_centered_flag_without_centered_data():
-    model = _model(free_means=(True, True), centered=(True, False))
-    with pytest.raises(ObservationPreflightError, match="marked centered"):
+def test_raises_when_standardized_flag_without_centered_data():
+    model = _model(free_means=(True, True), standardized=(True, False))
+    with pytest.raises(ObservationPreflightError, match="marked standardized"):
         validate_observations_for_fit(model, _observations(87.0, 0.1))
+
+
+def test_raises_when_standardized_flag_with_centered_but_unscaled_data():
+    model = _model(free_means=(True, True), standardized=(True, False))
+    obs = _observations(0.0, 0.1)
+    obs[:, 0] = 15.0 * (obs[:, 0] - obs[:, 0].mean())
+    with pytest.raises(ObservationPreflightError, match="observed column sd"):
+        validate_observations_for_fit(model, obs)
 
 
 def test_non_identity_links_are_not_judged():

@@ -6,7 +6,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily,
 
 _ADDITIVE_LOCATION_POINT_OPERATORS = frozenset({"first", "last"})
 _ADDITIVE_LOCATION_INTERVAL_OPERATORS = frozenset({"mean"})
-_NONCENTERABLE_SCALAR_FAMILIES = frozenset(
+_NONSTANDARDIZABLE_SCALAR_FAMILIES = frozenset(
     {
         DistributionFamily.POISSON,
         DistributionFamily.NEGATIVE_BINOMIAL,
@@ -36,13 +36,21 @@ def indicator_has_additive_location_support(
     return False
 
 
-def should_auto_center_indicator(
+def should_auto_standardize_indicator(
     distribution: DistributionFamily | str,
     link: LinkFunction | str,
     support_kind: str | None,
     summary_operator: str | None,
 ) -> bool:
-    """Return whether deterministic additive centering is semantically admissible."""
+    """Return whether deterministic standardization (centering + unit-scaling) is admissible.
+
+    Only unbounded additive-location channels qualify: affine transforms of the
+    data are absorbed exactly by the Gaussian/Student-t location-scale family, so
+    standardizing is semantics-free there and keeps the reference indicator's
+    link-scale spread at 1 — coherent with the standardized-latent convention the
+    dynamics priors are authored under. Bounded, count, and threshold families
+    would have their support broken by any affine data transform.
+    """
     return (
         DistributionFamily(distribution) in _LOCATION_FAMILIES
         and LinkFunction(link) == LinkFunction.IDENTITY
@@ -56,7 +64,7 @@ def indicator_requires_observation_intercept(
     support_kind: str | None,
     summary_operator: str | None,
     *,
-    centered: bool,
+    standardized: bool,
 ) -> bool:
     """Return whether a manifest channel needs a free observation intercept."""
     family = DistributionFamily(distribution)
@@ -65,12 +73,12 @@ def indicator_requires_observation_intercept(
     if family in _THRESHOLD_FAMILIES:
         return False
 
-    if family in _NONCENTERABLE_SCALAR_FAMILIES:
+    if family in _NONSTANDARDIZABLE_SCALAR_FAMILIES:
         return True
 
     if family in _LOCATION_FAMILIES and resolved_link == LinkFunction.IDENTITY:
         return indicator_has_additive_location_support(support_kind, summary_operator) and (
-            not centered
+            not standardized
         )
 
     return False

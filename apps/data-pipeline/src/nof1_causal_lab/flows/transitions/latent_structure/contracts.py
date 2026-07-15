@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
 
-IS_INTERACTIVE_CONTEXT = True
-
 
 class ValidateLatentStructureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

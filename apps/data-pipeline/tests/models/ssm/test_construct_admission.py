@@ -16,24 +16,29 @@ from nof1_causal_lab.artifacts import (
 )
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionState,
+    AdmissionTiming,
     ConstructContribution,
     DesignInfo,
     admit_construct,
     build_construct_order,
     restrict_causal_design,
-    run_construct_build,
 )
+from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
-_ALL_SOFT = {
-    "C1b confinement": "t",
-    "C2 latent scale": "t",
-    "C3 resolvability": "t",
-    "C4b edge overwhelm": "t",
-    "C4c saturation": "t",
-    "C5b width": "t",
-    "C5c transmission": "t",
+_SOFT_CHECKS = {
+    "C1b confinement",
+    "C2 latent scale",
+    "C3 resolvability",
+    "C4b edge overwhelm",
+    "C4c saturation",
+    "C5a location reach",
+    "C5b width",
+    "C5c transmission",
+    "C5d data availability",
 }
+_TARGETS = {"X", "Y", "Z", "x1", "x2", "y1", "z1", "X->Y", "Y->Z"}
+_ALL_SOFT = {(check, target): "t" for check in _SOFT_CHECKS for target in _TARGETS}
 
 
 def _lik(var: str) -> LikelihoodSpec:
@@ -99,15 +104,12 @@ def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribut
 def _design(seed: int = 0) -> DesignInfo:
     t_grid = jnp.linspace(0.0, 10.0, 201)
     obs_idx = np.arange(1, 201, 2)  # 100 observations, shared across indicators here
-    obs_times = np.asarray(t_grid)[obs_idx]
     rng = np.random.default_rng(0)
     indicators = ("x1", "x2", "y1", "z1")
     return DesignInfo(
         t_grid=t_grid,
         obs_index_by_indicator=dict.fromkeys(indicators, obs_idx),
         values_by_indicator={v: rng.normal(0.0, 0.9, obs_idx.size) for v in indicators},
-        cadence=float(np.median(np.diff(obs_times))),
-        span=float(np.ptp(obs_times)),
         n_draws=64,
         seed=seed,
     )
@@ -116,6 +118,42 @@ def _design(seed: int = 0) -> DesignInfo:
 def test_build_construct_order_is_topological():
     order = build_construct_order(_make_causal_design_dict())
     assert order.index("X") < order.index("Y") < order.index("Z")
+
+
+def test_admit_construct_records_shared_and_diagnostic_timings(monkeypatch):
+    from nof1_causal_lab.models.ssm import construct_admission as admission_module
+
+    diagnostic = AdmissionTiming(
+        phase="c1_confinement",
+        label="C1 confinement",
+        duration_ms=4.0,
+        checks=("C1a finiteness",),
+    )
+    monkeypatch.setattr(admission_module, "_compile_partial", lambda *_args: (object(), object()))
+    monkeypatch.setattr(admission_module, "_sample_partial", lambda *_args: {})
+    monkeypatch.setattr(
+        admission_module,
+        "_run_battery",
+        lambda *_args: (
+            [CheckResult("C1a finiteness", "X", "0%", "0%", True, "ok")],
+            [diagnostic],
+        ),
+    )
+
+    _state, report = admission_module.admit_construct(
+        AdmissionState(),
+        ConstructContribution(name="X"),
+        {},
+        _design(),
+    )
+
+    assert [timing.phase for timing in report.timings] == [
+        "model_compilation",
+        "prior_predictive",
+        "c1_confinement",
+        "admission_decision",
+    ]
+    assert all(timing.duration_ms >= 0 for timing in report.timings)
 
 
 def test_build_construct_order_covers_only_estimation_states():
@@ -164,6 +202,16 @@ def test_admit_root_runs_full_battery():
     assert {"C1a finiteness", "C1b confinement", "C2 latent scale", "C3 resolvability"} <= ids
     assert {"C5a location reach", "C5b width", "C5c transmission"} <= ids
     assert "C4b edge overwhelm" not in ids  # root has no incoming edge
+    timing_phases = {timing.phase for timing in report.timings}
+    assert {
+        "model_compilation",
+        "prior_predictive",
+        "c1_confinement",
+        "c2_latent_scale",
+        "c3_resolvability",
+        "admission_decision",
+    } <= timing_phases
+    assert all(timing.duration_ms > 0 for timing in report.timings)
     # Hard checks (finite sim + reachable data) hold, so X is admitted.
     assert not report.outcome.startswith("BLOCKED")
     assert report.admitted
@@ -206,9 +254,19 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
         "Z": _contrib_child("Z", "z1", "Y"),
     }
     accepted = dict.fromkeys(contributions, _ALL_SOFT)
-    state, reports = run_construct_build(causal_design, contributions, _design(), accepted)
+    state = AdmissionState()
+    reports = []
+    for name in build_construct_order(causal_design):
+        state, report = admit_construct(
+            state,
+            contributions[name],
+            causal_design,
+            _design(),
+            accepted[name],
+        )
+        reports.append(report)
+        assert report.admitted
     assert [r.name for r in reports] == ["X", "Y", "Z"]
-    assert all(r.admitted for r in reports)
     assert state.names == ("X", "Y", "Z")
 
     # The accumulated StatisticalModelSpec + priors compile to the real compiled_ssm artifact
@@ -216,8 +274,8 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
     compiled = compile_ssm_artifact(
         state.statistical_model_spec(), dict(state.priors), causal_design=causal_design
     )
-    assert "spec" in compiled
-    assert "schema_version" in compiled
+    assert compiled.spec is not None
+    assert compiled.schema_version == 1
     wide = pl.DataFrame(
         {
             "time": list(range(10)),

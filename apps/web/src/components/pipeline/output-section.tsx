@@ -129,18 +129,21 @@ export function OutputSection({
       )}
       {status === "failed" && (
         <motion.div
-          className="mt-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3"
+          className="mt-4 space-y-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-          <div className="text-sm">
-            <p className="font-medium text-destructive">Transition failed</p>
-            <p className="mt-0.5 text-muted-foreground">
-              {errorMessage ?? "This may be a transient error."}
-            </p>
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div className="text-sm">
+              <p className="font-medium text-destructive">Transition failed</p>
+              <p className="mt-0.5 text-muted-foreground">
+                {errorMessage ?? "This may be a transient error."}
+              </p>
+            </div>
           </div>
+          {runningContent}
         </motion.div>
       )}
     </motion.section>

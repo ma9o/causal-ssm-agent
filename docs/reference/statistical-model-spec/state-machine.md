@@ -1,252 +1,135 @@
-# Model-Spec State Machine
+# Model-Spec Construct-Admission State Machine
 
-This page explains the [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md) control loop at a high level. It is meant to answer questions like "what is the reducer trying to do?", "what can reopen?", and "why does the transition sometimes pause for validation before asking the LLM another question?"
+The `statistical_model_spec` transition is a deterministic, topology-aware construct-admission state machine wrapped in Temporal. There is one production path and no mode toggle.
 
-For the exact block-by-block contract, see [LLM-Driven `statistical_model_spec` transition Specification](llm-driven-specification.md). For the artifact contract that downstream transitions consume, see [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md).
+## What the State Machine Owns
 
-## 1. What the State Machine Owns
+The state machine translates the current [`causal_design`](../../pipeline/measurement-structure.md#causaldesign), [`panel`](../../pipeline/extraction.md), and [`validation_report`](../../pipeline/extraction-validation.md) into one complete statistical model and prior system.
 
-`statistical_model_spec` transition does not decide the causal graph, the retained indicators, or whether a causal estimand is graph-identified. Those decisions were already made upstream. Its job is narrower:
-
-1. turn the fixed upstream structure into a prompt plan,
-2. collect a bounded set of model-form decisions,
-3. lock those decisions into one executable `StatisticalModelSpec`,
-4. collect priors over the active parameter surface,
-5. validate the assembled result,
-6. reopen only the smallest scope that needs repair.
-
-The important design choice is that `statistical_model_spec` transition is not a free-form conversation. It is a controlled state machine with deterministic ordering and deterministic repair routing.
-
-## 2. The Four Moving Pieces
-
-| Moving piece | Role in the state machine |
+| State | Meaning |
 |---|---|
-| Deterministic skeleton | Computes what is already fixed before any LLM turn: uniquely determined likelihoods, loading orientation, and the compiler-backed parameter inventory. |
-| Immutable plan | Converts the skeleton into a fixed list of promptable blocks and review checkpoints in deterministic order. |
-| Mutable runtime | Tracks where execution currently is, what has already been accepted, what is still pending, and whether a repair campaign is active. |
-| Validators and repair routing | Decide whether a submission is acceptable and, when it is not, which scope must reopen. |
+| Admission units | Strongly connected components of the estimation graph, ordered as a condensation DAG |
+| Accepted constructs | Dependency-closed set of contributions that passed admission |
+| Ready frontier | Units whose predecessor units are fully accepted |
+| Attempts | Current LLM attempt for each construct in the ready frontier |
+| Checkpoint reference | Immutable file-backed snapshot of the latest merged accepted state |
+| Search state | Literature queries and cached results accumulated by the run |
 
-Everything else in the implementation hangs off those four pieces.
+The LLM does not own the topology, parameter inventory, causal edges, or validation result. Each child subroutine proposes only its construct's allowed likelihood choices, priors, and explicit rationales for accepted soft consequences.
 
-## 3. Plan First, Runtime Second
-
-The state machine starts by building a plan from the deterministic skeleton. That plan is stable for the session.
-
-At a high level, the plan contains these block families.
-
-| Block family | High-level purpose |
-|---|---|
-| `model:configuration` | Choose the model-level switches that affect which parameter surfaces stay active. |
-| `indicator:{variable}` | Choose a likelihood family and link for one ambiguous indicator. |
-| `review:statistical_model_spec` | Check the locked model form as a whole before prior authoring starts. |
-| `measurement:{construct}` | Author priors for one construct's loading parameters. |
-| `observation:{parameter}` | Author priors for one observation intercept or observation-family auxiliary parameter. |
-| `dynamics:{subsystem}` | Author priors for one dynamic subsystem's persistence, noise, and any active intercept or initial-state surfaces. |
-| `effects:{target}` | Author priors for the incoming causal effects into one target construct. |
-| `correlation:{parameter}` | Author priors for one correlation or baseline-factor scale surface. |
-| `review:prior_system` | Whole-system prior review used only when repair routing escalates that far. |
-
-The runtime is different from the plan. The runtime is the mutable session state:
-
-| Runtime concern | Why it matters |
-|---|---|
-| Active cursor | Tells the transition which block is currently waiting on an LLM submission, or whether the transition is doing deterministic settling work between prompts. |
-| Block status | Tracks whether each planned block is `pending`, `accepted`, `reopened`, or `inactive`. |
-| Draft model decisions | Holds accepted model-form choices before the full `StatisticalModelSpec` is locked. |
-| Accepted artifacts | Holds the locked `StatisticalModelSpec`, accepted priors, and latest accepted validation result. |
-| Repair campaign | Tracks a bounded multi-block repair scope when one validation failure requires coordinated edits. |
-
-That split is the core mental model: the plan says what can happen, and the runtime says where the current run stands inside that plan.
-
-## 4. High-Level Flow
+## Nominal Transition
 
 ```mermaid
-flowchart TD
-    A[Deterministic Skeleton] --> B[Immutable `statistical_model_spec` transition Plan]
-    B --> C[Model Decisions]
-    C --> D[Lock StatisticalModelSpec]
-    D --> E[Model Review]
-    E --> F[Prior Blocks]
-    F --> G{Full Validation OK?}
-    G -- Yes --> H[Done]
-    G -- No --> I[Deterministic Repair Routing]
-    I --> J[Reopen Smallest Responsible Scope]
-    J --> C
-    J --> F
+flowchart LR
+    S([Start]) --> P[Build condensation DAG]
+    P --> R[Find ready frontier]
+    R --> F[Fan out construct attempts]
+    F --> V{Validate each branch}
+    V -- revise --> F
+    V -- admitted --> B[Immutable branch checkpoints]
+    B --> M[Deterministic frontier merge]
+    M --> N{All constructs accepted?}
+    N -- no --> R
+    N -- yes --> G{Full-model barrier}
+    G -- reopen failed unit and descendants --> R
+    G -- pass --> Z([Finalize])
 ```
 
-That picture hides one important detail: the transition alternates between two modes.
+Planning builds the compiler-authoritative parameter catalog and condenses the estimation graph into a DAG of admission units. Every ready singleton unit launches concurrently. Members of a lagged feedback component remain sequential in retained-state order because each member can change the subsystem validated by the next member.
 
-| Mode | What happens there |
+Each construct attempt gets a fresh LLM subroutine. The required `submit_construct` call contains:
+
+- the active construct name;
+- its indicator likelihood and link choices;
+- priors keyed by canonical parameter name; and
+- optional target-scoped acceptance objects containing the exact failing soft-check identifier,
+  target, and written rationale.
+
+The transition allows at most four attempts per construct. Ending an attempt without `submit_construct`, or exhausting all attempts without admission, fails the transition.
+
+## Admission Semantics
+
+A submission is first restricted to the active construct's compiler-authoritative surface. Unknown or non-free parameters are rejected. Parameters sharing a pooled compiler site must use one prior family.
+
+The cumulative partial model then compiles against the causal design restricted to the immutable accepted frontier plus the proposed construct. Parallel siblings validate against the same frontier snapshot, so neither can observe an unmerged sibling. Prior-predictive trajectories are generated through the true nonlinear drift and emission densities. The reachability battery evaluates numerical health, marginal latent scale, family-specific replicated-data discrepancies, construct-specific irregular-schedule resolvability, per-edge influence, and draw-paired nonlinear saturation where applicable. Closing a feedback component tentatively rechecks every affected member; any hard failure rejects the closing submission before state is committed.
+
+| Finding | Effect |
 |---|---|
-| Prompt mode | The reducer is waiting for one block-local LLM submission. |
-| Settling mode | The reducer runs deterministic follow-on work such as locking the `StatisticalModelSpec`, selecting the next block, or validating a finished repair scope. |
+| Hard check fails | Construct remains active and must be revised |
+| Soft check fails without rationale | Construct remains active for revision or explicit acceptance |
+| Soft check fails with accepted rationale | Consequence is recorded and the construct may be admitted |
+| All applicable checks pass | Construct is admitted |
 
-The LLM only acts in prompt mode. All routing decisions happen in settling mode.
+Admission is cumulative and dependency-aware. As branches finish, one merge activity deterministically adds their immutable child checkpoints to the current master. A newly ready descendant can start immediately while unrelated branches keep running. A join construct becomes ready only after every predecessor unit is accepted.
 
-## 5. The Nominal Path
+After every construct is accepted, a full-model barrier compiles once, draws one exact prior-predictive sample set, and runs every construct's battery against that shared model. A failed construct reopens its admission unit from the failing member onward plus every descendant unit; independent accepted branches remain intact.
 
-On the happy path, execution is simple.
+## Immutable Success Checkpoints
 
-1. The transition asks for `model:configuration`.
-2. It asks for each ambiguous indicator decision in deterministic order.
-3. It pauses and tries to lock the full `StatisticalModelSpec`.
-4. It runs `review:statistical_model_spec`.
-5. It asks for prior blocks in deterministic order.
-6. Once the required active priors exist, it runs full assembly validation.
-7. If validation succeeds, the transition finishes.
+Every admitted construct creates an immutable branch checkpoint. As completions arrive, one deterministic merge creates the next master checkpoint. A branch may have started from an earlier master snapshot; the merge verifies that its inherited accepted state is an unchanged subset of the current master and that it adds exactly one construct. A checkpoint contains semantic reducer state only:
 
-Two points matter here.
+- exact input artifact-version pins;
+- accepted construct submissions and annotations;
+- literature search state;
+- target-scoped repair feedback and the full-model barrier status;
+- checkpoint ancestry; and
+- submission identifiers for accepted contributions.
 
-First, `review:statistical_model_spec` is part of the nominal path. It is a checkpoint, not an error state.
+Dataframes, compiler objects, and executable model objects are not serialized into checkpoints. They are reconstructed from pinned artifacts.
 
-Second, `review:prior_system` is not part of the nominal path. It exists as an escalation endpoint when local prior repairs are no longer enough.
+Checkpoints live under `data/{workspace_id}/run/model-spec-checkpoints/{run_id}/`. They are internal execution sidecars, like LLM traces, and do not enter the public artifact graph. Consequently, an incomplete model can never trigger the [`compiled_ssm` derivation](../../pipeline/statistical-model-spec.md#outputs).
 
-## 6. Why the Lock Step Is a Separate State
+The submission identifier determines each branch checkpoint path. If Temporal retries a tool activity after the checkpoint was written, the activity returns the existing checkpoint instead of applying the construct twice. The master checkpoint has a single writer, so parallel branches never race to overwrite accepted state.
 
-The transition from model decisions to prior authoring is not direct. `statistical_model_spec` transition first pauses to lock the `StatisticalModelSpec`.
+## Failure and Outer-Orchestrator Repair
 
-That lock step has one purpose: convert accepted draft decisions into one executable model form and verify that the assembled model is coherent before priors enter the picture.
+The episode workflow serializes moves. Upstream artifacts therefore cannot be edited while one `statistical_model_spec` move is still running.
 
-At this point the state machine is asking a narrow question:
+When Stage 4 cannot continue, it terminates the move and records a `raised` episode-journal entry with:
 
-"Given the accepted indicator choices and model-level switches, is there a valid `StatisticalModelSpec` to build on?"
+- the typed failure;
+- the blocked construct;
+- structured diagnostics; and
+- the latest `checkpoint_ref`.
 
-If the answer is no, the transition does not guess how to recover. It deterministically reopens the smallest model-form block that owns the problem.
+The outer orchestrator can then use ordinary machine moves to revise an upstream judgment artifact or recompute stale descendants. A subsequent `run(statistical_model_spec)` starts a new Temporal child workflow and uses the checkpoint referenced by the latest raised Stage 4 move.
 
-## 7. Draft State Versus Accepted State
+This preserves the framework boundary: the outer orchestrator edits artifacts; the delegated Stage 4 reducer owns its internal accepted state.
 
-One of the most important moving pieces is the distinction between draft state and accepted state.
+## Resume and Rebase
 
-| State layer | What it stores |
+If the new run's input pins equal the checkpoint pins, the accepted dependency-closed set is reconstructed without rerunning its admission checks.
+
+If any input pin changed, the transition rebases before asking the LLM to continue:
+
+1. Rebuild the deterministic catalog and admission-unit DAG from current artifacts.
+2. Replay saved contributions when their predecessor units remain valid.
+3. Compile and run the same exact admission battery for each replayed contribution.
+4. Retain every still-valid dependency-closed branch.
+5. Reopen each invalid unit and its descendants while preserving independent branches.
+6. Persist a new run-local checkpoint whose parent is the prior run's checkpoint.
+
+Saved descendants are not trusted after an invalid contribution because their validation depended on the reopened state. Unrelated branches do not forfeit their completed work.
+
+## Inspection
+
+Temporal history exposes the Stage 4 workflow, one child LLM workflow per construct attempt, and their activity states. The application event stream additionally records:
+
+| Event | Meaning |
 |---|---|
-| Draft model state | Accepted model-form choices that are still pre-lock, such as indicator likelihood choices and model-level switches. |
-| Accepted locked state | The accepted `StatisticalModelSpec`, the accumulated accepted priors, and the latest accepted validation result. |
+| `plan` | Full admission-unit DAG and parameter surface |
+| `resumed` | Source checkpoint, pin change, retained constructs, and reopened construct |
+| `construct_started` | One active frontier construct and attempt |
+| `construct_checking` | Admission battery is running |
+| `construct_report` | Detailed check results, admission outcome, and backend phase timings |
+| `barrier_report` | Full-model validation outcome and any reopened construct frontier |
+| `failed` | Terminal failure and latest checkpoint reference |
+| `done` | Every construct was admitted and the full-model barrier passed |
 
-This separation gives the reducer two useful properties.
+The episode timeline remains authoritative for terminal move status. Telemetry provides the finer-grained running view.
 
-1. A local failure does not force the transition to rebuild everything from scratch.
-2. Rejected compile attempts or prior-predictive failures do not overwrite the last accepted state.
+The timing breakdown separates shared work—design preparation, model compilation, and exact prior-predictive simulation—from the C1–C5 diagnostic groups, edge-off simulation, the admission decision, and any coupled subsystem recheck. A diagnostic phase lists the checks it jointly computes; shared calculations are never duplicated across individual check runtimes.
 
-That is why the transition can reopen one scope while keeping the rest of the run stable.
+## Completion
 
-## 8. Block Statuses Are the Control Surface
-
-Each planned block carries a status.
-
-| Status | High-level meaning |
-|---|---|
-| `pending` | The block is part of the plan and has not yet been accepted. |
-| `accepted` | The block's current content is accepted and frozen unless a validator reopens it. |
-| `reopened` | The block had been accepted or was otherwise passed over, but repair routing brought it back into play. |
-| `inactive` | The block exists in the plan but is not currently reachable. This is how the dormant whole-system prior review is represented, and it is also how prior blocks disappear when a relocked model no longer activates their parameters. |
-
-The reducer largely advances by changing these statuses and then asking, "what is the next reachable non-accepted block in plan order?"
-
-## 9. Prior Authoring Is Still Blocked and Incremental
-
-After the model form is locked, `statistical_model_spec` transition still does not open the full prior surface all at once. It walks the prior blocks one scope at a time.
-
-That matters for two reasons.
-
-| Reason | Consequence |
-|---|---|
-| Priors are authored incrementally | The transition can reject a narrow prior bundle without discarding unrelated accepted priors. |
-| The active parameter surface depends on the locked model form | Re-locking the model can deactivate some prior blocks or reactivate others, and the runtime resynchronizes block activity to match. |
-
-The transition is allowed to finish once the required active priors are present. Some parameter roles can remain optional for closure, so the state machine distinguishes "active prior surface" from "required to complete."
-
-## 10. Review Checkpoints Have Different Jobs
-
-`statistical_model_spec` transition has two conceptually different review checkpoints.
-
-| Checkpoint | Job |
-|---|---|
-| `review:statistical_model_spec` | Ask whether the locked model-form decisions still make sense when viewed together. It can reopen model-decision blocks, but it does not author priors. |
-| `review:prior_system` | Revisit the prior system at the widest scope after repeated or global prior failures. It does not reopen the model-form surface on its own. |
-
-That separation is deliberate. Model-form repair and prior-system repair are different classes of work.
-
-## 11. Repair Routing Is Deterministic
-
-When validation fails, the reducer does not ask the LLM which part to revisit. It computes a repair scope.
-
-At a high level, the routing policy is:
-
-| Failure type | Typical reopening behavior |
-|---|---|
-| Model-form compile issue | Reopen the responsible model block or review checkpoint. |
-| Likelihood support issue | Route back to the responsible indicator decision. |
-| Local prior issue with known owning parameters | Reopen the direct writer blocks for those parameters. |
-| Drift or stability issue that spans a motif or subsystem | Escalate through increasingly wider structural scopes. |
-| Global prior-system issue | Activate the whole-system prior review block. |
-
-The important property is monotonicity: repair scopes widen when narrower repairs fail to resolve the same pathology.
-
-## 12. Some Repairs Become Campaigns
-
-Not every reopened scope is a single block. Some failures implicate several coordinated blocks.
-
-When that happens, the runtime opens a repair campaign.
-
-| Campaign property | Why it exists |
-|---|---|
-| Fixed scope | The campaign names the exact blocks that belong to the repair. |
-| Deterministic order | Those reopened blocks are revisited in plan order. |
-| Progress tracking | The runtime records which campaign blocks are already repaired and which are still pending. |
-| Optional barrier validation | Multi-block campaigns can require one joint validation pass after every reopened block has been edited. |
-
-This is the mechanism that keeps `statistical_model_spec` transition from accepting several locally plausible edits that only fail when assembled together.
-
-## 13. Barrier Validation Is the Joint-Coherence Check
-
-For a multi-block repair, the state machine does not immediately continue once the last reopened block is accepted. It pauses for one more deterministic step: barrier validation.
-
-Barrier validation asks:
-
-"Do these repaired blocks work together when reassembled into the current locked model and prior system?"
-
-If yes, the campaign clears and the transition returns to the ordinary flow.
-
-If no, the failure is classified again and the repair scope can widen.
-
-This is the main high-level reason the reducer sometimes feels stricter than a simple sequential wizard: it is checking joint coherence, not just per-block plausibility.
-
-## 14. What Can Reopen
-
-At a high level, these are the reopenable surfaces.
-
-| Surface | Can reopen because of |
-|---|---|
-| `model:configuration` | Lock-time compile failure or model-level review feedback. |
-| `indicator:{variable}` | Indicator-local validation, support mismatch, compile failure, or model-level review feedback. |
-| Prior blocks | Prior schema failure, partial drift failure, full validation failure, or repair escalation. |
-| `review:statistical_model_spec` | Reopened implicitly when model-form repair makes the joint checkpoint relevant again. |
-| `review:prior_system` | Activated only by global prior repair escalation. |
-
-What does not reopen automatically is just as important: accepted state outside the chosen repair scope stays in place unless the deterministic router explicitly widens the scope.
-
-## 15. Completion Means More Than "No More Questions"
-
-The state machine is done only when all of these conditions hold at once.
-
-| Condition | Meaning |
-|---|---|
-| Locked model form exists | The reducer has an accepted `StatisticalModelSpec`. |
-| Required priors are covered | The active non-optional prior surface has accepted prior proposals. |
-| No active repair campaign remains | The run is no longer inside a coordinated repair scope. |
-| Latest accepted validation is clean enough to proceed | The transition is not ending on a compile failure or unresolved prior-predictive failure. |
-
-Operationally, that means `statistical_model_spec` transition finishes with one accepted model form and one accepted prior system that passed assembled prior validation, not just with a sequence of accepted local edits.
-
-## 16. What This Page Intentionally Leaves Out
-
-This page omits the plumbing details on purpose:
-
-- tool-level submission contracts,
-- prompt section composition,
-- exact payload schemas,
-- validator packet structure,
-- and the line-by-line repair-ladder implementation.
-
-Those details live in [LLM-Driven `statistical_model_spec` transition Specification](llm-driven-specification.md). This page is the shorter mental model for understanding why the `statistical_model_spec` transition reducer behaves the way it does.
+The transition completes only when every current construct is admitted and the shared full-model barrier passes. Finalization materializes the accumulated `StatisticalModelSpec` and priors, writes the versioned `statistical_model_spec` artifact, and lets the normal derivation cascade produce `compiled_ssm`.

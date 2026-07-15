@@ -73,7 +73,7 @@ def _assemble_support_aware_observation_system(
     point_mask = obs_mask.astype(z_est.dtype) * point_like_mask[None, :]
 
     local_grads, local_hess = jax.vmap(
-        lambda y_t, z_t, mask_t: obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
+        lambda y_t, z_t, mask_t: obs_kernel.latent_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
     )(clean_obs, z_est, point_mask)
     diag = diag + local_hess
     rhs = rhs + jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(local_hess, z_est, local_grads)
@@ -743,89 +743,6 @@ def _support_aware_ieks_mode(
     )
 
 
-def _support_aware_laplace_from_mode(
-    z_mode: jnp.ndarray,
-    mode_aux: tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ],
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    Ad: jnp.ndarray,
-    Qd: jnp.ndarray,
-    cd: jnp.ndarray,
-    H: jnp.ndarray,
-    d: jnp.ndarray,
-    R: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
-    observation_support: ObservationSupportRuntime,
-    support_window_batches: tuple[SupportObservationWindowBatch, ...],
-    point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
-    bandwidth: int,
-    row_upper_bandwidths: jnp.ndarray,
-    row_lower_bandwidths: jnp.ndarray,
-    factor_block_cholesky_fn=_factor_block_profile_cholesky,
-) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Evaluate the Laplace correction at an already-solved support-aware mode."""
-    (
-        init_log_joint,
-        n_iterations,
-        n_accepted_steps,
-        final_rel_change,
-        final_damping,
-        final_step_alpha,
-        final_step_norm,
-    ) = mode_aux
-    log_lik, mode_log_joint, laplace_logdet, min_chol_diag = _support_aware_laplace_terms_from_mode(
-        z_mode,
-        observations,
-        obs_mask,
-        Ad,
-        Qd,
-        cd,
-        H,
-        d,
-        R,
-        init_mean,
-        init_cov,
-        obs_kernel,
-        mean_log_prob_fn,
-        observation_support,
-        support_window_batches,
-        point_like_mask,
-        window_derivatives,
-        bandwidth,
-        row_upper_bandwidths,
-        row_lower_bandwidths,
-        factor_block_cholesky_fn=factor_block_cholesky_fn,
-    )
-    inner_eval_aux = build_likelihood_eval_aux(
-        observations.dtype,
-        solver_kind=LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-        n_iterations=n_iterations,
-        n_accepted_steps=n_accepted_steps,
-        init_log_joint=init_log_joint,
-        final_log_joint=mode_log_joint,
-        final_rel_change=final_rel_change,
-        final_damping=final_damping,
-        final_step_alpha=final_step_alpha,
-        final_step_norm=final_step_norm,
-        laplace_logdet=laplace_logdet,
-        min_chol_diag=min_chol_diag,
-    )
-    inner_eval_aux["latent_mode"] = z_mode
-    return log_lik, inner_eval_aux
-
-
 def _support_aware_laplace_terms_from_mode(
     z_mode: jnp.ndarray,
     observations: jnp.ndarray,
@@ -1232,7 +1149,7 @@ def _support_aware_ieks_laplace_core(
             R=R_curr,
             init_mean=init_mean_curr,
             init_cov=init_cov_curr,
-            obs_kernel=measurement_semantics_curr.obs_kernel,
+            obs_kernel=measurement_semantics_curr.kernel,
             mean_log_prob_fn=measurement_semantics_curr.mean_log_prob_fn,
             observation_support=observation_support,
             support_window_batches=support_window_batches,
@@ -1284,7 +1201,7 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            measurement_semantics_curr.obs_kernel,
+            measurement_semantics_curr.kernel,
             support_window_batches,
             point_like_mask,
             window_derivatives_curr,
@@ -1332,7 +1249,7 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 init_mean_inner,
                 init_cov_inner,
-                measurement_semantics_inner.obs_kernel,
+                measurement_semantics_inner.kernel,
                 support_window_batches,
                 point_like_mask,
                 window_derivatives_inner,
@@ -1374,7 +1291,7 @@ def _support_aware_ieks_laplace_core(
                 R_curr,
                 init_mean_curr,
                 init_cov_curr,
-                measurement_semantics_curr.obs_kernel,
+                measurement_semantics_curr.kernel,
                 measurement_semantics_curr.mean_log_prob_fn,
                 observation_support,
                 support_window_batches,
@@ -1462,7 +1379,7 @@ def _support_aware_ieks_laplace_core(
                 H=H_inner,
                 d=d_inner,
                 R=R_inner,
-                obs_kernel=measurement_semantics_inner.obs_kernel,
+                obs_kernel=measurement_semantics_inner.kernel,
                 mean_log_prob_fn=measurement_semantics_inner.mean_log_prob_fn,
                 observation_support=observation_support,
             )
@@ -1482,7 +1399,7 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            measurement_semantics_curr.obs_kernel,
+            measurement_semantics_curr.kernel,
             support_window_batches,
             point_like_mask,
             window_derivatives_curr,
@@ -1530,7 +1447,7 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 init_mean_inner,
                 init_cov_inner,
-                measurement_semantics_inner.obs_kernel,
+                measurement_semantics_inner.kernel,
                 support_window_batches,
                 point_like_mask,
                 window_derivatives_inner,

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
-
-IS_INTERACTIVE_CONTEXT = False
+from nof1_causal_lab.flows.contracts_base import ToolContract
 
 
 class ListFilesInput(BaseModel):
@@ -58,14 +56,3 @@ INGESTION_TOOL_CONTRACTS: list[ToolContract] = [
         input_schema=SubmitTableInput,
     ),
 ]
-
-
-class RawDataColumnDescriptionContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    description: str
-
-
-class RawDataContract(LLMArtifactContract):
-    column_descriptions: list[RawDataColumnDescriptionContract]

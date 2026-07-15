@@ -5,11 +5,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from nof1_causal_lab.flows.artifact_contracts import validate_artifact_payload
 from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import ExecOptions, input_pins
 from nof1_causal_lab.machine.runners import execute_transition_locally
+from tests.artifact_contract_support import validate_artifact_payload
 from tests.helpers import run_async
 from tests.integration import transition_runner_fixtures as fx
 

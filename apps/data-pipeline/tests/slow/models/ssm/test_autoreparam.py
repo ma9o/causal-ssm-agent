@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.models.ssm.testing import block_ssm_spec, dense_matrix_dynamics_spec
+from tests.ssm_spec_fixtures import block_ssm_spec, dense_matrix_dynamics_spec
 
 pytestmark = pytest.mark.slow
 

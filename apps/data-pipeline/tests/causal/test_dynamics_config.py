@@ -4,7 +4,6 @@ The bridge in ``models.ssm.dynamics.serialization`` materialises a
 structure-only runtime ``DynamicsSpec``. Priors are bound separately through
 the canonical site-prior registry. These tests pin the bridge:
 
-- Every supported family materialises into the right ``ndist`` class.
 - Every component kind (``StateDecay``, ``DiagonalDecay``, ``StateIntercept``,
   ``Intercept``, ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge``) compiles
   end-to-end from a dict and produces working vector-field params when supplied
@@ -16,7 +15,6 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as ndist
-import pytest
 from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -28,9 +26,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
     compile_dynamics,
     dynamics_spec_from_dict,
 )
-from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_manifest_chol_block,
@@ -50,55 +47,6 @@ def _delta_prior_fn(compiled, values: dict[str, object] | None = None):
         return ndist.Delta(jnp.broadcast_to(jnp.asarray(value), shapes[site_name]))
 
     return _prior
-
-
-class TestMaterializePrior:
-    def test_normal(self):
-        d = materialize_prior_distribution(
-            {"family": "Normal", "params": {"mu": 0.3, "sigma": 0.5}}
-        )
-        assert isinstance(d, ndist.Normal)
-        assert float(d.loc) == pytest.approx(0.3)
-        assert float(d.scale) == pytest.approx(0.5)
-
-    def test_log_normal(self):
-        d = materialize_prior_distribution(
-            {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.7}}
-        )
-        assert isinstance(d, ndist.LogNormal)
-
-    def test_gamma(self):
-        d = materialize_prior_distribution(
-            {"family": "Gamma", "params": {"concentration": 2.0, "rate": 4.0}}
-        )
-        assert isinstance(d, ndist.Gamma)
-        assert float(d.concentration) == 2.0
-        assert float(d.rate) == 4.0
-
-    def test_truncated_normal_with_bounds(self):
-        d = materialize_prior_distribution(
-            {
-                "family": "TruncatedNormal",
-                "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
-            }
-        )
-        # NumPyro's TruncatedNormal is a factory; verify behaviour via samples
-        import jax.random as jr
-
-        samples = d.sample(jr.PRNGKey(0), (1000,))
-        assert float(jnp.min(samples)) >= 1.0
-        assert float(jnp.max(samples)) <= 4.0
-
-    def test_shape_broadcasts(self):
-        """A matrix-shape Normal prior must broadcast its scalar mu/sigma."""
-        d = materialize_prior_distribution(
-            {
-                "family": "Normal",
-                "params": {"mu": 0.0, "sigma": 1.0},
-                "shape": [3, 3],
-            }
-        )
-        assert d.batch_shape + d.event_shape == (3, 3)
 
 
 class TestDynamicsSpecFromDict:
@@ -207,7 +155,7 @@ class TestBlockSpecEquivalence:
             DiffusionBlockSpec,
             SparseMatrixBlockSpec,
         )
-        from nof1_causal_lab.models.ssm.testing import full_diagonal_support
+        from tests.ssm_spec_fixtures import full_diagonal_support
 
         spec = SSMSpec(
             n_latent=2,
@@ -261,7 +209,7 @@ class TestBlockSpecEquivalence:
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
         )
-        from nof1_causal_lab.models.ssm.testing import full_vector_support
+        from tests.ssm_spec_fixtures import full_vector_support
 
         spec = SSMSpec(
             n_latent=3,
@@ -468,9 +416,9 @@ class TestDynamicsSpecRoundTrip:
             static_state_sd_block=default_static_state_sd_block(),
         )
         payload = serialize_ssm_spec(spec)
-        assert isinstance(payload["dynamics_spec"], dict)
-        assert payload["dynamics_spec"]["n_latent"] == 2
-        assert payload["dynamics_spec"]["components"][0]["kind"] == "DiagonalDecay"
+        assert isinstance(payload.dynamics_spec, dict)
+        assert payload.dynamics_spec["n_latent"] == 2
+        assert payload.dynamics_spec["components"][0]["kind"] == "DiagonalDecay"
 
         restored = deserialize_ssm_spec(payload)
         assert restored.dynamics_spec is not None

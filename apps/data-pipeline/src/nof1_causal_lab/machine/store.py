@@ -58,7 +58,7 @@ class ArtifactStore:
         self.workspace_id = workspace_id
         # Attribute access (not a from-import) so tests can monkeypatch
         # nof1_causal_lab.utils.data.DATA_URI once for every consumer.
-        self._root = storage.join(data_module.DATA_URI, workspace_id, "store")
+        self._root = data_module.store_dir(workspace_id)
 
     # -- paths ---------------------------------------------------------------
 
@@ -205,7 +205,7 @@ class EpisodeJournal:
 
     def __init__(self, workspace_id: str) -> None:
         self.workspace_id = workspace_id
-        self._root = storage.join(data_module.DATA_URI, workspace_id, "episode")
+        self._root = data_module.episode_dir(workspace_id)
         self._journal_dir = storage.join(self._root, "journal")
 
     def append(self, record: TransitionRecord) -> None:

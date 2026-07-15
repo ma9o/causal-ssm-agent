@@ -11,7 +11,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import jax
 import jax.numpy as jnp
@@ -20,6 +20,9 @@ import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -143,7 +146,7 @@ class SSMSpec:
     manifest_dists: list[DistributionFamily] = field(default_factory=list)
     manifest_level_counts: list[int] | None = None
     manifest_links: list[LinkFunction] | None = None
-    manifest_centered: list[bool] | None = None
+    manifest_standardized: list[bool] | None = None
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
     input_names: list[str] | None = None
@@ -363,13 +366,19 @@ class SSMSpec:
                 "manifest_dists length must match n_manifest: "
                 f"{len(self.manifest_dists)} vs {self.n_manifest}"
             )
-        if self.manifest_links is not None:
-            self.manifest_links = [LinkFunction(link) for link in self.manifest_links]
-            if len(self.manifest_links) != self.n_manifest:
-                raise ValueError(
-                    "manifest_links length must match n_manifest: "
-                    f"{len(self.manifest_links)} vs {self.n_manifest}"
-                )
+        if self.manifest_links is not None and len(self.manifest_links) != self.n_manifest:
+            raise ValueError(
+                "manifest_links length must match n_manifest: "
+                f"{len(self.manifest_links)} vs {self.n_manifest}"
+            )
+        from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+            resolve_manifest_families_and_links,
+        )
+
+        _, self.manifest_links = resolve_manifest_families_and_links(
+            self.manifest_dists,
+            manifest_links=self.manifest_links,
+        )
         if (
             self.manifest_level_counts is not None
             and len(self.manifest_level_counts) != self.n_manifest
@@ -378,12 +387,12 @@ class SSMSpec:
                 "manifest_level_counts length must match n_manifest: "
                 f"{len(self.manifest_level_counts)} vs {self.n_manifest}"
             )
-        if self.manifest_centered is None:
-            self.manifest_centered = [False] * self.n_manifest
-        elif len(self.manifest_centered) != self.n_manifest:
+        if self.manifest_standardized is None:
+            self.manifest_standardized = [False] * self.n_manifest
+        elif len(self.manifest_standardized) != self.n_manifest:
             raise ValueError(
-                "manifest_centered length must match n_manifest: "
-                f"{len(self.manifest_centered)} vs {self.n_manifest}"
+                "manifest_standardized length must match n_manifest: "
+                f"{len(self.manifest_standardized)} vs {self.n_manifest}"
             )
         if self.static_factor_names is None:
             self.static_factor_names = [f"tau_{idx}" for idx in range(n_static_factor)]
@@ -417,19 +426,6 @@ class SSMSpec:
         ):
             yield from block.iter_sites()
 
-    def assemble_t0_cov(
-        self,
-        t0_diag_free: jnp.ndarray | None = None,
-        t0_correlation_free: jnp.ndarray | None = None,
-        static_state_sd_free: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        cov = self.t0_chol_block.assemble_cov(t0_diag_free, t0_correlation_free)
-        factor_sds = self.static_state_sd_block.assemble(static_state_sd_free)
-        if factor_sds.size:
-            loadings = jnp.asarray(self.static_factor_loadings)
-            cov = cov + loadings @ jnp.diag(factor_sds**2) @ loadings.T
-        return symmetrize(cov)
-
 
 class SSMModel:
     """NumPyro state-space model definition.
@@ -457,10 +453,10 @@ class SSMModel:
         self.spec = spec
         self.priors = priors
         self._parameter_layout = SSMParameterLayout.from_spec(spec)
-        self._artifact_cache: dict[tuple[Any, ...], Any] = {}
+        self._artifact_cache: dict[tuple[object, ...], object] = {}
         self.observation_support: ObservationSupportRuntime | None = None
         self.transition_inputs: jnp.ndarray | None = None
-        self.parameter_bindings: list[dict[str, Any]] = []
+        self.parameter_bindings: list[CompiledParameterBinding] = []
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
             {site.name: site for site in prior_runtime_bundle.site_runtime.registry}
@@ -468,11 +464,15 @@ class SSMModel:
             else None
         )
 
-    def get_cached_artifact(self, cache_key: tuple[Any, ...], factory) -> Any:
+    def get_cached_artifact[T](
+        self,
+        cache_key: tuple[object, ...],
+        factory: Callable[[], T],
+    ) -> T:
         """Construct an artifact once per model instance and reuse it afterwards."""
         if cache_key not in self._artifact_cache:
             self._artifact_cache[cache_key] = factory()
-        return self._artifact_cache[cache_key]
+        return cast("T", self._artifact_cache[cache_key])
 
     def set_observation_support(
         self, observation_support: ObservationSupportRuntime | None
@@ -556,10 +556,6 @@ class SSMModel:
     # Per-block sampling now lives in the unified ``_run_block_sampling``
     # loop below. Every sample site resolves its prior from the canonical
     # site-prior runtime bundle.
-
-    def make_likelihood_backend(self):
-        """Construct or reuse the default Laplace likelihood backend."""
-        return self.make_laplace_backend(n_ieks_iters=6)
 
     def make_laplace_backend(self, n_ieks_iters: int):
         """Construct or reuse the Laplace likelihood backend for this model."""
@@ -734,12 +730,12 @@ class SSMModel:
             observations: (N, n_manifest) observed data
             times: (N,) observation times
             likelihood_backend: Laplace likelihood backend instance. Required —
-                use model.make_likelihood_backend() for the default.
+                use model.make_laplace_backend(6) for the standard initializer.
         """
         if likelihood_backend is None:
             raise ValueError(
                 "likelihood_backend is required. "
-                "Use model.make_likelihood_backend() for the default."
+                "Use model.make_laplace_backend(6) for the standard initializer."
             )
 
         spec = self.spec

@@ -29,9 +29,9 @@ from pathlib import Path
 
 from nof1_causal_lab.utils import config as config_mod
 from nof1_causal_lab.utils.config import (
+    PipelineConfig,
     load_config,
     validate_config,
-    validate_runtime_prereqs,
 )
 
 # jaxtyping array/dtype annotation types whose per-call shape checks the
@@ -58,6 +58,21 @@ _JAXTYPING_TYPES = frozenset(
     }
 )
 _SHAPES_MODULE = "nof1_causal_lab.models.ssm.shapes"
+
+
+def _validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
+    """Check all harness prerequisites selected anywhere in the config."""
+    errors: list[str] = []
+    harnesses_used = {llm.harness for _name, llm in config_mod._iter_profile_llms(config)}
+    if "none" in harnesses_used:
+        errors.extend(config_mod._check_embedded_prereqs())
+    if "claude-code" in harnesses_used:
+        errors.extend(config_mod._check_claude_code_prereqs(config))
+    if "codex" in harnesses_used:
+        errors.extend(config_mod._check_codex_prereqs(config))
+    if "pi" in harnesses_used:
+        errors.extend(config_mod._check_pi_prereqs(config))
+    return errors
 
 
 def _path_to_module(py_path: Path, src_root: Path) -> str:
@@ -287,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Jaxtyping wiring: OK")
 
     if args.runtime:
-        runtime_errors = validate_runtime_prereqs(config)
+        runtime_errors = _validate_runtime_prereqs(config)
         if runtime_errors:
             print("\nRuntime prereq errors:")
             for err in runtime_errors:

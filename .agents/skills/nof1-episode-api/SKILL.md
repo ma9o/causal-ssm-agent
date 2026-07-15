@@ -261,7 +261,7 @@ List a context's validation/query tools — the same tools the in-service LLM lo
 Each entry is `{name, description, parameters, result}` where `parameters`
 and `result` are JSON Schemas. Fetch this first to learn a tool's argument
 shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-ranking `simulate` / `get_model_info`, statistical-model-spec `submit_statistical_model_spec`.
+ranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
 
 **Parameters**
 

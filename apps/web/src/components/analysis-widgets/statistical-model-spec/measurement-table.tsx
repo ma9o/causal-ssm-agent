@@ -69,7 +69,7 @@ function capHistogramBins(
   return grouped;
 }
 
-function binPriorSamples(
+export function binPriorSamples(
   priorSamples: number[],
   dataBins: DisplayBin[],
   nData: number,
@@ -101,11 +101,8 @@ function binPriorSamples(
     const firstEdge = dataBins[0].binCenter - binWidth / 2;
 
     for (const v of priorSamples) {
-      const idx = Math.min(
-        Math.max(Math.floor((v - firstEdge) / binWidth), 0),
-        dataBins.length - 1,
-      );
-      counts[idx]++;
+      const idx = Math.floor((v - firstEdge) / binWidth);
+      if (idx >= 0 && idx < dataBins.length) counts[idx]++;
     }
   } else {
     for (const v of priorSamples) {
@@ -202,11 +199,28 @@ const MeasurementSparkline = memo(
       row.likelihood.distribution === "poisson" ||
       row.likelihood.distribution === "bernoulli" ||
       row.likelihood.distribution === "negative_binomial" ||
-      row.likelihood.distribution === "ordered_logistic";
-    const bins = useMemo(
-      () => capHistogramBins(row.diagnostics?.histogram ?? []),
-      [row.diagnostics?.histogram],
-    );
+      row.likelihood.distribution === "ordered_logistic" ||
+      row.likelihood.distribution === "categorical";
+    const bins = useMemo(() => {
+      const empirical = capHistogramBins(row.diagnostics?.histogram ?? []);
+      const hasFiniteCategories =
+        row.likelihood.distribution === "bernoulli" ||
+        row.likelihood.distribution === "ordered_logistic" ||
+        row.likelihood.distribution === "categorical";
+      if (!hasFiniteCategories || !row.priorSamples) return empirical;
+      const augmented = [...empirical];
+      for (const value of new Set(row.priorSamples)) {
+        if (!augmented.some((bin) => value >= bin.binStart && value <= bin.binEnd)) {
+          augmented.push({
+            binCenter: value,
+            count: 0,
+            binStart: value,
+            binEnd: value,
+          });
+        }
+      }
+      return augmented.sort((left, right) => left.binCenter - right.binCenter);
+    }, [row.diagnostics?.histogram, row.likelihood.distribution, row.priorSamples]);
 
     const hasHistogram = bins.length > 0 && nObs > 0;
 
@@ -219,6 +233,13 @@ const MeasurementSparkline = memo(
     );
 
     const hasPrior = prior.length > 0;
+    const priorOutsideFraction = useMemo(() => {
+      if (!hasHistogram || !row.priorSamples?.length) return 0;
+      const outside = row.priorSamples.filter(
+        (value) => !bins.some((bin) => value >= bin.binStart && value <= bin.binEnd),
+      ).length;
+      return outside / row.priorSamples.length;
+    }, [bins, hasHistogram, row.priorSamples]);
 
     const chartData: MeasurementChartPoint[] = useMemo(() => {
       if (!hasHistogram) {
@@ -301,6 +322,17 @@ const MeasurementSparkline = memo(
               strokeDasharray="3 3"
             />
           ))}
+          {priorOutsideFraction > 0 && (
+            <text
+              x={plotRight}
+              y={plotTop + 7}
+              textAnchor="end"
+              fill="var(--destructive)"
+              fontSize={8}
+            >
+              PP outside {formatNumber(priorOutsideFraction * 100, 0)}%
+            </text>
+          )}
           {chartData.map((bin, index) => {
             const hasRange = bin.binStart !== bin.binEnd;
             const rangeWidth = hasRange

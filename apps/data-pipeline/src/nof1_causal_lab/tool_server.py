@@ -41,12 +41,6 @@ from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
 from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
     execute_public_search_literature as _execute_search_literature,
 )
-from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
-    execute_public_submit_priors as _execute_submit_priors,
-)
-from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
-    execute_public_submit_statistical_model_spec as _execute_submit_statistical_model_spec,
-)
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
@@ -958,11 +952,6 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
         "validate_measurement_structure",
     ): _execute_validate_measurement_structure,
     ("measurement", "validate_extractions"): _execute_validate_extractions,
-    (
-        "statistical-model-spec",
-        "submit_statistical_model_spec",
-    ): _execute_submit_statistical_model_spec,
-    ("statistical-model-spec", "submit_priors"): _execute_submit_priors,
     ("statistical-model-spec", "search_literature"): _execute_search_literature,
     ("ranking", "get_model_info"): _execute_get_model_info,
     ("ranking", "simulate"): _execute_simulate,
@@ -1036,7 +1025,7 @@ def get_tool_schemas(context_id: str) -> list[dict[str, Any]]:
     Each entry is `{name, description, parameters, result}` where `parameters`
     and `result` are JSON Schemas. Fetch this first to learn a tool's argument
     shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-    ranking `simulate` / `get_model_info`, statistical-model-spec `submit_statistical_model_spec`.
+    ranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
     """
     contracts = CONTEXT_TOOLS.get(context_id)
     if contracts is None:

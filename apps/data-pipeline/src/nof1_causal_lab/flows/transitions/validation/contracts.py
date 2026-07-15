@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict
 
 from nof1_causal_lab.flows.contracts_base import BaseArtifactContract
 
-IS_INTERACTIVE_CONTEXT = False
-
 
 class ValidationIssueContract(BaseModel):
     model_config = ConfigDict(extra="forbid")

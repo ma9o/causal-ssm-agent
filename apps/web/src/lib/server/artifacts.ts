@@ -1,21 +1,8 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import type { ArtifactEnvelope } from "@nof1-causal-lab/api-types";
+import type { EpisodeArtifactId } from "@/lib/episode-types";
 
-export type EpisodeArtifactId =
-  | "question"
-  | "raw_data"
-  | "latent_structure"
-  | "measurement_structure"
-  | "causal_design"
-  | "identification_report"
-  | "measurements"
-  | "panel"
-  | "validation_report"
-  | "statistical_model_spec"
-  | "compiled_ssm"
-  | "posterior"
-  | "baseline_report"
-  | "saved_scenarios";
+export type { EpisodeArtifactId } from "@/lib/episode-types";
 
 type FileKind = "json" | "parquet" | "pickle";
 

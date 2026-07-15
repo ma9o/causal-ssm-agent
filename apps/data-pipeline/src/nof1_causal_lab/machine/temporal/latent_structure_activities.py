@@ -102,6 +102,17 @@ def _llm_backend_config(
             timeout=profile_llm.timeout,
         )
 
+    if profile_llm.harness == "pi":
+        pi = defaults.pi
+        return LLMBackendConfig(
+            harness="pi",
+            model=profile_llm.model,
+            bin=_first_latent_config_value(profile_llm.bin, pi.bin),
+            provider=_first_latent_config_value(profile_llm.provider, pi.provider),
+            thinking=_first_latent_config_value(profile_llm.thinking, pi.thinking),
+            timeout=profile_llm.timeout,
+        )
+
     raise ValueError(f"unknown LLM harness {profile_llm.harness!r}")
 
 

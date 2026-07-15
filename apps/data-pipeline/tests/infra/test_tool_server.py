@@ -63,8 +63,8 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
 
     from nof1_causal_lab.machine.moves import RunArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
-    from nof1_causal_lab.models.ssm.testing import block_ssm_spec, full_dense_matrix_dynamics_spec
     from nof1_causal_lab.utils import data as data_module
+    from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
     monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
 
@@ -199,103 +199,6 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     assert ctx["_identifiable_treatments"] == ["screen_time"]
     # Every serving-chain artifact pins current versions: nothing is stale.
     assert ctx["_stale_artifacts"] == []
-
-
-def test_execute_submit_priors_loads_runtime_via_context_registry(monkeypatch, tmp_path):
-    import polars as pl
-
-    import nof1_causal_lab.flows.transitions.model_spec.grounding as model_spec_grounding_module
-    import nof1_causal_lab.flows.transitions.model_spec.tool_registry as stage4_tool_registry
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.feedback import (
-        make_model_spec_grounding_result,
-    )
-    from nof1_causal_lab.machine.moves import RunArtifact
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
-    from nof1_causal_lab.utils import data as data_module
-
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
-
-    store = ArtifactStore("user-123")
-    measurements_info = store.write_version(
-        "measurements",
-        provenance="computed",
-        derived_from={},
-        produced_by="run:measurements",
-        json_files={"measurements.json": {"workers": []}},
-    )
-    panel_info = store.write_version(
-        "panel",
-        provenance="computed",
-        derived_from={},
-        produced_by="run:measurements",
-        parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
-    )
-    EpisodeJournal("user-123").append(
-        TransitionRecord(
-            seq=1,
-            ts="2026-07-03T00:00:00+00:00",
-            move=RunArtifact(artifact_id="measurements"),
-            status="applied",
-            produced=[measurements_info, panel_info],
-        )
-    )
-
-    expected_data_for_model = object()
-    captured: dict[str, object] = {}
-
-    def fake_load_parquet(path):
-        # The registry resolves the episode's CURRENT panel version.
-        assert path == store.file_path("panel", 1, "panel.parquet")
-        return expected_data_for_model
-
-    def fake_model_spec_grounding(
-        _data,
-        causal_design,
-        *,
-        current=None,
-        data_for_model=None,
-        indicator_audits=None,
-    ):
-        captured["causal_design"] = causal_design
-        captured["current"] = current
-        captured["data_for_model"] = data_for_model
-        captured["indicator_audits"] = indicator_audits
-        return make_model_spec_grounding_result(
-            context_output={"statistical_model_spec": {}},
-            status="accepted",
-            feedback="VALID",
-            retain_for_next_prompt=False,
-            capture_context_output=True,
-        )
-
-    monkeypatch.setattr(stage4_tool_registry, "load_parquet", fake_load_parquet)
-    monkeypatch.setattr(
-        stage4_tool_registry,
-        "_load_model_spec_current",
-        lambda workspace_id: {
-            "workspace_id": workspace_id,
-            "statistical_model_spec": {"parameters": []},
-        },
-    )
-    monkeypatch.setattr(
-        model_spec_grounding_module, "model_spec_grounding", fake_model_spec_grounding
-    )
-
-    result = tool_server._execute_submit_priors(
-        {
-            "_workspace_id": "user-123",
-            "causal_design": {"causal_design": {"latent": {"constructs": []}}},
-        },
-        {"priors_json": "{}"},
-    )
-
-    assert result == {"result": "VALID", "context_output": {"statistical_model_spec": {}}}
-    assert captured == {
-        "causal_design": {"latent": {"constructs": []}},
-        "current": {"workspace_id": "user-123", "statistical_model_spec": {"parameters": []}},
-        "data_for_model": expected_data_for_model,
-        "indicator_audits": None,
-    }
 
 
 def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):

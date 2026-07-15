@@ -81,7 +81,7 @@ async def emit_transition_runtime_event_activity(input: TransitionRuntimeEventIn
         input.workspace_id,
         input.transition_id,
         input.status,
-        error=input.error,
+        error=input.error.model_dump(mode="json") if input.error is not None else None,
     )
 
 

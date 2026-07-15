@@ -29,16 +29,3 @@ def build_laplace_backend(
         n_ieks_iters=n_ieks_iters,
         observation_support=observation_support,
     )
-
-
-def make_likelihood_backend(
-    spec: SSMSpec,
-    n_ieks_iters: int = 6,
-    observation_support: ObservationSupportRuntime | None = None,
-):
-    """Construct the default Laplace likelihood backend."""
-    return build_laplace_backend(
-        spec,
-        n_ieks_iters,
-        observation_support=observation_support,
-    )

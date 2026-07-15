@@ -3,7 +3,6 @@
 Each worker researches a single parameter using:
 1. Targeted Exa literature search (cacheable, run once)
 2. LLM prior elicitation based on evidence (can be retried with feedback)
-3. Optional AutoElicit-style paraphrased prompting for robust aggregation
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import logging
 from typing import TYPE_CHECKING
 
 import httpx
-import numpy as np
 
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 
@@ -20,9 +18,8 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.workers.schemas_prior import (
-    AggregatedPrior,
     PriorProposal,
-    RawPriorSample,
+    prior_params_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,112 +84,6 @@ async def search_parameter_literature(
         return []
 
 
-def aggregate_prior_samples(
-    samples: list[RawPriorSample],
-) -> AggregatedPrior:
-    """Aggregate multiple prior elicitations into a single prior using GMM.
-
-    Uses Gaussian Mixture Model with BIC model selection (K=1,2,3).
-    Falls back to simple pooling if GMM fails or selects K=1.
-
-    Args:
-        samples: List of raw prior samples from paraphrased prompts
-
-    Returns:
-        AggregatedPrior with aggregated parameters
-    """
-    mus = np.array([s.mu for s in samples])
-    sigmas = np.array([s.sigma for s in samples])
-
-    return _aggregate_gmm(mus, sigmas, samples)
-
-
-def _aggregate_simple(
-    mus: np.ndarray,
-    sigmas: np.ndarray,
-    samples: list[RawPriorSample],
-) -> AggregatedPrior:
-    """Simple pooling: mu_pooled = mean(mu_k), sigma_pooled = sqrt(mean(sigma_k^2) + var(mu_k))."""
-    mu_pooled = float(np.mean(mus))
-    # Total variance = within-sample variance + between-sample variance
-    sigma_pooled = float(np.sqrt(np.mean(sigmas**2) + np.var(mus)))
-
-    return AggregatedPrior(
-        method="simple",
-        mu=mu_pooled,
-        sigma=sigma_pooled,
-        n_samples=len(samples),
-    )
-
-
-def _aggregate_gmm(
-    mus: np.ndarray,
-    sigmas: np.ndarray,
-    samples: list[RawPriorSample],
-) -> AggregatedPrior:
-    """GMM aggregation with BIC model selection for multimodal detection."""
-    from sklearn.mixture import GaussianMixture
-
-    # Need at least 3 samples to fit GMM
-    if len(mus) < 3:
-        return _aggregate_simple(mus, sigmas, samples)
-
-    # Reshape for sklearn
-    X = mus.reshape(-1, 1)
-
-    # Try K=1,2,3 and select by BIC
-    best_bic = np.inf
-    best_gmm = None
-    best_k = 1
-
-    for k in range(1, min(4, len(mus))):
-        try:
-            gmm = GaussianMixture(n_components=k, random_state=42)
-            gmm.fit(X)
-            bic = gmm.bic(X)
-            if bic < best_bic:
-                best_bic = bic
-                best_gmm = gmm
-                best_k = k
-        except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
-            logger.warning("GMM fitting failed for k=%d: %s", k, exc)
-            continue
-
-    if best_gmm is None or best_k == 1:
-        # Fall back to simple if GMM fails or selects K=1
-        return _aggregate_simple(mus, sigmas, samples)
-
-    # Extract GMM parameters (always populated after fit)
-    assert best_gmm.weights_ is not None
-    assert best_gmm.means_ is not None
-    assert best_gmm.covariances_ is not None
-    weights = best_gmm.weights_.tolist()
-    means = best_gmm.means_.flatten().tolist()
-    stds = np.sqrt(best_gmm.covariances_.flatten()).tolist()
-
-    # For mu, use weighted mean of GMM components
-    mu_pooled = float(np.sum(best_gmm.weights_ * best_gmm.means_.flatten()))
-
-    # For sigma, combine GMM variance with between-sample variance
-    gmm_variance = float(
-        np.sum(
-            best_gmm.weights_
-            * (best_gmm.covariances_.flatten() + (best_gmm.means_.flatten() - mu_pooled) ** 2)
-        )
-    )
-    sigma_pooled = float(np.sqrt(gmm_variance + np.mean(sigmas**2)))
-
-    return AggregatedPrior(
-        method="gmm",
-        mu=mu_pooled,
-        sigma=sigma_pooled,
-        mixture_weights=weights,
-        mixture_means=means,
-        mixture_stds=stds,
-        n_samples=len(samples),
-    )
-
-
 def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     """Get a default prior when research fails.
 
@@ -232,7 +123,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     return PriorProposal(
         parameter=parameter.name,
         distribution=distribution,
-        params=params,
+        params=prior_params_model(distribution, params),
         sources=[],
         reasoning=f"Default prior for {parameter.role.value} parameter",
     )

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 import jax
 import jax.numpy as jnp
 import numpy as np
-from pydantic import BaseModel
 
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure
 from nof1_causal_lab.artifacts.measurement_structure import (
@@ -20,14 +19,18 @@ from nof1_causal_lab.artifacts.measurement_structure import (
     validate_measurement_structure,
 )
 from nof1_causal_lab.artifacts.statistical_model_spec import (
-    DistributionFamily,
-    LinkFunction,
     ParameterRole,
     StatisticalModelSpec,
     validate_statistical_model_spec_dict,
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
+from nof1_causal_lab.models.ssm.compile.contracts import (
+    CompiledParameterBinding,
+    CompiledSSMArtifact,
+    SerializedEdgeLag,
+    SerializedSSMSpec,
+)
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 logger = logging.getLogger(__name__)
@@ -39,14 +42,6 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm import SSMSpec
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
-
-CompiledSSMArtifact = dict[str, Any]
-
-_SPEC_ENUM_LIST_FIELDS = {
-    "diffusion_dists": DistributionFamily,
-    "manifest_dists": DistributionFamily,
-    "manifest_links": LinkFunction,
-}
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -72,7 +67,7 @@ def _to_jsonable(value: Any) -> Any:
     return value
 
 
-def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
+def serialize_ssm_spec(spec: SSMSpec) -> SerializedSSMSpec:
     """Convert an SSMSpec into a JSON-serializable payload.
 
     Emits the same block-spec shape used by ``SSMSpec`` in memory. The
@@ -81,7 +76,7 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     """
     from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 
-    payload: dict[str, Any] = {
+    payload = {
         "n_latent": spec.n_latent,
         "n_manifest": spec.n_manifest,
         "dynamics_spec": _to_jsonable(dynamics_spec_to_dict(spec.dynamics_spec)),
@@ -98,7 +93,7 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
         "manifest_dists": _to_jsonable(spec.manifest_dists),
         "manifest_level_counts": _to_jsonable(spec.manifest_level_counts),
         "manifest_links": _to_jsonable(spec.manifest_links),
-        "manifest_centered": _to_jsonable(spec.manifest_centered),
+        "manifest_standardized": _to_jsonable(spec.manifest_standardized),
         "latent_names": _to_jsonable(spec.latent_names),
         "manifest_names": _to_jsonable(spec.manifest_names),
         "input_names": _to_jsonable(spec.input_names),
@@ -109,51 +104,24 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
         "initialization_policy": spec.initialization_policy,
         "observation_intercept_policy": spec.observation_intercept_policy,
     }
-    return payload
+    return SerializedSSMSpec.model_validate(payload)
 
 
 def serialize_edge_lag_days(
     edge_lag_days: dict[tuple[int, int], float],
-) -> list[dict[str, float | int]]:
+) -> list[SerializedEdgeLag]:
     """Convert edge-lag metadata into a JSON-serializable payload."""
     return [
-        {
-            "effect_idx": int(effect_idx),
-            "cause_idx": int(cause_idx),
-            "lag_days": float(lag_days),
-        }
+        SerializedEdgeLag(
+            effect_idx=int(effect_idx),
+            cause_idx=int(cause_idx),
+            lag_days=float(lag_days),
+        )
         for (effect_idx, cause_idx), lag_days in sorted(edge_lag_days.items())
     ]
 
 
-def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
-    """Restore serialized edge-lag metadata from a compiled artifact payload."""
-    if not isinstance(payload, list):
-        raise ValueError(
-            "Compiled artifact is missing required 'edge_lag_days'. Recompile the artifact."
-        )
-
-    edge_lag_days: dict[tuple[int, int], float] = {}
-    for entry in payload:
-        if not isinstance(entry, dict):
-            raise ValueError("Compiled artifact 'edge_lag_days' entries must be JSON objects.")
-        effect_idx = entry.get("effect_idx")
-        cause_idx = entry.get("cause_idx")
-        lag_days = entry.get("lag_days")
-        if not isinstance(effect_idx, int) or not isinstance(cause_idx, int):
-            raise ValueError(
-                "Compiled artifact 'edge_lag_days' entries must include integer effect_idx "
-                "and cause_idx values."
-            )
-        if not isinstance(lag_days, int | float):
-            raise ValueError(
-                "Compiled artifact 'edge_lag_days' entries must include numeric lag_days values."
-            )
-        edge_lag_days[(effect_idx, cause_idx)] = float(lag_days)
-    return edge_lag_days
-
-
-def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
+def deserialize_ssm_spec(payload: SerializedSSMSpec) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
     from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_from_dict
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -164,27 +132,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         SparseVectorBlockSpec,
         T0CholBlockSpec,
     )
-
-    required_fields = {
-        "n_latent",
-        "n_manifest",
-        "dynamics_spec",
-        "diffusion_block",
-        "lambda_block",
-        "manifest_means_block",
-        "manifest_chol_block",
-        "t0_means_block",
-        "t0_chol_block",
-        "input_effect_block",
-        "static_state_sd_block",
-        "static_factor_loadings",
-    }
-    missing_fields = sorted(required_fields - set(payload))
-    if missing_fields:
-        raise ValueError(
-            "Serialized SSMSpec payload is missing required block fields: "
-            f"{', '.join(missing_fields)}. Regenerate the compiled SSM artifact."
-        )
 
     def _bool_array(block: dict[str, Any], key: str) -> np.ndarray:
         return np.asarray(block[key], dtype=bool)
@@ -248,47 +195,38 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             template=_float_array(block, "template"),
         )
 
-    kwargs: dict[str, Any] = {
-        "n_latent": int(payload["n_latent"]),
-        "n_manifest": int(payload["n_manifest"]),
-        "dynamics_spec": dynamics_spec_from_dict(payload["dynamics_spec"]),
-        "diffusion_block": _diffusion_block(payload["diffusion_block"]),
-        "lambda_block": _sparse_matrix_block(payload["lambda_block"]),
-        "manifest_means_block": _sparse_vector_block(payload["manifest_means_block"]),
-        "manifest_chol_block": _manifest_chol_block(payload["manifest_chol_block"]),
-        "t0_means_block": _sparse_vector_block(payload["t0_means_block"]),
-        "t0_chol_block": _t0_chol_block(payload["t0_chol_block"]),
-        "input_effect_block": _sparse_matrix_block(payload["input_effect_block"]),
-        "static_state_sd_block": _sparse_vector_block(payload["static_state_sd_block"]),
-        "static_factor_loadings": jnp.asarray(
-            payload["static_factor_loadings"],
-            dtype=jnp.float32,
+    return SSMSpec(
+        n_latent=payload.n_latent,
+        n_manifest=payload.n_manifest,
+        dynamics_spec=dynamics_spec_from_dict(payload.dynamics_spec),
+        diffusion_block=_diffusion_block(payload.diffusion_block),
+        lambda_block=_sparse_matrix_block(payload.lambda_block),
+        manifest_means_block=_sparse_vector_block(payload.manifest_means_block),
+        manifest_chol_block=_manifest_chol_block(payload.manifest_chol_block),
+        t0_means_block=_sparse_vector_block(payload.t0_means_block),
+        t0_chol_block=_t0_chol_block(payload.t0_chol_block),
+        input_effect_block=_sparse_matrix_block(payload.input_effect_block),
+        static_state_sd_block=_sparse_vector_block(payload.static_state_sd_block),
+        static_factor_loadings=jnp.asarray(payload.static_factor_loadings, dtype=jnp.float32),
+        diffusion_dists=list(payload.diffusion_dists),
+        manifest_dists=list(payload.manifest_dists),
+        manifest_level_counts=payload.manifest_level_counts,
+        manifest_links=payload.manifest_links,
+        manifest_standardized=payload.manifest_standardized,
+        latent_names=payload.latent_names,
+        manifest_names=payload.manifest_names,
+        input_names=payload.input_names,
+        input_source_indicators=payload.input_source_indicators,
+        input_scales=payload.input_scales,
+        input_missing_policies=(
+            [str(policy) for policy in payload.input_missing_policies]
+            if payload.input_missing_policies is not None
+            else None
         ),
-    }
-
-    for key, enum_cls in _SPEC_ENUM_LIST_FIELDS.items():
-        value = payload.get(key)
-        if value is not None:
-            kwargs[key] = [enum_cls(item) for item in value]
-
-    metadata_fields = (
-        "manifest_level_counts",
-        "manifest_centered",
-        "latent_names",
-        "manifest_names",
-        "input_names",
-        "input_source_indicators",
-        "input_scales",
-        "input_missing_policies",
-        "static_factor_names",
+        static_factor_names=payload.static_factor_names,
+        initialization_policy=payload.initialization_policy,
+        observation_intercept_policy=payload.observation_intercept_policy,
     )
-    for key in metadata_fields:
-        if key in payload:
-            kwargs[key] = payload[key]
-    kwargs["initialization_policy"] = payload["initialization_policy"]
-    kwargs["observation_intercept_policy"] = payload["observation_intercept_policy"]
-
-    return SSMSpec(**kwargs)
 
 
 def _normalize_measurement_instruction(text: str) -> str:
@@ -362,22 +300,6 @@ def validate_measurement_structure_for_compilation(
         return None, compile_errors
 
     return measurement, []
-
-
-def trial_compile_measurement_structure(
-    measurement_structure: MeasurementStructure | dict,
-    latent_structure: LatentStructure | dict,
-) -> str | None:
-    """Try compiling a measurement structure and return a feedback string on failure."""
-    measurement_data = (
-        measurement_structure.model_dump(mode="json")
-        if isinstance(measurement_structure, BaseModel)
-        else measurement_structure
-    )
-    _, errors = validate_measurement_structure_for_compilation(measurement_data, latent_structure)
-    if errors:
-        return "\n".join(errors)
-    return None
 
 
 def collect_estimation_projection_compile_errors(
@@ -526,16 +448,14 @@ def _compile_validated_ssm_artifact(
         )
     )
 
-    return {
-        "schema_version": 1,
-        "spec": serialize_ssm_spec(spec),
-        "edge_lag_days": serialize_edge_lag_days(edge_lag_days),
-        "compiled_prior_semantics": compile_prior_semantics(spec, prior_registry),
-        "parameter_bindings": parameter_bindings,
-        "compile_diagnostics": [
-            diagnostic.model_dump(mode="json") for diagnostic in compile_diagnostics
-        ],
-    }
+    return CompiledSSMArtifact(
+        schema_version=1,
+        spec=serialize_ssm_spec(spec),
+        edge_lag_days=serialize_edge_lag_days(edge_lag_days),
+        compiled_prior_semantics=compile_prior_semantics(spec, prior_registry),
+        parameter_bindings=parameter_bindings,
+        compile_diagnostics=compile_diagnostics,
+    )
 
 
 def compile_ssm_artifact_with_default_priors(
@@ -702,15 +622,15 @@ def _normalize_authored_prior_payload(
 def _build_compiled_parameter_prior(
     *,
     parameter: str,
-    binding: dict[str, Any],
+    binding: CompiledParameterBinding,
     site_by_name: dict[str, Any],
     prior_state: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Build a generic public prior row from one compiler binding."""
-    from nof1_causal_lab.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal, prior_params_model
 
-    site_name = str(binding["site_name"])
-    flat_index = int(binding["flat_index"])
+    site_name = binding.site_name
+    flat_index = binding.flat_index
     site = site_by_name.get(site_name)
     if site is None:
         raise ValueError(f"Compiled artifact is missing site registry entry for {site_name!r}")
@@ -732,10 +652,11 @@ def _build_compiled_parameter_prior(
         )
     else:
         reasoning = f"Compiler-resolved prior for {parameter}."
+    prior_distribution = PriorDistributionFamily(distribution)
     return PriorProposal(
         parameter=parameter,
-        distribution=PriorDistributionFamily(distribution),
-        params=distribution_params,
+        distribution=prior_distribution,
+        params=prior_params_model(prior_distribution, distribution_params),
         sources=[],
         reasoning=reasoning,
     ).model_dump(mode="json")
@@ -766,10 +687,7 @@ def _resolve_latent_names(
     expected: int,
 ) -> list[str]:
     """Resolve latent state names from the compiled spec."""
-    spec_payload = compiled_ssm.get("spec")
-    latent_names: list[str] = []
-    if isinstance(spec_payload, dict):
-        latent_names = [str(name) for name in spec_payload.get("latent_names") or [] if name]
+    latent_names = list(compiled_ssm.spec.latent_names or [])
 
     if len(latent_names) < expected:
         raise ValueError(
@@ -787,7 +705,11 @@ def _build_compiled_initial_state_priors(
     prior_state: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Expose implicit initial-state compiler defaults as public prior rows."""
-    from nof1_causal_lab.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import (
+        LocationScalePriorParams,
+        PriorProposal,
+        ScalePriorParams,
+    )
 
     mean_site = site_by_field.get("t0_means")
     sd_site = site_by_field.get("t0_var_diag")
@@ -812,10 +734,10 @@ def _build_compiled_initial_state_priors(
             PriorProposal(
                 parameter=f"t0_mean_{latent_name}",
                 distribution=PriorDistributionFamily.NORMAL,
-                params={
-                    "mu": _extract_serialized_prior_value(mean_params, "loc", index),
-                    "sigma": _extract_serialized_prior_value(mean_params, "scale", index),
-                },
+                params=LocationScalePriorParams(
+                    mu=_extract_serialized_prior_value(mean_params, "loc", index),
+                    sigma=_extract_serialized_prior_value(mean_params, "scale", index),
+                ),
                 sources=[],
                 reasoning=(
                     "Default weakly informative prior for the initial state mean of "
@@ -828,7 +750,9 @@ def _build_compiled_initial_state_priors(
             PriorProposal(
                 parameter=f"t0_sd_{latent_name}",
                 distribution=PriorDistributionFamily.HALF_NORMAL,
-                params={"sigma": _extract_serialized_prior_value(sd_params, "scale", index)},
+                params=ScalePriorParams(
+                    sigma=_extract_serialized_prior_value(sd_params, "scale", index)
+                ),
                 sources=[],
                 reasoning=(
                     "Default weakly informative prior for the initial state standard deviation of "
@@ -853,19 +777,13 @@ def resolve_prior_proposals(
     """
     from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
 
-    semantics = compiled_ssm.get("compiled_prior_semantics")
-    if not isinstance(semantics, dict):
-        raise ValueError("Compiled artifact is missing required 'compiled_prior_semantics'")
-
-    bundle = load_prior_runtime_bundle(semantics)
+    bundle = load_prior_runtime_bundle(compiled_ssm.compiled_prior_semantics)
     site_by_name = {site.name: site for site in bundle.site_runtime.registry}
     site_by_field = {
         site.priors_field: site for site in bundle.site_runtime.registry if site.priors_field
     }
     binding_by_parameter = {
-        str(binding["parameter"]): dict(binding)
-        for binding in list(compiled_ssm.get("parameter_bindings", []) or [])
-        if isinstance(binding, dict) and "parameter" in binding
+        binding.parameter: binding for binding in compiled_ssm.parameter_bindings
     }
     authored_payloads = dump_prior_payloads(authored_priors)
 
@@ -886,11 +804,9 @@ def resolve_prior_proposals(
             resolved.append(_merge_resolved_prior_metadata(compiled_row, authored_payload))
         seen.add(parameter)
 
-    for binding in list(compiled_ssm.get("parameter_bindings", []) or []):
-        if not isinstance(binding, dict):
-            continue
-        parameter = str(binding.get("parameter") or "")
-        if not parameter or parameter in seen:
+    for binding in compiled_ssm.parameter_bindings:
+        parameter = binding.parameter
+        if parameter in seen:
             continue
         resolved.append(
             _build_compiled_parameter_prior(
@@ -926,18 +842,13 @@ def build_model_from_compiled_artifact(
     from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
     from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-    spec = deserialize_ssm_spec(compiled_ssm["spec"])
-    semantics = compiled_ssm.get("compiled_prior_semantics")
-    if not isinstance(semantics, dict):
-        raise ValueError(
-            "Compiled artifact is missing required 'compiled_prior_semantics'. "
-            "Recompile the artifact with the current compiler."
-        )
+    spec = deserialize_ssm_spec(compiled_ssm.spec)
+    semantics = compiled_ssm.compiled_prior_semantics
     prior_runtime_bundle = load_prior_runtime_bundle(semantics)
     return build_ssm_model(
         wide_data,
         ssm_spec=spec,
         compiled_prior_semantics=semantics,
         prior_runtime_bundle=prior_runtime_bundle,
-        parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),
+        parameter_bindings=compiled_ssm.parameter_bindings,
     )

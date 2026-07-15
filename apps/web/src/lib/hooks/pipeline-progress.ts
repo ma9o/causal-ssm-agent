@@ -95,7 +95,10 @@ export function restartTransitionAttempt(
   }
 
   const ts = eventTime ?? Date.now();
-  const artifacts = { ...current.artifacts, [artifactId]: "running" as TransitionRunStatus };
+  const artifacts = {
+    ...current.artifacts,
+    [artifactId]: "running" as TransitionRunStatus,
+  };
   const transitionErrors = { ...current.transitionErrors };
   delete transitionErrors[artifactId];
 
@@ -121,6 +124,20 @@ export function applyTransitionUpdate(
   const order = requireTransitionOrder(prev, transitionOrder);
   const current = prev ?? initialProgress(order);
   const previousStatus = current.artifacts[artifactId];
+  const existingTiming = current.timings[artifactId];
+
+  // Journal records and telemetry are individually ordered but arrive in separate
+  // arrays. An older terminal journal record must not clobber a newer running
+  // telemetry event for a restarted attempt.
+  if (
+    previousStatus === "running" &&
+    (status === "completed" || status === "failed") &&
+    eventTime !== undefined &&
+    existingTiming?.startedAt !== undefined &&
+    eventTime < existingTiming.startedAt
+  ) {
+    return current;
+  }
 
   // A lower-priority signal never clobbers a higher one: a stale pending/running
   // must not undo a terminal state (genuine re-runs arrive via restartTransitionAttempt).
@@ -142,7 +159,6 @@ export function applyTransitionUpdate(
 
   const artifacts = { ...current.artifacts, [artifactId]: status };
   const ts = eventTime ?? Date.now();
-  const existingTiming = current.timings[artifactId];
   const timings = { ...current.timings };
 
   if (status === "running") {

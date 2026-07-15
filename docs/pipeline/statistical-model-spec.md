@@ -6,7 +6,7 @@
 
 Translates the [`measurement_structure` transition `CausalDesign`](measurement-structure.md#causaldesign) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
 
-For the high-level reducer flow, see [`statistical_model_spec` transition State Machine](../reference/statistical-model-spec/state-machine.md). For the exact control semantics of the LLM-driven loop, see [LLM-Driven `statistical_model_spec` transition Specification](../reference/statistical-model-spec/llm-driven-specification.md).
+For the high-level reducer flow, see the [`statistical_model_spec` construct-admission state machine](../reference/statistical-model-spec/state-machine.md). For its exact prompts, validation, checkpoint, and recovery semantics, see the [LLM-driven specification](../reference/statistical-model-spec/llm-driven-specification.md).
 
 ## Inputs
 
@@ -22,56 +22,78 @@ For the high-level reducer flow, see [`statistical_model_spec` transition State 
 
 ## Process
 
-`statistical_model_spec` transition makes decisions incrementally: each block scopes the LLM to one choice, and accepted blocks stay frozen unless a validator reopens them.
+`statistical_model_spec` transition admits constructs incrementally along the causal topology. Independent ready constructs use concurrent LLM subroutines, while members of a feedback component remain sequential. Deterministic code compiles each cumulative partial model and runs the exact prior-predictive reachability battery before accepting a branch.
 
 ```mermaid
 flowchart LR
-    S[Skeleton] --> BF[Frontier\nFormation] --> MD[Active Model-\nDecision Block] --> CV{Validation}
-    CV -- "fail" --> MD
-    CV -- "next" --> MD
-    CV -- "spec\nlocked" --> PB[Active Prior\nElicitation Block]
-    PB --> BV{Validation}
-    BV -- "fail" --> PB
-    BV -- "next" --> PB
-    BV -- "priors\naccepted" --> GV{PPCs}
-    GV -- ok --> F([StatisticalModelSpec + Priors])
-    GV -- fail --> RR{Failure\nClassifier}
-    RR -- "model issue" --> MD
-    RR -- "prior issue" --> PB
+    S[Deterministic skeleton] --> O[SCC condensation DAG]
+    O --> P[Ready-frontier fanout]
+    P --> A{Compile + exact\nbranch battery}
+    A -- revise --> P
+    A -- admitted --> C[Immutable branch checkpoints]
+    C --> M[Deterministic frontier merge]
+    M --> N{More constructs?}
+    N -- yes --> P
+    N -- no --> B{Shared full-model barrier}
+    B -- reopen failed unit + descendants --> P
+    B -- pass --> F([StatisticalModelSpec + priors])
 ```
 
-**Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/statistical-model-spec/parameters.md), locks [likelihoods](../reference/statistical-model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, fixes loading orientations from `measurement_structure` transition indicator polarity, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
+**Skeleton:** Before any LLM judgment, deterministic code derives the compiler-authoritative parameter catalog, admissible [likelihoods](../reference/statistical-model-spec/likelihoods.md), loading orientations, and fixed structural policy. The LLM cannot invent parameters or causal edges.
 
-**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator) and *prior blocks* in dependency order: measurement → dynamics → grouped causal-effect families (incoming effects per target construct) → confounding.
+**Admission Topology:** Strongly connected components of the estimation graph form a deterministic condensation DAG. All ready singleton units may run concurrently. Members of a lagged feedback component remain adjacent and sequential, and the edge that closes a feedback loop is authored when its final endpoint is admitted.
 
-**Model-Decision Block:** Each block resolves:
+**Construct Submission:** The active construct submission contains:
 
-- *Distribution and link* for one ambiguous indicator, informed by its [`validation_report` derivation](extraction-validation.md) empirical profile and domain semantics
+- distribution and link choices for its indicators;
+- priors for its compiler-authoritative parameter surface;
+- priors for incoming or cycle-closing causal effects; and
+- optional written acceptance rationales for soft reachability findings.
 
-Model-decision blocks are validated locally against the active frontier and accepted into reducer state one block at a time. Once all model-decision blocks are accepted, the transition materializes the full `StatisticalModelSpec` and runs a [compilation check](../reference/compilation.md) with PPCs disabled; compile failures reopen the smallest responsible model-decision block. Before prior elicitation, a compact global-review checkpoint can reopen the relevant model-decision blocks when those choices need to move together. Loading orientations remain visible at that checkpoint but are already fixed from `measurement_structure` transition indicator polarity rather than authored blockwise in `statistical_model_spec` transition.
+Unknown or non-free parameter names are rejected. A cycle-closing construct must author the closing edge in the same submission so the restricted cumulative model never contains an unbound edge site.
 
-**Prior Elicitation Block:** Once the `StatisticalModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. Dynamic priors are specified on the discrete-time scale at the model clock interval; `rho_*` means baseline persistence absent incoming feedback, while [compilation](../reference/compilation.md) converts `rho_*` and `beta_*` to continuous-time rates where needed.
+**Validation:** Each submission compiles its immutable causal-ancestor closure plus the proposed construct and simulates it through the exact nonlinear prior-predictive engine. Hard failures require revision. Soft failures require either revision or an explicit rationale accepting the consequence. Each successful branch merges as it completes, allowing newly ready descendants to start while unrelated work remains in flight.
 
-When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls for one parameter can be aggregated via a Gaussian mixture model[^capstick2024] to reduce prompt-wording bias.
+**Full-Model Barrier:** Once every construct is accepted, deterministic code compiles the complete model once and draws one shared exact prior-predictive sample set. Every construct is rechecked against that same model. A failure reopens the failing feedback unit from that member onward and all descendant units while retaining independent admitted branches.
 
-**Validation:** The transition validates in two layers. After the model-decision phase closes, the full locked `StatisticalModelSpec` is compiled once, enforcing distribution-link and dtype compatibility, loading-matrix rank, and successful SSM construction. During prior elicitation, each accepted prior block is merged into the accumulated authored priors, but real prior compilation and prior predictive checks only run once the full required prior set is present. At that point, a global prior predictive simulation checks:
+When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013].
 
-- *Numerical health*: no NaN/Inf or extreme values (|value| > 10⁶)
-- *Constraint satisfaction*: positive-constrained parameters must not violate their support
-- *Dynamics stability*: the compiled hard-sparsity drift construction enforces strictly negative real eigenvalues by row diagonal dominance; prior predictive checks still surface the realised damping and any structural inconsistencies[^sarkka2019]
-- *Scale plausibility*: the implied observation SD from the stationary covariance[^sarkka2019] must be within a reasonable ratio of the [`validation_report` derivation](extraction-validation.md) empirical SD[^gelman2020] [^riegler2025]
+The reachability battery includes:
 
-If validation fails, a deterministic classifier reopens the smallest responsible block.
+- *Numerical health and confinement*: exact nonlinear SDE trajectories must remain finite; sustained growth is surfaced separately.
+- *Marginal latent scale*: across-draw late-time scale must remain compatible with the standardized-latent convention.
+- *Design resolvability*: sufficient prior timescale mass must be visible through the active construct's actual irregular observation gaps and span.
+- *Edge influence and Hill activation*: same-noise per-edge contrasts detect parent-dominated dynamics, while draw-paired Hill occupancy checks the actual nonnegative response region.
+- *Replicated-data checks*: family-specific location and dispersion statistics compare the observed panel with complete prior-replicate datasets rather than flattened samples.
+- *Transmission*: the support-aware expected response must move meaningfully relative to the sampled predictive response.
+
+Only deterministic numerical failures are hard gates. Monte Carlo discrepancies require revision or an exact target-scoped acceptance rationale. When a submission closes a feedback component, every affected member is rechecked before the tentative state is committed.
+
+### Checkpointing and Recovery
+
+Checkpoints are immutable execution sidecars, not incomplete public artifacts. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The public `statistical_model_spec` artifact is written only after every construct is admitted and the barrier passes.
+
+Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries the latest `checkpoint_ref`. The outer orchestrator may then modify an upstream artifact through the normal machine moves and run `statistical_model_spec` again.
+
+On the next run:
+
+- unchanged input pins restore the accepted dependency-closed set without rerunning it;
+- changed input pins rebuild the deterministic skeleton and replay saved contributions through the same exact admission checks; and
+- each invalid unit and its descendants reopen while independent valid branches remain accepted.
+
+Each accepted tool submission is keyed by its tool-request identifier. Retrying the activity returns the same immutable checkpoint rather than applying the submission twice.
 
 ### Example
 
-For a study of classroom engagement and academic performance where `measurement_structure` transition posited constructs `Teacher Feedback Frequency`, `Student Engagement`, and `Test Scores` with model clock `1w`, `statistical_model_spec` transition might: resolve `Test Scores` deterministically to `gaussian`/`identity` in the skeleton; present one model-decision block for `Teacher Feedback Frequency` where the LLM chooses `poisson`/`log`; then process prior blocks in order — the dynamics block for `Student Engagement` yields `rho_engagement ~ Beta(5, 2)` reflecting moderate weekly baseline persistence absent feedback, and the causal-effect block for the feedback→engagement edge yields `beta_teacher_feedback_engagement ~ Normal(0.2, 0.15)` anchored by an educational psychology meta-analysis.
+For a study of classroom engagement and academic performance, the transition could admit independent `Teacher Feedback Frequency` and `Home Study Support` roots concurrently. Once their branch checkpoints merge, `Student Engagement` authors its dynamics and incoming effects. A feedback pair involving engagement stays sequential, and the complete model must pass the shared barrier before the transition writes its public artifact.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
 | `statistical_model_spec` | `StatisticalModelSpec` | Complete statistical model specification |
+| `prior_predictive_diagnostics` | `list[PriorPredictiveDiagnostic]` | Compact accepted C1–C5 results, including feedback-component rechecks |
+| `prior_predictive_samples` | `dict[str, list[float]]` | Full-model exact prior-predictive observation samples for Data-vs-Prior inspection |
 | `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [`posterior` transition](inference.md); contains the flat `SSMSpec`, `edge_lag_days`, compiled prior semantics, parameter bindings, and compile diagnostics |
 
 ### StatisticalModelSpec.LikelihoodSpec
@@ -81,7 +103,7 @@ For a study of classroom engagement and academic performance where `measurement_
 | `variable` | `str` | Name of the observed indicator |
 | `distribution` | [`DistributionFamily`](../reference/statistical-model-spec/likelihoods.md#distribution-families) | Observation-model distribution family |
 | `link` | [`LinkFunction`](../reference/statistical-model-spec/likelihoods.md#link-functions) | Link function mapping latent state to distribution parameter |
-| `centered` | `bool` | Deterministic auto-centering flag for additive-location indicators that are centered before fitting |
+| `standardized` | `bool` | Deterministic auto-standardization flag for additive-location indicators whose observed values are mean-centered and scaled to unit sd before fitting |
 
 ### StatisticalModelSpec.ParameterSpec
 
@@ -100,11 +122,7 @@ For a study of classroom engagement and academic performance where `measurement_
 | `parameters` | `list[ParameterSpec]` | Compiler-authoritative semantic prior surfaces that remain active after model decisions are locked |
 | `initialization_policy` | `\"stationary\" \| \"free\"` | Whether dynamic-state initial conditions are stationary-derived or exposed as free `t0_*` surfaces |
 | `observation_intercept_policy` | `\"free\" \| \"fixed\"` | Whether eligible manifest intercepts `manifest_mean_*` remain free or are fixed |
-| `equilibrium_forcing` | `bool` | Whether eligible centered dynamic constructs may expose a continuous-time intercept `cint_*` |
+| `equilibrium_forcing` | `bool` | Whether eligible standardized dynamic constructs may expose a continuous-time intercept `cint_*` |
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)
-[^bollen1989]: Bollen, K. A. (1989). *Structural Equations with Latent Variables*. Wiley. [Bibliography entry](../reference/bibliography.md)
-[^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](../reference/bibliography.md)
-[^capstick2024]: Capstick, A., Krishnan, R. G., & Barnaghi, P. (2024). AutoElicit: Using Large Language Models for Expert Prior Elicitation in Predictive Modelling. arXiv:2411.17284. [Bibliography entry](../reference/bibliography.md)
-[^riegler2025]: Riegler, M. A., Hellton, K. H., Thambawita, V., & Hammer, H. L. (2025). Using Large Language Models to Suggest Informative Prior Distributions in Bayesian Regression Analysis. *Scientific Reports*, 15, 33386. [Bibliography entry](../reference/bibliography.md)

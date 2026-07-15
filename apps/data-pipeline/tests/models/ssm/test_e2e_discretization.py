@@ -25,7 +25,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
+from nof1_causal_lab.models.ssm import SSMSpec, discretize_linear_system_exact
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
@@ -40,7 +40,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-from nof1_causal_lab.models.ssm.testing import block_ssm_spec, dense_matrix_dynamics_spec
+from tests.ssm_spec_fixtures import block_ssm_spec, dense_matrix_dynamics_spec
 
 
 def _block_spec_with_edge_support(
@@ -1119,7 +1119,7 @@ class TestE2ESpecToDiscretization:
     def test_discretize_produces_valid_system(
         self, two_construct_causal_design, two_construct_statistical_model_spec, weekly_study_priors
     ):
-        """discretize_system produces valid F, Q, c from converted priors."""
+        """discretize_linear_system_exact produces valid F, Q, c from converted priors."""
         spec, _elags = _translate_spec_for_test(
             two_construct_statistical_model_spec,
             causal_design=two_construct_causal_design,
@@ -1144,7 +1144,7 @@ class TestE2ESpecToDiscretization:
         cint = jnp.zeros(n)
 
         # Discretize at dt=1 (daily)
-        F, Q, c = discretize_system(dynamics, diffusion_cov, cint, dt=1.0)
+        F, Q, c = discretize_linear_system_exact(dynamics, diffusion_cov, cint, dt=1.0)
 
         # F should be a valid transition matrix (all eigenvalues < 1 in abs)
         eigs_F = jnp.linalg.eigvals(F)
@@ -1542,8 +1542,8 @@ class TestExactMatrixLogConversion:
         diffusion_cov = jnp.eye(2) * 0.1
 
         # Discretize at dt=1 and dt=2
-        F1, _Q1, _ = discretize_system(dynamics, diffusion_cov, None, dt=1.0)
-        F2, _Q2, _ = discretize_system(dynamics, diffusion_cov, None, dt=2.0)
+        F1, _Q1, _ = discretize_linear_system_exact(dynamics, diffusion_cov, None, dt=1.0)
+        F2, _Q2, _ = discretize_linear_system_exact(dynamics, diffusion_cov, None, dt=2.0)
 
         # Semi-group property: F(2) == F(1) @ F(1)
         F1_squared = F1 @ F1

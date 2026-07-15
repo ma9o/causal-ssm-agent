@@ -1,9 +1,6 @@
 """Pytest-only assertions for SSM recovery checks.
 
-Construction helpers (block/spec builders, support masks, dynamics specs, the
-prior-registry helper) live in ``nof1_causal_lab.models.ssm.testing`` so non-test
-code (e.g. the benchmark scripts) can reuse them without importing the test
-package.
+SSM construction fixtures live alongside this module in ``ssm_spec_fixtures``.
 """
 
 from __future__ import annotations

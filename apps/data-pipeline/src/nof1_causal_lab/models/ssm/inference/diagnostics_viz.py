@@ -9,9 +9,12 @@ Extracted from inference.py to separate visualization concerns from inference lo
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict
 
 import jax.numpy as jnp
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +23,82 @@ HIST_PADDING_RATIO = 0.05
 HIST_PADDING_DEFAULT = 0.5
 
 
+class TraceChainData(TypedDict):
+    """One thinned parameter trace for one chain."""
+
+    chain: int
+    values: list[float]
+
+
+class TraceSeriesData(TypedDict):
+    """All thinned chains for one scalar parameter coordinate."""
+
+    parameter: str
+    chains: list[TraceChainData]
+
+
+class RankChainData(TypedDict):
+    """Rank-histogram counts for one chain."""
+
+    chain: int
+    counts: list[int]
+
+
+class RankHistogramData(TypedDict):
+    """Rank histograms for one scalar parameter."""
+
+    parameter: str
+    n_bins: int
+    expected_per_bin: float
+    chains: list[RankChainData]
+
+
+class HistogramData(TypedDict):
+    """A normalized one-dimensional histogram."""
+
+    bin_centers: list[float]
+    density: list[float]
+
+
+class EnergyDiagnosticsData(TypedDict):
+    """Hamiltonian energy and energy-transition diagnostics."""
+
+    energy_hist: HistogramData
+    energy_transition_hist: HistogramData
+    bfmi: list[float]
+
+
+class PosteriorMarginalData(TypedDict):
+    """Histogram and summary statistics for one posterior coordinate."""
+
+    parameter: str
+    x_values: list[float]
+    density: list[float]
+    mean: float
+    sd: float
+    hdi_3: float
+    hdi_97: float
+
+
+class PosteriorPairRequiredData(TypedDict):
+    """Required scatter data for a posterior-coordinate pair."""
+
+    param_x: str
+    param_y: str
+    x_values: list[float]
+    y_values: list[float]
+
+
+class PosteriorPairData(PosteriorPairRequiredData, total=False):
+    """Posterior-coordinate pair with an optional divergence mask."""
+
+    divergent: list[bool]
+
+
 def build_trace_data(
     chain_samples: dict[str, jnp.ndarray],
     max_points: int = 200,
-) -> list[dict[str, Any]]:
+) -> list[TraceSeriesData]:
     """Build thinned trace plot data from chain-level samples.
 
     Args:
@@ -34,7 +109,7 @@ def build_trace_data(
         List of {parameter, chains: [{chain, values}]} dicts.
         Multi-dimensional params are flattened to indexed scalars.
     """
-    traces: list[dict[str, Any]] = []
+    traces: list[TraceSeriesData] = []
 
     for name, arr in chain_samples.items():
         n_chains = arr.shape[0]
@@ -73,13 +148,13 @@ def build_trace_data(
 def build_rank_histograms(
     chain_samples: dict[str, jnp.ndarray],
     n_bins: int = 20,
-) -> list[dict[str, Any]]:
+) -> list[RankHistogramData]:
     """Build rank histogram data for chain mixing assessment.
 
     Ranks all samples across chains and bins per chain.
     Uniform histograms indicate good mixing.
     """
-    histograms: list[dict[str, Any]] = []
+    histograms: list[RankHistogramData] = []
 
     for name, arr in chain_samples.items():
         if arr.ndim > 2:
@@ -91,7 +166,7 @@ def build_rank_histograms(
         ranks = jnp.argsort(jnp.argsort(all_vals)) + 1
 
         ranks_by_chain = ranks.reshape(n_chains, n_samples)
-        chain_hists = []
+        chain_hists: list[RankChainData] = []
         for c in range(n_chains):
             hist, _ = jnp.histogram(
                 ranks_by_chain[c],
@@ -117,7 +192,7 @@ def build_rank_histograms(
     return histograms
 
 
-def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> dict[str, Any]:
+def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> PosteriorMarginalData:
     """Compute histogram-based marginal density for a scalar parameter.
 
     Returns:
@@ -153,7 +228,7 @@ def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> dict[str
     }
 
 
-def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str, Any]:
+def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDiagnosticsData:
     """Build Hamiltonian energy diagnostics (Betancourt 2017).
 
     Computes marginal energy (E) and energy transition (dE) histograms.
@@ -174,7 +249,7 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str,
         var_e = float(jnp.var(e_flat))
         bfmi = [float(jnp.var(de_flat) / var_e) if var_e > 0 else 0.0]
 
-    def _hist(vals: jnp.ndarray) -> dict[str, list[float]]:
+    def _hist(vals: jnp.ndarray) -> HistogramData:
         lo, hi = float(jnp.min(vals)), float(jnp.max(vals))
         pad = (hi - lo) * HIST_PADDING_RATIO if hi > lo else HIST_PADDING_DEFAULT
         counts, edges = jnp.histogram(vals, bins=n_bins, range=(lo - pad, hi + pad))
@@ -196,9 +271,9 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str,
 
 def compute_posterior_marginals(
     samples: dict[str, jnp.ndarray], n_bins: int = 50
-) -> list[dict[str, Any]]:
+) -> list[PosteriorMarginalData]:
     """Compute marginal posterior density data for visualization."""
-    marginals: list[dict[str, Any]] = []
+    marginals: list[PosteriorMarginalData] = []
 
     for name, values in samples.items():
         if values.ndim == 1:
@@ -215,10 +290,10 @@ def compute_posterior_marginals(
 
 def compute_posterior_pairs(
     samples: dict[str, jnp.ndarray],
-    diagnostics: dict,
+    mcmc: TrajectoryMCMCResult | None,
     max_params: int = 6,
     max_samples: int = 200,
-) -> list[dict[str, Any]]:
+) -> list[PosteriorPairData]:
     """Compute pairwise scatter data for joint posterior visualization."""
     scalars: list[tuple[str, jnp.ndarray]] = []
     for name, values in samples.items():
@@ -236,7 +311,6 @@ def compute_posterior_pairs(
     step = max(1, n_draws // max_samples)
 
     div_mask: list[bool] | None = None
-    mcmc = diagnostics.get("mcmc")
     if mcmc is not None:
         try:
             extra = mcmc.get_extra_fields()
@@ -249,12 +323,12 @@ def compute_posterior_pairs(
                 exc_info=True,
             )
 
-    pairs: list[dict[str, Any]] = []
+    pairs: list[PosteriorPairData] = []
     for i in range(len(scalars)):
         for j in range(i + 1, len(scalars)):
             name_x, vals_x = scalars[i]
             name_y, vals_y = scalars[j]
-            entry: dict[str, Any] = {
+            entry: PosteriorPairData = {
                 "param_x": name_x,
                 "param_y": name_y,
                 "x_values": [float(v) for v in vals_x[::step]],
@@ -265,29 +339,3 @@ def compute_posterior_pairs(
             pairs.append(entry)
 
     return pairs
-
-
-def format_summary(samples: dict[str, jnp.ndarray], method: str) -> str:
-    """Format summary statistics for posterior samples."""
-    lines = [
-        f"Inference method: {method}",
-        f"{'Parameter':<30} {'Mean':>10} {'Std':>10} {'5%':>10} {'95%':>10}",
-        "-" * 72,
-    ]
-    for name, values in samples.items():
-        if values.ndim == 1:
-            mean = float(jnp.mean(values))
-            std = float(jnp.std(values))
-            q5 = float(jnp.percentile(values, 5))
-            q95 = float(jnp.percentile(values, 95))
-            lines.append(f"{name:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
-        elif values.ndim >= 2:
-            flat = values.reshape(values.shape[0], -1)
-            for i in range(flat.shape[1]):
-                label = f"{name}[{i}]"
-                mean = float(jnp.mean(flat[:, i]))
-                std = float(jnp.std(flat[:, i]))
-                q5 = float(jnp.percentile(flat[:, i], 5))
-                q95 = float(jnp.percentile(flat[:, i], 95))
-                lines.append(f"{label:<30} {mean:>10.4f} {std:>10.4f} {q5:>10.4f} {q95:>10.4f}")
-    return "\n".join(lines)

@@ -33,7 +33,6 @@ dependencies = [
     "pydantic>=2.11.9",
     "pyyaml>=6.0.2",
     "python-dotenv>=1.2.1",
-    "scikit-learn>=1.7.2",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
     "ipython>=9.12.0",
     "sympy>=1.14.0",
@@ -87,6 +86,7 @@ fix = true
 extend-exclude = ["notebooks/data"]
 
 [tool.ruff.lint]
+external = ["V"]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -153,7 +153,10 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.vulture]
-paths = ["src", "tests", "evaluation", "scripts", "notebooks"]
+# src must prove its own liveness. scripts/run_vulture.py checks evaluation,
+# scripts, notebooks, and tests as independent ownership seams; none of them can
+# keep a definition in src alive.
+paths = ["src"]
 # notebooks/data holds study fixtures and their data generators, not source code
 exclude = ["*notebooks/data*"]
 min_confidence = 60
@@ -230,7 +233,7 @@ replace-imports-with-any = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.discretization.exact,nof1_causal_lab.models.ssm.discretization.local_linearization,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.base,nof1_causal_lab.models.ssm.inference.targets.emissions,nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,nof1_causal_lab.models.ssm.inference.targets.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
+addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.discretization.exact,nof1_causal_lab.models.ssm.discretization.local_linearization,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.emissions,nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,nof1_causal_lab.models.ssm.inference.targets.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

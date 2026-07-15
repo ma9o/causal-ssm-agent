@@ -16,7 +16,7 @@ Subscription auth (ChatGPT Plus/Pro/Team) lives in
 ``~/.codex/auth.json``. Because we override ``CODEX_HOME`` for the
 MCP config, we also symlink the user's ``auth.json`` into the scratch
 directory so subscription credentials survive the override. The
-validator (``validate_runtime_prereqs``) refuses to start any Codex
+prerequisite validator refuses to start any Codex
 stage when ``~/.codex/auth.json`` is missing.
 
 Pipeline-fixed flags: ``--json`` for event streaming,
@@ -482,7 +482,7 @@ def _link_codex_auth(codex_home: Path) -> None:
 
     Subscription auth (ChatGPT Plus/Pro/Team) lives in that file.
     Without this, setting CODEX_HOME to a fresh directory would drop
-    the user out of their session. ``validate_runtime_prereqs`` ensures
+    the user out of their session. ``ensure_harness_prereqs`` ensures
     the file is present before any Codex stage runs.
 
     We copy (rather than symlink) so codex can refresh the access

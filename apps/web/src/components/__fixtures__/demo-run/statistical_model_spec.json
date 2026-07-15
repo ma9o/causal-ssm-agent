@@ -8,7 +8,7 @@
         "variable": "state_of_mind_valence",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Apple Health State of Mind 'dailyMood' valence is a unipolar self-rated VAS in [-1, +1] with quasi-symmetric within-person mass. Beta is rejected because boundary mass is rare in practice and the stationary affective_state filter prefers identity link; Student-t is not needed at the scale of self-report mood (no heavy outliers).",
         "sources": []
       },
@@ -16,7 +16,7 @@
         "variable": "late_night_message_count",
         "distribution": "negative_binomial",
         "link": "log",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Late-night iMessage volume spikes during ruminative episodes (documented Dad-thread spikes Oct 2023 and Oct 2025). Variance >> mean across the trajectory; negative_binomial is the standard choice.",
         "sources": []
       },
@@ -24,7 +24,7 @@
         "variable": "total_sleep_hours",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Within-person nightly TST is approximately symmetric around 7 h with SD \u2248 0.7 h. Standard sleep-research treatment is gaussian/identity.",
         "sources": []
       },
@@ -32,7 +32,7 @@
         "variable": "sleep_efficiency_pct",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Sleep efficiency in [50, 100] %, approximately symmetric within person around the high-80s. Beta/logit is over-engineered for the within-person scale; gaussian/identity is the standard sleep-research treatment.",
         "sources": []
       },
@@ -40,7 +40,7 @@
         "variable": "sleep_onset_latency_min",
         "distribution": "gamma",
         "link": "log",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Sleep onset latency is strictly positive with right-skewed tails (typical median 10-20 min, occasional 60+ min during SSRI titration). Gamma/log encodes multiplicative variability and the strictly-positive support needed for the documented Nov 2023 titration spike.",
         "sources": []
       },
@@ -48,7 +48,7 @@
         "variable": "nightly_hrv_ms",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "RMSSD-based HRV in [20, 80] ms is approximately symmetric within person and captured well by gaussian/identity at this person's scale.",
         "sources": []
       },
@@ -56,7 +56,7 @@
         "variable": "daily_step_count",
         "distribution": "negative_binomial",
         "link": "log",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Daily step count has mean \u2248 7000 and SD \u2248 2500-3000 \u2014 heavily overdispersed for poisson. Negative_binomial is the standard choice for activity-data of this scale.",
         "sources": []
       },
@@ -64,7 +64,7 @@
         "variable": "exercise_minutes",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Daily Apple Exercise Time is zero-inflated on rest days but otherwise approximately exponential. Gaussian/identity is the pragmatic choice and the compiler tolerates the zero mass; gamma/log would reject the 0-min entries.",
         "sources": []
       },
@@ -72,7 +72,7 @@
         "variable": "journal_affect_severity",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "0-4 continuous severity rating from journal entry text. Treated as continuous because the patient's sparse N-of-1 journal record (~21 entries) doesn't span enough phenotype levels to fit ordered_logistic stably, and the framework's ordered_logistic composite-kernel path has a slicing bug that surfaces with single-ordinal-channel models. Gaussian/identity is the pragmatic choice for sparse self-rated severity.",
         "sources": []
       },
@@ -80,7 +80,7 @@
         "variable": "journal_rumination_intensity",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "LLM-rated 0-10 rumination intensity on entry days only. Sparse but treated as continuous; gaussian/identity is the pragmatic choice for a self-rated Likert-style severity scale at this density.",
         "sources": []
       },
@@ -88,7 +88,7 @@
         "variable": "gp_clinical_severity",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "Continuous 0-10 clinician-implied severity rated by the LLM on the 5 GP visit days. N is small but the within-window variability is approximately symmetric; gaussian/identity is appropriate for a sparse interval-summary indicator.",
         "sources": []
       },
@@ -96,7 +96,7 @@
         "variable": "cyp2c19_metabolizer_status",
         "distribution": "gaussian",
         "link": "identity",
-        "centered": false,
+        "standardized": false,
         "reasoning": "CYP2C19 enzyme-activity score (poor=0.0 / intermediate=0.5 / normal=1.0 / rapid=1.5 / ultrarapid=2.0). For an N-of-1 patient only one phenotype level is realized (this patient: 0.5), so ordered_logistic emissions reject the data. Gaussian/identity with a tight measurement-error SD treats the activity score as a near-deterministic covariate.",
         "sources": []
       }

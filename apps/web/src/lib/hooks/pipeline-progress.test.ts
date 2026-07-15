@@ -57,7 +57,10 @@ describe("applyTransitionUpdate", () => {
     progress = applyUpdate(progress, "raw_data", "completed", 5_000);
 
     expect(progress.artifacts["raw_data"]).toBe("completed");
-    expect(progress.timings["raw_data"]).toEqual({ startedAt: 1_000, completedAt: 5_000 });
+    expect(progress.timings["raw_data"]).toEqual({
+      startedAt: 1_000,
+      completedAt: 5_000,
+    });
   });
 
   it("never regresses a completed transition back to running", () => {
@@ -117,7 +120,10 @@ describe("applyTransitionUpdate", () => {
     let progress = applyUpdate(undefined, "measurements", "running", 1_000);
     progress = restartAttempt(progress, "measurements", 4_000);
 
-    expect(progress.timings["measurements"]).toEqual({ startedAt: 1_000, completedAt: undefined });
+    expect(progress.timings["measurements"]).toEqual({
+      startedAt: 1_000,
+      completedAt: undefined,
+    });
   });
 
   it("marks the pipeline complete when every artifact view completed", () => {
@@ -149,5 +155,15 @@ describe("applyTransitionUpdate", () => {
     progress = applyUpdate(progress, "latent_structure", "completed", 3_000);
 
     expect(progress.artifacts["latent_structure"]).toBe("failed");
+  });
+
+  it("ignores an earlier failed journal record after a newer attempt starts", () => {
+    let progress = applyUpdate(undefined, "statistical_model_spec", "failed", 2_000, "old failure");
+    progress = restartAttempt(progress, "statistical_model_spec", 5_000);
+    progress = applyUpdate(progress, "statistical_model_spec", "failed", 2_000, "old failure");
+
+    expect(progress.artifacts["statistical_model_spec"]).toBe("running");
+    expect(progress.transitionErrors["statistical_model_spec"]).toBeUndefined();
+    expect(progress.isFailed).toBe(false);
   });
 });

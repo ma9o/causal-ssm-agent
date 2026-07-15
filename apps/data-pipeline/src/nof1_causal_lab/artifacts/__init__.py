@@ -7,7 +7,6 @@ from .causal_design import (
     IdentifiedTreatmentStatus,
     InducedDependency,
     NonIdentifiableTreatmentStatus,
-    validate_causal_design,
 )
 from .duration import parse_duration_to_hours
 from .latent_structure import (
@@ -72,7 +71,6 @@ __all__ = [
     "VALID_LINKS_FOR_DISTRIBUTION",
     "check_semantic_collisions",
     "parse_duration_to_hours",
-    "validate_causal_design",
     "validate_latent_structure",
     "validate_measurement_structure",
     "validate_statistical_model_spec_dict",

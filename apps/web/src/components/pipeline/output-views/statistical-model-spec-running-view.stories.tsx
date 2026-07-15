@@ -7,6 +7,7 @@ import {
   type ModelSpecAdmissionParameter,
   type ModelSpecAdmissionPlan,
   type ModelSpecAdmissionReplayState,
+  type ModelSpecAdmissionTiming,
   EMPTY_MODEL_SPEC_ADMISSION_REPLAY_STATE,
   applyModelSpecAdmissionEvent,
   parseModelSpecAdmissionEvent,
@@ -186,7 +187,6 @@ function passed(
     target,
     value,
     band,
-    duration_ms: checkDuration(check, target),
     passed: true,
     note: "",
     mode: "soft",
@@ -207,12 +207,40 @@ function failed(
     target,
     value,
     band,
-    duration_ms: checkDuration(check, target),
     passed: false,
     note,
     mode,
     diagnosis,
   };
+}
+
+function timingBreakdown(results: ModelSpecAdmissionCheckResult[]): ModelSpecAdmissionTiming[] {
+  return [
+    {
+      phase: "design_preparation",
+      label: "Design preparation",
+      duration_ms: 420,
+      checks: [],
+    },
+    {
+      phase: "model_compilation",
+      label: "Model compilation",
+      duration_ms: 860,
+      checks: [],
+    },
+    {
+      phase: "prior_predictive",
+      label: "Exact prior-predictive simulation",
+      duration_ms: 12_400,
+      checks: [],
+    },
+    ...results.map((result, index) => ({
+      phase: `diagnostic:${index}`,
+      label: result.check,
+      duration_ms: checkDuration(result.check, result.target),
+      checks: [result.check],
+    })),
+  ];
 }
 
 function report(
@@ -224,13 +252,16 @@ function report(
   annotations: string[] = [],
   coupledRecheck?: ModelSpecAdmissionCoupledRecheck,
 ): ModelSpecAdmissionEventRecord {
+  const timings = timingBreakdown(results);
   return admissionEvent("construct_report", {
     name,
     attempt,
+    duration_ms: timings.reduce((total, timing) => total + timing.duration_ms, 0),
     outcome,
     admitted,
     annotations,
     results,
+    timings,
     coupled_recheck: coupledRecheck,
   });
 }
@@ -430,6 +461,20 @@ const SYMPTOM_RECHECK_REPORT = report(
         "all inside",
       ),
     ],
+    timings: [
+      {
+        phase: "prior_predictive",
+        label: "Exact prior-predictive simulation",
+        duration_ms: 14_800,
+        checks: [],
+      },
+      {
+        phase: "c4b_edge_overwhelm",
+        label: "C4b edge-off resimulation",
+        duration_ms: 6_300,
+        checks: ["C4b edge overwhelm"],
+      },
+    ],
   },
 );
 
@@ -518,6 +563,44 @@ export const NeedsRevision: Story = {
       runningContent={<ModelSpecAdmissionRunningView state={replay(BASE_EVENTS.slice(0, 13))} />}
     />
   ),
+};
+
+export const RebasedAfterFailure: Story = {
+  args: { state: null },
+  render: () => {
+    const events = [
+      ...BASE_EVENTS.slice(0, 13),
+      admissionEvent("failed", {
+        construct: "stress_load",
+        message: "Stress load no longer passes the latent-scale check.",
+      }),
+      admissionEvent("plan", PLAN as unknown as Record<string, unknown>),
+      admissionEvent("resumed", {
+        checkpoint_ref: "model-spec-checkpoint:DEMO/run/checkpoint-000003.json",
+        source_checkpoint_ref: "model-spec-checkpoint:DEMO/run/checkpoint-000002.json",
+        pins_changed: true,
+        retained_constructs: [
+          "cyp2c19_metabolizer_status",
+          "recurrence_vulnerability",
+          "episode_phase",
+        ],
+        reopened_construct: "stress_load",
+        reason: "The revised panel changes the observed stress scale.",
+      }),
+      admissionEvent("failed", {
+        construct: "stress_load",
+        message: "Waiting for an upstream measurement revision.",
+      }),
+    ];
+    return (
+      <OutputStoryTemplate
+        output={output}
+        status="failed"
+        errorMessage="Waiting for an upstream measurement revision."
+        runningContent={<ModelSpecAdmissionRunningView state={replay(events)} showError={false} />}
+      />
+    );
+  },
 };
 
 export const CoupledSubsystemRecheck: Story = {

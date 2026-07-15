@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { cursorTimestampMs, parseTransitionProgressEvent } from "./use-run-events";
+import {
+  cursorTimestampMs,
+  parseTransitionProgressEvent,
+  progressPollIntervalMs,
+} from "./use-run-events";
+
+describe("progressPollIntervalMs", () => {
+  it("keeps polling idle viewers so externally started runs are discovered", () => {
+    expect(progressPollIntervalMs(false)).toBe(10_000);
+    expect(progressPollIntervalMs(true)).toBe(2_000);
+  });
+});
 
 describe("cursorTimestampMs", () => {
   it("parses the nanosecond prefix of an event cursor", () => {

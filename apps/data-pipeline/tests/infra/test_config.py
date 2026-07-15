@@ -16,6 +16,7 @@ from nof1_causal_lab.utils.config import (
     LLMProfileConfig,
     MAPConfig,
     MarginalParticleGibbsConfig,
+    PiDefaults,
     PipelineBehaviorConfig,
     PipelineConfig,
     PriorElicitationConfig,
@@ -158,6 +159,10 @@ FULL_CONFIG = textwrap.dedent("""\
       codex:
         reasoning_effort: medium
         service_tier: fast
+      pi:
+        bin: pi-custom
+        provider: openai-codex
+        thinking: high
 
     ingestion:
       max_tool_turns: 30
@@ -191,9 +196,6 @@ FULL_CONFIG = textwrap.dedent("""\
       max_tool_turns: 100
       literature_search:
         enabled: false
-      paraphrasing:
-        enabled: true
-        n_paraphrases: 5
       llm:
         harness: none
         model: openrouter/claude-3
@@ -257,6 +259,8 @@ class TestLoadConfig:
         assert cfg.llm.embedded.max_tokens == 65536
         assert cfg.llm.codex.reasoning_effort == "xhigh"
         assert cfg.llm.codex.service_tier == "fast"
+        assert cfg.llm.pi.provider == "openai-codex"
+        assert cfg.llm.pi.thinking == "high"
 
         load_config.cache_clear()
 
@@ -278,8 +282,6 @@ class TestLoadConfig:
         assert cfg.extraction_workers.max_tool_turns == 45
         assert cfg.prior_elicitation.max_tool_turns == 100
         assert cfg.prior_elicitation.literature_search.enabled is False
-        assert cfg.prior_elicitation.paraphrasing.enabled is True
-        assert cfg.prior_elicitation.paraphrasing.n_paraphrases == 5
         assert cfg.analysis_commentary.llm.model == "openrouter/claude-3"
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.inference.num_warmup == 500
@@ -312,6 +314,7 @@ class TestLoadConfig:
         assert cfg.llm.claude_code.effort == "medium"
         assert cfg.llm.codex.reasoning_effort == "medium"
         assert cfg.llm.codex.service_tier == "fast"
+        assert cfg.llm.pi == PiDefaults(bin="pi-custom", provider="openai-codex", thinking="high")
 
         load_config.cache_clear()
 
@@ -437,6 +440,40 @@ class TestValidateConfig:
         errors = validate_config(config)
         assert any(".max_budget_usd" in e for e in errors)
 
+    def test_pi_accepts_provider_model_and_thinking(self):
+        config = _make_pipeline_config(
+            ingestion=LLMProfileConfig(
+                harness="pi",
+                provider="openai-codex",
+                model="gpt-5.4-mini",
+                thinking="high",
+                timeout=3600,
+            ),
+        )
+        assert validate_config(config) == []
+
+    def test_pi_rejects_codex_reasoning_effort(self):
+        config = _make_pipeline_config(
+            ingestion=LLMProfileConfig(
+                harness="pi",
+                model="gpt-5.4-mini",
+                reasoning_effort="high",
+            ),
+        )
+        errors = validate_config(config)
+        assert any(".reasoning_effort" in error and "thinking" in error for error in errors)
+
+    def test_pi_thinking_enum(self):
+        config = _make_pipeline_config(
+            ingestion=LLMProfileConfig(
+                harness="pi",
+                model="gpt-5.4-mini",
+                thinking="max",
+            ),
+        )
+        errors = validate_config(config)
+        assert any(".thinking" in error and "'max'" in error for error in errors)
+
     def test_load_config_raises_on_stage2_harness_violation(self, tmp_path, monkeypatch):
         bad_config = textwrap.dedent("""\
             analysis_commentary:
@@ -504,9 +541,9 @@ class TestGetSecret:
 
 class TestEnsureHarnessPrereqs:
     def _reset(self):
-        from nof1_causal_lab.utils.config import _reset_verified_harnesses_for_testing
+        from nof1_causal_lab.utils import config as config_module
 
-        _reset_verified_harnesses_for_testing()
+        config_module._verified_harnesses.clear()
 
     def test_missing_openrouter_key_raises_for_embedded(self, monkeypatch):
         from nof1_causal_lab.utils.config import ensure_harness_prereqs

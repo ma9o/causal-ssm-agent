@@ -15,7 +15,8 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     MultiplicativeEdgeSpec,
     StateDecaySpec,
 )
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import (
     PriorRegistry,
     PriorSpec,
@@ -29,7 +30,6 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import block_ssm_spec, make_observation_support_runtime
 
 LATENT_NAMES = [
     "affective_state",
@@ -285,7 +285,7 @@ def build_synthetic_nonlinear_spec():
     input_support = np.zeros((3, len(INPUT_NAMES)), dtype=bool)
     for row, col in TRUE_INPUT_EFFECT_POSITIONS:
         input_support[row, col] = True
-    return block_ssm_spec(
+    return SSMSpec(
         n_latent=3,
         n_manifest=11,
         dynamics_spec=_synthetic_nonlinear_dynamics_spec(),
@@ -363,6 +363,19 @@ def build_synthetic_nonlinear_spec():
             fixed_spec_field="input_effect",
             priors_field="input_effect",
         ),
+        static_state_sd_block=SparseVectorBlockSpec(
+            n=0,
+            free_support=np.zeros(0, dtype=bool),
+            template=jnp.zeros(0),
+            free_site_name="static_state_sd_free",
+            det_site_name="static_state_sds",
+            support=SupportClass.POSITIVE,
+            site_kind=SiteKind.STATIC_STATE_SD,
+            assembly_group="t0",
+            fixed_spec_field="static_state_sds",
+            priors_field="static_state_sd",
+        ),
+        static_factor_loadings=jnp.zeros((3, 0), dtype=jnp.float32),
         manifest_dists=MANIFEST_DISTS,
         manifest_links=MANIFEST_LINKS,
         manifest_names=MANIFEST_NAMES,
@@ -473,7 +486,7 @@ def _build_gp_interval_support(T: int, gp_rows: np.ndarray, window: int = 3):
     summary_operators[gp_idx] = "mean"
     observation_windows[gp_idx] = f"{window}d"
 
-    return make_observation_support_runtime(
+    return _make_observation_support_runtime(
         anchor_times=np.arange(T, dtype=np.float64),
         manifest_names=MANIFEST_NAMES,
         support_kinds=support_kinds,
@@ -486,6 +499,38 @@ def _build_gp_interval_support(T: int, gp_rows: np.ndarray, window: int = 3):
         interval_weights=interval_weights,
         emission_slot_indices=emission_slot_indices,
     )
+
+
+def _make_observation_support_runtime(**kwargs) -> ObservationSupportRuntime:
+    """Build the runtime while accepting compact 2D interval coefficients."""
+    support_kinds = kwargs["support_kinds"]
+    kwargs.setdefault(
+        "summary_operators",
+        ["mean" if kind == "interval" else "last" for kind in support_kinds],
+    )
+    kwargs.setdefault(
+        "anchor_policies",
+        [
+            "support_start" if operator == "first" else "support_end"
+            for operator in kwargs["summary_operators"]
+        ],
+    )
+    prev = np.asarray(kwargs["interval_prev_coeffs"], dtype=np.float64)
+    curr = np.asarray(kwargs["interval_curr_coeffs"], dtype=np.float64)
+    weights = np.asarray(kwargs["interval_weights"], dtype=np.float64)
+    if prev.ndim == 2:
+        prev = prev[..., None]
+        curr = curr[..., None]
+        weights = weights[..., None]
+    kwargs["interval_prev_coeffs"] = prev
+    kwargs["interval_curr_coeffs"] = curr
+    kwargs["interval_weights"] = weights
+    emission_slots = kwargs.get("emission_slot_indices")
+    if emission_slots is None:
+        support_end = np.asarray(kwargs["support_end_times"])
+        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
+    kwargs["emission_slot_indices"] = emission_slots
+    return ObservationSupportRuntime(**kwargs)
 
 
 def _sample_negative_binomial(rng: np.random.Generator, mean: np.ndarray, r: float) -> np.ndarray:

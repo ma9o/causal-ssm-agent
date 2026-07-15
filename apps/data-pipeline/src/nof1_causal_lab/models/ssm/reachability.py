@@ -25,6 +25,11 @@ there is no status enum stored on any artifact.
 Checks, by family:
 
 - ``C1a``/``C1b`` — finiteness and self-calibrating confinement of the latent path.
+  C1b's calibration pair (growth ratio, tolerated explosive fraction) is a design
+  choice, not part of the statistic: the defaults encode the model class's
+  confinement commitment (every self-dynamics component is a restoring force) and
+  are threaded from the admission design so an intrinsically trending domain can
+  recalibrate them without touching the check.
 - ``C2`` — the construct's stationary latent scale vs the scale its indicator implies.
 - ``C3`` — design-resolvability: is the prior's self-relaxation τ inside
   ``[cadence/3, span/4]``? Schedule-only; does not estimate τ (the observed
@@ -43,9 +48,12 @@ Checks, by family:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 @dataclass(frozen=True)
@@ -62,34 +70,72 @@ class CheckResult:
     evidence: dict | None = None
 
 
-def check_confinement(name: str, x: np.ndarray, dt: float) -> list[CheckResult]:
+def _robust_scale(values: np.ndarray, *, axis: int | tuple[int, ...] | None = None) -> np.ndarray:
+    """Normal-consistent IQR scale without epsilon-denominator semantics."""
+    q75 = np.percentile(values, 75, axis=axis)
+    q25 = np.percentile(values, 25, axis=axis)
+    return np.asarray((q75 - q25) / 1.349)
+
+
+# C1b calibration: a draw "explodes" when its late-window amplitude exceeds
+# ``growth_ratio`` times its own early amplitude, and the check fails when at
+# least ``max_explosive_frac`` of draws do. Window-relative and generous — only
+# near-exponential within-window growth trips the defaults.
+C1B_GROWTH_RATIO = 5.0
+C1B_MAX_EXPLOSIVE_FRAC = 0.01
+
+
+def check_confinement(
+    name: str,
+    x: np.ndarray,
+    times: np.ndarray,
+    *,
+    growth_ratio: float = C1B_GROWTH_RATIO,
+    max_explosive_frac: float = C1B_MAX_EXPLOSIVE_FRAC,
+) -> list[CheckResult]:
     """C1a finiteness + C1b confinement of a construct's latent trajectories."""
     _bad = ~np.isfinite(np.asarray(x))
     _nonfinite = float(np.mean(_bad))
-    _xa = np.abs(np.nan_to_num(np.asarray(x), nan=np.inf, posinf=np.inf, neginf=np.inf))
+    _raw = np.asarray(x)
+    _xa = np.abs(_raw)
+    _times = np.asarray(times, dtype=float)
+    if _xa.ndim != 2 or _xa.shape[1] != _times.size or _times.size < 4:
+        raise ValueError("confinement requires draw-by-time paths on at least four times")
     _q = _xa.shape[1] // 4
-    _early = np.quantile(_xa[:, _q : 2 * _q], 0.95, axis=1)
-    _late = np.max(_xa[:, -_q:], axis=1)
-    _growth = _late / (_early + 1e-9)
-    _explode = float(np.mean(_growth > 5.0))
-    _ev = {"x": np.asarray(x), "growth": _growth, "dt": dt}
+    _finite_draws = ~_bad.any(axis=1)
+    _growth = np.full(_xa.shape[0], np.inf)
+    if np.any(_finite_draws):
+        _early = np.quantile(_xa[_finite_draws, _q : 2 * _q], 0.95, axis=1)
+        _late = np.max(_xa[_finite_draws, -_q:], axis=1)
+        _growth[_finite_draws] = _late / (_early + 1e-9)
+    _explode = float(np.mean(_growth > growth_ratio))
+    _ev = {
+        "x": np.asarray(x),
+        "growth": _growth,
+        "times": _times,
+        "growth_ratio": float(growth_ratio),
+        "max_explosive_frac": float(max_explosive_frac),
+    }
     _diag_a: tuple[str, ...] = ()
     if _nonfinite > 0.0:
         _bad_draws = _bad.any(axis=1)
-        _onset = float(np.median(np.argmax(_bad, axis=1)[_bad_draws]) * dt)
+        _onset_indices = np.argmax(_bad, axis=1)[_bad_draws]
+        _onset = float(np.median(_times[_onset_indices]))
         _diag_a = (
             f"{float(np.mean(_bad_draws)):.0%} of prior draws go non-finite; median "
-            f"onset t ≈ {_onset:.1f} d (integrator dt = {dt:g} d)",
-            "mechanism: explicit Euler–Maruyama diverges when step × drift gradient "
-            "exceeds the well width; the gradient grows with the stiffness and quartic "
-            "draws, and the diffusion draw sets how far paths wander into the steep "
-            "region",
+            f"onset t ≈ {_onset:.1f} d on the predictive output grid",
+            "the exact Diffrax Heun solve returned a non-finite path; inspect the sampled "
+            "drift, diffusion, and solver diagnostics for the implicated draws",
         )
     _diag_b: tuple[str, ...] = ()
-    if _explode >= 0.01:
+    if _explode >= max_explosive_frac:
+        _finite_growth = _growth[np.isfinite(_growth)]
+        _growth_q99 = (
+            float(np.percentile(_finite_growth, 99)) if _finite_growth.size else float("inf")
+        )
         _diag_b = (
-            f"{_explode:.1%} of draws end the window above 5× their own early amplitude "
-            f"(growth-ratio q99: {float(np.percentile(_growth, 99)):.1f})",
+            f"{_explode:.1%} of draws end the window above {growth_ratio:g}× their own early "
+            f"amplitude (finite-draw growth-ratio q99: {_growth_q99:.1f})",
             "mechanism: growth without settling occurs in draws where the confining "
             "terms (stiffness, quartic) are small relative to the variance input "
             "(diffusion, incoming edges)",
@@ -108,9 +154,9 @@ def check_confinement(name: str, x: np.ndarray, dt: float) -> list[CheckResult]:
         CheckResult(
             "C1b confinement",
             name,
-            f"P(late/early amplitude > 5) {_explode:.1%}",
-            "<1% (self-calibrating growth)",
-            _explode < 0.01,
+            f"P(late/early amplitude > {growth_ratio:g}) {_explode:.1%}",
+            f"<{max_explosive_frac:.1%} (self-calibrating growth)",
+            _explode < max_explosive_frac,
             f"trajectories of {name} grow without settling within the study window.",
             _diag_b,
             _ev,
@@ -121,34 +167,33 @@ def check_confinement(name: str, x: np.ndarray, dt: float) -> list[CheckResult]:
 def check_scale(
     name: str,
     x: np.ndarray,
-    scale_anchor: float,
-    anchor_src: str,
-    anchor_detail: str,
+    scale_anchor: float = 1.0,
+    anchor_src: str = "standardized-latent convention",
+    anchor_detail: str = "latent marginal scale convention",
 ) -> CheckResult:
-    """C2 — the construct's stationary latent scale vs its data-implied anchor."""
+    """C2 — marginal prior scale against the standardized-latent convention."""
     _half = x.shape[1] // 2
-    _sds = jnp.std(x[:, _half:], axis=1)
-    _med = float(jnp.median(_sds))
-    _q05, _q95 = np.percentile(np.asarray(_sds), [5, 95])
+    _scales = _robust_scale(np.asarray(x)[:, _half:], axis=0)
+    _med = float(np.median(_scales))
+    _q05, _q95 = np.percentile(_scales, [5, 95])
     _lo, _hi = scale_anchor / 3.0, scale_anchor * 3.0
     _ok = bool(_lo <= _med <= _hi)
-    _ev = {"sds": np.asarray(_sds), "lo": _lo, "hi": _hi, "anchor": scale_anchor}
+    _ev = {"marginal_scales": _scales, "lo": _lo, "hi": _hi, "anchor": scale_anchor}
     _diag: tuple[str, ...] = ()
     if not _ok:
         _side = "above" if _med > _hi else "below"
         _factor = _med / max(_hi, 1e-9) if _med > _hi else _lo / max(_med, 1e-9)
         _diag = (
-            f"prior-predictive stationary sd: median {_med:.2f} (5–95% "
+            f"prior-predictive marginal scale: median {_med:.2f} (5–95% "
             f"{_q05:.2f}–{_q95:.2f}) vs band [{_lo:.2f}, {_hi:.2f}] — {_factor:.1f}× "
             f"{_side} the edge",
-            f"band derivation: {anchor_detail} — the latent scale the indicator data "
-            "implies given the emission priors",
+            f"band derivation: {anchor_detail}",
             "dependence: the statistic rises with the diffusion prior and falls with "
             "the stiffness prior (incoming edges add parent variance); the band scales "
             "inversely with the prior-median loading — this red can equally reflect a "
             "dynamics–emission inconsistency",
-            "related evidence: C5c on the same indicator also takes the loading prior as "
-            "input; the joint (C2, C5c) pattern localizes which side is active",
+            "emission-to-data compatibility is evaluated separately by the C5 replicated-data "
+            "checks",
         )
     return CheckResult(
         "C2 latent scale",
@@ -156,8 +201,8 @@ def check_scale(
         f"median sd {_med:.2f} (5–95%: {_q05:.2f}–{_q95:.2f})",
         f"[{_lo:.2f}, {_hi:.2f}] ({anchor_src})",
         _ok,
-        f"stationary scale of {name} is inconsistent with the scale its indicator "
-        f"implies under the emission priors ({anchor_src}).",
+        f"marginal prior scale of {name} is inconsistent with the standardized latent "
+        f"convention ({anchor_src}).",
         _diag,
         _ev,
     )
@@ -166,37 +211,43 @@ def check_scale(
 def check_resolvability(
     name: str,
     tau_draws: np.ndarray,
-    cadence: float,
-    span: float,
+    observation_times: np.ndarray,
+    *,
+    min_resolvable_mass: float = 0.8,
 ) -> CheckResult:
-    """C3 — design-observability screen (schedule-only): is the prior's self-relaxation
-    timescale inside the window this sampling design can resolve?
-
-    τ below ~cadence/3 is aliased — the process relaxes ≥3× between observations, so
-    consecutive samples are near-independent draws of the stationary law. τ above ~span/4 is
-    frozen — the window holds < ~4 relaxation times, no replication. This compares the PRIOR's
-    τ to the DESIGN (median gap, span) only; it does NOT estimate τ or decompose observed
-    persistence into self vs inherited (that split is unidentified pre-fit and belongs to the
-    post-fit contraction gate). Reachability-flavored: it catches a prior positing dynamics the
-    schedule cannot see, not a mis-centered-but-resolvable τ.
-    """
+    """C3 — prior mass resolvable by this construct's actual irregular schedule."""
     _tau = np.asarray(tau_draws, dtype=float)
+    _times = np.unique(np.asarray(observation_times, dtype=float))
+    if _times.size < 2:
+        return CheckResult(
+            "C3 resolvability",
+            name,
+            f"{_times.size} distinct observation time(s)",
+            ">= 2 distinct times",
+            False,
+            f"the schedule for {name} contains too few distinct observations to resolve dynamics.",
+            ("no temporal contrast is available for this construct",),
+            {"observation_times": _times},
+        )
+    _gaps = np.diff(_times)
+    _span = float(np.ptp(_times))
     _med = float(np.median(_tau))
     _q10, _q90 = (float(_v) for _v in np.percentile(_tau, [10, 90]))
-    _lo, _hi = cadence / 3.0, span / 4.0
-    _frac_in = float(np.mean((_tau >= _lo) & (_tau <= _hi)))
-    _ok = bool(_lo <= _med <= _hi)
-    _ev = {"tau": _tau, "lo": _lo, "hi": _hi, "cadence": cadence, "span": span}
+    _gap_resolved = np.mean(_gaps[None, :] <= 3.0 * _tau[:, None], axis=1) >= 0.5
+    _span_resolved = _span >= 4.0 * _tau
+    _resolved = _gap_resolved & _span_resolved
+    _frac_in = float(np.mean(_resolved))
+    _ok = bool(_frac_in >= min_resolvable_mass)
+    _ev = {"tau": _tau, "gaps": _gaps, "span": _span, "resolved": _resolved}
     _diag: tuple[str, ...] = ()
-    if not _ok and _med < _lo:
+    _median_gap = float(np.median(_gaps))
+    if not _ok and np.mean(_gap_resolved) < np.mean(_span_resolved):
         _diag = (
             f"prior self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
-            f"below the design floor cadence/3 = {_lo:.2f} d (median observation gap "
-            f"{cadence:.2f} d); {_frac_in:.0%} of prior mass is resolvable",
+            f"is too fast for the construct's actual gaps (median {_median_gap:.2f} d); "
+            f"{_frac_in:.0%} of prior mass is resolvable",
             "reading: the prior posits dynamics faster than the sampling can follow — the "
-            "process relaxes ≥3× between observations, so consecutive samples are "
-            "near-independent draws of the stationary law and this timescale is invisible "
-            "to the design regardless of the fit",
+            "process relaxes at least three times across most adjacent observations",
             "this is a prior/design mismatch, not an estimate: the observed autocorrelation "
             "mixes this node's own relaxation with inherited parent persistence, and that "
             "split is resolved only by the joint fit — confirm with post-fit contraction",
@@ -204,7 +255,7 @@ def check_resolvability(
     elif not _ok:
         _diag = (
             f"prior self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
-            f"above the design ceiling span/4 = {_hi:.2f} d (span {span:.0f} d); "
+            f"is too slow for four replications within span {_span:.0f} d; "
             f"{_frac_in:.0%} of prior mass is resolvable",
             "reading: the prior posits dynamics so slow the window holds < ~4 relaxation "
             "times — the process is near-frozen over the record, so its timescale and "
@@ -213,8 +264,8 @@ def check_resolvability(
     return CheckResult(
         "C3 resolvability",
         name,
-        f"prior τ median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}); {_frac_in:.0%} in window",
-        f"cadence/3 ≤ τ ≤ span/4 = [{_lo:.2f}, {_hi:.2f}] d",
+        f"prior τ median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}); {_frac_in:.0%} resolvable",
+        f">= {min_resolvable_mass:.0%} of prior mass resolved by actual gaps and span",
         _ok,
         f"the timescale posited for {name} lies outside the window this sampling design can "
         "resolve; the fit cannot inform its dynamics from this schedule.",
@@ -223,7 +274,9 @@ def check_resolvability(
     )
 
 
-def check_edge_share(name: str, x_on_obs: np.ndarray, x_off_obs: np.ndarray) -> list[CheckResult]:
+def check_edge_share(
+    edge_label: str, x_on_obs: np.ndarray, x_off_obs: np.ndarray
+) -> list[CheckResult]:
     """C4b edge overwhelm — is the child's path variation slaved to a parent (degenerate prior)?
 
     C4a edge *detectability* was dropped: its 2/√n_obs SNR floor is a data-quantity
@@ -233,28 +286,34 @@ def check_edge_share(name: str, x_on_obs: np.ndarray, x_off_obs: np.ndarray) -> 
     """
     _a = np.asarray(x_on_obs)
     _b = np.asarray(x_off_obs)
-    _disp = np.sqrt(np.mean((_a - _b) ** 2, axis=1))
-    _scale = np.sqrt(np.var(_a, axis=1)) + 1e-12
-    _e = _disp / _scale
+    _delta = _a - _b
+    _level = np.abs(np.median(_delta, axis=1))
+    _centered_delta = _delta - np.median(_delta, axis=1, keepdims=True)
+    _centered_on = _a - np.median(_a, axis=1, keepdims=True)
+    _disp = _robust_scale(_centered_delta, axis=1)
+    _scale = _robust_scale(_centered_on, axis=1)
+    _e = np.zeros_like(_disp)
+    np.divide(_disp, _scale, out=_e, where=_scale > 0)
+    _e[(_scale == 0) & (_disp > 0)] = np.inf
     _med = float(np.median(_e))
     _i90 = int(np.argsort(_e)[int(0.9 * (_e.size - 1))])
-    _ev = {"e": _e, "on": _a[_i90], "off": _b[_i90]}
+    _ev = {"e": _e, "level_shift": _level, "on": _a[_i90], "off": _b[_i90]}
     _diag_b: tuple[str, ...] = ()
     if _med > 0.95:
         _diag_b = (
-            f"for the median prior draw the edge accounts for {_med:.0%} of the child's "
-            "entire path variation: parent input, not self-dynamics, sets the path",
+            f"for the median prior draw the edge changes {_med:.0%} as much temporal "
+            "variation as the child path itself",
             "dependence: the statistic falls with the edge-weight prior scale and "
             "rises when the child's own stiffness/diffusion contribute little",
         )
     return [
         CheckResult(
             "C4b edge overwhelm",
-            name,
+            edge_label,
             f"edge path displacement / child scale: median {_med:.1%}",
             "median ≤ 95%",
             bool(_med <= 0.95),
-            f"parent input dominates the path variation of {name}; its self-dynamics "
+            f"the {edge_label} input dominates the child's temporal variation; its self-dynamics "
             "are left uninformed.",
             _diag_b,
             _ev,
@@ -265,47 +324,45 @@ def check_edge_share(name: str, x_on_obs: np.ndarray, x_off_obs: np.ndarray) -> 
 def check_saturation(
     edge_label: str,
     ec50_draws: np.ndarray,
+    hill_n_draws: np.ndarray,
     parent_values: np.ndarray,
+    *,
+    min_exercised_mass: float = 0.8,
 ) -> CheckResult:
-    """C4c — is a Hill (saturating) edge's operating point actually exercised by the parent?
-
-    A Hill edge only earns its extra parameters if its EC50 (half-saturation point) sits
-    inside the range the parent's prior mass actually visits. If EC50 ≫ the parent's realized
-    range the response never bends — it is an effectively-linear dead arm, and a LinearEdge
-    would be the honest form. If EC50 ≪ the range the child sees a flat, fully-saturated
-    response — the gradient the edge is supposed to carry is gone. This is a reachability
-    question (does the nonlinearity reach the data-relevant region), schedule/noise-free, with
-    no ``n_obs`` SNR threshold.
-    """
-    _ec50 = np.asarray(ec50_draws, dtype=float)
-    _parent = np.asarray(parent_values, dtype=float)
-    _ec50 = _ec50[np.isfinite(_ec50)]
-    _med = float(np.median(_ec50)) if _ec50.size else float("nan")
-    _p10, _p90 = (float(_v) for _v in np.percentile(_parent, [10, 90]))
-    _ok = bool(_p10 <= _med <= _p90)
-    _ev = {"ec50": _ec50, "p10": _p10, "p90": _p90, "parent": _parent}
+    """C4c — draw-paired Hill occupancy over the actual clamped input."""
+    _ec50 = np.asarray(ec50_draws, dtype=float).reshape(-1)
+    _n = np.asarray(hill_n_draws, dtype=float).reshape(-1)
+    _parent = np.maximum(np.asarray(parent_values, dtype=float), 0.0)
+    if _parent.shape[0] != _ec50.size or _n.size != _ec50.size:
+        raise ValueError("Hill saturation inputs must preserve draw-wise parameter/path pairing")
+    _log_parent = np.full_like(_parent, -np.inf)
+    np.log(_parent, out=_log_parent, where=_parent > 0)
+    _logit = _n[:, None] * (_log_parent - np.log(_ec50)[:, None])
+    _occupancy = 1.0 / (1.0 + np.exp(-np.clip(_logit, -60.0, 60.0)))
+    _occupancy[_parent == 0] = 0.0
+    _bend_mass = np.mean((_occupancy >= 0.1) & (_occupancy <= 0.9), axis=1)
+    _exercised = _bend_mass >= 0.1
+    _exercised_mass = float(np.mean(_exercised))
+    _dead_low = float(np.mean(np.quantile(_occupancy, 0.9, axis=1) < 0.1))
+    _saturated_high = float(np.mean(np.quantile(_occupancy, 0.1, axis=1) > 0.9))
+    _med = float(np.median(_ec50))
+    _ok = bool(_exercised_mass >= min_exercised_mass)
+    _ev = {"ec50": _ec50, "hill_n": _n, "bend_mass": _bend_mass}
     _diag: tuple[str, ...] = ()
     if not _ok:
-        _where = "above" if _med > _p90 else "below"
-        _reading = (
-            "the response never bends over the parent's range — an effectively-linear dead "
-            "arm; a linear edge is the honest form"
-            if _med > _p90
-            else "the parent sits on the flat saturated arm — the response carries no "
-            "gradient over its realized range"
-        )
         _diag = (
-            f"prior EC50 median {_med:.2f} sits {_where} the parent's realized "
-            f"10–90% range [{_p10:.2f}, {_p90:.2f}]",
-            f"reading: {_reading}",
+            f"only {_exercised_mass:.0%} of paired prior draws spend at least 10% of the "
+            "schedule on the Hill bend",
+            f"draw classification: {_dead_low:.0%} dead-low and {_saturated_high:.0%} "
+            "flat-saturated",
             "dependence: shift the EC50 prior toward the parent's realized range, or drop "
             "the Hill form for a linear edge if the bend is not exercised",
         )
     return CheckResult(
         "C4c saturation",
         edge_label,
-        f"EC50 median {_med:.2f} vs parent 10–90% [{_p10:.2f}, {_p90:.2f}]",
-        "EC50 inside parent range",
+        f"EC50 median {_med:.2f}; bend exercised in {_exercised_mass:.0%} of paired draws",
+        f">= {min_exercised_mass:.0%} of paired draws exercise the bend",
         _ok,
         f"the saturating edge {edge_label} is not exercised over the parent's prior range; "
         "its nonlinearity is either a dead linear arm or a flat saturated response.",
@@ -319,63 +376,135 @@ def check_coverage(
     pp_y: np.ndarray,
     signal_y: np.ndarray,
     y_obs: np.ndarray,
+    *,
+    distribution: str,
+    level_count: int | None = None,
 ) -> list[CheckResult]:
-    """C5a location reach + C5b width + C5c transmission for one indicator."""
-    _pp = np.asarray(pp_y).ravel()
-    _lo, _hi = np.percentile(_pp, [1, 99])
-    _pp_med = float(np.percentile(_pp, 50))
-    _qs = np.percentile(np.asarray(y_obs), [5, 25, 50, 75, 95])
-    _cov_ok = bool(np.all((_qs >= _lo) & (_qs <= _hi)))
-    _q75, _q25 = np.percentile(_pp, [75, 25])
-    _o75, _o25 = np.percentile(np.asarray(y_obs), [75, 25])
-    _obs_iqr = float(_o75 - _o25)
-    _ratio = float((_q75 - _q25) / max(_obs_iqr, 1e-9))
-    _width_ok = bool(1.0 / 3.0 <= _ratio <= 50.0)
-    # C5c transmission (structural dead-zone, noise-free): can the link, driven by the latent's
-    # prior mass, produce a *signal* comparable to the observed variation, or is it saturated /
-    # flat so the observed spread would have to be almost all measurement noise? C5b can pass on
-    # a saturated link because noise widens the predictive band; this catches what C5b misses.
-    _sig = np.asarray(signal_y).ravel()
-    _s75, _s25 = np.percentile(_sig, [75, 25])
-    _transmit = float((_s75 - _s25) / max(_obs_iqr, 1e-9))
-    _trans_ok = bool(_transmit >= 0.2)
+    """C5 replicated-data location, dispersion, and structural transmission."""
+    _pp_matrix = np.asarray(pp_y, dtype=float)
+    _obs = np.asarray(y_obs, dtype=float).reshape(-1)
+    if _pp_matrix.ndim != 2 or _pp_matrix.shape[1] != _obs.size:
+        raise ValueError("coverage requires draws by observed-time replicates")
+
+    def _band(values: np.ndarray) -> tuple[float, float]:
+        lo, hi = np.percentile(values, [1, 99])
+        return float(lo), float(hi)
+
+    def _inside(value: float, band: tuple[float, float]) -> bool:
+        return bool(band[0] <= value <= band[1])
+
+    _categorical = distribution in {"bernoulli", "ordered_logistic", "categorical"}
+    _count = distribution in {"poisson", "negative_binomial"}
+    if _categorical:
+        _levels = level_count or (2 if distribution == "bernoulli" else 0)
+        if _levels < 2:
+            raise ValueError(f"{distribution} coverage requires declared level count")
+
+        def _frequencies(values: np.ndarray) -> np.ndarray:
+            return np.stack(
+                [np.mean(values == level, axis=-1) for level in range(_levels)], axis=-1
+            )
+
+        _rep_freq = _frequencies(_pp_matrix)
+        _obs_freq = _frequencies(_obs[None, :])[0]
+        _prior_freq = np.mean(_rep_freq, axis=0)
+        _rep_location = 0.5 * np.sum(np.abs(_rep_freq - _prior_freq), axis=1)
+        _obs_location = float(0.5 * np.sum(np.abs(_obs_freq - _prior_freq)))
+        _location_band = (0.0, float(np.percentile(_rep_location, 99)))
+        _location_ok = _inside(_obs_location, _location_band)
+        _eps = 1e-12
+        _rep_width = -np.sum(_rep_freq * np.log(_rep_freq + _eps), axis=1)
+        _obs_width = float(-np.sum(_obs_freq * np.log(_obs_freq + _eps)))
+        _width_band = _band(_rep_width)
+        _width_ok = _inside(_obs_width, _width_band)
+        _location_value = f"frequency TV from prior center {_obs_location:.2f}"
+        _location_band_text = f"≤ {_location_band[1]:.2f} (99% replicate envelope)"
+        _width_value = f"category entropy {_obs_width:.2f}"
+        _width_band_text = f"[{_width_band[0]:.2f}, {_width_band[1]:.2f}] replicate envelope"
+    elif _count:
+        _rep_location = np.mean(_pp_matrix, axis=1)
+        _obs_location = float(np.mean(_obs))
+        _location_band = _band(_rep_location)
+        _location_ok = _inside(_obs_location, _location_band)
+        _rep_variance = np.var(_pp_matrix, axis=1)
+        _obs_variance = float(np.var(_obs))
+        _variance_band = _band(_rep_variance)
+        _rep_zero = np.mean(_pp_matrix == 0, axis=1)
+        _obs_zero = float(np.mean(_obs == 0))
+        _zero_band = _band(_rep_zero)
+        _width_ok = _inside(_obs_variance, _variance_band) and _inside(_obs_zero, _zero_band)
+        _location_value = f"observed mean {_obs_location:.2f}"
+        _location_band_text = (
+            f"[{_location_band[0]:.2f}, {_location_band[1]:.2f}] replicate envelope"
+        )
+        _width_value = f"variance {_obs_variance:.2f}; zero fraction {_obs_zero:.0%}"
+        _width_band_text = (
+            f"variance [{_variance_band[0]:.2f}, {_variance_band[1]:.2f}], "
+            f"zero fraction [{_zero_band[0]:.0%}, {_zero_band[1]:.0%}]"
+        )
+    else:
+        _rep_location = np.median(_pp_matrix, axis=1)
+        _obs_location = float(np.median(_obs))
+        _location_band = _band(_rep_location)
+        _location_ok = _inside(_obs_location, _location_band)
+        _rep_width = _robust_scale(_pp_matrix, axis=1)
+        _obs_width = float(_robust_scale(_obs))
+        _width_band = _band(_rep_width)
+        _width_ok = _inside(_obs_width, _width_band)
+        _location_value = f"observed median {_obs_location:.2f}"
+        _location_band_text = (
+            f"[{_location_band[0]:.2f}, {_location_band[1]:.2f}] replicate envelope"
+        )
+        _width_value = f"robust scale {_obs_width:.2f}"
+        _width_band_text = f"[{_width_band[0]:.2f}, {_width_band[1]:.2f}] replicate envelope"
+
+    _sig = np.asarray(signal_y, dtype=float)
+    if _sig.ndim == 3:
+        _center = np.mean(_sig, axis=1, keepdims=True)
+        _per_draw = np.mean(0.5 * np.sum(np.abs(_sig - _center), axis=2), axis=1)
+        _transmit = float(np.median(_per_draw))
+        _trans_ok = bool(_transmit >= 0.05)
+        _transmit_value = f"median probability-vector movement {_transmit:.1%}"
+        _transmit_band = ">= 5% mean total-variation movement"
+    else:
+        _signal_scale = _robust_scale(_sig, axis=1)
+        _predictive_scale = _robust_scale(_pp_matrix, axis=1)
+        _reliability = np.divide(
+            _signal_scale,
+            _predictive_scale,
+            out=np.zeros_like(_signal_scale),
+            where=_predictive_scale > 0,
+        )
+        _transmit = float(np.median(_reliability))
+        _trans_ok = bool(_transmit >= 0.2)
+        _transmit_value = f"median signal/predictive scale {_transmit:.0%}"
+        _transmit_band = ">= 20%"
+
+    _pp = _pp_matrix.ravel()
     _ev = {
         "pp": _pp[:: max(1, _pp.size // 20000)],
-        "signal": _sig[:: max(1, _sig.size // 20000)],
-        "y_obs": np.asarray(y_obs),
-        "lo": _lo,
-        "hi": _hi,
+        "y_obs": _obs,
+        "replicate_location": _rep_location,
     }
     _diag_a: tuple[str, ...] = ()
-    if not _cov_ok:
-        _gap = float(_qs[2] - _pp_med)
+    if not _location_ok:
         _diag_a = (
-            f"observed quantiles (5/25/50/75/95%): "
-            f"[{', '.join(f'{_q:.1f}' for _q in _qs)}]; prior-predictive [1,99]% band "
-            f"[{_lo:.1f}, {_hi:.1f}], centered at {_pp_med:.1f}",
-            f"the gap is in location: the data's median sits {abs(_gap):.1f} units "
-            f"{'above' if _gap > 0 else 'below'} the predictive center; location is set "
-            "by the intercept/manifest-means priors, while loading and noise priors "
-            "enter only the spread",
-            "a fit run under this prior cannot reach the data location — the "
-            "fit-boundary preflight enforces the same condition at fit time "
-            "(LOCATION_REACH_SIGMAS = 6)",
+            f"the observed replicated-data location statistic ({_location_value}) lies outside "
+            f"the prior replicate envelope {_location_band_text}",
+            "this indicates little prior mass near the observed location; it is not a proof "
+            "that a continuous-support prior makes the data impossible",
         )
     _diag_b: tuple[str, ...] = ()
     if not _width_ok:
         _diag_b = (
-            f"prior-predictive IQR is {_ratio:.2f}× the data IQR (band [0.33, 50])",
-            "dependence: predictive width compounds the loading spread × latent scale, "
-            "the intercept spread, and the noise scale (for count families the noise "
-            "is tied to the rate); the data-side IQR is fixed",
+            f"the observed dispersion statistic ({_width_value}) lies outside the "
+            f"prior replicate envelope {_width_band_text}",
+            "the family-specific statistic avoids ratios against a zero empirical IQR",
         )
     _diag_c: tuple[str, ...] = ()
     if not _trans_ok:
         _diag_c = (
-            f"noise-free signal IQR is {_transmit:.0%} of the data IQR (floor 20%): the "
-            "link, driven by the latent's prior mass, transmits almost none of the "
-            "observed variation — the data spread would have to be explained by "
-            "measurement noise",
+            f"the noise-free response transmits too little latent movement ({_transmit_value})",
             "geometry: the latent moves but the emission mean does not, i.e. the link is "
             "operating in a flat / saturated region over the prior mass (sigmoid tail, "
             "near-zero exp rate, or a near-zero loading)",
@@ -387,19 +516,18 @@ def check_coverage(
         CheckResult(
             "C5a location reach",
             indicator,
-            f"obs quantiles in pp [1,99]% band [{_lo:.1f}, {_hi:.1f}]: "
-            f"{'yes' if _cov_ok else 'NO'}",
-            "all inside",
-            _cov_ok,
-            f"the prior predictive cannot reach the location where {indicator} actually lives.",
+            _location_value,
+            _location_band_text,
+            _location_ok,
+            f"the prior predictive puts little mass near the location of {indicator}.",
             _diag_a,
             _ev,
         ),
         CheckResult(
             "C5b width",
             indicator,
-            f"IQR ratio prior-pred/data {_ratio:.2f}",
-            "[0.33, 50]",
+            _width_value,
+            _width_band_text,
             _width_ok,
             f"prior-predictive spread for {indicator} is out of proportion to the observed spread.",
             _diag_b,
@@ -408,8 +536,8 @@ def check_coverage(
         CheckResult(
             "C5c transmission",
             indicator,
-            f"signal IQR / data IQR {_transmit:.0%}",
-            "≥ 20% (link not saturated)",
+            _transmit_value,
+            _transmit_band,
             _trans_ok,
             f"the link for {indicator} transmits little of the latent's variation: the "
             "observed spread would be explained almost entirely by measurement noise.",
@@ -417,6 +545,26 @@ def check_coverage(
             _ev,
         ),
     ]
+
+
+def check_data_availability(indicator: str) -> CheckResult:
+    """C5d — surface an emission channel with no observed values as prior-only."""
+    return CheckResult(
+        "C5d data availability",
+        indicator,
+        "0 observed values",
+        "> 0 observed values",
+        False,
+        f"{indicator} has no observed values, so its emission and linked latent state are "
+        "not empirically anchored in this panel.",
+        (
+            "the likelihood remains executable for forward simulation, but the current "
+            "panel contributes no likelihood terms for this indicator",
+            "treat trajectory and magnitude statements as prior-driven unless other measured "
+            "states identify them through the structural model",
+        ),
+        {"n_obs": 0},
+    )
 
 
 # ---------------------------------------------------------------- severity (declarative)
@@ -428,9 +576,10 @@ CHECK_MODES = {
     "C3 resolvability": "soft",
     "C4b edge overwhelm": "soft",
     "C4c saturation": "soft",
-    "C5a location reach": "hard",
+    "C5a location reach": "soft",
     "C5b width": "soft",
     "C5c transmission": "soft",
+    "C5d data availability": "soft",
 }
 
 CHECK_CONSEQUENCES = {
@@ -446,17 +595,21 @@ CHECK_CONSEQUENCES = {
     "C4c saturation": "{target}: the saturating edge's bend is not exercised over the "
     "parent's prior range; treat it as effectively linear (or narrow the EC50 prior) — the "
     "extra Hill parameters are weakly informed",
+    "C5a location reach": "{target}: little prior-predictive mass lies near the observed "
+    "location; posterior adaptation may be prior-sensitive",
     "C5b width": "{target}: prior-predictive width imbalance accepted; expect weak "
     "regularization or slow warmup",
     "C5c transmission": "{target}: the link passes little of the latent's variation to the "
     "indicator; the observed spread is largely measurement noise, so this construct's "
     "trajectory is weakly grounded in the data",
+    "C5d data availability": "{target}: no observed values anchor this emission in the current "
+    "panel; its contribution is prior-driven and must not be presented as empirically learned",
 }
 
 
 def stage_outcome(
     results: list[CheckResult],
-    accepted: dict[str, str],
+    accepted: Mapping[tuple[str, str], str],
 ) -> tuple[str, tuple[str, ...]]:
     """Derive the admit / revise / accept verdict + carried annotations from the tables.
 
@@ -467,17 +620,19 @@ def stage_outcome(
     """
     _failed = [r for r in results if not r.passed]
     _hard = [r for r in _failed if CHECK_MODES[r.check] == "hard"]
-    _pending = [r for r in _failed if CHECK_MODES[r.check] == "soft" and r.check not in accepted]
+    _pending = [
+        r for r in _failed if CHECK_MODES[r.check] == "soft" and (r.check, r.target) not in accepted
+    ]
     _annotations = tuple(
         CHECK_CONSEQUENCES[r.check].format(target=r.target)
-        + (f" [rationale: {accepted[r.check]}]" if accepted[r.check] else "")
+        + f" [rationale: {accepted[(r.check, r.target)]}]"
         for r in _failed
-        if CHECK_MODES[r.check] == "soft" and r.check in accepted
+        if CHECK_MODES[r.check] == "soft" and (r.check, r.target) in accepted
     )
     if _hard:
         return "BLOCKED — hard failure: revise the fragment (no override)", _annotations
     if _pending:
-        _ids = ", ".join(r.check for r in _pending)
+        _ids = ", ".join(f"{r.check} [{r.target}]" for r in _pending)
         return (
             f"NEEDS DECISION — revise the fragment or accept the consequence ({_ids})",
             _annotations,

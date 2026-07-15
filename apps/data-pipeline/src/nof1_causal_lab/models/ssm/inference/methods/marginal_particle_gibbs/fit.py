@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Literal, cast
 
 import jax
 import jax.numpy as jnp
@@ -32,10 +32,16 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     build_marginal_particle_gibbs_kernel,
     run_marginal_particle_gibbs,
 )
-from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, InferenceResult
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
+        DSMCLeafProposal,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +64,8 @@ def fit_marginal_particle_gibbs(
     seed: int = 0,
     n_particles: int = 64,
     n_parameter_particles: int = 2,
-    latent_smoother: str = "dsmc",
-    parameter_proposal: str = "pseudo_langevin",
+    latent_smoother: Literal["dsmc"] = "dsmc",
+    parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin",
     amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
     amala_delta_min: float = _DEFAULT_AMALA_DELTA_MIN,
     amala_delta_max: float = _DEFAULT_AMALA_DELTA_MAX,
@@ -71,7 +77,7 @@ def fit_marginal_particle_gibbs(
     amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: str = "amala_exact",
+    dsmc_leaf_proposal: DSMCLeafProposal = "amala_exact",
     latent_block_coords: int | None = None,
     paid_mix_z_weight: float = 0.85,
     paid_mix_pilot_weight: float = 0.10,
@@ -87,18 +93,18 @@ def fit_marginal_particle_gibbs(
     adaptation_rate: float = 0.05,
     # "simple" suits m-PGibbs's noisy M=2 ensemble move-rate; dual_averaging
     # scatters/collapses the per-chain step there (see run_marginal_particle_gibbs).
-    adaptation_scheme: str = "simple",
+    adaptation_scheme: Literal["simple", "dual_averaging"] = "simple",
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
     compute_latent_posterior_summary: bool = True,
-    init_method: str = "pathfinder",
-    latent_init_method: str = "predictive",
+    init_method: Literal["random", "pathfinder"] = "pathfinder",
+    latent_init_method: Literal["predictive"] = "predictive",
     pathfinder_num_elbo_samples: int = 20,
     pathfinder_maxiter: int = 20,
     n_pathfinder_starts: int = 8,
     pathfinder_parallel_workers: int | None = None,
     pathfinder_init_scale: float | None = 0.1,
-    auto_preconditioner_method: str = "pathfinder",
+    auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder",
     auto_preconditioner_maxiter: int = 200,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     initial_positions_override: jnp.ndarray | None = None,
@@ -115,7 +121,6 @@ def fit_marginal_particle_gibbs(
     profile_runtime_trace: bool = True,
     profile_trace_start_step: int = 0,
     profile_trace_steps: int = 3,
-    **_kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM with marginalized Particle Gibbs.
 
@@ -172,8 +177,8 @@ def fit_marginal_particle_gibbs(
     logger.info(
         "phase 1/4: bundle ready in %.1fs (dim=%d, public_sites=%d)",
         _phase_elapsed(phase_t0),
-        int(bundle["flat_example"].shape[0]),
-        len(bundle.get("public_sites", [])),
+        int(bundle.cached.flat_example.shape[0]),
+        len(bundle.cached.public_sites),
     )
 
     phase_t0 = time.monotonic()
@@ -226,8 +231,8 @@ def fit_marginal_particle_gibbs(
             # Random init leaves positions to the runner; anchor the pilot at the
             # prior center instead (any fixed position yields a valid fixed proposal).
             else jnp.broadcast_to(
-                bundle["flat_example"],
-                (num_chains, int(bundle["flat_example"].shape[0])),
+                bundle.cached.flat_example,
+                (num_chains, int(bundle.cached.flat_example.shape[0])),
             )
         )
         ieks_paths = compute_ieks_latent_paths(
@@ -342,76 +347,81 @@ def fit_marginal_particle_gibbs(
         chain_extra_fields if num_samples > 0 else run_result["warmup_chain_extra_fields"]
     )
     diagnostic_summary_phase = "post_warmup" if num_samples > 0 else "warmup"
-    kernel_diagnostics = {
-        "latent_kernel": kernel.latent_smoother.algorithm,
-        "latent_smoother": kernel.latent_smoother.name,
-        "latent_smoother_algorithm": kernel.latent_smoother.algorithm,
-        "latent_smoother_family": kernel.latent_smoother.family,
-        "latent_smoother_selection": kernel.latent_smoother.selection,
-        "latent_smoother_parallel": bool(kernel.latent_smoother.parallel),
-        "latent_delta": float(latent_delta),
-        "parameter_kernel": (
-            "m_pgibbs_random_walk"
-            if parameter_proposal == "random_walk"
-            else "m_pgibbs_pseudo_langevin"
-        ),
-        "mcmc_phase_seconds": float(mcmc_phase_seconds),
-        "num_warmup": int(num_warmup),
-        "num_samples": int(num_samples),
-        "num_chains": int(num_chains),
-        "n_particles": int(n_particles),
-        "n_parameter_particles": int(n_parameter_particles),
-        "parameter_proposal": parameter_proposal,
-        "latent_backward_sampling": bool(kernel.latent_smoother.backward_sampling),
-        "amala_delta_init": float(amala_delta_init),
-        "amala_delta_min": float(amala_delta_min),
-        "amala_delta_max": float(amala_delta_max),
-        "amala_target_accept": float(amala_target_accept),
-        "amala_adaptation_window": int(amala_adaptation_window),
-        "amala_adaptation_tolerance": float(amala_adaptation_tolerance),
-        "amala_adaptation_rho": float(amala_adaptation_rho),
-        "amala_adaptation_rho_min": float(amala_adaptation_rho_min),
-        "amala_adaptation_gamma": float(amala_adaptation_gamma),
-        "amala_delta_adapted": bool(kernel.adapt_amala_delta),
-        "amala_kappa": float(amala_kappa),
-        "amala_grad_clip": float(amala_grad_clip),
-        "dsmc_leaf_proposal": kernel.dsmc_leaf_proposal,
-        "latent_transition_kind": bundle["latent_transition_kind"],
-        "diagnostic_metrics_all": bool(diagnostic_metrics_all),
-        "diagnostic_metrics": sorted(kernel.diagnostic_metrics),
-        "param_step_size_initial": float(param_step_size),
-        "param_step_size_min": float(param_step_size_min),
-        "param_step_size_max": float(param_step_size_max),
-        "param_target_accept": float(kernel.target_accept),
-        "adaptation_scheme": adaptation_scheme,
-        "parameter_preconditioned": bool(kernel.preconditioned),
-        "diagnostic_summary_phase": diagnostic_summary_phase,
-        "parameter_accept_rate": float(jnp.mean(summary_extra_fields["parameter_accept_prob"])),
-        "latent_update_fraction": float(jnp.mean(summary_extra_fields["latent_accept_prob"])),
-        "latent_frozen_fraction": float(jnp.mean(summary_extra_fields["latent_frozen_frac"])),
-        "latent_block_coords": kernel.latent_block_coords,
-        "latent_sign_flip_moves": bool(latent_sign_flip_moves),
-        **(
-            {
-                "sign_flip_accept_rate": float(
-                    jnp.mean(summary_extra_fields["sign_flip_accept_prob"])
-                )
-            }
-            if "sign_flip_accept_prob" in summary_extra_fields
-            else {}
-        ),
-        "initial_param_step_size": jax.device_get(run_result["initial_param_step_size"]).tolist(),
-        "final_param_step_size": jax.device_get(run_result["final_param_step_size"]).tolist(),
-        "initial_latent_delta": jax.device_get(run_result["initial_latent_delta"]).tolist(),
-        "final_latent_delta": jax.device_get(run_result["final_latent_delta"]).tolist(),
-        "latent_init_method": "predictive",
-        "chain_post_warmup_complete_log_posterior_mean": jax.device_get(
-            run_result["post_warmup_complete_log_posterior_mean"]
-        ).tolist(),
-        "parameter_warmup": warmup_result.warmup_diagnostics,
-        **warmup_result.init_diagnostics,
-        **warmup_result.preconditioner_diagnostics,
-    }
+    kernel_diagnostics = cast(
+        "JsonObject",
+        {
+            "latent_kernel": kernel.latent_smoother.algorithm,
+            "latent_smoother": kernel.latent_smoother.name,
+            "latent_smoother_algorithm": kernel.latent_smoother.algorithm,
+            "latent_smoother_family": kernel.latent_smoother.family,
+            "latent_smoother_selection": kernel.latent_smoother.selection,
+            "latent_smoother_parallel": bool(kernel.latent_smoother.parallel),
+            "latent_delta": float(latent_delta),
+            "parameter_kernel": (
+                "m_pgibbs_random_walk"
+                if parameter_proposal == "random_walk"
+                else "m_pgibbs_pseudo_langevin"
+            ),
+            "mcmc_phase_seconds": float(mcmc_phase_seconds),
+            "num_warmup": int(num_warmup),
+            "num_samples": int(num_samples),
+            "num_chains": int(num_chains),
+            "n_particles": int(n_particles),
+            "n_parameter_particles": int(n_parameter_particles),
+            "parameter_proposal": parameter_proposal,
+            "latent_backward_sampling": bool(kernel.latent_smoother.backward_sampling),
+            "amala_delta_init": float(amala_delta_init),
+            "amala_delta_min": float(amala_delta_min),
+            "amala_delta_max": float(amala_delta_max),
+            "amala_target_accept": float(amala_target_accept),
+            "amala_adaptation_window": int(amala_adaptation_window),
+            "amala_adaptation_tolerance": float(amala_adaptation_tolerance),
+            "amala_adaptation_rho": float(amala_adaptation_rho),
+            "amala_adaptation_rho_min": float(amala_adaptation_rho_min),
+            "amala_adaptation_gamma": float(amala_adaptation_gamma),
+            "amala_delta_adapted": bool(kernel.adapt_amala_delta),
+            "amala_kappa": float(amala_kappa),
+            "amala_grad_clip": float(amala_grad_clip),
+            "dsmc_leaf_proposal": kernel.dsmc_leaf_proposal,
+            "latent_transition_kind": bundle.cached.latent_transition_kind,
+            "diagnostic_metrics_all": bool(diagnostic_metrics_all),
+            "diagnostic_metrics": sorted(kernel.diagnostic_metrics),
+            "param_step_size_initial": float(param_step_size),
+            "param_step_size_min": float(param_step_size_min),
+            "param_step_size_max": float(param_step_size_max),
+            "param_target_accept": float(kernel.target_accept),
+            "adaptation_scheme": adaptation_scheme,
+            "parameter_preconditioned": bool(kernel.preconditioned),
+            "diagnostic_summary_phase": diagnostic_summary_phase,
+            "parameter_accept_rate": float(jnp.mean(summary_extra_fields["parameter_accept_prob"])),
+            "latent_update_fraction": float(jnp.mean(summary_extra_fields["latent_accept_prob"])),
+            "latent_frozen_fraction": float(jnp.mean(summary_extra_fields["latent_frozen_frac"])),
+            "latent_block_coords": kernel.latent_block_coords,
+            "latent_sign_flip_moves": bool(latent_sign_flip_moves),
+            **(
+                {
+                    "sign_flip_accept_rate": float(
+                        jnp.mean(summary_extra_fields["sign_flip_accept_prob"])
+                    )
+                }
+                if "sign_flip_accept_prob" in summary_extra_fields
+                else {}
+            ),
+            "initial_param_step_size": jax.device_get(
+                run_result["initial_param_step_size"]
+            ).tolist(),
+            "final_param_step_size": jax.device_get(run_result["final_param_step_size"]).tolist(),
+            "initial_latent_delta": jax.device_get(run_result["initial_latent_delta"]).tolist(),
+            "final_latent_delta": jax.device_get(run_result["final_latent_delta"]).tolist(),
+            "latent_init_method": "predictive",
+            "chain_post_warmup_complete_log_posterior_mean": jax.device_get(
+                run_result["post_warmup_complete_log_posterior_mean"]
+            ).tolist(),
+            "parameter_warmup": warmup_result.warmup_diagnostics,
+            **warmup_result.init_diagnostics,
+            **warmup_result.preconditioner_diagnostics,
+        },
+    )
     if "latent_move_rms" in summary_extra_fields:
         kernel_diagnostics["latent_move_rms_mean"] = float(
             jnp.mean(summary_extra_fields["latent_move_rms"])
@@ -435,9 +445,9 @@ def fit_marginal_particle_gibbs(
         kernel_diagnostics["amala_grad_norm_max"] = float(
             jnp.max(summary_extra_fields["amala_grad_norm_max"])
         )
-    diagnostics = {
+    diagnostics: InferenceDiagnostics = {
         "mcmc": mcmc,
-        "public_sites": sorted(bundle["public_sites"]),
+        "public_sites": sorted(bundle.cached.public_sites),
         "likelihood_backend": diagnostic_likelihood_backend,
         "marginal_particle_gibbs": kernel_diagnostics,
         "marginal_particle_gibbs_phase_extra_fields": {

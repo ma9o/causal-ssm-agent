@@ -135,6 +135,19 @@ export type PriorDistributionFamily =
   | "LogNormal"
   | "Exponential"
   | "Delta";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorParams".
+ */
+export type PriorParams =
+  | LocationScalePriorParams
+  | ScalePriorParams
+  | BoundsPriorParams
+  | TruncatedNormalPriorParams
+  | GammaPriorParams
+  | RatePriorParams
+  | BetaPriorParams
+  | ValuePriorParams;
 
 /**
  * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
@@ -306,11 +319,35 @@ export interface Indicator {
   /**
    * 'continuous', 'binary', 'count', 'ordinal', 'categorical'
    */
-  measurement_dtype: string;
+  measurement_dtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
   /**
    * Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var
    */
-  aggregation: string;
+  aggregation:
+    | "mean"
+    | "sum"
+    | "min"
+    | "max"
+    | "std"
+    | "var"
+    | "last"
+    | "first"
+    | "count"
+    | "median"
+    | "p10"
+    | "p25"
+    | "p75"
+    | "p90"
+    | "p99"
+    | "skew"
+    | "kurtosis"
+    | "iqr"
+    | "range"
+    | "cv"
+    | "entropy"
+    | "instability"
+    | "trend"
+    | "n_unique";
   /**
    * Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.
    */
@@ -330,7 +367,7 @@ export interface Indicator {
   /**
    * 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
    */
-  extraction_mode: string;
+  extraction_mode: "computed" | "semantic";
   support_kind: SupportKind;
   summary_operator: SummaryOperator;
   anchor_policy: AnchorPolicy;
@@ -450,6 +487,7 @@ export interface StatisticalModelSpecContract {
   prior_predictive_samples?: {
     [k: string]: number[] | undefined;
   } | null;
+  prior_predictive_diagnostics: PriorPredictiveDiagnostic[];
 }
 /**
  * Complete statistical model specification.
@@ -487,9 +525,9 @@ export interface LikelihoodSpec {
   distribution: DistributionFamily;
   link: LinkFunction;
   /**
-   * Whether deterministic additive centering is applied before fitting
+   * Whether deterministic standardization (mean-centering and unit-scaling) is applied to the observed values before fitting
    */
-  centered: boolean;
+  standardized: boolean;
   /**
    * Why this distribution/link was chosen for this variable
    */
@@ -549,12 +587,7 @@ export interface PriorProposal {
    */
   parameter: string;
   distribution: PriorDistributionFamily;
-  /**
-   * Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})
-   */
-  params: {
-    [k: string]: number | undefined;
-  };
+  params: PriorParams;
   /**
    * Literature sources supporting this prior
    */
@@ -570,11 +603,86 @@ export interface PriorProposal {
   /**
    * Pre-computed density curve points [{x, y}, ...] for frontend visualization. Computed by the pipeline before persistence so the frontend doesn't need to approximate the PDF client-side.
    */
-  density_points?:
-    | {
-        [k: string]: number | undefined;
-      }[]
-    | null;
+  density_points?: DensityPoint[] | null;
+}
+/**
+ * Location and positive scale parameters for Normal or LogNormal priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LocationScalePriorParams".
+ */
+export interface LocationScalePriorParams {
+  mu: number;
+  sigma: number;
+}
+/**
+ * Positive scale parameter for HalfNormal priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ScalePriorParams".
+ */
+export interface ScalePriorParams {
+  sigma: number;
+}
+/**
+ * Finite ordered bounds for Uniform priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "BoundsPriorParams".
+ */
+export interface BoundsPriorParams {
+  lower: number;
+  upper: number;
+}
+/**
+ * Location, scale, and finite ordered bounds for TruncatedNormal priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TruncatedNormalPriorParams".
+ */
+export interface TruncatedNormalPriorParams {
+  mu: number;
+  sigma: number;
+  lower: number;
+  upper: number;
+}
+/**
+ * Positive shape and rate for Gamma priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "GammaPriorParams".
+ */
+export interface GammaPriorParams {
+  concentration: number;
+  rate: number;
+}
+/**
+ * Positive rate for Exponential priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RatePriorParams".
+ */
+export interface RatePriorParams {
+  rate: number;
+}
+/**
+ * Positive shape parameters for Beta priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "BetaPriorParams".
+ */
+export interface BetaPriorParams {
+  alpha: number;
+  beta: number;
+}
+/**
+ * Point value for Delta priors.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ValuePriorParams".
+ */
+export interface ValuePriorParams {
+  value: number;
 }
 /**
  * A source of evidence for a prior distribution.
@@ -603,6 +711,32 @@ export interface PriorSource {
    * Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)
    */
   study_interval_days?: number | null;
+}
+/**
+ * One evaluated point on a prior density curve.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DensityPoint".
+ */
+export interface DensityPoint {
+  x: number;
+  y: number;
+}
+/**
+ * Persisted compact result from the exact construct-admission battery.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorPredictiveDiagnostic".
+ */
+export interface PriorPredictiveDiagnostic {
+  check: string;
+  target: string;
+  value: string;
+  band: string;
+  passed: boolean;
+  note: string;
+  diagnosis: string[];
+  mode: string;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -956,7 +1090,7 @@ export interface CapabilitiesResponse {
   moves_enabled: boolean;
 }
 /**
- * Full trace of an LLM multi-turn conversation.
+ * Full trace of an LLM conversation.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "LLMTrace".

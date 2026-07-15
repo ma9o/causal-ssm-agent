@@ -3,7 +3,53 @@ import { MeasurementTable } from "@/components/analysis-widgets/statistical-mode
 import { PriorTable } from "@/components/analysis-widgets/statistical-model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { collectModelSpecUiPriors } from "@/lib/model-spec-data";
-import type { Indicator, StatisticalModelSpecData } from "@nof1-causal-lab/api-types";
+import type {
+  Indicator,
+  PriorPredictiveDiagnostic,
+  StatisticalModelSpecData,
+} from "@nof1-causal-lab/api-types";
+
+function PriorPredictiveDiagnostics({ diagnostics }: { diagnostics: PriorPredictiveDiagnostic[] }) {
+  if (diagnostics.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold">Prior-predictive reachability</h3>
+        <p className="text-sm text-muted-foreground">
+          Persisted checks from exact construct admission, including feedback-component rechecks.
+        </p>
+      </div>
+      <ul className="grid gap-2 md:grid-cols-2">
+        {diagnostics.map((diagnostic, index) => (
+          <li
+            key={`${diagnostic.check}:${diagnostic.target}:${index}`}
+            className={
+              diagnostic.passed
+                ? "rounded-md border border-success/25 bg-success/5 p-3"
+                : "rounded-md border border-warning/30 bg-warning/10 p-3"
+            }
+          >
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium">{diagnostic.check}</span>
+              <span className="text-muted-foreground">{diagnostic.passed ? "PASS" : "REVIEW"}</span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {diagnostic.target}: {diagnostic.value}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Target: {diagnostic.band}</p>
+            {!diagnostic.passed && diagnostic.diagnosis.length > 0 && (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {diagnostic.diagnosis.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export default function StatisticalModelSpecView({
   data,
@@ -40,6 +86,7 @@ export default function StatisticalModelSpecView({
           />
         </div>
       )}
+      <PriorPredictiveDiagnostics diagnostics={data.prior_predictive_diagnostics ?? []} />
       {authoredPriors.length > 0 && (
         <div className="space-y-3">
           <div className="space-y-1">

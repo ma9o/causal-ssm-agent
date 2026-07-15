@@ -92,16 +92,6 @@ class ArtifactEnvelope(BaseModel):
     binary_files: list[str]
 
 
-EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
-    CapabilitiesResponse,
-    WorkspaceEntry,
-    WorkspaceList,
-    UploadResponse,
-    ArtifactEnvelope,
-    LLMTrace,
-)
-
-
 def moves_enabled() -> bool:
     """Whether this facade deployment serves the move plane.
 

@@ -8,11 +8,10 @@ This module implements Bayesian state-space models with:
 - Automatic reparameterization via AutoReparam
 """
 
-from nof1_causal_lab.models.ssm.autoreparam import AutoReparam, MinimalReparam, Strategy
+from nof1_causal_lab.models.ssm.autoreparam import AutoReparam, Strategy
 from nof1_causal_lab.models.ssm.discretization import (
     discretize_linear_system_exact,
     discretize_linear_system_exact_batched,
-    discretize_system,
     discretize_system_batched,
     discretize_system_with_inputs_batched,
     solve_lyapunov,
@@ -34,7 +33,6 @@ __all__ = [
     "SSMParameterLayout",
     "discretize_linear_system_exact",
     "discretize_linear_system_exact_batched",
-    "discretize_system",
     "discretize_system_batched",
     "discretize_system_with_inputs_batched",
     # Model
@@ -49,6 +47,5 @@ __all__ = [
     "fit",
     # Reparameterization
     "AutoReparam",
-    "MinimalReparam",
     "Strategy",
 ]

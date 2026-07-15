@@ -1,4 +1,16 @@
 import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type {
+  EpisodeArtifactStatus,
+  EpisodeEvent as EpisodeEventRecord,
+  EpisodeTransitionRecord,
+  MachineDescription,
+} from "@/lib/episode-types";
+export type {
+  EpisodeArtifactStatus,
+  EpisodeEvent as EpisodeEventRecord,
+  EpisodeMove,
+  EpisodeTransitionRecord,
+} from "@/lib/episode-types";
 import { apiFetch } from "./client";
 
 export interface AnalysisTransitionExecution {
@@ -13,16 +25,6 @@ export interface AnalysisTransitionRun {
 
 export type AnalysisTransitionRuns = Record<ArtifactViewId, AnalysisTransitionRun>;
 
-export interface MachineTransition {
-  transition_id: string;
-}
-
-export interface MachineDescription {
-  topological_artifact_order: string[];
-  topological_transition_order: string[];
-  transitions: MachineTransition[];
-}
-
 export interface AnalysisManifest {
   workspaceId: string;
   createdAt: string;
@@ -31,38 +33,6 @@ export interface AnalysisManifest {
   transitionRuns: AnalysisTransitionRuns;
   /** Read-only artifact (e.g. a shared workspace): the UI hides LLM interaction. */
   readOnly: boolean;
-}
-
-/** One runtime telemetry event from the episode event stream. */
-export interface EpisodeEventRecord {
-  event: string;
-  payload: Record<string, unknown>;
-  cursor: string;
-}
-
-/** Per-artifact freshness status computed by the episode machine. */
-export interface EpisodeArtifactStatus {
-  artifact_id: string;
-  exists: boolean;
-  stale: boolean;
-  version: number | null;
-  provenance: string | null;
-  produced_by: string | null;
-}
-
-export type EpisodeMove =
-  | { kind: "run"; artifact_id: string }
-  | { kind: "write"; artifact_id: string; provenance: string };
-
-/** One journaled transition attempt (applied, rejected, or raised). */
-export interface EpisodeTransitionRecord {
-  seq: number;
-  ts: string;
-  move: EpisodeMove;
-  status: "applied" | "rejected" | "raised";
-  reason: string | null;
-  error_type: string | null;
-  error_message: string | null;
 }
 
 export interface EpisodeProgressPayload {

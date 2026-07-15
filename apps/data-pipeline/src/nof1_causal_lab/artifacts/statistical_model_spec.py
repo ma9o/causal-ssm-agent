@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from nof1_causal_lab.distributions import (
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
@@ -64,7 +64,7 @@ class ParameterRole(StrEnum):
 class ParameterConstraint(StrEnum):
     """Constraints on parameter values."""
 
-    NONE = "none"
+    NONE = "none"  # noqa: V107 - consumed through StrEnum value construction
     POSITIVE = "positive"
     NEGATIVE = "negative"
     UNIT_INTERVAL = "unit_interval"
@@ -98,15 +98,30 @@ class LikelihoodSpec(BaseModel):
     variable: str = Field(description="Name of the observed indicator variable")
     distribution: DistributionFamily = Field(description="Distribution family for this variable")
     link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
-    centered: bool = Field(
+    standardized: bool = Field(
         default=False,
-        description="Whether deterministic additive centering is applied before fitting",
+        description=(
+            "Whether deterministic standardization (mean-centering and unit-scaling) "
+            "is applied to the observed values before fitting"
+        ),
     )
     reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
     sources: list[LikelihoodSource] = Field(
         default_factory=list,
         description="Literature sources supporting this likelihood choice",
     )
+
+    @model_validator(mode="after")
+    def validate_distribution_link_pair(self) -> LikelihoodSpec:
+        """Reject recognized links that are invalid for this distribution."""
+        allowed_links = VALID_LINKS_FOR_DISTRIBUTION[self.distribution]
+        if self.link not in allowed_links:
+            expected = ", ".join(sorted(link.value for link in allowed_links))
+            raise ValueError(
+                f"link '{self.link.value}' is invalid for {self.distribution.value}; "
+                f"expected one of {{{expected}}}"
+            )
+        return self
 
 
 class ParameterSpec(BaseModel):

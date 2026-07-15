@@ -21,6 +21,7 @@ from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
     normalize_prior_params,
 )
+from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
     build_semantic_prior_bindings,
@@ -1228,21 +1229,21 @@ def compile_priors(
 def bind_parameters(
     bindings: SemanticBindingRegistry,
     ssm_spec: SSMSpec,  # noqa: ARG001 - retained so call sites document spec provenance
-) -> list[dict[str, Any]]:
+) -> list[CompiledParameterBinding]:
     """Map semantic parameter names to NumPyro sample sites."""
     return [
-        {
-            "parameter": binding.parameter_name,
-            "site_name": binding.site_name,
-            "prior_field": binding.prior_field,
-            "flat_index": binding.flat_index,
-            "site_kind": binding.site_kind.value,
-            "transform": binding.transform.value,
-            "construct_names": list(binding.construct_names),
-            "indicator_names": list(binding.indicator_names),
-            "component_index": binding.component_index,
-            "effect_idx": binding.effect_idx,
-            "cause_idx": binding.cause_idx,
-        }
+        CompiledParameterBinding(
+            parameter=binding.parameter_name,
+            site_name=binding.site_name,
+            prior_field=binding.prior_field,
+            flat_index=binding.flat_index,
+            site_kind=binding.site_kind,
+            transform=binding.transform,
+            construct_names=list(binding.construct_names),
+            indicator_names=list(binding.indicator_names),
+            component_index=binding.component_index,
+            effect_idx=binding.effect_idx,
+            cause_idx=binding.cause_idx,
+        )
         for binding in sorted(bindings.bindings, key=lambda item: item.parameter_name)
     ]

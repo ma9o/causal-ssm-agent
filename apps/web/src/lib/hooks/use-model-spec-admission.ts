@@ -16,6 +16,8 @@ export type {
   ModelSpecAdmissionPlanEdge,
   ModelSpecAdmissionReport,
   ModelSpecAdmissionReplayState,
+  ModelSpecAdmissionResumeState,
+  ModelSpecAdmissionTiming,
 } from "@/lib/model-spec-admission-runtime";
 
 export function useModelSpecAdmission(workspaceId: string) {

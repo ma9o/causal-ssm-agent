@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-from nof1_causal_lab.artifacts.statistical_model_spec import VALID_LINKS_FOR_DISTRIBUTION
+from nof1_causal_lab.artifacts.statistical_model_spec import (
+    VALID_LINKS_FOR_DISTRIBUTION,
+    LinkFunction,
+)
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
 from nof1_causal_lab.utils.causal_design import (
     build_reference_indicator_lookup,
@@ -21,18 +24,29 @@ from nof1_causal_lab.utils.observation_semantics import get_observation_semantic
 
 from .parameter_surfaces import parameter_is_active_for_statistical_model_spec
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
+
+    from .contracts import (
+        AmbiguousLikelihoodCandidate,
+        FixedDistributionLikelihoodCandidate,
+        ModelParameterCandidate,
+        OpenLikelihoodCandidate,
+        ResolvedLikelihoodCandidate,
+    )
+
 
 @dataclass(frozen=True)
 class ModelSpecSkeleton:
     """Deterministic model-spec decision surface derived from the causal design."""
 
-    resolved_likelihoods: list[dict[str, Any]] = field(default_factory=list)
-    ambiguous_indicators: list[dict[str, Any]] = field(default_factory=list)
-    parameters: list[dict[str, Any]] = field(default_factory=list)
-    loading_params: list[dict[str, Any]] = field(default_factory=list)
+    resolved_likelihoods: list[ResolvedLikelihoodCandidate] = field(default_factory=list)
+    ambiguous_indicators: list[AmbiguousLikelihoodCandidate] = field(default_factory=list)
+    parameters: list[ModelParameterCandidate] = field(default_factory=list)
+    loading_params: list[ModelParameterCandidate] = field(default_factory=list)
 
     @property
-    def all_params(self) -> list[dict[str, Any]]:
+    def all_params(self) -> list[ModelParameterCandidate]:
         """Return the full final parameter inventory, including loadings."""
         return [*self.parameters, *self.loading_params]
 
@@ -61,16 +75,18 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     retained_construct_names = {construct["name"] for construct in retained_constructs}
 
-    resolved_likelihoods: list[dict[str, Any]] = []
-    ambiguous_indicators: list[dict[str, Any]] = []
+    resolved_likelihoods: list[ResolvedLikelihoodCandidate] = []
+    ambiguous_indicators: list[AmbiguousLikelihoodCandidate] = []
     seed_parameters: list[dict[str, Any]] = []
     seed_loading_params: list[dict[str, Any]] = []
 
     # --- Likelihoods ---
     for indicator in indicators:
         name = indicator["name"]
-        dtype = indicator.get("measurement_dtype", "continuous")
-        valid_dists = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype, ())
+        dtype = indicator.get("measurement_dtype")
+        if dtype not in VALID_LIKELIHOODS_FOR_DTYPE:
+            raise ValueError(f"Indicator {name!r} has unsupported measurement_dtype {dtype!r}")
+        valid_dists = VALID_LIKELIHOODS_FOR_DTYPE[dtype]
         indicator_semantics = _indicator_semantics_fields(indicator)
 
         if len(valid_dists) == 1:
@@ -78,42 +94,42 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
             valid_links = VALID_LINKS_FOR_DISTRIBUTION[dist]
             if len(valid_links) == 1:
                 link = next(iter(valid_links))
-                resolved_likelihoods.append(
-                    {
-                        "variable": name,
-                        "construct_name": indicator.get("construct_name"),
-                        "distribution": dist.value,
-                        "link": link.value,
-                        **indicator_semantics,
-                        "reasoning": f"{dtype} dtype -> {dist.value} / {link.value}",
-                    }
-                )
+                resolved_likelihood: ResolvedLikelihoodCandidate = {
+                    "variable": name,
+                    "construct_name": indicator.get("construct_name"),
+                    "distribution": dist,
+                    "link": link,
+                    "support_kind": indicator_semantics["support_kind"],
+                    "summary_operator": indicator_semantics["summary_operator"],
+                    "reasoning": f"{dtype} dtype -> {dist.value} / {link.value}",
+                }
+                resolved_likelihoods.append(resolved_likelihood)
             else:
-                ambiguous_indicators.append(
-                    {
-                        "variable": name,
-                        "construct_name": indicator.get("construct_name"),
-                        "dtype": dtype,
-                        **indicator_semantics,
-                        "fixed_distribution": dist.value,
-                        "valid_links": sorted(link_fn.value for link_fn in valid_links),
-                    }
-                )
-        else:
-            link_options: dict[str, list[str]] = {}
-            for distribution in sorted(valid_dists, key=lambda item: item.value):
-                links = VALID_LINKS_FOR_DISTRIBUTION[distribution]
-                link_options[distribution.value] = sorted(link_fn.value for link_fn in links)
-            ambiguous_indicators.append(
-                {
+                fixed_candidate: FixedDistributionLikelihoodCandidate = {
                     "variable": name,
                     "construct_name": indicator.get("construct_name"),
                     "dtype": dtype,
-                    **indicator_semantics,
-                    "valid_distributions": sorted(dist.value for dist in valid_dists),
-                    "link_options": link_options,
+                    "support_kind": indicator_semantics["support_kind"],
+                    "summary_operator": indicator_semantics["summary_operator"],
+                    "fixed_distribution": dist,
+                    "valid_links": sorted(valid_links, key=lambda link_fn: link_fn.value),
                 }
-            )
+                ambiguous_indicators.append(fixed_candidate)
+        else:
+            link_options: dict[DistributionFamily, list[LinkFunction]] = {}
+            for distribution in sorted(valid_dists, key=lambda item: item.value):
+                links = VALID_LINKS_FOR_DISTRIBUTION[distribution]
+                link_options[distribution] = sorted(links, key=lambda link_fn: link_fn.value)
+            open_candidate: OpenLikelihoodCandidate = {
+                "variable": name,
+                "construct_name": indicator.get("construct_name"),
+                "dtype": dtype,
+                "support_kind": indicator_semantics["support_kind"],
+                "summary_operator": indicator_semantics["summary_operator"],
+                "valid_distributions": sorted(valid_dists, key=lambda dist: dist.value),
+                "link_options": link_options,
+            }
+            ambiguous_indicators.append(open_candidate)
 
     # --- Autoregressive parameters ---
     for construct in retained_constructs:
@@ -260,8 +276,8 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
     return ModelSpecSkeleton(
         resolved_likelihoods=resolved_likelihoods,
         ambiguous_indicators=ambiguous_indicators,
-        parameters=parameters,
-        loading_params=loading_params,
+        parameters=cast("list[ModelParameterCandidate]", parameters),
+        loading_params=cast("list[ModelParameterCandidate]", loading_params),
     )
 
 
@@ -294,8 +310,8 @@ def _indicator_semantics_fields(indicator: dict[str, Any]) -> dict[str, str | No
 def _compiler_authoritative_model_spec_inventory(
     causal_design: dict,
     *,
-    resolved_likelihoods: list[dict[str, Any]],
-    ambiguous_indicators: list[dict[str, Any]],
+    resolved_likelihoods: list[ResolvedLikelihoodCandidate],
+    ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
     seed_parameters: list[dict[str, Any]],
     seed_loading_params: list[dict[str, Any]],
     retained_state_order: list[str],
@@ -355,9 +371,7 @@ def _compiler_authoritative_model_spec_inventory(
         )
 
     binding_by_parameter = {
-        str(binding.get("parameter") or ""): dict(binding)
-        for binding in list(compiled_ssm.get("parameter_bindings", []) or [])
-        if isinstance(binding, dict) and binding.get("parameter")
+        binding.parameter: binding for binding in compiled_ssm.parameter_bindings
     }
 
     final_inventory: dict[str, dict[str, Any]] = {}
@@ -576,19 +590,15 @@ def _is_conditional_prior_surface_parameter(parameter: dict[str, Any]) -> bool:
 
 def _enrich_parameter_with_binding(
     parameter: dict[str, Any],
-    binding: dict[str, Any] | None,
+    binding: CompiledParameterBinding | None,
 ) -> dict[str, Any]:
     """Attach compiler binding metadata used by model-spec prior surfaces."""
     enriched = dict(parameter)
     if not binding:
         return enriched
 
-    construct_names = tuple(
-        name for name in binding.get("construct_names", ()) if isinstance(name, str)
-    )
-    indicator_names = tuple(
-        name for name in binding.get("indicator_names", ()) if isinstance(name, str)
-    )
+    construct_names = tuple(binding.construct_names)
+    indicator_names = tuple(binding.indicator_names)
     if construct_names and not enriched.get("construct_names"):
         enriched["construct_names"] = list(construct_names)
     if indicator_names and not enriched.get("indicator_names"):
@@ -599,14 +609,14 @@ def _enrich_parameter_with_binding(
         enriched.setdefault("cause", construct_names[0])
         enriched.setdefault("effect", construct_names[-1])
 
-    site_kind = binding.get("site_kind")
-    prior_field = binding.get("prior_field")
-    enriched["compiled_site_name"] = binding.get("site_name")
+    site_kind = binding.site_kind.value
+    prior_field = binding.prior_field
+    enriched["compiled_site_name"] = binding.site_name
     enriched["compiled_prior_field"] = prior_field
-    enriched["compiled_flat_index"] = binding.get("flat_index")
-    enriched["compiled_site_kind"] = site_kind
-    enriched["prior_transform"] = binding.get("transform")
-    enriched["component_index"] = binding.get("component_index")
+    enriched["compiled_flat_index"] = binding.flat_index
+    enriched["compiled_site_kind"] = binding.site_kind
+    enriched["prior_transform"] = binding.transform
+    enriched["component_index"] = binding.component_index
     enriched["component_parameter"] = _component_parameter_label(site_kind, prior_field)
     return enriched
 
@@ -796,8 +806,8 @@ def _confounder_baseline_factor_parameters(
 def _candidate_observation_extra_parameters(
     indicators: list[dict[str, Any]],
     *,
-    resolved_likelihoods: list[dict[str, Any]],
-    ambiguous_indicators: list[dict[str, Any]],
+    resolved_likelihoods: list[ResolvedLikelihoodCandidate],
+    ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
 ) -> list[dict[str, Any]]:
     """Return likelihood-extra prior candidates activated by the locked family choices."""
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
@@ -932,7 +942,7 @@ def _candidate_observation_extra_parameters(
 
 
 def _provisional_likelihood_choices(
-    ambiguous_indicators: list[dict[str, Any]],
+    ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
 ) -> list[dict[str, Any]]:
     """Choose deterministic provisional likelihoods for compiler-owned prior discovery."""
     choices: list[dict[str, Any]] = []
@@ -964,7 +974,7 @@ def _provisional_likelihood_choices(
                 "link": link,
                 "support_kind": item.get("support_kind"),
                 "summary_operator": item.get("summary_operator"),
-                "centered": False,
+                "standardized": False,
                 "reasoning": "Deterministic provisional choice for compiler-owned prior discovery.",
             }
         )
@@ -974,7 +984,7 @@ def _provisional_likelihood_choices(
 def _parameter_metadata_from_compiler_row(
     parameter_name: str,
     *,
-    binding: dict[str, Any] | None,
+    binding: CompiledParameterBinding | None,
     retained_construct_names: set[str],
 ) -> dict[str, Any] | None:
     """Convert one compiler-owned extra prior row into model-spec parameter metadata."""
@@ -1003,12 +1013,12 @@ def _parameter_metadata_from_compiler_row(
         return None
 
     if binding is not None and _is_component_owned_dynamics_binding(binding):
-        construct_names = tuple(
-            name for name in binding.get("construct_names", ()) if isinstance(name, str)
-        )
-        positive = str(binding.get("transform") or "") == "positive_identity" or str(
-            binding.get("site_kind") or ""
-        ) in {"dynamics_decay", "hill_emax", "hill_ec50"}
+        construct_names = tuple(binding.construct_names)
+        positive = binding.transform.value == "positive_identity" or binding.site_kind.value in {
+            "dynamics_decay",
+            "hill_emax",
+            "hill_ec50",
+        }
         return {
             "name": parameter_name,
             "role": "dynamics_parameter_positive" if positive else "dynamics_parameter",
@@ -1020,8 +1030,8 @@ def _parameter_metadata_from_compiler_row(
     return None
 
 
-def _is_component_owned_dynamics_binding(binding: dict[str, Any]) -> bool:
-    return str(binding.get("site_kind") or "") in {
+def _is_component_owned_dynamics_binding(binding: CompiledParameterBinding) -> bool:
+    return binding.site_kind.value in {
         "dynamics_decay",
         "dynamics_cint",
         "dynamics_weight",

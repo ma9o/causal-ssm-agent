@@ -16,23 +16,61 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from artifact_contract_catalog import ARTIFACT_CONTRACTS
+
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
-from nof1_causal_lab.episode_api import EXPORTED_API_MODELS
+from nof1_causal_lab.episode_api import (
+    ArtifactEnvelope,
+    CapabilitiesResponse,
+    UploadResponse,
+    WorkspaceEntry,
+    WorkspaceList,
+)
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.flows.artifact_contracts import (
-    ARTIFACT_CONTRACTS,
     CONTEXT_TOOLS,
-    EXPORTED_TOOL_RESULT_MODELS,
-    INTERACTIVE_CONTEXTS,
+)
+from nof1_causal_lab.flows.transitions.analysis.contracts import (
+    BaselineReportVisualizationContract,
+    EffectSummaryContract,
+    EffectTrajectoryPointContract,
+    ScenarioStartResultContract,
+    SimulateScenarioResultContract,
+    SimulateScenarioToolResultContract,
+    ToolErrorContract,
 )
 from nof1_causal_lab.models.ssm.parameterization import SiteKind
+from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
+
+EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
+    CapabilitiesResponse,
+    WorkspaceEntry,
+    WorkspaceList,
+    UploadResponse,
+    ArtifactEnvelope,
+    LLMTrace,
+)
+
+EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
+    ToolErrorContract,
+    EffectSummaryContract,
+    EffectTrajectoryPointContract,
+    BaselineReportVisualizationContract,
+    ScenarioStartResultContract,
+    SimulateScenarioResultContract,
+    SimulateScenarioToolResultContract,
+)
+
+INTERACTIVE_CONTEXTS = frozenset(
+    {"latent-structure", "measurement-structure", "statistical-model-spec", "ranking"}
+)
 
 
 def _make_defaults_required(schema: dict) -> dict:

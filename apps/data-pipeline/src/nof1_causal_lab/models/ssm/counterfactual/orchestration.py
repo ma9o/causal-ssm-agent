@@ -22,7 +22,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 
 from .estimands import (
-    ActionMode,
     build_time_grid,
     summarize_temporal_effect,
 )
@@ -197,62 +196,10 @@ def _build_horizon_grid(
 def _stack_dynamics_params(
     param_samples: list[tuple[dict[str, Array], ...]],
 ) -> tuple[dict[str, Array], ...]:
-    """Convert a list of per-draw component parameter tuples into a single
-    batched pytree where every leaf has a leading ``(N, ...)`` axis.
-
-    The per-draw shape ``tuple[dict[str, Array], ...]`` has
-    heterogeneous shapes across components, but each leaf has the same
-    shape across draws — so ``jax.tree.map(stack, *...)`` produces a
-    well-formed batched pytree consumable by ``jax.vmap``.
-    """
+    """Stack per-draw component parameters into a batched pytree."""
     import jax
 
-    return jax.tree.map(lambda *xs: jnp.stack(xs), *param_samples)
-
-
-def vmap_steady_state_effect_dynamics(
-    vector_field: VectorField,
-    param_samples: list[tuple[dict[str, Array], ...]],
-    treat_idx: int,
-    outcome_idx: int,
-    *,
-    mode: ActionMode,
-    value: float | None = None,
-    amount: float | None = None,
-) -> Array:
-    """Vmapped steady-state set/shift effect for vector-field params.
-
-    Uses ``jax.vmap`` over the stacked per-draw pytree (see
-    :func:`_stack_dynamics_params`). Heterogeneity across vector-field
-    components is irrelevant for vmap — each leaf has consistent shape
-    across draws, which is all vmap requires.
-
-    The ``Intervention`` is constructed *inside* the vmapped function so
-    the closure over the traced ``do_value`` participates in the vmap
-    trace correctly; constructing it outside would close over the whole
-    batched array and produce wrong semantics.
-    """
-    import jax
-
-    from .estimands import resolve_action_value
-
-    if not param_samples:
-        return jnp.zeros((0,))
-
-    stacked = _stack_dynamics_params(param_samples)
-
-    def per_draw(params: tuple[dict[str, Array], ...]) -> Array:
-        baseline = compute_steady_state(vector_field, params, Intervention.none())
-        do_value = resolve_action_value(baseline[treat_idx], mode=mode, value=value, amount=amount)
-        intervention = Intervention(
-            overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
-        )
-        intervened = compute_steady_state(
-            vector_field, params, intervention, initial_guess=baseline
-        )
-        return intervened[outcome_idx] - baseline[outcome_idx]
-
-    return jax.vmap(per_draw)(stacked)
+    return jax.tree.map(lambda *values: jnp.stack(values), *param_samples)
 
 
 @dataclass(frozen=True)

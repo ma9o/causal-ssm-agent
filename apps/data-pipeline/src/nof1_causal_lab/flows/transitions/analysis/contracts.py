@@ -22,8 +22,6 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
 from nof1_causal_lab.models.ssm.inference.schemas import TemporalEffect  # noqa: TC001
 
-IS_INTERACTIVE_CONTEXT = True
-
 ModelInfoSection = Literal[
     "overview",
     "variables",
@@ -281,17 +279,6 @@ ANALYSIS_TOOL_CONTRACTS: list[ToolContract] = [
         output_schema=SimulateScenarioToolResultContract,
     ),
 ]
-
-
-EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
-    ToolErrorContract,
-    EffectSummaryContract,
-    EffectTrajectoryPointContract,
-    BaselineReportVisualizationContract,
-    ScenarioStartResultContract,
-    SimulateScenarioResultContract,
-    SimulateScenarioToolResultContract,
-)
 
 
 class TreatmentEffectContract(BaseModel):

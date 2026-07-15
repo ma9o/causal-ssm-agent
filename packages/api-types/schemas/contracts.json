@@ -243,6 +243,48 @@
       "title": "BaselineReportContract",
       "type": "object"
     },
+    "BetaPriorParams": {
+      "additionalProperties": false,
+      "description": "Positive shape parameters for Beta priors.",
+      "properties": {
+        "alpha": {
+          "exclusiveMinimum": 0,
+          "title": "Alpha",
+          "type": "number"
+        },
+        "beta": {
+          "exclusiveMinimum": 0,
+          "title": "Beta",
+          "type": "number"
+        }
+      },
+      "required": [
+        "alpha",
+        "beta"
+      ],
+      "title": "BetaPriorParams",
+      "type": "object"
+    },
+    "BoundsPriorParams": {
+      "additionalProperties": false,
+      "description": "Finite ordered bounds for Uniform priors.",
+      "properties": {
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "title": "BoundsPriorParams",
+      "type": "object"
+    },
     "CapabilitiesResponse": {
       "additionalProperties": false,
       "properties": {
@@ -353,6 +395,27 @@
       "title": "Construct",
       "type": "object"
     },
+    "DensityPoint": {
+      "additionalProperties": false,
+      "description": "One evaluated point on a prior density curve.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "DensityPoint",
+      "type": "object"
+    },
     "DistributionFamily": {
       "description": "Distribution families for observation and process noise.",
       "enum": [
@@ -453,6 +516,28 @@
       "title": "EnergyHistogram",
       "type": "object"
     },
+    "GammaPriorParams": {
+      "additionalProperties": false,
+      "description": "Positive shape and rate for Gamma priors.",
+      "properties": {
+        "concentration": {
+          "exclusiveMinimum": 0,
+          "title": "Concentration",
+          "type": "number"
+        },
+        "rate": {
+          "exclusiveMinimum": 0,
+          "title": "Rate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "concentration",
+        "rate"
+      ],
+      "title": "GammaPriorParams",
+      "type": "object"
+    },
     "Indicator": {
       "description": "An observed variable that reflects a construct.",
       "properties": {
@@ -477,11 +562,44 @@
         },
         "measurement_dtype": {
           "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'",
+          "enum": [
+            "continuous",
+            "binary",
+            "count",
+            "ordinal",
+            "categorical"
+          ],
           "title": "Measurement Dtype",
           "type": "string"
         },
         "aggregation": {
           "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var",
+          "enum": [
+            "mean",
+            "sum",
+            "min",
+            "max",
+            "std",
+            "var",
+            "last",
+            "first",
+            "count",
+            "median",
+            "p10",
+            "p25",
+            "p75",
+            "p90",
+            "p99",
+            "skew",
+            "kurtosis",
+            "iqr",
+            "range",
+            "cv",
+            "entropy",
+            "instability",
+            "trend",
+            "n_unique"
+          ],
           "title": "Aggregation",
           "type": "string"
         },
@@ -537,6 +655,10 @@
         "extraction_mode": {
           "default": "semantic",
           "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+          "enum": [
+            "computed",
+            "semantic"
+          ],
           "title": "Extraction Mode",
           "type": "string"
         },
@@ -915,7 +1037,7 @@
       "type": "string"
     },
     "LLMTrace": {
-      "description": "Full trace of an LLM multi-turn conversation.",
+      "description": "Full trace of an LLM conversation.",
       "properties": {
         "messages": {
           "items": {
@@ -1126,10 +1248,10 @@
           "$ref": "#/$defs/LinkFunction",
           "description": "Link function mapping linear predictor to mean"
         },
-        "centered": {
+        "standardized": {
           "default": false,
-          "description": "Whether deterministic additive centering is applied before fitting",
-          "title": "Centered",
+          "description": "Whether deterministic standardization (mean-centering and unit-scaling) is applied to the observed values before fitting",
+          "title": "Standardized",
           "type": "boolean"
         },
         "reasoning": {
@@ -1147,11 +1269,11 @@
         }
       },
       "required": [
-        "centered",
         "distribution",
         "link",
         "reasoning",
         "sources",
+        "standardized",
         "variable"
       ],
       "title": "LikelihoodSpec",
@@ -1170,6 +1292,27 @@
       ],
       "title": "LinkFunction",
       "type": "string"
+    },
+    "LocationScalePriorParams": {
+      "additionalProperties": false,
+      "description": "Location and positive scale parameters for Normal or LogNormal priors.",
+      "properties": {
+        "mu": {
+          "title": "Mu",
+          "type": "number"
+        },
+        "sigma": {
+          "exclusiveMinimum": 0,
+          "title": "Sigma",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mu",
+        "sigma"
+      ],
+      "title": "LocationScalePriorParams",
+      "type": "object"
     },
     "MCMCDiagnostics": {
       "description": "Top-level MCMC diagnostics container.",
@@ -1927,6 +2070,87 @@
       "title": "PriorDistributionFamily",
       "type": "string"
     },
+    "PriorParams": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocationScalePriorParams"
+        },
+        {
+          "$ref": "#/$defs/ScalePriorParams"
+        },
+        {
+          "$ref": "#/$defs/BoundsPriorParams"
+        },
+        {
+          "$ref": "#/$defs/TruncatedNormalPriorParams"
+        },
+        {
+          "$ref": "#/$defs/GammaPriorParams"
+        },
+        {
+          "$ref": "#/$defs/RatePriorParams"
+        },
+        {
+          "$ref": "#/$defs/BetaPriorParams"
+        },
+        {
+          "$ref": "#/$defs/ValuePriorParams"
+        }
+      ]
+    },
+    "PriorPredictiveDiagnostic": {
+      "additionalProperties": false,
+      "description": "Persisted compact result from the exact construct-admission battery.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "band": {
+          "title": "Band",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "diagnosis": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Diagnosis",
+          "type": "array"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "band",
+        "check",
+        "diagnosis",
+        "mode",
+        "note",
+        "passed",
+        "target",
+        "value"
+      ],
+      "title": "PriorPredictiveDiagnostic",
+      "type": "object"
+    },
     "PriorProposal": {
       "description": "A proposed prior distribution for a parameter.",
       "properties": {
@@ -1940,12 +2164,8 @@
           "description": "Distribution family ('Normal', 'HalfNormal', 'Beta', 'Uniform', 'TruncatedNormal', 'Gamma', 'LogNormal', 'Exponential')"
         },
         "params": {
-          "additionalProperties": {
-            "type": "number"
-          },
-          "description": "Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})",
-          "title": "Params",
-          "type": "object"
+          "$ref": "#/$defs/PriorParams",
+          "description": "Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})"
         },
         "sources": {
           "description": "Literature sources supporting this prior",
@@ -1978,10 +2198,7 @@
           "anyOf": [
             {
               "items": {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
+                "$ref": "#/$defs/DensityPoint"
               },
               "type": "array"
             },
@@ -2118,6 +2335,22 @@
       "title": "RankHistogramChain",
       "type": "object"
     },
+    "RatePriorParams": {
+      "additionalProperties": false,
+      "description": "Positive rate for Exponential priors.",
+      "properties": {
+        "rate": {
+          "exclusiveMinimum": 0,
+          "title": "Rate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rate"
+      ],
+      "title": "RatePriorParams",
+      "type": "object"
+    },
     "RawDataColumnDescriptionContract": {
       "additionalProperties": false,
       "properties": {
@@ -2249,6 +2482,22 @@
       "title": "SavedScenarioContract",
       "type": "object"
     },
+    "ScalePriorParams": {
+      "additionalProperties": false,
+      "description": "Positive scale parameter for HalfNormal priors.",
+      "properties": {
+        "sigma": {
+          "exclusiveMinimum": 0,
+          "title": "Sigma",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sigma"
+      ],
+      "title": "ScalePriorParams",
+      "type": "object"
+    },
     "StatisticalModelSpec": {
       "description": "Complete statistical model specification.",
       "properties": {
@@ -2374,10 +2623,18 @@
           ],
           "default": null,
           "title": "Prior Predictive Samples"
+        },
+        "prior_predictive_diagnostics": {
+          "items": {
+            "$ref": "#/$defs/PriorPredictiveDiagnostic"
+          },
+          "title": "Prior Predictive Diagnostics",
+          "type": "array"
         }
       },
       "required": [
         "authored_priors",
+        "prior_predictive_diagnostics",
         "resolved_priors",
         "statistical_model_spec"
       ],
@@ -2670,6 +2927,37 @@
       "title": "TreatmentEffectContract",
       "type": "object"
     },
+    "TruncatedNormalPriorParams": {
+      "additionalProperties": false,
+      "description": "Location, scale, and finite ordered bounds for TruncatedNormal priors.",
+      "properties": {
+        "mu": {
+          "title": "Mu",
+          "type": "number"
+        },
+        "sigma": {
+          "exclusiveMinimum": 0,
+          "title": "Sigma",
+          "type": "number"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lower",
+        "mu",
+        "sigma",
+        "upper"
+      ],
+      "title": "TruncatedNormalPriorParams",
+      "type": "object"
+    },
     "UploadResponse": {
       "additionalProperties": false,
       "properties": {
@@ -2753,6 +3041,21 @@
         "is_valid"
       ],
       "title": "ValidationReportContract",
+      "type": "object"
+    },
+    "ValuePriorParams": {
+      "additionalProperties": false,
+      "description": "Point value for Delta priors.",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "ValuePriorParams",
       "type": "object"
     },
     "WorkerStatusContract": {

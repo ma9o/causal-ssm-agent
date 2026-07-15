@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.machine.errors import ModelFitError
 from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.sampler_config import SamplerConfig
 
 
 def _log_ppc(ppc_result: dict[str, Any]) -> None:
@@ -27,7 +31,7 @@ def _log_ppc(ppc_result: dict[str, Any]) -> None:
     logger.info("  All checks passed")
 
 
-def build_sampler_config(inference_method: str | None) -> dict[str, Any]:
+def build_sampler_config(inference_method: str | None) -> SamplerConfig:
     """Resolve the sampler configuration from config + optional override."""
     from nof1_causal_lab.utils.config import get_config
 
@@ -44,9 +48,9 @@ def build_sampler_config(inference_method: str | None) -> dict[str, Any]:
 
 def run_inference_with_data(
     *,
-    compiled_ssm: dict | None,
+    compiled_ssm: CompiledSSMArtifact | None,
     data_for_model: Any,
-    sampler_config: dict[str, Any],
+    sampler_config: SamplerConfig,
     workspace_id: str,
     compute_loo_diagnostics: bool,
 ) -> dict[str, Any]:

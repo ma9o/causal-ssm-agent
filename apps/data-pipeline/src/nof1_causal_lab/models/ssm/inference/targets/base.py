@@ -15,7 +15,7 @@ from typing import Any, NamedTuple, Protocol
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.shapes import Array, Float, Shaped
+from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 MISSING_DATA_LARGE_VAR = 1e10
 CHOL_JITTER = 1e-8
@@ -150,41 +150,3 @@ def build_likelihood_eval_aux(
             raise KeyError(f"Unknown likelihood-eval aux field: {key}")
         aux[key] = jnp.asarray(value, dtype=aux[key].dtype)
     return aux
-
-
-def preprocess_missing_data(
-    observations: Float[Array, "T M"],
-    manifest_cov: Float[Array, "M M"],
-    obs_mask: Shaped[Array, "T M"] | None,
-) -> tuple[Float[Array, "T M"], Float[Array, "T M M"], Shaped[Array, "T M"]]:
-    """Preprocess observations and measurement covariance for missing data.
-
-    Centralizes the large-variance injection pattern used across all backends.
-    Missing observations are replaced with 0 and their corresponding measurement
-    variance is inflated so the filter effectively ignores them.
-
-    Args:
-        observations: (T, n_manifest) raw observations (may contain NaN)
-        manifest_cov: (n_manifest, n_manifest) measurement covariance R
-        obs_mask: (T, n_manifest) boolean mask (True = observed), or None
-
-    Returns:
-        clean_obs: (T, n_manifest) observations with NaN replaced by 0
-        R_adjusted: (T, n_manifest, n_manifest) per-timestep adjusted R
-        obs_mask: (T, n_manifest) boolean mask
-    """
-    if obs_mask is None:
-        obs_mask = ~jnp.isnan(observations)
-
-    clean_obs = jnp.nan_to_num(observations, nan=0.0)
-
-    # Build per-timestep R with inflated variance for missing entries
-    T, n_manifest = observations.shape
-    mask_float = obs_mask.astype(jnp.float32)  # (T, n_manifest)
-    # (T, n_manifest) diagonal inflation values
-    inflation = (1.0 - mask_float) * MISSING_DATA_LARGE_VAR
-    # Broadcast R to (T, n_manifest, n_manifest) and add diagonal inflation
-    R_base = jnp.broadcast_to(manifest_cov, (T, n_manifest, n_manifest))
-    R_adjusted = R_base + jnp.eye(n_manifest) * inflation[:, :, None]
-
-    return clean_obs, R_adjusted, obs_mask

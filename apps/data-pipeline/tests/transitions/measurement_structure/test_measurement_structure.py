@@ -4,7 +4,9 @@ import pytest
 
 from nof1_causal_lab.artifacts import CausalDesign
 from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
-from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_structure
+from nof1_causal_lab.models.ssm.compile.artifact import (
+    validate_measurement_structure_for_compilation,
+)
 from nof1_causal_lab.utils.causal_design import get_outcome_name
 
 
@@ -16,6 +18,15 @@ def _assert_same_declared_measurement(actual: dict, expected: dict) -> None:
     assert [item["construct_name"] for item in actual["indicators"]] == [
         item["construct_name"] for item in expected["indicators"]
     ]
+
+
+def _measurement_compile_feedback(
+    measurement_structure: dict, latent_structure: dict
+) -> str | None:
+    _, errors = validate_measurement_structure_for_compilation(
+        measurement_structure, latent_structure
+    )
+    return "\n".join(errors) if errors else None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -30,7 +41,7 @@ class TestMeasurementCompiler:
         self, stage1b_simple_latent, stage1b_measurement_all_observed
     ):
         """A valid measurement structure compiles cleanly."""
-        result = trial_compile_measurement_structure(
+        result = _measurement_compile_feedback(
             stage1b_measurement_all_observed, stage1b_simple_latent
         )
         assert result is None
@@ -48,7 +59,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
+        result = _measurement_compile_feedback(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "Outcome construct 'Outcome'" in result
@@ -73,7 +84,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
+        result = _measurement_compile_feedback(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "duplicate indicator operationalizations" in result
@@ -97,7 +108,7 @@ class TestMeasurementCompiler:
             ],
         }
 
-        result = trial_compile_measurement_structure(measurement, stage1b_simple_latent)
+        result = _measurement_compile_feedback(measurement, stage1b_simple_latent)
 
         assert result is not None
         assert "Semantic collision" in result

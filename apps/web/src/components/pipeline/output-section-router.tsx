@@ -2,6 +2,7 @@
 
 import type {
   ArtifactViewId,
+  ArtifactViewData as ArtifactViewPayload,
   RawDataData,
   LatentStructureData,
   MeasurementStructureViewData,
@@ -56,17 +57,7 @@ const SimulationViewer = lazy(() =>
   })),
 );
 
-type AnyOutputData =
-  | RawDataData
-  | LatentStructureData
-  | MeasurementStructureViewData
-  | MeasurementsData
-  | ValidationReportData
-  | StatisticalModelSpecData
-  | PosteriorData
-  | BaselineReportData;
-
-type ArtifactViewData = AnyOutputData & {
+type ArtifactViewData = ArtifactViewPayload & {
   context?: string;
   llm_trace_ref?: string | null;
 };
@@ -129,9 +120,13 @@ function OutputSectionRouterInner({
           <Suspense fallback={null}>
             <MeasurementsRunningOutputView workspaceId={workspaceId} />
           </Suspense>
-        ) : output.id === "statistical_model_spec" && effectiveStatus === "running" ? (
+        ) : output.id === "statistical_model_spec" &&
+          (effectiveStatus === "running" || effectiveStatus === "failed") ? (
           <Suspense fallback={null}>
-            <StatisticalModelSpecRunningOutputView workspaceId={workspaceId} />
+            <StatisticalModelSpecRunningOutputView
+              workspaceId={workspaceId}
+              showError={effectiveStatus !== "failed"}
+            />
           </Suspense>
         ) : undefined
       }
@@ -169,7 +164,7 @@ export const OutputSectionRouter = memo(
 
 type OutputViewAdapterProps = {
   workspaceId: string;
-  data: AnyOutputData;
+  data: ArtifactViewData;
 };
 
 function createArtifactDataAdapter<TData>(Component: ComponentType<{ data: TData }>) {

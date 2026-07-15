@@ -12,6 +12,7 @@ import {
   type ModelSpecAdmissionParameter,
   type ModelSpecAdmissionReport,
   type ModelSpecAdmissionReplayState,
+  type ModelSpecAdmissionTiming,
   useModelSpecAdmission,
 } from "@/lib/hooks/use-model-spec-admission";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
@@ -46,8 +47,9 @@ function formatParamValue(value: number): string {
   return Number.isInteger(value) ? String(value) : Number.parseFloat(value.toFixed(3)).toString();
 }
 
-/** How long a single check took to run: "420ms", "1.4s", "12s". */
+/** End-to-end check runtime: "420ms", "1.4s", "12s". */
 function formatCheckDuration(ms: number): string {
+  if (ms > 0 && ms < 1) return "<1ms";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   const seconds = ms / 1000;
   return `${seconds >= 10 ? Math.round(seconds) : seconds.toFixed(1)}s`;
@@ -96,9 +98,42 @@ function progressCounts(state: ModelSpecAdmissionReplayState) {
   return { admitted, revising, blocked, total: state.constructs.length };
 }
 
+function checkpointLabel(ref: string): string {
+  return ref.split("/").at(-1) ?? ref;
+}
+
+function ResumeSummary({ state }: { state: ModelSpecAdmissionReplayState }) {
+  const resume = state.resume;
+  if (!resume) return null;
+  const retainedCount = resume.retainedConstructs.length;
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+      <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+      <div className="min-w-0 space-y-1">
+        <div className="text-sm font-medium">
+          {resume.pinsChanged ? "Rebased after upstream changes" : "Resumed from checkpoint"}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {resume.pinsChanged
+            ? `${retainedCount} accepted construct${retainedCount === 1 ? "" : "s"} revalidated and retained.`
+            : `${retainedCount} accepted construct${retainedCount === 1 ? "" : "s"} restored without rerunning checks.`}
+          {resume.reopenedConstruct
+            ? ` Reopened ${titleize(resume.reopenedConstruct)}.`
+            : " No construct needed reopening."}
+        </p>
+        {resume.reason && <p className="text-xs text-muted-foreground">{resume.reason}</p>}
+        <div className="truncate font-mono text-[11px] text-muted-foreground/70">
+          {checkpointLabel(resume.sourceCheckpointRef)} → {checkpointLabel(resume.checkpointRef)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getFeaturedConstruct(state: ModelSpecAdmissionReplayState) {
   return (
-    state.constructs.find((construct) => construct.name === state.activeConstruct) ??
+    state.constructs.find((construct) => construct.name === state.activeConstructs[0]) ??
     (state.latestReport
       ? state.constructs.find((construct) => construct.name === state.latestReport?.name)
       : undefined) ??
@@ -192,8 +227,9 @@ type ModelSpecTimelineEntry = {
   key: string;
   status: ModelSpecAdmissionConstructStatus;
   results: ModelSpecAdmissionCheckResult[];
+  timings: ModelSpecAdmissionTiming[];
 } & (
-  | { kind: "attempt"; attempt: number }
+  | { kind: "attempt"; attempt: number; durationMs?: number }
   | { kind: "recheck"; originator: string; closingEdges: string[] }
 );
 
@@ -211,7 +247,9 @@ function buildTimeline(
     key: reportKeyFor(construct.name, report, index),
     status: reportStatus(report),
     results: report.results,
+    timings: report.timings,
     attempt: report.attempt,
+    durationMs: report.durationMs,
   }));
   const rechecks: ModelSpecTimelineEntry[] = [];
   for (const other of state.constructs) {
@@ -224,6 +262,7 @@ function buildTimeline(
           key: `recheck:${other.name}:${report.attempt}:${index}`,
           status: resultsStatus(recheck.results),
           results: recheck.results,
+          timings: recheck.timings,
           originator: other.name,
           closingEdges: recheck.closing_edges ?? [],
         });
@@ -539,7 +578,18 @@ function AttemptHistory({
                 >
                   <StatusIndicator status={entry.status} />
                   {entry.kind === "attempt" ? (
-                    <span className="font-medium tabular-nums">Attempt {entry.attempt}</span>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                      <span className="font-medium tabular-nums">Attempt {entry.attempt}</span>
+                      {entry.durationMs !== undefined && (
+                        <span
+                          className="flex shrink-0 items-center gap-1 tabular-nums text-muted-foreground"
+                          title="End-to-end check runtime"
+                        >
+                          <Clock className="h-3 w-3" aria-hidden />
+                          {formatCheckDuration(entry.durationMs)}
+                        </span>
+                      )}
+                    </span>
                   ) : (
                     <span className="min-w-0 truncate">
                       <span className="font-medium">Coupled recheck</span>
@@ -573,28 +623,22 @@ function CheckRow({ result }: { result: ModelSpecAdmissionCheckResult }) {
             : "border-warning/30 bg-warning/10",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{result.check}</span>
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {result.target ? `${result.target}: ` : ""}
-            {result.value}
-          </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">{result.check}</span>
         </div>
-        <div
-          className="flex shrink-0 items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs tabular-nums text-muted-foreground"
-          title="Time this check took to run"
-        >
-          <Clock className="h-3 w-3" aria-hidden />
-          {formatCheckDuration(result.duration_ms)}
+        <div className="mt-1 text-xs text-muted-foreground">
+          {result.target ? `${result.target}: ` : ""}
+          {result.value}
         </div>
+        {result.band && (
+          <div className="mt-1 text-xs text-muted-foreground">Target: {result.band}</div>
+        )}
       </div>
       {!result.passed && (
         <div className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
           {result.note && <p>{result.note}</p>}
-          {result.diagnosis?.slice(0, 2).map((diagnosis) => (
+          {result.diagnosis?.map((diagnosis) => (
             <p key={diagnosis}>{diagnosis}</p>
           ))}
         </div>
@@ -603,10 +647,46 @@ function CheckRow({ result }: { result: ModelSpecAdmissionCheckResult }) {
   );
 }
 
+function TimingBreakdown({ timings }: { timings: ModelSpecAdmissionTiming[] }) {
+  if (timings.length === 0) return null;
+  const totalMs = timings.reduce((total, timing) => total + timing.duration_ms, 0);
+
+  return (
+    <div className="overflow-hidden rounded-lg border bg-muted/10">
+      <div className="flex items-center justify-between gap-3 border-b bg-muted/20 px-3 py-2">
+        <h4 className="text-xs font-semibold">Backend timing breakdown</h4>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {formatCheckDuration(totalMs)} measured
+        </span>
+      </div>
+      <dl className="max-h-[260px] divide-y divide-border overflow-auto">
+        {timings.map((timing, index) => (
+          <div
+            key={`${timing.phase}-${index}`}
+            className="flex items-start justify-between gap-3 px-3 py-2 text-xs"
+          >
+            <dt className="min-w-0">
+              <span className="block font-medium">{timing.label}</span>
+              {timing.checks.length > 0 && (
+                <span className="mt-0.5 block truncate text-muted-foreground">
+                  {timing.checks.join(", ")}
+                </span>
+              )}
+            </dt>
+            <dd className="shrink-0 font-mono tabular-nums text-muted-foreground">
+              {formatCheckDuration(timing.duration_ms)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function ReachabilityPanel({ entry }: { entry: ModelSpecTimelineEntry | null }) {
   if (!entry) {
     return (
-      <div className="space-y-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div>
           <h3 className="text-sm font-semibold">Awaiting report</h3>
         </div>
@@ -619,20 +699,33 @@ function ReachabilityPanel({ entry }: { entry: ModelSpecTimelineEntry | null }) 
   }
 
   return (
-    <div className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold">
-          {entry.kind === "recheck"
-            ? `Loop closed by ${entry.originator}`
-            : `Attempt ${entry.attempt}`}
-        </h3>
-        {entry.kind === "recheck" && entry.closingEdges.length > 0 && (
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            Closing edge{entry.closingEdges.length > 1 ? "s" : ""}: {entry.closingEdges.join(", ")}
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">
+            {entry.kind === "recheck"
+              ? `Loop closed by ${entry.originator}`
+              : `Attempt ${entry.attempt}`}
+          </h3>
+          {entry.kind === "recheck" && entry.closingEdges.length > 0 && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              Closing edge{entry.closingEdges.length > 1 ? "s" : ""}:{" "}
+              {entry.closingEdges.join(", ")}
+            </div>
+          )}
+        </div>
+        {entry.kind === "attempt" && entry.durationMs !== undefined && (
+          <div
+            className="flex shrink-0 items-center gap-1 rounded-md border bg-muted/20 px-2 py-1 text-xs tabular-nums text-muted-foreground"
+            title="End-to-end check runtime"
+          >
+            <Clock className="h-3 w-3" aria-hidden />
+            {formatCheckDuration(entry.durationMs)}
           </div>
         )}
       </div>
-      <ol className="max-h-[520px] space-y-2 overflow-auto pr-1">
+      <TimingBreakdown timings={entry.timings} />
+      <ol className="max-h-[520px] min-h-0 space-y-2 overflow-auto pr-1 xl:max-h-none xl:flex-1">
         {entry.results.map((result, index) => (
           <CheckRow key={`${result.check}-${result.target}-${index}`} result={result} />
         ))}
@@ -643,8 +736,10 @@ function ReachabilityPanel({ entry }: { entry: ModelSpecTimelineEntry | null }) 
 
 export function ModelSpecAdmissionRunningView({
   state,
+  showError = true,
 }: {
   state: ModelSpecAdmissionReplayState | null;
+  showError?: boolean;
 }) {
   const [selectedConstructName, setSelectedConstructName] = useState<string | null>(null);
   const [reportSelection, setReportSelection] = useState<{
@@ -708,12 +803,13 @@ export function ModelSpecAdmissionRunningView({
               style={{ width: `${progress}%` }}
             />
           </div>
+          <ResumeSummary state={state} />
           <MiniConstructDag
             state={state}
             selectedName={featuredConstruct?.name}
             onSelectConstruct={handleSelectConstruct}
           />
-          {state.error && (
+          {showError && state.error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {state.error}
             </div>
@@ -749,7 +845,7 @@ export function ModelSpecAdmissionRunningView({
           )}
         </section>
 
-        <section className="p-4">
+        <section className="flex min-h-0 flex-col p-4">
           <ReachabilityPanel entry={selectedEntry} />
         </section>
       </div>
@@ -759,9 +855,11 @@ export function ModelSpecAdmissionRunningView({
 
 export default function StatisticalModelSpecRunningOutputView({
   workspaceId,
+  showError = true,
 }: {
   workspaceId: string;
+  showError?: boolean;
 }) {
   const state = useModelSpecAdmission(workspaceId);
-  return <ModelSpecAdmissionRunningView state={state} />;
+  return <ModelSpecAdmissionRunningView state={state} showError={showError} />;
 }

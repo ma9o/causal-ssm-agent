@@ -5,7 +5,7 @@ import {
   startAutoRun,
   WRITABLE_ARTIFACTS,
 } from "@/lib/server/episode-runs";
-import { isRecord } from "@/lib/utils/type-guards";
+import { isJsonObject } from "@/lib/utils/type-guards";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   if (!safeArtifactId || /[\\/]/.test(safeArtifactId)) {
     return NextResponse.json({ error: "Invalid artifactId format" }, { status: 400 });
   }
-  if (!isRecord(payload)) {
+  if (!isJsonObject(payload)) {
     return NextResponse.json({ error: "payload must be an object" }, { status: 400 });
   }
 

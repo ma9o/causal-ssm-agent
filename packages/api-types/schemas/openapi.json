@@ -612,7 +612,7 @@
     "/api/tools/{context_id}": {
       "get": {
         "summary": "Get Tool Schemas",
-        "description": "List a context's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:\nranking `simulate` / `get_model_info`, statistical-model-spec `submit_statistical_model_spec`.",
+        "description": "List a context's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:\nranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.",
         "operationId": "get_tool_schemas_api_tools__context_id__get",
         "parameters": [
           {
@@ -985,7 +985,7 @@
         },
         "type": "object",
         "title": "LLMTrace",
-        "description": "Full trace of an LLM multi-turn conversation."
+        "description": "Full trace of an LLM conversation."
       },
       "MoveBody": {
         "properties": {

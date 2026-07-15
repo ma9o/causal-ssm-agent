@@ -104,19 +104,6 @@ class Strategy(ABC):
         return numpyro.handlers.reparam(fn, config=self)
 
 
-class MinimalReparam(Strategy):
-    """Minimal strategy that only reparameterizes sites that would
-    otherwise lead to errors (e.g., ProjectedNormal).
-
-    Example::
-
-        reparam_model = MinimalReparam()(model_fn)
-    """
-
-    def configure(self, msg: dict) -> Reparam | None:
-        return _minimal_reparam(msg["fn"], msg.get("is_observed", False))
-
-
 class AutoReparam(Strategy):
     """Automatic reparameterization strategy.
 

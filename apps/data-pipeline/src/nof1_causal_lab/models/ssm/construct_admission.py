@@ -12,9 +12,9 @@ families), and feeds the resulting arrays to the reachability battery
 
 Nothing here linearizes: the partial model is compiled and simulated through the
 same exact engine the fit uses (``sample_prior_predictive_from_runtime``). A
-partial sub-DAG compiles fine — the ``n_manifest >= n_latent`` rank guard lives
-only on the semantic-compile path used without a causal_design, which this module
-does not take, so latent-only constructs (no indicator yet) still admit.
+partial sub-DAG compiles fine as long as every retained estimation state keeps
+measurement support and the cumulative loading matrix can reach full column
+rank.
 
 The verdict (admit / revise / accept) comes from :func:`reachability.
 stage_outcome`; there is no status enum stored on any artifact.
@@ -24,8 +24,11 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field, replace
+from statistics import NormalDist
+from time import perf_counter_ns
 from typing import TYPE_CHECKING, Any
 
+import jax
 import jax.numpy as jnp
 import networkx as nx
 import numpy as np
@@ -44,12 +47,16 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 )
 from nof1_causal_lab.models.ssm.parameterization import build_prior_runtime_bundle
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+    predictive_keys,
     sample_prior_predictive_from_runtime,
 )
 from nof1_causal_lab.models.ssm.reachability import (
+    C1B_GROWTH_RATIO,
+    C1B_MAX_EXPLOSIVE_FRAC,
     CheckResult,
     check_confinement,
     check_coverage,
+    check_data_availability,
     check_edge_share,
     check_resolvability,
     check_saturation,
@@ -109,14 +116,47 @@ class AdmissionState:
 
 
 @dataclass(frozen=True)
+class AdmissionTiming:
+    """One measured phase of a construct-admission check."""
+
+    phase: str
+    label: str
+    duration_ms: float
+    checks: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AdmissionReport:
     """Result of attempting to admit one construct."""
 
     name: str
     results: tuple[CheckResult, ...]
+    timings: tuple[AdmissionTiming, ...]
     outcome: str
     annotations: tuple[str, ...]
     admitted: bool
+
+
+@dataclass(frozen=True)
+class ConstructAdmissionUnit:
+    """One schedulable component of the construct graph.
+
+    Singleton components may run in parallel once their predecessor components
+    have been admitted.  Members of a lagged-feedback component stay in
+    ``state_order`` and are admitted sequentially inside the component.
+    """
+
+    unit_id: str
+    constructs: tuple[str, ...]
+    predecessors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FullAdmissionValidation:
+    """One exact shared simulation plus per-construct full-model reports."""
+
+    reports: tuple[AdmissionReport, ...]
+    timings: tuple[AdmissionTiming, ...]
 
 
 # --------------------------------------------------------------------------- #
@@ -124,8 +164,8 @@ class AdmissionReport:
 # --------------------------------------------------------------------------- #
 
 
-def build_construct_order(causal_design: dict) -> list[str]:
-    """Construct order (parents before children) along the causal arrows.
+def build_construct_units(causal_design: dict) -> list[ConstructAdmissionUnit]:
+    """Build the SCC-condensed fork/join plan for construct admission.
 
     The universe is the estimation projection's ``state_order`` — constructs
     measurement-structure marginalized, anchored, or dropped out of estimation carry no
@@ -154,10 +194,33 @@ def build_construct_order(causal_design: dict) -> list[str]:
         node: min(order_index[member] for member in data["members"])
         for node, data in condensation.nodes(data=True)
     }
-    order: list[str] = []
-    for node in nx.lexicographical_topological_sort(condensation, key=scc_index.get):
-        order.extend(sorted(condensation.nodes[node]["members"], key=order_index.get))
-    return order
+    component_order = list(nx.lexicographical_topological_sort(condensation, key=scc_index.get))
+    unit_id_by_component = {
+        node: (
+            str(min(condensation.nodes[node]["members"], key=order_index.get))
+            if len(condensation.nodes[node]["members"]) == 1
+            else f"feedback:{min(condensation.nodes[node]['members'], key=order_index.get)}"
+        )
+        for node in component_order
+    }
+    return [
+        ConstructAdmissionUnit(
+            unit_id=unit_id_by_component[node],
+            constructs=tuple(sorted(condensation.nodes[node]["members"], key=order_index.get)),
+            predecessors=tuple(
+                unit_id_by_component[parent]
+                for parent in sorted(condensation.predecessors(node), key=scc_index.get)
+            ),
+        )
+        for node in component_order
+    ]
+
+
+def build_construct_order(causal_design: dict) -> list[str]:
+    """Deterministic flattened order used for assembly and stable presentation."""
+    return [
+        construct for unit in build_construct_units(causal_design) for construct in unit.constructs
+    ]
 
 
 def restrict_causal_design(causal_design: dict, keep: set[str]) -> dict:
@@ -247,7 +310,14 @@ def _hill_ec50_index(spec: SSMSpec, source: int, target: int) -> int | None:
     return None
 
 
-def _signal_from_linear_predictor(link: LinkFunction, lp: np.ndarray) -> np.ndarray:
+def _signal_from_linear_predictor(
+    link: LinkFunction,
+    lp: np.ndarray,
+    *,
+    spec: SSMSpec,
+    pred: Mapping[str, Any],
+    manifest_index: int,
+) -> np.ndarray:
     """Noise-free emission mean in data space from the linear predictor."""
     _lp = np.asarray(lp)
     if link == LinkFunction.IDENTITY:
@@ -256,6 +326,51 @@ def _signal_from_linear_predictor(link: LinkFunction, lp: np.ndarray) -> np.ndar
         return np.exp(np.clip(_lp, -20.0, 20.0))
     if link == LinkFunction.LOGIT:
         return 1.0 / (1.0 + np.exp(-_lp))
+    if link == LinkFunction.PROBIT:
+        cdf = np.vectorize(NormalDist().cdf, otypes=[float])
+        return cdf(_lp)
+    if link == LinkFunction.INVERSE:
+        return 1.0 / np.clip(_lp, 1e-6, None)
+
+    if spec.manifest_level_counts is None:
+        raise ValueError(f"{link.value} signal extraction requires manifest level counts")
+    level_count = int(spec.manifest_level_counts[manifest_index])
+    if level_count < 2:
+        raise ValueError(f"{link.value} signal extraction requires at least two declared levels")
+
+    if link == LinkFunction.CUMULATIVE_LOGIT:
+        base = np.asarray(pred["obs_ordered_base"])[:, manifest_index]
+        if level_count > 2:
+            gaps = np.asarray(pred["obs_ordered_gaps"])[:, manifest_index, : level_count - 2]
+            cutpoints = np.concatenate(
+                [base[:, None], base[:, None] + np.cumsum(gaps, axis=1)],
+                axis=1,
+            )
+        else:
+            cutpoints = base[:, None]
+        cutpoints = cutpoints - np.mean(cutpoints, axis=1, keepdims=True)
+        mid_cdf = 1.0 / (
+            1.0 + np.exp(-np.clip(cutpoints[:, None, :] - _lp[:, :, None], -30.0, 30.0))
+        )
+        cdf = np.concatenate(
+            [
+                np.zeros((*_lp.shape, 1)),
+                mid_cdf,
+                np.ones((*_lp.shape, 1)),
+            ],
+            axis=2,
+        )
+        return np.diff(cdf, axis=2)
+
+    if link == LinkFunction.SOFTMAX:
+        intercepts = np.asarray(pred["obs_cat_intercepts"])[:, manifest_index, : level_count - 1]
+        slopes = np.asarray(pred["obs_cat_slopes"])[:, manifest_index, : level_count - 1]
+        nonbaseline = intercepts[:, None, :] + slopes[:, None, :] * _lp[:, :, None]
+        logits = np.concatenate([np.zeros((*_lp.shape, 1)), nonbaseline], axis=2)
+        logits = logits - np.max(logits, axis=2, keepdims=True)
+        probabilities = np.exp(logits)
+        probabilities /= np.sum(probabilities, axis=2, keepdims=True)
+        return probabilities
     raise ValueError(f"unsupported link for signal extraction: {link}")
 
 
@@ -275,15 +390,23 @@ class DesignInfo:
     ``transition_inputs`` are threaded to the exact prior-predictive sampler and the
     edge-off re-simulation when present (real data); synthetic tests leave them
     ``None`` and share a single index across indicators.
+
+    ``c1b_growth_ratio`` / ``c1b_max_explosive_frac`` calibrate C1b confinement: a
+    draw explodes when its late-window amplitude exceeds ``c1b_growth_ratio`` times
+    its own early amplitude, and the check reds when at least
+    ``c1b_max_explosive_frac`` of draws do. The defaults encode the model class's
+    confinement commitment (every self-dynamics component is a restoring force);
+    they are design calibration, not part of the statistic — an intrinsically
+    trending domain raises them here instead of accepting a standing soft-fail.
     """
 
     t_grid: jnp.ndarray
     obs_index_by_indicator: Mapping[str, np.ndarray]
     values_by_indicator: Mapping[str, np.ndarray]
-    cadence: float
-    span: float
     n_draws: int = 200
     seed: int = 0
+    c1b_growth_ratio: float = C1B_GROWTH_RATIO
+    c1b_max_explosive_frac: float = C1B_MAX_EXPLOSIVE_FRAC
     observation_support: Any = None
     transition_inputs: Any = None
 
@@ -299,6 +422,18 @@ class DesignInfo:
         return np.unique(
             np.concatenate([np.asarray(v) for v in self.obs_index_by_indicator.values()])
         )
+
+    def observation_indices_for(self, indicators: tuple[str, ...]) -> np.ndarray:
+        """Sorted union of actual observation indices for the requested indicators."""
+        indices = [
+            np.asarray(self.obs_index_by_indicator[name])
+            for name in indicators
+            if name in self.obs_index_by_indicator
+            and np.asarray(self.obs_index_by_indicator[name]).size > 0
+        ]
+        if not indices:
+            return np.asarray([], dtype=int)
+        return np.unique(np.concatenate(indices))
 
 
 def trial_admission_state(
@@ -323,19 +458,49 @@ def admit_construct(
     contribution: ConstructContribution,
     causal_design: dict,
     design: DesignInfo,
-    accepted: Mapping[str, str] | None = None,
+    accepted: Mapping[tuple[str, str], str] | None = None,
 ) -> tuple[AdmissionState, AdmissionReport]:
     """Attempt to admit one construct; run the battery on the cumulative model."""
     trial = trial_admission_state(state, contribution)
-    spec, registry = _compile_partial(trial, causal_design)
-    pred = _sample_partial(spec, registry, design)
-    results = _run_battery(spec, pred, design, contribution)
 
-    outcome, annotations = stage_outcome(results, dict(accepted or {}))
+    started = perf_counter_ns()
+    spec, registry = _compile_partial(trial, causal_design)
+    timings = [
+        AdmissionTiming(
+            phase="model_compilation",
+            label="Model compilation",
+            duration_ms=_elapsed_ms(started),
+        )
+    ]
+
+    started = perf_counter_ns()
+    pred = _sample_partial(spec, registry, design)
+    jax.block_until_ready(pred)
+    timings.append(
+        AdmissionTiming(
+            phase="prior_predictive",
+            label="Exact prior-predictive simulation",
+            duration_ms=_elapsed_ms(started),
+        )
+    )
+
+    results, diagnostic_timings = _run_battery(spec, pred, design, contribution)
+    timings.extend(diagnostic_timings)
+
+    started = perf_counter_ns()
+    outcome, annotations = stage_outcome(results, accepted or {})
+    timings.append(
+        AdmissionTiming(
+            phase="admission_decision",
+            label="Admission decision",
+            duration_ms=_elapsed_ms(started),
+        )
+    )
     admitted = outcome.startswith("ADMITTED")
     report = AdmissionReport(
         name=contribution.name,
         results=tuple(results),
+        timings=tuple(timings),
         outcome=outcome,
         annotations=annotations,
         admitted=admitted,
@@ -359,9 +524,13 @@ def _sample_partial(spec: SSMSpec, registry: PriorRegistry, design: DesignInfo) 
     )
 
 
+def _elapsed_ms(started_ns: int) -> float:
+    return (perf_counter_ns() - started_ns) / 1_000_000
+
+
 def _run_battery(
     spec: SSMSpec, pred: dict, design: DesignInfo, target: ConstructContribution
-) -> list[CheckResult]:
+) -> tuple[list[CheckResult], list[AdmissionTiming]]:
     """Run the reachability battery on ``target``'s latent trajectory in a compiled model.
 
     Generic over the construct being measured: admission runs it on the construct being
@@ -371,32 +540,90 @@ def _run_battery(
     latent_names, manifest_names, manifest_links = _spec_names(spec)
     d = latent_names.index(target.name)
     x = np.asarray(pred["latents"][:, :, d])
-    dt = float(np.median(np.diff(np.asarray(design.t_grid))))
-    pooled = design.pooled_obs_index
+    times = np.asarray(design.t_grid, dtype=float)
+    indicator_names = tuple(lik.variable for lik in target.likelihoods)
+    target_obs = design.observation_indices_for(indicator_names)
+    structural_indices = target_obs if target_obs.size else np.arange(times.size)
 
-    results: list[CheckResult] = list(check_confinement(target.name, x, dt))
+    results: list[CheckResult] = []
+    timings: list[AdmissionTiming] = []
 
-    # C2 scale anchor + C5 coverage come from the construct's indicator(s).
-    anchor, anchor_src, anchor_detail = _scale_anchor(
-        manifest_names, manifest_links, target, design.values_by_indicator
+    started = perf_counter_ns()
+    phase_results = list(
+        check_confinement(
+            target.name,
+            x,
+            times,
+            growth_ratio=design.c1b_growth_ratio,
+            max_explosive_frac=design.c1b_max_explosive_frac,
+        )
     )
-    results.append(check_scale(target.name, x, anchor, anchor_src, anchor_detail))
+    results.extend(phase_results)
+    timings.append(
+        AdmissionTiming(
+            phase="c1_confinement",
+            label="C1 confinement",
+            duration_ms=_elapsed_ms(started),
+            checks=tuple(result.check for result in phase_results),
+        )
+    )
+
+    started = perf_counter_ns()
+    result = check_scale(target.name, x)
+    results.append(result)
+    timings.append(
+        AdmissionTiming(
+            phase="c2_latent_scale",
+            label="C2 latent scale",
+            duration_ms=_elapsed_ms(started),
+            checks=(result.check,),
+        )
+    )
 
     # C3 resolvability (only for dynamic constructs that own a potential well).
     comp_idx = _node_potential_index(spec, d)
     if comp_idx is not None:
         decay_site = f"vf_{comp_idx}_decay"
         if decay_site in pred:
+            started = perf_counter_ns()
             tau = 1.0 / np.asarray(pred[decay_site])
-            results.append(check_resolvability(target.name, tau, design.cadence, design.span))
+            result = check_resolvability(target.name, tau, times[target_obs])
+            results.append(result)
+            timings.append(
+                AdmissionTiming(
+                    phase="c3_resolvability",
+                    label="C3 resolvability",
+                    duration_ms=_elapsed_ms(started),
+                    checks=(result.check,),
+                )
+            )
 
     # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
-    if target.edge_parents:
-        edge_sites = _incoming_edge_sites(spec, target, latent_names, d)
+    for parent in target.edge_parents:
+        started = perf_counter_ns()
+        edge_sites = _incoming_edge_sites(
+            spec, replace(target, edge_parents=(parent,)), latent_names, d
+        )
         x_off = _resimulate_edge_off(
             spec, pred, design.t_grid, edge_sites, design.seed, design.transition_inputs
         )[:, :, d]
-        results.extend(check_edge_share(target.name, x[:, pooled], np.asarray(x_off)[:, pooled]))
+        edge_label = f"{parent}->{target.name}"
+        phase_results = list(
+            check_edge_share(
+                edge_label,
+                x[:, structural_indices],
+                np.asarray(x_off)[:, structural_indices],
+            )
+        )
+        results.extend(phase_results)
+        timings.append(
+            AdmissionTiming(
+                phase=f"c4b_edge_overwhelm:{edge_label}",
+                label=f"C4b edge-off resimulation: {parent} → {target.name}",
+                duration_ms=_elapsed_ms(started),
+                checks=tuple(result.check for result in phase_results),
+            )
+        )
 
     # C4c Hill saturation (per saturating parent).
     for parent in target.hill_parents:
@@ -404,28 +631,79 @@ def _run_battery(
         ec50_comp = _hill_ec50_index(spec, p_idx, d)
         ec50_site = f"vf_{ec50_comp}_EC50"
         if ec50_comp is not None and ec50_site in pred:
-            parent_vals = np.asarray(pred["latents"][:, pooled, p_idx])
-            results.append(
-                check_saturation(
-                    f"{parent}->{target.name}",
-                    np.asarray(pred[ec50_site]),
-                    parent_vals,
+            started = perf_counter_ns()
+            parent_vals = np.asarray(pred["latents"][:, structural_indices, p_idx])
+            result = check_saturation(
+                f"{parent}->{target.name}",
+                np.asarray(pred[ec50_site]),
+                np.asarray(pred[f"vf_{ec50_comp}_n"]),
+                parent_vals,
+            )
+            results.append(result)
+            timings.append(
+                AdmissionTiming(
+                    phase=f"c4c_saturation:{parent}->{target.name}",
+                    label=f"C4c saturation: {parent} → {target.name}",
+                    duration_ms=_elapsed_ms(started),
+                    checks=(result.check,),
                 )
             )
 
     # C5a/C5b/C5c coverage per indicator of this construct (per-indicator obs grid).
     for lik in target.likelihoods:
+        started = perf_counter_ns()
         var = lik.variable
+        observed = np.asarray(design.values_by_indicator[var])
+        if observed.size == 0:
+            result = check_data_availability(var)
+            results.append(result)
+            timings.append(
+                AdmissionTiming(
+                    phase=f"c5_data_availability:{var}",
+                    label=f"C5 data availability: {var}",
+                    duration_ms=_elapsed_ms(started),
+                    checks=(result.check,),
+                )
+            )
+            continue
         m = manifest_names.index(var)
         oi = np.asarray(design.obs_index_by_indicator[var])
-        lp = np.asarray(pred["linear_predictors"][:, oi, m])
         pp_y = np.asarray(pred["observations"][:, oi, m])
-        signal = _signal_from_linear_predictor(manifest_links[m], lp)
-        results.extend(
-            check_coverage(var, pp_y, signal, np.asarray(design.values_by_indicator[var]))
+        if manifest_links[m] in {LinkFunction.CUMULATIVE_LOGIT, LinkFunction.SOFTMAX}:
+            lp = np.asarray(pred["linear_predictors"][:, oi, m])
+            signal = _signal_from_linear_predictor(
+                manifest_links[m],
+                lp,
+                spec=spec,
+                pred=pred,
+                manifest_index=m,
+            )
+        else:
+            signal = np.asarray(pred["expected_observations"][:, oi, m])
+        level_count = (
+            int(spec.manifest_level_counts[m]) if spec.manifest_level_counts is not None else None
+        )
+        phase_results = list(
+            check_coverage(
+                var,
+                pp_y,
+                signal,
+                observed,
+                distribution=lik.distribution.value,
+                level_count=level_count,
+            )
+        )
+        results.extend(phase_results)
+        timings.append(
+            AdmissionTiming(
+                phase=f"c5_coverage:{var}",
+                label=f"C5 emission reachability: {var}",
+                duration_ms=_elapsed_ms(started),
+                checks=tuple(result.check for result in phase_results),
+            )
         )
 
-    return results
+    return results, timings
 
 
 def recheck_member(
@@ -433,7 +711,7 @@ def recheck_member(
     target: ConstructContribution,
     causal_design: dict,
     design: DesignInfo,
-) -> tuple[CheckResult, ...]:
+) -> tuple[tuple[CheckResult, ...], tuple[AdmissionTiming, ...]]:
     """Re-run the battery on an already-admitted member against the closed-loop model.
 
     ``state`` is the cumulative state *after* a feedback loop closed (it already contains
@@ -441,48 +719,75 @@ def recheck_member(
     set (``edge_parents`` now include the feedback source). Informational: the caller
     surfaces the results as a coupled recheck; they do not gate the admission.
     """
+    started = perf_counter_ns()
     spec, registry = _compile_partial(state, causal_design)
+    timings = [
+        AdmissionTiming(
+            phase="model_compilation",
+            label="Model compilation",
+            duration_ms=_elapsed_ms(started),
+        )
+    ]
+    started = perf_counter_ns()
     pred = _sample_partial(spec, registry, design)
-    return tuple(_run_battery(spec, pred, design, target))
+    jax.block_until_ready(pred)
+    timings.append(
+        AdmissionTiming(
+            phase="prior_predictive",
+            label="Exact prior-predictive simulation",
+            duration_ms=_elapsed_ms(started),
+        )
+    )
+    results, diagnostic_timings = _run_battery(spec, pred, design, target)
+    timings.extend(diagnostic_timings)
+    return tuple(results), tuple(timings)
 
 
-def _scale_anchor(
-    manifest_names: list[str],
-    manifest_links: list[LinkFunction],
-    contribution: ConstructContribution,
-    data: Mapping[str, np.ndarray],
-) -> tuple[float, str, str]:
-    """Data-implied latent-scale anchor from the construct's reference indicator.
+def validate_full_admission_state(
+    state: AdmissionState,
+    targets: tuple[ConstructContribution, ...],
+    causal_design: dict,
+    design: DesignInfo,
+    accepted: Mapping[str, Mapping[tuple[str, str], str]] | None = None,
+) -> FullAdmissionValidation:
+    """Gate publication with one exact full-model simulation and all construct batteries."""
+    started = perf_counter_ns()
+    spec, registry = _compile_partial(state, causal_design)
+    timings = [
+        AdmissionTiming(
+            phase="model_compilation",
+            label="Full-model compilation",
+            duration_ms=_elapsed_ms(started),
+        )
+    ]
 
-    The reference indicator has a fixed unit loading, so the anchor is its
-    inverse-link IQR / 1.349 (the loading drops out). Latent-only constructs use
-    the convention anchor 1.0.
-    """
-    if not contribution.likelihoods:
-        return 1.0, "convention: no indicator", "convention anchor 1.0 — no indicator to anchor to"
-    ref = contribution.likelihoods[0]
-    m = manifest_names.index(ref.variable)
-    link = manifest_links[m]
-    q75, q25 = np.percentile(np.asarray(data[ref.variable]), [75, 25])
-    iqr_xi = abs(float(_inverse_link_scalar(link, q75) - _inverse_link_scalar(link, q25)))
-    anchor = iqr_xi / 1.349
-    return (
-        anchor,
-        f"data via {ref.variable} (inverse-link IQR)",
-        f"anchor {anchor:.2f} = {ref.variable} inverse-link IQR {iqr_xi:.2f} / 1.349 "
-        "(reference indicator, unit loading)",
+    started = perf_counter_ns()
+    pred = _sample_partial(spec, registry, design)
+    jax.block_until_ready(pred)
+    timings.append(
+        AdmissionTiming(
+            phase="prior_predictive",
+            label="Exact full-model prior-predictive simulation",
+            duration_ms=_elapsed_ms(started),
+        )
     )
 
-
-def _inverse_link_scalar(link: LinkFunction, y: float) -> float:
-    if link == LinkFunction.IDENTITY:
-        return float(y)
-    if link == LinkFunction.LOG:
-        return float(np.log(max(y, 0.5)))
-    if link == LinkFunction.LOGIT:
-        p = float(np.clip(y, 1e-3, 1 - 1e-3))
-        return float(np.log(p / (1.0 - p)))
-    raise ValueError(f"unsupported link for anchor: {link}")
+    accepted = accepted or {}
+    reports: list[AdmissionReport] = []
+    for target in targets:
+        results, diagnostic_timings = _run_battery(spec, pred, design, target)
+        outcome, annotations = stage_outcome(results, accepted.get(target.name, {}))
+        reports.append(
+            AdmissionReport(
+                name=target.name,
+                results=tuple(results),
+                timings=tuple(diagnostic_timings),
+                outcome=outcome,
+                annotations=annotations,
+                admitted=outcome.startswith("ADMITTED"),
+            )
+        )
+    return FullAdmissionValidation(reports=tuple(reports), timings=tuple(timings))
 
 
 def _incoming_edge_sites(
@@ -526,39 +831,10 @@ def _resimulate_edge_off(
         if site in samples:
             samples[site] = jnp.zeros_like(jnp.asarray(samples[site]))
     latents, _linear_predictors = _simulate_vector_field_predictive_latents(
-        spec, samples, t_grid, transition_inputs=transition_inputs, seed=seed
+        spec,
+        samples,
+        t_grid,
+        transition_inputs=transition_inputs,
+        rng_key=predictive_keys(seed).latents,
     )
     return latents
-
-
-# --------------------------------------------------------------------------- #
-# Batch driver
-# --------------------------------------------------------------------------- #
-
-
-def run_construct_build(
-    causal_design: dict,
-    contributions: Mapping[str, ConstructContribution],
-    design: DesignInfo,
-    accepted: Mapping[str, Mapping[str, str]] | None = None,
-) -> tuple[AdmissionState, list[AdmissionReport]]:
-    """Admit every construct in topological order; stop at the first non-admit.
-
-    Returns the accumulated :class:`AdmissionState` and the per-construct reports.
-    A construct that is BLOCKED (hard failure) or NEEDS DECISION (unaccepted soft
-    failure) halts the build — the caller revises its contribution (or accepts the
-    consequence via ``accepted``) and re-runs. The final ``AdmissionState`` yields
-    the StatisticalModelSpec + priors to compile once every construct is admitted.
-    """
-    accepted = accepted or {}
-    order = build_construct_order(causal_design)
-    state = AdmissionState()
-    reports: list[AdmissionReport] = []
-    for name in order:
-        state, report = admit_construct(
-            state, contributions[name], causal_design, design, accepted.get(name)
-        )
-        reports.append(report)
-        if not report.admitted:
-            break
-    return state, reports

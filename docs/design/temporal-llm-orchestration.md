@@ -39,8 +39,11 @@ flowchart TB
     M --> CHUNK["ExtractionChunkWorkflow per worker"]
     CHUNK --> LLM
 
-    SMS --> ATTEMPT["one construct attempt at a time"]
+    SMS --> FRONTIER["ready construct frontier"]
+    FRONTIER --> ATTEMPT["LLMSubroutineWorkflow per ready construct"]
     ATTEMPT --> LLM
+    FRONTIER --> MERGE["deterministic checkpoint merge"]
+    MERGE --> BARRIER["full-model validation barrier"]
 
     LLM --> OR["call_openrouter_activity"]
     LLM --> H["run_harness_turn_activity"]
@@ -53,7 +56,7 @@ flowchart TB
 
 [`MeasurementsWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/measurement_workflow.py) stays specialized because it batches extraction chunks, tracks worker progress, retries chunk workflows, and aggregates chunk results.
 
-[`StatisticalModelSpecWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/statistical_model_spec_workflow.py) stays specialized because it loops over constructs and attempts, finalizes every admission attempt, and emits construct-level failed telemetry.
+[`StatisticalModelSpecWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/statistical_model_spec_workflow.py) stays specialized because it schedules each ready frontier concurrently, keeps feedback-component members sequential, merges immutable branch checkpoints, runs the full-model barrier, and emits construct-level telemetry.
 
 [`LLMSubroutineWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/llm_subroutine_workflow.py) is the generic LLM interaction workflow. It handles OpenRouter calls, Claude/Codex harness turns, tool loops, repair turns, trace finalization, and result references.
 
@@ -88,7 +91,7 @@ Temporal shows the durable shape of the run:
 | `EpisodeWorkflow` | accepted move, child workflow choice, journal activity |
 | `SingleLLMTransitionWorkflow` | plan, one LLM subroutine child, finalize |
 | `MeasurementsWorkflow` | extraction fanout, worker progress, chunk retries |
-| `StatisticalModelSpecWorkflow` | construct order, attempts, admission finalization |
+| `StatisticalModelSpecWorkflow` | ready-frontier fanout, attempts, checkpoint joins, full-model barrier |
 | `LLMSubroutineWorkflow` | provider calls, repair turns, tool execution, trace finalization |
 
 Child workflows carry memos and static details for workspace id, sequence, artifact id, context kind, chunk id, construct name, attempt, and subroutine id where applicable. These are intentionally memos rather than custom Search Attributes so local and CI Temporal namespaces do not need pre-registered search-attribute schema.
@@ -97,6 +100,6 @@ Raw LLM conversations, provider call records, harness traces, and validated tool
 
 ## Queues and Limits
 
-The episode worker hosts deterministic workflow code and local activities. Provider calls run on the OpenRouter task queue, whose worker config applies `max_task_queue_activities_per_second` from `extraction_workers.max_rpm`. Claude and Codex harness turns run on separate task queues with configurable concurrency.
+The episode worker hosts deterministic workflow code and local activities. Provider calls run on the OpenRouter task queue, whose worker config applies `max_task_queue_activities_per_second` from `extraction_workers.max_rpm`. Claude, Codex, and Pi harness turns run on separate task queues without an application-level concurrency cap; Temporal can schedule every ready model-spec branch.
 
 This gives visibility at the LLM-call level while keeping rate limiting and retry policy in Temporal worker configuration.

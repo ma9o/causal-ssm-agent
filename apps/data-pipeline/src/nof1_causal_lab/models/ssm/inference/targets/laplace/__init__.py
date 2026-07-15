@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
-from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
+from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_observation_model
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_summary_operator_codes,
 )
@@ -33,7 +33,6 @@ from .point import (
     _ieks_smooth,
     _point_dynamic_transition_ieks_laplace,
     _point_ieks_mode,
-    _point_laplace_from_mode,
 )
 from .shared import (
     _block_banded_logdet,
@@ -56,7 +55,6 @@ from .support import (
     _make_support_window_derivatives,
     _support_aware_ieks_laplace,
     _support_aware_ieks_mode,
-    _support_aware_laplace_from_mode,
     _support_aware_step_halving_search,
     _support_dynamic_transition_ieks_laplace,
 )
@@ -141,32 +139,32 @@ class LaplaceLikelihood:
             self._support_row_upper_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
             self._support_row_lower_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
 
-    def _build_support_window_derivatives(self, measurement_semantics) -> tuple[Any, ...]:
+    def _build_support_window_derivatives(self, observation_model) -> tuple[Any, ...]:
         return tuple(
             _make_support_window_derivatives(
                 max_state_len=batch.max_state_len,
                 n_latent=self.n_latent,
                 n_manifest=self.n_manifest,
                 summary_operator_codes=self._summary_operator_codes,
-                obs_kernel=measurement_semantics.obs_kernel,
-                mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
+                obs_kernel=observation_model.kernel,
+                mean_log_prob_fn=observation_model.mean_log_prob_fn,
             )
             for batch in self._support_window_batches
         )
 
     def _get_support_window_derivatives(
         self,
-        measurement_semantics,
+        observation_model,
         extra_params: dict | None,
         *,
         allow_cache: bool,
     ):
         if not allow_cache or extra_params is not None:
-            return self._build_support_window_derivatives(measurement_semantics)
+            return self._build_support_window_derivatives(observation_model)
 
         signature = (
-            measurement_semantics.manifest_dists,
-            measurement_semantics.manifest_links,
+            observation_model.manifest_dists,
+            observation_model.manifest_links,
             tuple(batch.max_state_len for batch in self._support_window_batches),
             self.n_latent,
             self.n_manifest,
@@ -176,7 +174,7 @@ class LaplaceLikelihood:
             or self._support_window_derivatives_signature != signature
         ):
             self._support_window_derivatives = self._build_support_window_derivatives(
-                measurement_semantics
+                observation_model
             )
             self._support_window_derivatives_signature = signature
         return self._support_window_derivatives
@@ -203,15 +201,15 @@ class LaplaceLikelihood:
             obs_mask = ~jnp.isnan(observations)
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
-        with jax.named_scope("map/compile_measurement_semantics"):
-            measurement_semantics = compile_measurement_semantics(
+        with jax.named_scope("map/compile_observation_model"):
+            observation_model = compile_observation_model(
                 self.manifest_dists,
                 manifest_cov=measurement_params.manifest_cov,
                 extra_params=extra_params,
                 manifest_links=self.manifest_links,
                 observation_support=self.observation_support,
             )
-        obs_kernel = measurement_semantics.obs_kernel
+        obs_kernel = observation_model.kernel
 
         def _discretize_base_system() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             with jax.named_scope("map/discretize_system"):
@@ -271,7 +269,7 @@ class LaplaceLikelihood:
                             initial_state.mean,
                             initial_state.cov,
                             obs_kernel,
-                            measurement_semantics.mean_log_prob_fn,
+                            observation_model.mean_log_prob_fn,
                             self.observation_support,
                             self.n_ieks_iters,
                             transition_inputs=transition_inputs,
@@ -286,7 +284,7 @@ class LaplaceLikelihood:
                 )
                 with jax.named_scope("map/support_dynamic_backend"):
                     window_derivatives = self._get_support_window_derivatives(
-                        measurement_semantics,
+                        observation_model,
                         extra_params,
                         allow_cache=can_cache_window_derivatives,
                     )
@@ -301,7 +299,7 @@ class LaplaceLikelihood:
                         initial_state.mean,
                         initial_state.cov,
                         obs_kernel,
-                        measurement_semantics.mean_log_prob_fn,
+                        observation_model.mean_log_prob_fn,
                         self.observation_support,
                         self._support_window_batches,
                         self._support_bandwidth,
@@ -320,7 +318,7 @@ class LaplaceLikelihood:
                 manifest_cov: jnp.ndarray,
                 runtime_extra_params: dict | None,
             ):
-                runtime_measurement_semantics = compile_measurement_semantics(
+                runtime_observation_model = compile_observation_model(
                     self.manifest_dists,
                     manifest_cov=manifest_cov,
                     extra_params=runtime_extra_params,
@@ -330,8 +328,8 @@ class LaplaceLikelihood:
                 allow_runtime_cache = allow_stateful_cache and not _tree_contains_tracer(
                     (manifest_cov, runtime_extra_params)
                 )
-                return runtime_measurement_semantics, self._get_support_window_derivatives(
-                    runtime_measurement_semantics,
+                return runtime_observation_model, self._get_support_window_derivatives(
+                    runtime_observation_model,
                     runtime_extra_params,
                     allow_cache=allow_runtime_cache,
                 )
@@ -368,14 +366,14 @@ class LaplaceLikelihood:
                         initial_state.mean,
                         initial_state.cov,
                         obs_kernel,
-                        measurement_semantics.mean_log_prob_fn,
+                        observation_model.mean_log_prob_fn,
                         self.observation_support,
                         self.n_ieks_iters,
                     )
                 return log_lik, inner_eval_aux if include_aux else None
             with jax.named_scope("map/support_aware_backend"):
                 window_derivatives = self._get_support_window_derivatives(
-                    measurement_semantics,
+                    observation_model,
                     extra_params,
                     allow_cache=can_cache_window_derivatives,
                 )
@@ -391,7 +389,7 @@ class LaplaceLikelihood:
                     initial_state.mean,
                     initial_state.cov,
                     obs_kernel,
-                    measurement_semantics.mean_log_prob_fn,
+                    observation_model.mean_log_prob_fn,
                     self.observation_support,
                     self._support_window_batches,
                     self._support_bandwidth,
@@ -443,7 +441,7 @@ class LaplaceLikelihood:
             manifest_cov: jnp.ndarray,
             runtime_extra_params: dict | None,
         ):
-            return compile_measurement_semantics(
+            return compile_observation_model(
                 self.manifest_dists,
                 manifest_cov=manifest_cov,
                 extra_params=runtime_extra_params,
@@ -559,7 +557,6 @@ __all__ = [
     "_dense_support_laplace_log_lik",
     "_ieks_smooth",
     "_point_ieks_mode",
-    "_point_laplace_from_mode",
     # shared.py re-exports
     "_block_banded_logdet",
     "_build_ieks_system_from_prior",
@@ -580,6 +577,5 @@ __all__ = [
     "_make_support_window_derivatives",
     "_support_aware_ieks_laplace",
     "_support_aware_ieks_mode",
-    "_support_aware_laplace_from_mode",
     "_support_aware_step_halving_search",
 ]

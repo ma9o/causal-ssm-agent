@@ -29,7 +29,7 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
-from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, InferenceResult
 from nof1_causal_lab.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
@@ -948,7 +948,7 @@ def fit_map(
                 _format_float(float(np.max(covariance_diag))),
             )
 
-    diagnostics = {
+    diagnostics: InferenceDiagnostics = {
         "optimizer": mode_result.optimizer,
         "success": success,
         "status": status,

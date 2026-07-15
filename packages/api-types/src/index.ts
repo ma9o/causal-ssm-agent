@@ -2,6 +2,8 @@
 // Hand-written (frontend-only) — not generated from Python
 // ---------------------------------------------------------------------------
 
+import type { ArtifactViewId } from "./transitions";
+
 export type {
   CausalDesign,
   IdentifiabilityStatus,
@@ -72,6 +74,7 @@ export type {
   PPCTestStat,
   PPCWarning,
   PriorDistributionFamily,
+  PriorPredictiveDiagnostic,
   PriorProposal,
   PriorSource,
   RankHistogram,
@@ -133,6 +136,19 @@ export type MeasurementStructureViewData =
   import("./generated/models").MeasurementStructureContract & {
     causal_design: import("./causal-design").CausalDesign;
   };
+
+export interface ArtifactViewDataMap {
+  raw_data: RawDataData;
+  latent_structure: import("./generated/models").LatentStructureContract;
+  measurement_structure: MeasurementStructureViewData;
+  measurements: MeasurementsData;
+  validation_report: import("./generated/models").ValidationReportContract;
+  statistical_model_spec: StatisticalModelSpecData;
+  posterior: import("./generated/models").PosteriorContract;
+  baseline_report: import("./generated/models").BaselineReportContract;
+}
+
+export type ArtifactViewData<K extends ArtifactViewId = ArtifactViewId> = ArtifactViewDataMap[K];
 
 // Distribution catalog metadata (codegen'd from Python)
 export type { ObservationHyperparameter } from "./generated/metadata";

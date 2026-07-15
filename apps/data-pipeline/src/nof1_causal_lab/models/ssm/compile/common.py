@@ -10,60 +10,6 @@ from nof1_causal_lab.distributions import (
     get_prior_family_spec,
     get_real_runtime_family_index,
 )
-from nof1_causal_lab.models.ssm.parameter_names import (
-    INITIAL_STATE_CORRELATION_KEYWORDS,
-)
-
-# Substring keys mapping a diagnostic's `parameter` field to the user-facing
-# model-parameter keyword set it implicates. The matcher in
-# ``prior_predictive.get_failed_parameters`` does ``if site_prefix in
-# result_param:`` so each key must cover one variant the diagnostic can use:
-# prior_field forms and block-runtime site names.
-SITE_TO_KEYWORDS: dict[str, list[str]] = {
-    "dynamics_decay": ["rho", "ar", "decay"],
-    "decay": ["rho", "ar", "decay"],
-    "linear_edge_weight": ["beta", "linear_weight"],
-    "dynamics_weight": ["beta", "linear_weight", "multiplicative_weight"],
-    "weight": ["beta", "linear_weight", "multiplicative_weight"],
-    "dynamics_cint": ["cint"],
-    "input_effect": ["beta"],
-    "diffusion_diag": ["sigma", "sd"],
-    "diffusion_offdiag": ["cor"],
-    "diffusion_lower_free": ["cor"],
-    "static_state_sd": ["tau", "baseline_factor"],
-    "lambda_free": ["lambda", "loading"],
-    "manifest_means": ["manifest_mean"],
-    "manifest_var_diag": ["obs_sd", "measurement_error"],
-    "t0_means": ["t0_mean"],
-    "t0_var_diag": ["t0_sd"],
-    "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
-    "t0_var_lower_free": list(INITIAL_STATE_CORRELATION_KEYWORDS),
-    "obs_df": ["obs_df"],
-    "obs_shape": ["obs_shape"],
-    "obs_r": ["obs_r"],
-    "obs_concentration": ["obs_concentration"],
-    "obs_ordered_base": ["obs_ordered_base"],
-    "obs_ordered_gaps": ["obs_ordered_gaps"],
-    "obs_cat_intercepts": ["obs_cat_intercepts"],
-    "obs_cat_slopes": ["obs_cat_slopes"],
-    "hill_emax": ["hill_emax"],
-    "hill_ec50": ["hill_ec50"],
-    "hill_n": ["hill_n"],
-    "multiplicative_weight": ["multiplicative_weight"],
-    # dynamics_stability is a synthetic validation parameter (not a prior
-    # field) that covers dynamics and diffusion parameters.
-    "dynamics_stability": ["rho", "ar", "beta", "sigma", "sd"],
-}
-
-# SSM parameters with fixed default priors that are not in StatisticalModelSpec and
-# cannot be re-elicited.  Used to filter validation failures before mapping
-# them back to user-facing parameter names.
-NUISANCE_SITES: frozenset[str] = frozenset({"t0_means", "t0_cov"})
-
-# Validation failure parameters that are global (affect all StatisticalModelSpec params).
-GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(
-    {"prior_predictive", "dynamics_stability", "model_build", "prior_sampling"}
-)
 
 
 def axis_names_with_fallback(

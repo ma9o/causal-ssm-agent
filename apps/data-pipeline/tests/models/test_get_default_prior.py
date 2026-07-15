@@ -1,6 +1,7 @@
 """Tests for get_default_prior fallback logic in prior_research."""
 
 import pytest
+from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts import (
     ParameterConstraint,
@@ -9,6 +10,7 @@ from nof1_causal_lab.artifacts import (
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.workers.prior_research import get_default_prior
+from nof1_causal_lab.workers.schemas_prior import PriorProposal, ScalePriorParams
 
 
 def _make_param(
@@ -96,7 +98,7 @@ class TestGetDefaultPrior:
         p = _make_param(role=role, constraint=constraint)
         result = get_default_prior(p)
         assert result.distribution == expected_distribution
-        assert result.params == expected_params
+        assert result.params.model_dump() == expected_params
 
     def test_parameter_name_propagated(self):
         p = _make_param(name="sigma_residual")
@@ -107,6 +109,15 @@ class TestGetDefaultPrior:
         p = _make_param()
         result = get_default_prior(p)
         assert result.sources == []
+
+    def test_prior_parameters_must_match_the_declared_family(self):
+        with pytest.raises(ValidationError, match="LocationScalePriorParams"):
+            PriorProposal(
+                parameter="beta_x",
+                distribution=PriorDistributionFamily.NORMAL,
+                params=ScalePriorParams(sigma=1.0),
+                reasoning="invalid family/parameter pairing",
+            )
 
     def test_reasoning_includes_role(self):
         p = _make_param(role=ParameterRole.AR_COEFFICIENT)

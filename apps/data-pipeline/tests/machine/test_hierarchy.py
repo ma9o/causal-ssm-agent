@@ -1,7 +1,6 @@
 """Declarative action/context hierarchy semantics."""
 
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
-from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
     DERIVATIONS,
@@ -12,29 +11,13 @@ from nof1_causal_lab.machine.graph import (
 )
 from nof1_causal_lab.machine.hierarchy import (
     ACTIONS,
+    ACTIONS_BY_ID,
     CONTEXTS,
-    action_spec,
-    context_spec,
+    CONTEXTS_BY_ID,
     describe_actions,
     describe_contexts,
-    legal_action_ids,
     primary_transition_action,
 )
-
-
-def _version(artifact_id, version=1, derived_from=None, produced_by=None, provenance="computed"):
-    return ArtifactVersionInfo(
-        artifact_id=artifact_id,
-        version=version,
-        provenance=provenance,
-        derived_from=derived_from or {},
-        produced_by=produced_by,
-        created_at="2026-07-03T00:00:00Z",
-    )
-
-
-def _state(*infos):
-    return EpisodeState().with_versions(list(infos))
 
 
 def test_context_tree_is_closed():
@@ -70,7 +53,7 @@ def test_every_transition_declares_a_creation_class():
         assert spec.creation_class in valid
 
 
-def test_lower_context_tools_are_declared_context_tools():
+def test_public_context_tools_are_allowed_by_their_context():
     tool_names_by_context = {
         context_id: {tool.name for tool in tools} for context_id, tools in CONTEXT_TOOLS.items()
     }
@@ -79,7 +62,7 @@ def test_lower_context_tools_are_declared_context_tools():
         if not context.allowed_tools:
             continue
         declared = tool_names_by_context[context.context_id]
-        assert set(context.allowed_tools).issubset(declared)
+        assert declared.issubset(context.allowed_tools)
 
 
 def test_actions_reference_declared_contexts():
@@ -89,53 +72,6 @@ def test_actions_reference_declared_contexts():
         assert action.context_id in context_ids
         if action.lower_context_id is not None:
             assert action.lower_context_id in context_ids
-
-
-def test_action_legality_is_artifact_state_only():
-    empty = set(legal_action_ids(EpisodeState()))
-    assert "nav.state" in empty
-    assert "episode.create" in empty
-    assert "episode.ingest_data" in empty
-    assert "specify.latent_structure" not in empty
-    assert "specify.edit" not in empty
-    assert "analyze.save" not in empty
-    assert "fit.specify" not in empty
-
-    with_question = set(legal_action_ids(_state(_version("question", provenance="human"))))
-    assert "specify.latent_structure" in with_question
-    assert "specify.measurement" not in with_question
-
-    with_posterior = set(_state(_version("posterior", produced_by="run:posterior")).current)
-    assert with_posterior == {"posterior"}
-    legal_with_posterior = set(
-        legal_action_ids(_state(_version("posterior", produced_by="run:posterior")))
-    )
-    assert "analyze.save" in legal_with_posterior
-
-
-def test_identification_gate_is_visible_at_action_level():
-    state = _state(
-        _version("question", provenance="human"),
-        _version("raw_data", produced_by="run:raw_data"),
-        _version("latent_structure", produced_by="run:latent_structure"),
-        _version("measurement_structure", produced_by="run:measurement_structure"),
-        _version("causal_design", produced_by="derive:causal_design"),
-        _version("measurements", produced_by="run:measurements"),
-        _version("panel", produced_by="run:measurements"),
-        _version("validation_report", produced_by="derive:validation_report"),
-    )
-
-    legal = set(legal_action_ids(state))
-    assert "measure.extract" in legal
-    assert "fit.specify" not in legal
-    assert "analyze.rank" not in legal
-    assert "analyze.simulate" not in legal
-
-    identified = state.with_versions(
-        [_version("identification_report", produced_by="derive:identification_report")]
-    )
-    legal_identified = set(legal_action_ids(identified))
-    assert "fit.specify" in legal_identified
 
 
 def test_writable_surface_is_roots_plus_writable_transitions():
@@ -172,5 +108,5 @@ def test_registry_descriptions_are_json_ready():
         "validation_report",
         "compiled_ssm",
     ]
-    assert action_spec("fit.specify").lower_context_id == "statistical-model-spec"
-    assert context_spec("statistical-model-spec").runtime_state
+    assert ACTIONS_BY_ID["fit.specify"].lower_context_id == "statistical-model-spec"
+    assert CONTEXTS_BY_ID["statistical-model-spec"].runtime_state

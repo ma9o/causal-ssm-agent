@@ -17,6 +17,7 @@ from .observation_families import (
     FAMILY_REGISTRY,
     POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
     get_posterior_predictive_switch_index,
+    resolve_family_link,
     resolve_manifest_families_and_links,
 )
 
@@ -27,44 +28,26 @@ if TYPE_CHECKING:
 def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None):
     """Return analytical (score, neg_hess_diag) w.r.t. linear predictor eta."""
     extra_params = extra_params or {}
-    dist = DistributionFamily(manifest_dist)
+    dist, link_fn = resolve_family_link(manifest_dist, link)
     family_spec = FAMILY_REGISTRY.get(dist)
     if family_spec is None:
         return None
-    link_key = str(link) if link else "default"
-    factory = family_spec.score_weight_fns.get(link_key) or family_spec.score_weight_fns.get(
-        "default"
-    )
+    factory = family_spec.score_weight_fns.get(link_fn.value)
     if factory is None:
         return None
     return factory(extra_params)
 
 
 def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
-    """Resolve the emission log-probability function for a family/link pair."""
+    """Resolve predictor-space log-probability for one valid family/link pair."""
     extra_params = extra_params or {}
-    try:
-        dist = DistributionFamily(manifest_dist)
-    except ValueError as exc:
-        raise ValueError(
-            f"No emission function for manifest_dist='{manifest_dist}'. "
-            "Supported: gaussian, student_t, poisson, gamma, bernoulli, "
-            "negative_binomial, beta, ordered_logistic, categorical."
-        ) from exc
+    dist, link_fn = resolve_family_link(manifest_dist, link)
+    family_spec = FAMILY_REGISTRY[dist]
 
-    family_spec = FAMILY_REGISTRY.get(dist)
-    if family_spec is None:
-        raise ValueError(
-            f"No emission function for manifest_dist='{manifest_dist}'. "
-            "Supported: gaussian, student_t, poisson, gamma, bernoulli, "
-            "negative_binomial, beta, ordered_logistic, categorical."
-        )
-
-    link_key = str(link) if link else "default"
-    factory = family_spec.emission_fns.get(link_key) or family_spec.emission_fns.get("default")
+    factory = family_spec.emission_fns.get(link_fn.value)
     if factory is None:
         raise ValueError(
-            f"No emission function for manifest_dist='{manifest_dist}', link='{link}'."
+            f"No emission function for manifest_dist='{manifest_dist}', link='{link_fn.value}'."
         )
     return factory(extra_params)
 

@@ -1,11 +1,10 @@
 """Tests for schema validation functions that collect all errors.
 
-Covers: validate_latent_structure, validate_measurement_structure, validate_causal_design.
+Covers: validate_latent_structure and validate_measurement_structure.
 """
 
 from nof1_causal_lab.artifacts import (
     LatentStructure,
-    validate_causal_design,
     validate_latent_structure,
     validate_measurement_structure,
 )
@@ -186,45 +185,3 @@ class TestValidateMeasurementStructure:
         model, errors = validate_measurement_structure(data, _require_latent_structure(latent))
         assert model is None
         assert len(errors) > 0
-
-
-# =============================================================================
-# validate_causal_design
-# =============================================================================
-
-
-class TestValidateCausalDesign:
-    def test_valid_spec(self):
-        spec, errors = validate_causal_design(_valid_latent_data(), _valid_measurement_data())
-        assert spec is not None
-        assert errors == []
-
-    def test_invalid_latent_propagates(self):
-        spec, errors = validate_causal_design({"bad": True}, _valid_measurement_data())
-        assert spec is None
-        assert any("latent" in e.lower() for e in errors)
-
-    def test_invalid_measurement_propagates(self):
-        """Measurement with unknown construct references should fail."""
-        bad_measurement = {
-            "indicators": [
-                {
-                    "name": "x",
-                    "construct_name": "nonexistent",
-                    "construct_polarity": "positive",
-                    "how_to_measure": "test",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                }
-            ]
-        }
-        spec, errors = validate_causal_design(_valid_latent_data(), bad_measurement)
-        assert spec is None
-        assert any("measurement" in e.lower() for e in errors)
-
-    def test_both_invalid(self):
-        """With invalid latent, measurement is never validated."""
-        spec, errors = validate_causal_design({"bad": True}, {"also_bad": True})
-        assert spec is None
-        # Should have latent errors (measurement not reached)
-        assert any("latent" in e.lower() for e in errors)

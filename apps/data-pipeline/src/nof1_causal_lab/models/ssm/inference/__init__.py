@@ -14,10 +14,7 @@ Method:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-import jax.numpy as jnp
-from numpyro import handlers
+from typing import TYPE_CHECKING, Unpack
 
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.inference.shared import (
@@ -35,7 +32,10 @@ from nof1_causal_lab.models.ssm.preflight import (
 )
 
 if TYPE_CHECKING:
+    import jax.numpy as jnp
+
     from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()
@@ -55,7 +55,7 @@ def fit(
     times: jnp.ndarray,
     method: InferenceMethod = "marginal_particle_gibbs",
     reparam=_AUTO_REPARAM,
-    **kwargs: Any,
+    **kwargs: Unpack[MarginalParticleGibbsOptions],
 ) -> InferenceResult:
     """Fit an SSM using the specified inference method.
 
@@ -114,39 +114,3 @@ def prior_predictive(
         num_samples=num_samples,
         seed=seed,
     )
-
-
-def _eval_model(
-    model_fn,
-    params_dict: dict[str, jnp.ndarray],
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-) -> tuple[Any, Any]:
-    """Evaluate model with substituted params. Returns (log_likelihood, log_prior).
-
-    Uses numpyro.handlers to substitute parameter values and trace the model,
-    computing log_prior + log_likelihood without any code duplication.
-
-    Args:
-        model_fn: NumPyro model function
-        params_dict: Parameter values to substitute
-        observations: Observed data
-        times: Time points
-
-    Returns:
-        Tuple of (log_likelihood, log_prior)
-    """
-    with handlers.seed(rng_seed=0), handlers.substitute(data=params_dict):
-        trace = handlers.trace(model_fn).get_trace(observations, times)
-
-    log_lik = 0.0
-    log_prior = 0.0
-    for name, site in trace.items():
-        if site["type"] == "sample":
-            if name == "log_likelihood":
-                # Factor site: fn is Unit with log_factor attribute
-                log_lik = site["fn"].log_factor
-            elif not site.get("is_observed", False):
-                log_prior = log_prior + jnp.sum(site["fn"].log_prob(site["value"]))
-
-    return log_lik, log_prior

@@ -1,7 +1,9 @@
-"""model-spec assembly, prior predictive, and SSM compilation tests."""
+"""Model-spec assembly and SSM compilation tests."""
+
+from types import SimpleNamespace
 
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -14,20 +16,15 @@ from nof1_causal_lab.models.ssm.testing import (
     full_dense_matrix_dynamics_spec,
 )
 from tests.transitions.model_spec._support import (
-    Any,
-    PredictiveObservationMeanOverflow,
     PriorValidationResult,
-    SimpleNamespace,
     _make_polars_data,
     _with_positive_indicator_polarity,
     compile_ssm_inputs_from_statistical_model_spec,
     compile_ssm_priors,
-    get_failed_parameters,
     np,
     patch,
     pl,
     pytest,
-    validate_prior_predictive,
 )
 
 
@@ -141,106 +138,11 @@ class TestSSMModelConstruction:
         )
 
 
-# --- Prior Predictive Validation Tests ---
+# --- Model-spec assembly tests ---
 
 
-class TestPriorPredictiveValidation:
-    """Test prior predictive validation end-to-end."""
-
-    def test_valid_priors_pass(self, simple_statistical_model_spec, simple_priors):
-        """Simple spec + priors + polars data -> is_valid=True with all checks passing."""
-        data_for_model = _make_polars_data()
-        is_valid, results, _samples = validate_prior_predictive(
-            simple_statistical_model_spec, simple_priors, data_for_model, n_samples=10
-        )
-        assert is_valid is True
-        assert len(results) > 0
-        assert all(r.is_valid for r in results), (
-            f"Expected all checks to pass but got failures: "
-            f"{[(r.parameter, r.issue) for r in results if not r.is_valid]}"
-        )
-
-    def test_model_build_failure(self):
-        """Broken spec -> is_valid=False, error in results."""
-        broken_spec = {
-            "likelihoods": [
-                {
-                    "variable": "nonexistent_col",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "test",
-                }
-            ],
-            "parameters": [
-                {
-                    "name": "rho_x",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "AR coeff",
-                }
-            ],
-        }
-        broken_priors = {
-            "rho_x": {
-                "parameter": "rho_x",
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-                "sources": [],
-                "reasoning": "test",
-            }
-        }
-        # Patch runtime preparation to make this a focused model-build failure.
-        with patch(
-            "nof1_causal_lab.models.ssm.runtime.prepare_wide_model_runtime",
-            side_effect=ValueError("deliberate test failure"),
-        ):
-            is_valid, results, _samples = validate_prior_predictive(
-                broken_spec, broken_priors, None, n_samples=10
-            )
-            assert is_valid is False
-            assert any("model_build" in r.parameter for r in results)
-            assert any("deliberate test failure" in (r.issue or "") for r in results)
-
-    def test_no_data_uses_support_compatible_dummy_build_data(self):
-        """Support-restricted likelihoods should still validate without raw data."""
-        statistical_model_spec = {
-            "likelihoods": [
-                {
-                    "variable": "screen_gap",
-                    "distribution": "gamma",
-                    "link": "log",
-                    "reasoning": "Positive continuous gap",
-                }
-            ],
-            "parameters": [
-                {
-                    "name": "rho_screen_gap",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "AR coefficient",
-                }
-            ],
-        }
-        priors = {
-            "rho_screen_gap": {
-                "parameter": "rho_screen_gap",
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-                "sources": [],
-                "reasoning": "Weakly informative",
-            }
-        }
-
-        with patch(
-            "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
-            return_value={"vf_0_decay": np.ones((2, 1))},
-        ):
-            is_valid, results, _samples = validate_prior_predictive(
-                statistical_model_spec, priors, None, n_samples=2
-            )
-
-        assert is_valid is True
-        assert not any(r.parameter == "model_build" for r in results)
+class TestModelSpecAssembly:
+    """Test compile-only assembly and final materialization."""
 
     def test_materialize_model_spec_result_persists_validation_warnings(
         self,
@@ -270,9 +172,6 @@ class TestPriorPredictiveValidation:
                 )
             ],
             compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
-            pp_checked=True,
-            pp_valid=True,
-            pp_raw_samples={},
         )
 
         with (
@@ -289,6 +188,10 @@ class TestPriorPredictiveValidation:
                 "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
                 return_value=[],
             ),
+            patch(
+                "nof1_causal_lab.flows.transitions.model_spec.assembly.build_exact_prior_predictive_samples",
+                return_value={},
+            ),
         ):
             result = materialize_model_spec_result(
                 statistical_model_spec=simple_statistical_model_spec,
@@ -303,41 +206,26 @@ class TestPriorPredictiveValidation:
             "Weekly evidence is being interpreted on the daily model interval."
         ]
 
-    def test_validate_assembly_reuses_compiled_artifact_for_prior_checks(
+    def test_validate_assembly_compiles_once(
         self,
         simple_statistical_model_spec,
         simple_priors,
     ):
-        """model-spec should compile once per validation attempt and pass that artifact through."""
+        """Assembly compiles once and retains that artifact for materialization."""
         from nof1_causal_lab.flows.transitions.model_spec.assembly import validate_assembly
 
-        compiled_artifact = {"schema_version": 1}
-        seen_compiled: list[dict[str, Any] | None] = []
-
-        def stub_validate_prior_predictive(*args, compiled_ssm=None, **kwargs):
-            seen_compiled.append(compiled_ssm)
-            return True, [], {}
-
-        with (
-            patch(
-                "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
-                return_value=compiled_artifact,
-            ) as compile_mock,
-            patch(
-                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
-                side_effect=stub_validate_prior_predictive,
-            ),
-        ):
+        compiled_artifact = SimpleNamespace(compile_diagnostics=[])
+        with patch(
+            "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
+            return_value=compiled_artifact,
+        ) as compile_mock:
             validation = validate_assembly(
                 simple_statistical_model_spec,
                 simple_priors,
-                _make_polars_data(),
-                None,
                 None,
             )
 
         assert compile_mock.call_count == 1
-        assert seen_compiled == [compiled_artifact]
         assert validation.compiled_ssm == compiled_artifact
 
     def test_validate_assembly_keeps_lagged_prior_mismatches_as_warnings(
@@ -373,21 +261,14 @@ class TestPriorPredictiveValidation:
                     )
                 ],
             ),
-            patch(
-                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
-                return_value=(True, [], {}),
-            ) as pp_mock,
         ):
             validation = validate_assembly(
                 simple_statistical_model_spec,
                 simple_priors,
-                _make_polars_data(),
-                None,
                 {"measurement": {"model_clock": "1d"}},
             )
 
         assert validation.compile_ok is True
-        assert validation.pp_valid is True
         assert [
             warning.model_dump()
             for warning in validation.compile_diagnostics
@@ -403,105 +284,6 @@ class TestPriorPredictiveValidation:
                 suggested_adjustment="Confirm that this slow response is intended.",
             ).model_dump()
         ]
-        pp_mock.assert_called_once()
-
-    def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
-        self,
-        simple_statistical_model_spec,
-        simple_priors,
-    ):
-        """Explicit compiled_ssm should bypass compile_ssm_artifact entirely."""
-
-        runtime = SimpleNamespace(
-            model=object(),
-            times=np.arange(4, dtype=float),
-            observation_support=None,
-            observations=np.zeros((4, 1), dtype=float),
-            transition_inputs=None,
-        )
-
-        with (
-            patch(
-                "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
-                side_effect=AssertionError("compile should not be called"),
-            ),
-            patch(
-                "nof1_causal_lab.models.ssm.runtime.prepare_model_runtime",
-                return_value=runtime,
-            ),
-            patch(
-                "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
-                return_value={
-                    "vf_0_decay": np.ones((3, 1)),
-                    "observations": np.random.default_rng(0).normal(
-                        loc=5.0,
-                        scale=1.5,
-                        size=(3, 4, 1),
-                    ),
-                },
-            ),
-        ):
-            is_valid, results, _samples = validate_prior_predictive(
-                simple_statistical_model_spec,
-                simple_priors,
-                _make_polars_data(),
-                n_samples=3,
-                compiled_ssm={"schema_version": 1},
-            )
-
-        assert is_valid is True
-        assert results
-
-    def test_validate_prior_predictive_reports_log_link_mean_overflow(
-        self,
-        simple_statistical_model_spec,
-        simple_priors,
-    ):
-        """Prior predictive should surface predictive-mean overflow as a typed diagnostic."""
-
-        runtime = SimpleNamespace(
-            model=object(),
-            times=np.arange(4, dtype=float),
-            observation_support=None,
-            observations=np.zeros((4, 1), dtype=float),
-            transition_inputs=None,
-        )
-
-        with (
-            patch(
-                "nof1_causal_lab.models.ssm.runtime.prepare_model_runtime",
-                return_value=runtime,
-            ),
-            patch(
-                "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
-                side_effect=PredictiveObservationMeanOverflow(
-                    bad_manifest_names=("monthly_eveningness_activity_timing",),
-                    manifest_indices=(0,),
-                    failing_draw_indices=(0, 2),
-                    n_draws=3,
-                    first_bad_time_index=73,
-                    max_linear_predictor=111.52,
-                    overflow_threshold=88.72,
-                ),
-            ),
-        ):
-            is_valid, results, _samples = validate_prior_predictive(
-                simple_statistical_model_spec,
-                simple_priors,
-                _make_polars_data(),
-                n_samples=3,
-                compiled_ssm={"schema_version": 1, "compile_diagnostics": []},
-            )
-
-        assert is_valid is False
-        assert [result.code for result in results if not result.is_valid] == [
-            "prior_predictive_observation_mean_overflow"
-        ]
-        result = next(result for result in results if not result.is_valid)
-        assert result.failure_stage == "observation_mean"
-        assert result.bad_manifest_names == ["monthly_eveningness_activity_timing"]
-        assert result.failing_draw_indices == [0, 2]
-        assert result.first_bad_time_index == 73
 
     def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
         """Implicit initial-state priors should come from compiled semantics."""
@@ -800,40 +582,6 @@ class TestPriorPredictiveValidation:
                 "density_points": None,
             }
         ]
-
-
-class TestFailedParameters:
-    """Test failed parameter localization."""
-
-    def test_scale_mismatch_with_causal_design_targets_construct(self):
-        """Scale mismatch with causal_design targets only the affected construct."""
-        results = [
-            PriorValidationResult(
-                parameter="scale_mood_score",
-                is_valid=False,
-                issue="Scale mismatch for mood_score",
-                suggested_adjustment=None,
-            ),
-        ]
-        causal_design = _with_positive_indicator_polarity(
-            {
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {"name": "mood_score", "construct_name": "mood"},
-                        {"name": "stress_score", "construct_name": "stress"},
-                    ],
-                },
-            }
-        )
-        all_params = ["rho_mood", "sigma_mood", "rho_stress", "sigma_stress", "beta_stress_mood"]
-        failed = get_failed_parameters(results, all_params, causal_design=causal_design)
-        # Only mood-related params should be re-elicited
-        assert "rho_mood" in failed
-        assert "sigma_mood" in failed
-        assert "beta_stress_mood" in failed  # contains "mood"
-        assert "rho_stress" not in failed
-        assert "sigma_stress" not in failed
 
 
 # --- SSM Prior Conversion Tests ---
@@ -1560,14 +1308,14 @@ class TestSSMPriorConversion:
                     "variable": "hr",
                     "distribution": "gaussian",
                     "link": "identity",
-                    "centered": True,
+                    "standardized": True,
                     "reasoning": "",
                 },
                 {
                     "variable": "act",
                     "distribution": "gaussian",
                     "link": "identity",
-                    "centered": True,
+                    "standardized": True,
                     "reasoning": "",
                 },
             ],

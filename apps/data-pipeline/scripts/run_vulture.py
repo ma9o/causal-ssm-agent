@@ -1,9 +1,12 @@
-"""Run vulture with notebooks (.ipynb) converted to .py first.
+"""Run Vulture with independent ownership seams.
 
 vulture only scans .py files. This wrapper extracts code cells from every
-notebook under ``notebooks/`` into a temporary ``.vulture_cache/`` tree of
-``.py`` shadows, then runs vulture against the config paths plus the cache,
-then removes the cache.
+notebook under ``notebooks/`` into a temporary cache of ``.py`` shadows. The
+authoritative source pass scans only ``[tool.vulture].paths``. Evaluation code,
+scripts, notebooks, and tests each run in a separate Vulture instance that may
+analyze source code to understand the protocols it consumes but reports only
+definitions owned by that seam. Therefore no non-source reference can make a
+source definition live, and references cannot leak between non-source seams.
 
 Three kinds of phantom usage are emitted into the cache so vulture stops
 flagging legitimate-but-statically-invisible references:
@@ -35,6 +38,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -43,7 +47,8 @@ import vulture.core as vulture_core
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NOTEBOOKS_DIR = REPO_ROOT / "notebooks"
-CACHE_DIR = REPO_ROOT / ".vulture_cache"
+CACHE_ROOT = REPO_ROOT / ".vulture_cache"
+SEAM_PATHS = ("evaluation", "scripts", "notebooks", "tests")
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
@@ -75,12 +80,12 @@ def _extract_backtick_idents(text: str) -> set[str]:
     return refs
 
 
-def _convert_notebooks() -> set[str]:
+def _convert_notebooks(cache_dir: Path) -> set[str]:
     """Convert .ipynb code cells to .py shadows; return markdown identifier refs."""
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     markdown_refs: set[str] = set()
     for nb_path in NOTEBOOKS_DIR.rglob("*.ipynb"):
-        out_path = CACHE_DIR / nb_path.relative_to(NOTEBOOKS_DIR).with_suffix(".py")
+        out_path = cache_dir / nb_path.relative_to(NOTEBOOKS_DIR).with_suffix(".py")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         nb = nbformat.read(nb_path, as_version=4)
         sources: list[str] = []
@@ -245,11 +250,11 @@ def _collect_string_type_refs(paths: list[Path]) -> set[str]:
     return refs
 
 
-def _write_phantom(filename: str, refs: set[str]) -> None:
+def _write_phantom(cache_dir: Path, filename: str, refs: set[str]) -> None:
     if not refs:
         return
     body = "\n".join(f"_ = {name}" for name in sorted(refs))
-    (CACHE_DIR / filename).write_text(body + "\n")
+    (cache_dir / filename).write_text(body + "\n")
 
 
 def _collect_top_level_defs(roots: list[str]) -> dict[str, list[tuple[str, int, str]]]:
@@ -317,14 +322,54 @@ def _warn_name_collisions(vulture, defs: dict[str, list[tuple[str, int, str]]]) 
         )
 
 
-def _run_vulture(argv: list[str]) -> int:
-    """Run vulture in-process with two local adjustments.
+def _is_under_roots(filename: str | Path, roots: list[str]) -> bool:
+    path = Path(filename)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    resolved = path.resolve()
+    return any(resolved.is_relative_to((REPO_ROOT / root).resolve()) for root in roots)
+
+
+def _report_vulture(
+    vulture: vulture_core.Vulture,
+    *,
+    min_confidence: int,
+    sort_by_size: bool,
+    make_whitelist: bool,
+    report_roots: list[str],
+) -> int:
+    """Report only definitions owned by ``report_roots`` from a wider analysis."""
+    exit_code = int(vulture.exit_code)
+    for item in vulture.get_unused_code(
+        min_confidence=min_confidence,
+        sort_by_size=sort_by_size,
+    ):
+        if not _is_under_roots(item.filename, report_roots):
+            continue
+        print(
+            item.get_whitelist_string()
+            if make_whitelist
+            else item.get_report(add_size=sort_by_size)
+        )
+        exit_code = int(vulture_core.ExitCode.DeadCode)
+    return exit_code
+
+
+def _run_vulture(
+    argv: list[str],
+    *,
+    report_roots: list[str],
+    collision_roots: list[str] | None,
+) -> int:
+    """Run vulture in-process with three local adjustments.
 
     1. ``__all__`` entries are NOT counted as uses, so re-exported-but-unused
        symbols surface (vulture otherwise treats every ``__all__`` name as a use
        via ``core.visit_Assign`` -> ``_assigns_special_variable__all__``).
     2. After the normal report, warn about referenced names defined in more than
        one file (see ``_warn_name_collisions``).
+    3. A seam pass may analyze source code while reporting only definitions owned
+       by that seam. Source dead code comes exclusively from the source-only pass.
 
     Replicates ``vulture.core.main`` rather than calling it, so we hold the
     ``Vulture`` instance for the collision pass; config discovery, exit codes, and
@@ -349,34 +394,92 @@ def _run_vulture(argv: list[str]) -> int:
             ignore_decorators=config["ignore_decorators"],
         )
         vulture.scavenge(config["paths"], exclude=config["exclude"])
-        exit_code = vulture.report(
+        exit_code = _report_vulture(
+            vulture,
             min_confidence=config["min_confidence"],
             sort_by_size=config["sort_by_size"],
             make_whitelist=config["make_whitelist"],
+            report_roots=report_roots,
         )
-        if not config["make_whitelist"]:
-            _warn_name_collisions(vulture, _collect_top_level_defs(["src"]))
+        if not config["make_whitelist"] and collision_roots:
+            _warn_name_collisions(vulture, _collect_top_level_defs(collision_roots))
         return int(exit_code)
     finally:
         sys.argv = saved_argv
         os.chdir(saved_cwd)
 
 
+def _cache_path(cache_dir: Path) -> str:
+    return str(cache_dir.relative_to(REPO_ROOT))
+
+
+def _build_phantom_refs(cache_dir: Path, paths: list[str]) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    _write_phantom(
+        cache_dir,
+        "_data_class_field_refs.py",
+        _collect_data_class_fields(paths),
+    )
+    _write_phantom(
+        cache_dir,
+        "_string_type_refs.py",
+        _collect_string_type_refs(paths),
+    )
+
+
+def _aggregate_exit_code(exit_codes: list[int]) -> int:
+    for code in exit_codes:
+        if code in {
+            int(vulture_core.ExitCode.InvalidInput),
+            int(vulture_core.ExitCode.InvalidCmdlineArguments),
+        }:
+            return code
+    if int(vulture_core.ExitCode.DeadCode) in exit_codes:
+        return int(vulture_core.ExitCode.DeadCode)
+    return int(vulture_core.ExitCode.NoDeadCode)
+
+
 def main() -> int:
-    shutil.rmtree(CACHE_DIR, ignore_errors=True)
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(tempfile.mkdtemp(prefix="run-", dir=CACHE_ROOT))
+    source_cache_dir = cache_dir / "src"
     try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        markdown_refs = _convert_notebooks() | _marimo_markdown_refs()
-        _write_phantom("_notebook_markdown_refs.py", markdown_refs)
         config = tomllib.loads(PYPROJECT.read_text())
-        paths = config["tool"]["vulture"]["paths"]
-        data_class_fields = _collect_data_class_fields(paths)
-        _write_phantom("_data_class_field_refs.py", data_class_fields)
-        string_type_refs = _collect_string_type_refs(paths)
-        _write_phantom("_string_type_refs.py", string_type_refs)
-        return _run_vulture([*paths, CACHE_DIR.name, *sys.argv[1:]])
+        source_paths = config["tool"]["vulture"]["paths"]
+
+        _build_phantom_refs(source_cache_dir, source_paths)
+        exit_codes = [
+            _run_vulture(
+                [*source_paths, _cache_path(source_cache_dir), *sys.argv[1:]],
+                report_roots=source_paths,
+                collision_roots=source_paths,
+            )
+        ]
+
+        for seam_path in SEAM_PATHS:
+            analysis_paths = [*source_paths, seam_path]
+            seam_cache_dir = cache_dir / seam_path
+            _build_phantom_refs(seam_cache_dir, analysis_paths)
+            report_roots = [seam_path]
+            if seam_path == "notebooks":
+                markdown_refs = _convert_notebooks(seam_cache_dir) | _marimo_markdown_refs()
+                _write_phantom(
+                    seam_cache_dir,
+                    "_notebook_markdown_refs.py",
+                    markdown_refs,
+                )
+                report_roots.append(_cache_path(seam_cache_dir))
+            exit_codes.append(
+                _run_vulture(
+                    [*analysis_paths, _cache_path(seam_cache_dir), *sys.argv[1:]],
+                    report_roots=report_roots,
+                    collision_roots=None,
+                )
+            )
+
+        return _aggregate_exit_code(exit_codes)
     finally:
-        shutil.rmtree(CACHE_DIR, ignore_errors=True)
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

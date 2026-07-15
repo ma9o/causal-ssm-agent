@@ -393,43 +393,6 @@ def _compute_test_stats(
 
 
 # ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-
-def get_relevant_manifest_variables(
-    lambda_mat: jnp.ndarray,
-    treat_idx: int | None,
-    outcome_idx: int | None,
-    manifest_names: list[str],
-    threshold: float = 0.01,
-) -> set[str]:
-    """Return manifest variable names with nonzero loadings on treatment or outcome.
-
-    Args:
-        lambda_mat: (n_manifest, n_latent) factor loading matrix
-        treat_idx: index of treatment latent construct (or None)
-        outcome_idx: index of outcome latent construct (or None)
-        manifest_names: list of manifest variable names
-        threshold: minimum absolute loading to be considered relevant
-
-    Returns:
-        Set of manifest variable names relevant to treatment/outcome.
-    """
-    relevant = set()
-    n_manifest = lambda_mat.shape[0]
-
-    for idx in (treat_idx, outcome_idx):
-        if idx is None:
-            continue
-        for j in range(n_manifest):
-            if abs(float(lambda_mat[j, idx])) >= threshold and j < len(manifest_names):
-                relevant.add(manifest_names[j])
-
-    return relevant
-
-
-# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -480,7 +443,7 @@ def run_posterior_predictive_checks(
         observation_mask=observation_mask,
         transition_inputs=transition_inputs,
         n_subsample=n_subsample,
-        rng_seed=rng_seed,
+        seed=rng_seed,
     )
 
     warnings: list[PPCWarning] = []

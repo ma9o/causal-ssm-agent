@@ -20,12 +20,13 @@ from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
-    MinimalReparam,
     _is_unconstrained,
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from nof1_causal_lab.models.ssm.testing import (
+from tests.models.ssm._support import simple_normal_model
+from tests.ssm_spec_fixtures import (
+    MinimalReparam,
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -36,7 +37,6 @@ from nof1_causal_lab.models.ssm.testing import (
     default_t0_means_block,
     full_dense_matrix_dynamics_spec,
 )
-from tests.models.ssm._support import simple_normal_model
 
 # ---------------------------------------------------------------------------
 # Helpers (ported from NumPyro's test_reparam.py)
@@ -490,9 +490,7 @@ class TestAutoReparamSSM:
         model = self._make_simple_ssm()
         strategy = AutoReparam(centered=0.0)
 
-        model_fn = functools.partial(
-            model.model, likelihood_backend=model.make_likelihood_backend()
-        )
+        model_fn = functools.partial(model.model, likelihood_backend=model.make_laplace_backend(6))
         reparam_model = handlers.reparam(model_fn, config=strategy)
 
         T = 10
@@ -536,7 +534,7 @@ class TestAutoReparamSSM:
         strategy = AutoReparam(centered=0.0)
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
-        backend = model.make_likelihood_backend()
+        backend = model.make_laplace_backend(6)
         site_info = _discover_sites(
             model,
             observations,

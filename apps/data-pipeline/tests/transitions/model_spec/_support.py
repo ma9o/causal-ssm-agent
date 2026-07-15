@@ -1,14 +1,12 @@
 """Shared fixtures + re-exports for the surviving model-spec tests.
 
-Consumed by ``conftest.py`` (the ``simple_*`` fixtures), ``test_ssm_validation.py``
-(pure builders + third-party re-exports), and ``test_grounding.py``
-(``make_causal_design_dict``).
+Consumed by ``conftest.py`` (the ``simple_*`` fixtures) and
+``test_ssm_validation.py`` (pure builders + third-party re-exports).
 """
 
 # ruff: noqa: F401 — this module deliberately re-exports names for its consumers.
 
 from copy import deepcopy
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -17,11 +15,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
-from nof1_causal_lab.models.prior_predictive import (
-    get_failed_parameters,
-    validate_prior_predictive,
-)
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
@@ -29,39 +22,6 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_ssm_inputs_from_statistical_model_spec,
 )
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
-
-
-def make_causal_design_dict(
-    constructs: list[dict],
-    edges: list[dict],
-    indicators: list[dict],
-    *,
-    model_clock: str | None = "1d",
-) -> dict:
-    """Build a CausalDesign dict (latent + measurement + estimation) for tests.
-
-    Defaults indicator polarity to ``positive`` when not set; estimation block
-    is derived from ``constructs`` (state_order = construct names) and ``edges``.
-    Pass ``model_clock=None`` to omit the field entirely.
-    """
-    indicators = [
-        {"construct_polarity": "positive", **indicator}
-        if "construct_polarity" not in indicator
-        else dict(indicator)
-        for indicator in indicators
-    ]
-    measurement: dict = {"indicators": indicators}
-    if model_clock is not None:
-        measurement["model_clock"] = model_clock
-    return {
-        "latent": {"constructs": constructs, "edges": edges},
-        "measurement": measurement,
-        "estimation": {
-            "state_order": [c["name"] for c in constructs],
-            "edges": edges,
-            "induced_dependencies": [],
-        },
-    }
 
 
 def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:

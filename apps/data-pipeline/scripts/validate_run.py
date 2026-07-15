@@ -27,6 +27,7 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from artifact_contract_catalog import ARTIFACT_CONTRACTS
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
@@ -35,7 +36,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId
 
 from nof1_causal_lab.flows.run_store import load_parquet
-from nof1_causal_lab.flows.artifact_contracts import ARTIFACT_CONTRACTS
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
 from nof1_causal_lab.machine.store import ArtifactStore, current_artifact_file, derive_current_state

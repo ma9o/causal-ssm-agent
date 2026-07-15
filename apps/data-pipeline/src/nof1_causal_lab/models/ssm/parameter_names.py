@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 INITIAL_STATE_CORRELATION_PREFIXES = ("cor0_",)
-INITIAL_STATE_CORRELATION_KEYWORDS = ["cor0"]
 INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS: dict[str, float] = {
     "mu": 0.0,
     "sigma": 0.5,

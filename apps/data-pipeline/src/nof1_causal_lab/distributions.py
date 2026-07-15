@@ -424,13 +424,6 @@ VALID_LIKELIHOODS_FOR_DTYPE: Final[dict[str, tuple[DistributionFamily, ...]]] = 
     "categorical": (DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC),
 }
 
-# Per-alternative notes for the generated likelihoods table.
-_DTYPE_ALTERNATIVE_NOTES: Final[dict[tuple[str, DistributionFamily], str]] = {
-    ("categorical", DistributionFamily.ORDERED_LOGISTIC): (
-        "when categories are substantively ordered"
-    ),
-}
-
 PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
     PriorParameterGuidanceRow(
         "beta (causal effect)",
@@ -653,19 +646,6 @@ def render_observation_link_guidance_bullets() -> str:
     return "\n".join(lines)
 
 
-def render_prior_distribution_markdown_table() -> str:
-    """Render a markdown table describing supported prior families."""
-    lines = [
-        "| Family | Signature | Support | Use When |",
-        "|---|---|---|---|",
-    ]
-    for spec in PRIOR_FAMILY_SPECS:
-        lines.append(
-            f"| `{spec.family.value}` | `{spec.signature}` | `{spec.support}` | {spec.summary} |"
-        )
-    return "\n".join(lines)
-
-
 def render_prior_parameter_guidance_markdown_table() -> str:
     """Render a markdown table for common parameter-level prior defaults."""
     lines = [
@@ -677,97 +657,3 @@ def render_prior_parameter_guidance_markdown_table() -> str:
             f"| {row.parameter_type} | {row.typical_distribution} | {row.typical_range} | {row.scale} |"
         )
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Likelihood doc renderers
-# ---------------------------------------------------------------------------
-
-
-def _format_dist_with_links(dist: DistributionFamily) -> str:
-    """Format a distribution with its valid links for the alternatives column."""
-    links = OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[dist]
-    if len(links) == 1:
-        return f"`{dist.value}` (`{links[0]}`)"
-    link_str = " or ".join(f"`{lk}`" for lk in links)
-    return f"`{dist.value}` ({link_str})"
-
-
-def render_dtype_likelihood_markdown_table() -> str:
-    """Render the dtype-to-distribution mapping table for likelihoods docs."""
-    lines = [
-        "| `measurement_dtype` | Default distribution | Link | Alternatives |",
-        "|---|---|---|---|",
-    ]
-    for dtype, valid_dists in VALID_LIKELIHOODS_FOR_DTYPE.items():
-        default_dist = valid_dists[0]
-        default_links = OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[default_dist]
-        default_link = default_links[0]
-
-        alternatives: list[str] = []
-        # Other links for the default distribution
-        for link in default_links[1:]:
-            alternatives.append(f"`{default_dist.value}` with `{link}`")
-        # Other distributions
-        for dist in valid_dists[1:]:
-            entry = _format_dist_with_links(dist)
-            note = _DTYPE_ALTERNATIVE_NOTES.get((dtype, dist))
-            if note:
-                entry = f"{entry} {note}"
-            alternatives.append(entry)
-
-        alt_str = ", ".join(alternatives) if alternatives else "None"
-        lines.append(f"| `{dtype}` | `{default_dist.value}` | `{default_link}` | {alt_str} |")
-    return "\n".join(lines)
-
-
-def render_distribution_families_prose() -> str:
-    """Render the DistributionFamily enumeration as a prose sentence."""
-    names = [f"`{spec.family.value}`" for spec in OBSERVATION_FAMILY_SPECS]
-    return (
-        f"`DistributionFamily` enumerates the valid likelihood distribution names: "
-        f"{', '.join(names[:-1])}, and {names[-1]}."
-    )
-
-
-def render_link_functions_prose() -> str:
-    """Render the LinkFunction enumeration as a prose sentence."""
-    all_links: list[str] = []
-    seen: set[str] = set()
-    for spec in OBSERVATION_FAMILY_SPECS:
-        for link in spec.links:
-            if link not in seen:
-                seen.add(link)
-                all_links.append(f"`{link}`")
-    return (
-        f"`LinkFunction` enumerates the valid link function names: "
-        f"{', '.join(all_links[:-1])}, and {all_links[-1]}."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Parameter role doc renderers
-# ---------------------------------------------------------------------------
-
-
-def render_parameter_roles_markdown_table() -> str:
-    """Render the Parameter Roles table for docs codegen."""
-    lines = [
-        "| Role | Symbol | Count | Constraint | SSM location |",
-        "|---|---|---|---|---|",
-    ]
-    for spec in PARAMETER_ROLE_SPECS:
-        constraint_cell = f"`{spec.constraint}` `{spec.domain}`"
-        if spec.role == "loading":
-            constraint_cell = "`positive` or `negative`"
-        lines.append(
-            f"| `{spec.role}` | `{spec.symbol}` "
-            f"| {spec.count} | {constraint_cell} | {spec.ssm_location} |"
-        )
-    return "\n".join(lines)
-
-
-def render_parameter_constraint_notes() -> str:
-    """Render the constraint notes bullets for docs codegen."""
-    notes = [spec for spec in PARAMETER_ROLE_SPECS if spec.note]
-    return "\n".join(f"- `{spec.role}`: {spec.note}" for spec in notes)

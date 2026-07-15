@@ -6,7 +6,7 @@ import ast
 import logging
 import re
 from enum import StrEnum
-from typing import Any, get_args
+from typing import Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -34,7 +34,6 @@ from .latent_structure import LatentStructure  # noqa: TC001
 logger = logging.getLogger(__name__)
 
 VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))
-VALID_MEASUREMENT_DTYPES: set[str] = set(get_args(MeasurementDtype))
 
 _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
     (
@@ -62,7 +61,7 @@ _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
 
 def check_semantic_collisions(
     how_to_measure: str,
-    aggregation: str,
+    aggregation: AggregationFunction,
 ) -> list[str]:
     """Check for inconsistencies between how_to_measure text and aggregation."""
     warnings: list[str] = []
@@ -113,7 +112,7 @@ def _computed_rule_source_names(expr: str) -> set[str]:
             for arg in node.args:
                 self.visit(arg)
 
-        def visit_Attribute(self, node: ast.Attribute) -> Any:
+        def visit_Attribute(self, node: ast.Attribute) -> None:
             _ = node
             raise ValueError("computed_rule.window_expr does not support attribute access")
 
@@ -153,10 +152,10 @@ class Indicator(BaseModel):
             "(`positive`) or the opposite direction (`negative`)."
         )
     )
-    measurement_dtype: str = Field(
+    measurement_dtype: MeasurementDtype = Field(
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"
     )
-    aggregation: str = Field(
+    aggregation: AggregationFunction = Field(
         description=(
             "Aggregation function applied when bucketing raw extractions within the "
             "indicator support window. Measurement-structure support is currently limited to: "
@@ -195,7 +194,7 @@ class Indicator(BaseModel):
             "The expression must return one scalar per support window."
         ),
     )
-    extraction_mode: str = Field(
+    extraction_mode: Literal["computed", "semantic"] = Field(
         default="semantic",
         description=(
             "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). "
@@ -205,36 +204,12 @@ class Indicator(BaseModel):
         ),
     )
 
-    @field_validator("extraction_mode")
-    @classmethod
-    def validate_extraction_mode(cls, value: str) -> str:
-        if value not in ("computed", "semantic"):
-            raise ValueError(f"extraction_mode must be 'computed' or 'semantic', got '{value}'")
-        return value
-
-    @field_validator("aggregation")
-    @classmethod
-    def validate_aggregation(cls, value: str) -> str:
-        if value not in VALID_AGGREGATIONS:
-            available = ", ".join(sorted(VALID_AGGREGATIONS))
-            raise ValueError(f"Unknown aggregation '{value}'. Available: {available}")
-        return value
-
     @field_validator("observation_window")
     @classmethod
     def validate_observation_window(cls, value: str | None) -> str | None:
         if value is None:
             return None
         parse_duration_to_hours(value)
-        return value
-
-    @field_validator("measurement_dtype")
-    @classmethod
-    def validate_measurement_dtype(cls, value: str) -> str:
-        if value not in VALID_MEASUREMENT_DTYPES:
-            raise ValueError(
-                f"Invalid measurement_dtype '{value}'. Must be one of: {', '.join(sorted(VALID_MEASUREMENT_DTYPES))}"
-            )
         return value
 
     @field_validator("computed_rule")

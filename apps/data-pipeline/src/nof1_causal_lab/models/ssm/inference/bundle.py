@@ -11,7 +11,9 @@ backend instead.
 from __future__ import annotations
 
 import functools
-from typing import Any, NamedTuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -20,7 +22,7 @@ import numpy as np
 from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
-from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
+from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_observation_model
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
     build_gaussian_trajectory_prior_terms,
@@ -31,13 +33,18 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     trajectory_observation_log_probs,
 )
 from nof1_causal_lab.models.ssm.inference.utils import (
+    SiteInfo,
     _assemble_likelihood_inputs,
     _build_original_sample_resolver,
     _discover_sites,
     _DummyLikelihoodBackend,
     build_unconstrained_site_transform,
 )
-from nof1_causal_lab.models.ssm.parameterization import build_site_registry
+from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeState, build_site_registry
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 # Match laplace/shared.py's default jitter so the runtime bundle and the target
 # trajectory log-prob agree on the covariance being evaluated.
@@ -48,7 +55,7 @@ class LatentContext(NamedTuple):
     Ad: jnp.ndarray | None
     Qd: jnp.ndarray | None
     cd: jnp.ndarray | None
-    vf_params: Any
+    vf_params: tuple[dict[str, jax.Array], ...]
     diffusion_cov: jnp.ndarray
     input_effect: jnp.ndarray | None
     time_intervals: jnp.ndarray
@@ -60,6 +67,136 @@ class LatentContext(NamedTuple):
     d_meas: jnp.ndarray
     R: jnp.ndarray
     extra_params: dict[str, jnp.ndarray] | None
+
+
+type LatentContextFn = Callable[[jnp.ndarray], LatentContext]
+type LatentContextRuntimeFn = Callable[[jnp.ndarray, jnp.ndarray], LatentContext]
+type ObservationLogProbFn = Callable[[LatentContext, jnp.ndarray], jnp.ndarray]
+type ObservationLogProbRuntimeFn = Callable[[LatentContext, jnp.ndarray, jnp.ndarray], jnp.ndarray]
+type ObservationIncrementLogProbFn = Callable[
+    [LatentContext, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+type ObservationIncrementLogProbRuntimeFn = Callable[
+    [LatentContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+
+
+class TrajectoryLogProbFn(Protocol):
+    """Trajectory target with observations bound into the closure."""
+
+    def __call__(
+        self,
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        prior_terms: GaussianTrajectoryPriorTerms | None = None,
+    ) -> jnp.ndarray: ...
+
+
+class TrajectoryLogProbRuntimeFn(Protocol):
+    """Trajectory target with observations supplied at runtime."""
+
+    def __call__(
+        self,
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        runtime_observations: jnp.ndarray,
+        prior_terms: GaussianTrajectoryPriorTerms | None = None,
+    ) -> jnp.ndarray: ...
+
+
+type InitialLatentMomentsFn = Callable[[LatentContext], tuple[jnp.ndarray, jnp.ndarray]]
+type TransitionLogProbFn = Callable[
+    [LatentContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+type PairwiseTransitionLogProbFn = Callable[
+    [LatentContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+type TransitionSampleFn = Callable[
+    [jnp.ndarray, LatentContext, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+
+
+@dataclass(frozen=True)
+class CachedParticleRuntimeBundle:
+    """Topology-dependent particle runtime cached on an ``SSMModel``."""
+
+    dim: int
+    flat_example: jnp.ndarray
+    site_info: SiteInfo
+    site_registry: list[SiteDescriptor]
+    prior_state: PriorRuntimeState
+    unravel_fn: Callable[[jnp.ndarray], dict[str, jnp.ndarray]]
+    public_sites: set[str]
+    manifest_links: tuple[LinkFunction, ...]
+    manifest_dists: tuple[DistributionFamily, ...]
+    measurement_gibbs_gaussian_channel_mask: jnp.ndarray
+    trajectory_target: TrajectoryTarget
+    latent_transition_kind: str
+    log_prior_unc_fn: Callable[[jnp.ndarray], jnp.ndarray]
+    latent_context_runtime_fn: LatentContextRuntimeFn
+    observation_log_prob_runtime_fn: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+    ]
+    observation_log_prob_from_context_runtime_fn: ObservationLogProbRuntimeFn
+    observation_log_prob_and_grad_from_context_runtime_fn: Callable[
+        [LatentContext, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    observation_log_prob_per_t_from_context_runtime_fn: ObservationLogProbRuntimeFn
+    observation_increment_log_prob_from_context_runtime_fn: ObservationIncrementLogProbRuntimeFn
+    observation_grad_runtime_fn: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+    ]
+    observation_grad_from_context_runtime_fn: ObservationLogProbRuntimeFn
+    trajectory_log_prob_runtime_fn: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+    ]
+    trajectory_log_prob_from_context_runtime_fn: TrajectoryLogProbRuntimeFn
+    prior_terms_from_context_fn: Callable[[LatentContext], GaussianTrajectoryPriorTerms | None]
+    complete_log_posterior_from_context_runtime_fn: Callable[
+        [jnp.ndarray, LatentContext, jnp.ndarray, jnp.ndarray],
+        tuple[jnp.ndarray, jnp.ndarray],
+    ]
+    complete_log_posterior_runtime_fn: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+    ]
+    initial_latent_runtime_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    initial_latent_from_context_fn: Callable[[LatentContext], jnp.ndarray]
+    initial_latent_moments_from_context_fn: InitialLatentMomentsFn
+    transition_initial_log_prob_from_context_fn: Callable[[LatentContext, jnp.ndarray], jnp.ndarray]
+    transition_log_prob_from_context_fn: TransitionLogProbFn
+    transition_log_probs_for_pairs_from_context_fn: PairwiseTransitionLogProbFn
+    transition_pairwise_log_probs_from_context_fn: PairwiseTransitionLogProbFn
+    transition_sample_from_context_fn: TransitionSampleFn
+    laplace_mode_to_runtime_latent_trajectory_fn: Callable[[jnp.ndarray], jnp.ndarray]
+    public_latent_trajectory_runtime_fn: Callable[
+        [LatentContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+    ]
+
+
+@dataclass(frozen=True)
+class ParticleRuntimeBundle:
+    """Particle runtime with observations and time schedule bound to its callables."""
+
+    cached: CachedParticleRuntimeBundle
+    observations: jnp.ndarray
+    times: jnp.ndarray
+    latent_context_fn: LatentContextFn
+    observation_log_prob_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    observation_log_prob_from_context_fn: ObservationLogProbFn
+    observation_log_prob_and_grad_from_context_fn: Callable[
+        [LatentContext, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    observation_log_prob_per_t_from_context_fn: ObservationLogProbFn
+    observation_increment_log_prob_from_context_fn: ObservationIncrementLogProbFn
+    observation_grad_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    observation_grad_from_context_fn: ObservationLogProbFn
+    trajectory_log_prob_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    trajectory_log_prob_from_context_fn: TrajectoryLogProbFn
+    complete_log_posterior_from_context_fn: Callable[
+        [jnp.ndarray, LatentContext, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    complete_log_posterior_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]
+    initial_latent_fn: Callable[[jnp.ndarray], jnp.ndarray]
 
 
 def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
@@ -74,7 +211,7 @@ def build_particle_runtime_bundle(
     scheme: str,
     trace_key: jnp.ndarray,
     reparam,
-) -> dict[str, Any]:
+) -> ParticleRuntimeBundle:
     """Assemble all static helpers needed by the particle inference methods.
 
     ``scheme`` is the latent discretization the calling inference method requests
@@ -104,7 +241,7 @@ def build_particle_runtime_bundle(
         _shape_dtype_signature(times),
     )
 
-    def _build_runtime_bundle() -> dict[str, Any]:
+    def _build_runtime_bundle() -> CachedParticleRuntimeBundle:
         site_info = _discover_sites(
             model,
             observations,
@@ -192,8 +329,8 @@ def build_particle_runtime_bundle(
                 extra_params=extra_params,
             )
 
-        def _measurement_semantics_from_context(context: LatentContext):
-            return compile_measurement_semantics(
+        def _observation_model_from_context(context: LatentContext):
+            return compile_observation_model(
                 model.spec.manifest_dists,
                 manifest_cov=context.R,
                 extra_params=context.extra_params,
@@ -207,7 +344,7 @@ def build_particle_runtime_bundle(
             runtime_observations: jnp.ndarray,
         ) -> jnp.ndarray:
             obs_mask = ~jnp.isnan(runtime_observations)
-            measurement_semantics = _measurement_semantics_from_context(context)
+            observation_model = _observation_model_from_context(context)
             obs_lp = trajectory_observation_log_prob(
                 latent_trajectory,
                 runtime_observations,
@@ -215,8 +352,8 @@ def build_particle_runtime_bundle(
                 context.H,
                 context.d_meas,
                 context.R,
-                measurement_semantics.obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
+                observation_model.kernel,
+                observation_model.mean_log_prob_fn,
                 observation_support,
             )
             return jnp.asarray(obs_lp, dtype=latent_trajectory.dtype)
@@ -227,16 +364,15 @@ def build_particle_runtime_bundle(
             time_idx: jnp.ndarray,
             runtime_observations: jnp.ndarray,
         ) -> jnp.ndarray:
-            measurement_semantics = _measurement_semantics_from_context(context)
+            observation_model = _observation_model_from_context(context)
             clean_observations = jnp.nan_to_num(runtime_observations, nan=0.0)
             obs_mask = ~jnp.isnan(runtime_observations)
             y_t = clean_observations[time_idx].astype(latent_state.dtype)
             mask_t = obs_mask[time_idx].astype(latent_state.dtype)
-            obs_lp = measurement_semantics.obs_kernel.emission_fn(
+            linear_predictor = context.H @ latent_state + context.d_meas
+            obs_lp = observation_model.kernel.log_prob_fn(
                 y_t,
-                latent_state,
-                context.H,
-                context.d_meas,
+                linear_predictor,
                 context.R,
                 mask_t,
             )
@@ -248,7 +384,7 @@ def build_particle_runtime_bundle(
             runtime_observations: jnp.ndarray,
         ) -> jnp.ndarray:
             obs_mask = ~jnp.isnan(runtime_observations)
-            measurement_semantics = _measurement_semantics_from_context(context)
+            observation_model = _observation_model_from_context(context)
             per_t = trajectory_observation_log_probs(
                 latent_trajectory,
                 runtime_observations,
@@ -256,8 +392,8 @@ def build_particle_runtime_bundle(
                 context.H,
                 context.d_meas,
                 context.R,
-                measurement_semantics.obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
+                observation_model.kernel,
+                observation_model.mean_log_prob_fn,
                 observation_support,
             )
             return jnp.asarray(per_t, dtype=latent_trajectory.dtype)
@@ -394,62 +530,62 @@ def build_particle_runtime_bundle(
                 )
             return state
 
-        return {
-            "dim": int(flat_example.shape[0]),
-            "flat_example": flat_example,
-            "site_info": site_info,
-            "site_registry": runtime_registry,
-            "prior_state": prior_runtime.prior_state,
-            "unravel_fn": unravel_fn,
-            "public_sites": public_sites,
-            "manifest_links": tuple(manifest_links),
-            "manifest_dists": tuple(model.spec.manifest_dists),
-            "measurement_gibbs_gaussian_channel_mask": measurement_gibbs_gaussian_channel_mask,
-            "trajectory_target": declared_target,
-            "latent_transition_kind": declared_target.kind,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "latent_context_runtime_fn": latent_context_runtime_fn,
-            "observation_log_prob_runtime_fn": observation_log_prob_runtime_fn,
-            "observation_log_prob_from_context_runtime_fn": (
+        return CachedParticleRuntimeBundle(
+            dim=int(flat_example.shape[0]),
+            flat_example=flat_example,
+            site_info=site_info,
+            site_registry=runtime_registry,
+            prior_state=prior_runtime.prior_state,
+            unravel_fn=unravel_fn,
+            public_sites=public_sites,
+            manifest_links=tuple(manifest_links),
+            manifest_dists=tuple(model.spec.manifest_dists),
+            measurement_gibbs_gaussian_channel_mask=measurement_gibbs_gaussian_channel_mask,
+            trajectory_target=declared_target,
+            latent_transition_kind=declared_target.kind,
+            log_prior_unc_fn=log_prior_unc_fn,
+            latent_context_runtime_fn=latent_context_runtime_fn,
+            observation_log_prob_runtime_fn=observation_log_prob_runtime_fn,
+            observation_log_prob_from_context_runtime_fn=(
                 observation_log_prob_from_context_runtime_fn
             ),
-            "observation_log_prob_and_grad_from_context_runtime_fn": (
+            observation_log_prob_and_grad_from_context_runtime_fn=(
                 observation_log_prob_and_grad_from_context_runtime_fn
             ),
-            "observation_log_prob_per_t_from_context_runtime_fn": (
+            observation_log_prob_per_t_from_context_runtime_fn=(
                 observation_log_prob_per_t_from_context_runtime_fn
             ),
-            "observation_increment_log_prob_from_context_runtime_fn": (
+            observation_increment_log_prob_from_context_runtime_fn=(
                 observation_increment_log_prob_from_context_runtime_fn
             ),
-            "observation_grad_runtime_fn": observation_grad_runtime_fn,
-            "observation_grad_from_context_runtime_fn": observation_grad_from_context_runtime_fn,
-            "trajectory_log_prob_runtime_fn": trajectory_log_prob_runtime_fn,
-            "trajectory_log_prob_from_context_runtime_fn": (
+            observation_grad_runtime_fn=observation_grad_runtime_fn,
+            observation_grad_from_context_runtime_fn=observation_grad_from_context_runtime_fn,
+            trajectory_log_prob_runtime_fn=trajectory_log_prob_runtime_fn,
+            trajectory_log_prob_from_context_runtime_fn=(
                 trajectory_log_prob_from_context_runtime_fn
             ),
-            "prior_terms_from_context_fn": prior_terms_from_context_fn,
-            "complete_log_posterior_from_context_runtime_fn": (
+            prior_terms_from_context_fn=prior_terms_from_context_fn,
+            complete_log_posterior_from_context_runtime_fn=(
                 complete_log_posterior_from_context_runtime_fn
             ),
-            "complete_log_posterior_runtime_fn": complete_log_posterior_runtime_fn,
-            "initial_latent_runtime_fn": initial_latent_runtime_fn,
-            "initial_latent_from_context_fn": initial_latent_from_context_fn,
-            "initial_latent_moments_from_context_fn": (declared_target.initial_moments),
-            "transition_initial_log_prob_from_context_fn": (declared_target.initial_log_prob),
-            "transition_log_prob_from_context_fn": declared_target.transition_log_prob,
-            "transition_log_probs_for_pairs_from_context_fn": (
+            complete_log_posterior_runtime_fn=complete_log_posterior_runtime_fn,
+            initial_latent_runtime_fn=initial_latent_runtime_fn,
+            initial_latent_from_context_fn=initial_latent_from_context_fn,
+            initial_latent_moments_from_context_fn=declared_target.initial_moments,
+            transition_initial_log_prob_from_context_fn=declared_target.initial_log_prob,
+            transition_log_prob_from_context_fn=declared_target.transition_log_prob,
+            transition_log_probs_for_pairs_from_context_fn=(
                 declared_target.transition_log_probs_for_pairs
             ),
-            "transition_pairwise_log_probs_from_context_fn": (
+            transition_pairwise_log_probs_from_context_fn=(
                 declared_target.pairwise_transition_log_probs
             ),
-            "transition_sample_from_context_fn": declared_target.sample_transition,
-            "laplace_mode_to_runtime_latent_trajectory_fn": (
+            transition_sample_from_context_fn=declared_target.sample_transition,
+            laplace_mode_to_runtime_latent_trajectory_fn=(
                 laplace_mode_to_runtime_latent_trajectory_fn
             ),
-            "public_latent_trajectory_runtime_fn": public_latent_trajectory_runtime_fn,
-        }
+            public_latent_trajectory_runtime_fn=public_latent_trajectory_runtime_fn,
+        )
 
     if hasattr(model, "get_cached_artifact"):
         runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
@@ -460,13 +596,13 @@ def build_particle_runtime_bundle(
     runtime_times = jnp.asarray(times)
 
     def latent_context_fn(z: jnp.ndarray) -> LatentContext:
-        return runtime_bundle["latent_context_runtime_fn"](z, runtime_times)
+        return runtime_bundle.latent_context_runtime_fn(z, runtime_times)
 
     def observation_log_prob_from_context_fn(
         context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
-        return runtime_bundle["observation_log_prob_from_context_runtime_fn"](
+        return runtime_bundle.observation_log_prob_from_context_runtime_fn(
             context,
             latent_trajectory,
             runtime_observations,
@@ -477,7 +613,7 @@ def build_particle_runtime_bundle(
         latent_state: jnp.ndarray,
         time_idx: jnp.ndarray,
     ) -> jnp.ndarray:
-        return runtime_bundle["observation_increment_log_prob_from_context_runtime_fn"](
+        return runtime_bundle.observation_increment_log_prob_from_context_runtime_fn(
             context,
             latent_state,
             time_idx,
@@ -488,14 +624,14 @@ def build_particle_runtime_bundle(
         context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
-        return runtime_bundle["observation_log_prob_per_t_from_context_runtime_fn"](
+        return runtime_bundle.observation_log_prob_per_t_from_context_runtime_fn(
             context,
             latent_trajectory,
             runtime_observations,
         )
 
     def observation_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
-        return runtime_bundle["observation_log_prob_runtime_fn"](
+        return runtime_bundle.observation_log_prob_runtime_fn(
             z,
             latent_trajectory,
             runtime_observations,
@@ -503,7 +639,7 @@ def build_particle_runtime_bundle(
         )
 
     def observation_grad_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
-        return runtime_bundle["observation_grad_runtime_fn"](
+        return runtime_bundle.observation_grad_runtime_fn(
             z,
             latent_trajectory,
             runtime_observations,
@@ -515,7 +651,7 @@ def build_particle_runtime_bundle(
         latent_trajectory: jnp.ndarray,
         prior_terms: GaussianTrajectoryPriorTerms | None = None,
     ) -> jnp.ndarray:
-        return runtime_bundle["trajectory_log_prob_from_context_runtime_fn"](
+        return runtime_bundle.trajectory_log_prob_from_context_runtime_fn(
             context,
             latent_trajectory,
             runtime_observations,
@@ -523,7 +659,7 @@ def build_particle_runtime_bundle(
         )
 
     def trajectory_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
-        return runtime_bundle["trajectory_log_prob_runtime_fn"](
+        return runtime_bundle.trajectory_log_prob_runtime_fn(
             z,
             latent_trajectory,
             runtime_observations,
@@ -535,7 +671,7 @@ def build_particle_runtime_bundle(
         context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        return runtime_bundle["complete_log_posterior_from_context_runtime_fn"](
+        return runtime_bundle.complete_log_posterior_from_context_runtime_fn(
             z,
             context,
             latent_trajectory,
@@ -546,7 +682,7 @@ def build_particle_runtime_bundle(
         z: jnp.ndarray,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
-        return runtime_bundle["complete_log_posterior_runtime_fn"](
+        return runtime_bundle.complete_log_posterior_runtime_fn(
             z,
             latent_trajectory,
             runtime_observations,
@@ -554,39 +690,39 @@ def build_particle_runtime_bundle(
         )
 
     def initial_latent_fn(z: jnp.ndarray) -> jnp.ndarray:
-        return runtime_bundle["initial_latent_runtime_fn"](z, runtime_times)
+        return runtime_bundle.initial_latent_runtime_fn(z, runtime_times)
 
-    return {
-        **runtime_bundle,
-        "observations": runtime_observations,
-        "times": runtime_times,
-        "latent_context_fn": latent_context_fn,
-        "observation_log_prob_fn": observation_log_prob_fn,
-        "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
-        "observation_log_prob_and_grad_from_context_fn": (
-            lambda context, latent_trajectory: runtime_bundle[
-                "observation_log_prob_and_grad_from_context_runtime_fn"
-            ](
-                context,
-                latent_trajectory,
-                runtime_observations,
+    return ParticleRuntimeBundle(
+        cached=runtime_bundle,
+        observations=runtime_observations,
+        times=runtime_times,
+        latent_context_fn=latent_context_fn,
+        observation_log_prob_fn=observation_log_prob_fn,
+        observation_log_prob_from_context_fn=observation_log_prob_from_context_fn,
+        observation_log_prob_and_grad_from_context_fn=(
+            lambda context, latent_trajectory: (
+                runtime_bundle.observation_log_prob_and_grad_from_context_runtime_fn(
+                    context,
+                    latent_trajectory,
+                    runtime_observations,
+                )
             )
         ),
-        "observation_log_prob_per_t_from_context_fn": observation_log_prob_per_t_from_context_fn,
-        "observation_increment_log_prob_from_context_fn": observation_increment_log_prob_from_context_fn,
-        "observation_grad_fn": observation_grad_fn,
-        "observation_grad_from_context_fn": (
-            lambda context, latent_trajectory: runtime_bundle[
-                "observation_grad_from_context_runtime_fn"
-            ](
-                context,
-                latent_trajectory,
-                runtime_observations,
+        observation_log_prob_per_t_from_context_fn=observation_log_prob_per_t_from_context_fn,
+        observation_increment_log_prob_from_context_fn=observation_increment_log_prob_from_context_fn,
+        observation_grad_fn=observation_grad_fn,
+        observation_grad_from_context_fn=(
+            lambda context, latent_trajectory: (
+                runtime_bundle.observation_grad_from_context_runtime_fn(
+                    context,
+                    latent_trajectory,
+                    runtime_observations,
+                )
             )
         ),
-        "trajectory_log_prob_fn": trajectory_log_prob_fn,
-        "trajectory_log_prob_from_context_fn": trajectory_log_prob_from_context_fn,
-        "complete_log_posterior_from_context_fn": complete_log_posterior_from_context_fn,
-        "complete_log_posterior_fn": complete_log_posterior_fn,
-        "initial_latent_fn": initial_latent_fn,
-    }
+        trajectory_log_prob_fn=trajectory_log_prob_fn,
+        trajectory_log_prob_from_context_fn=trajectory_log_prob_from_context_fn,
+        complete_log_posterior_from_context_fn=complete_log_posterior_from_context_fn,
+        complete_log_posterior_fn=complete_log_posterior_fn,
+        initial_latent_fn=initial_latent_fn,
+    )

@@ -3,9 +3,12 @@
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
+from nof1_causal_lab.models.ssm.parameterization import (
+    compile_prior_semantics,
+    load_prior_runtime_bundle,
+)
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-    sample_prior_predictive_from_compiled_semantics,
+    sample_prior_predictive_from_runtime,
 )
 from tests.models.ssm._support import complex_mixed_runtime_spec
 
@@ -16,9 +19,9 @@ class TestCompiledPriorPredictiveRuntime:
     def test_mixed_likelihood_samples_are_finite(self):
         spec = complex_mixed_runtime_spec()
         semantics = compile_prior_semantics(spec)
-        samples = sample_prior_predictive_from_compiled_semantics(
+        samples = sample_prior_predictive_from_runtime(
             spec,
-            semantics,
+            load_prior_runtime_bundle(semantics),
             jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32),
             num_samples=10,
             seed=7,

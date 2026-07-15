@@ -14,7 +14,6 @@ from nof1_causal_lab.models.ssm.discretization.exact import (
     compute_discrete_diffusion_van_loan,
     discretize_linear_system_exact,
     discretize_linear_system_exact_batched,
-    discretize_system,
     discretize_system_batched,
     discretize_system_with_inputs_batched,
     solve_lyapunov,
@@ -181,7 +180,7 @@ class TestDiscretizeSystem:
         A = -jnp.eye(n)
         Q = jnp.eye(n) * 0.1
         c = jnp.ones(n)
-        Ad, Qd, cd = discretize_system(A, Q, c, dt=0.5)
+        Ad, Qd, cd = discretize_linear_system_exact(A, Q, c, dt=0.5)
         assert Ad.shape == (n, n)
         assert Qd.shape == (n, n)
         assert cd is not None
@@ -192,7 +191,7 @@ class TestDiscretizeSystem:
         n = 2
         A = -jnp.eye(n)
         Q = jnp.eye(n)
-        Ad, Qd, cd = discretize_system(A, Q, None, dt=0.5)
+        Ad, Qd, cd = discretize_linear_system_exact(A, Q, None, dt=0.5)
         assert cd is None
         assert Ad.shape == (n, n)
         assert Qd.shape == (n, n)
@@ -202,7 +201,7 @@ class TestDiscretizeSystem:
         A = jnp.array([[-1.0, 0.5], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5
-        Ad, _, _ = discretize_system(A, Q, None, dt)
+        Ad, _, _ = discretize_linear_system_exact(A, Q, None, dt)
         expected = jla.expm(A * dt)
         assert jnp.allclose(Ad, expected, atol=1e-6)
 
@@ -300,7 +299,7 @@ class TestDiscretizeSystemBatched:
         assert not jnp.allclose(Ad[1], Ad[2])
 
     def test_consistent_with_single(self):
-        """Batched result should match per-element discretize_system."""
+        """Batched result should match per-element discretize_linear_system_exact."""
         n = 2
         A = -jnp.eye(n) * 1.5
         Q = jnp.eye(n) * 0.3
@@ -308,8 +307,8 @@ class TestDiscretizeSystemBatched:
         dts = jnp.array([0.1, 0.5])
         Ad_b, Qd_b, _cd_b = discretize_system_batched(A, Q, c, dts)
 
-        Ad_0, Qd_0, _cd_0 = discretize_system(A, Q, c, 0.1)
-        Ad_1, Qd_1, _cd_1 = discretize_system(A, Q, c, 0.5)
+        Ad_0, Qd_0, _cd_0 = discretize_linear_system_exact(A, Q, c, 0.1)
+        Ad_1, Qd_1, _cd_1 = discretize_linear_system_exact(A, Q, c, 0.5)
 
         assert jnp.allclose(Ad_b[0], Ad_0, atol=1e-5)
         assert jnp.allclose(Ad_b[1], Ad_1, atol=1e-5)
@@ -324,7 +323,7 @@ class TestDiscretizeSystemBatched:
         dts = jnp.full((4,), 0.25)
 
         Ad_b, Qd_b, cd_b = discretize_system_batched(A, Q, c, dts)
-        Ad_single, Qd_single, cd_single = discretize_system(A, Q, c, 0.25)
+        Ad_single, Qd_single, cd_single = discretize_linear_system_exact(A, Q, c, 0.25)
         assert cd_b is not None
         assert cd_single is not None
 

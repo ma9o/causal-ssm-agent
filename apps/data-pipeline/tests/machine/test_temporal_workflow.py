@@ -326,13 +326,18 @@ def test_episode_workflow_journey(machine_env):
         from temporalio.testing import WorkflowEnvironment
 
         from nof1_causal_lab.machine.temporal.client import pydantic_data_converter
-        from nof1_causal_lab.machine.temporal.worker import build_openrouter_worker, build_worker
+        from nof1_causal_lab.machine.temporal.worker import (
+            build_model_spec_simulation_worker,
+            build_openrouter_worker,
+            build_worker,
+        )
 
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
                 build_worker(env.client, task_queue="test-episodes"),
                 build_openrouter_worker(env.client),
+                build_model_spec_simulation_worker(env.client),
             ):
                 handle = await env.client.start_workflow(
                     EpisodeWorkflow.run,
@@ -375,6 +380,7 @@ def test_episode_workflow_journey(machine_env):
                 assert raised.status == "raised"
                 assert raised.error_type == "ModelCompileError"
                 assert "report" in raised.diagnostics
+                assert raised.diagnostics["checkpoint_ref"].startswith("model-spec-checkpoint:")
                 after = (await handle.query(EpisodeWorkflow.get_state)).current
                 assert after == before
 
@@ -408,6 +414,9 @@ def test_episode_workflow_journey(machine_env):
                 ]
                 assert records[-2].error_type == "ModelCompileError"
                 assert "report" in records[-2].diagnostics
+                assert (
+                    records[-2].diagnostics["checkpoint_ref"].startswith("model-spec-checkpoint:")
+                )
 
                 # Store kept both question versions (append-only).
                 assert ArtifactStore(workspace_id).list_versions("question") == [1, 2]

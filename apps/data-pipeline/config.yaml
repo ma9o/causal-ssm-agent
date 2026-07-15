@@ -24,6 +24,12 @@ llm:
     reasoning_effort: xhigh  # low | medium | high | xhigh | max
     service_tier: fast
 
+  # harness: pi  (spawns `pi --mode json`)
+  pi:
+    bin: pi
+    provider: openai-codex
+    thinking: high          # off | minimal | low | medium | high | xhigh
+
 # --- Agentic contexts ------------------------------------------------------
 
 # ingestion: Agentic Data Ingestion
@@ -65,14 +71,12 @@ prior_elicitation:
   max_tool_turns: 200
   literature_search:
     enabled: true
-  paraphrasing:
-    enabled: false
-    n_paraphrases: 10
-    gmm_model: null          # optional; null = inherit context's llm.model
   llm:
-    harness: codex
-    model: gpt-5.5
-    timeout: 3600           # 60-min per-turn ceiling for xhigh reasoning on the megaprompt
+    harness: pi
+    provider: openai-codex
+    model: gpt-5.4-mini
+    thinking: high
+    timeout: 3600
 
 # Inference — no LLM (NumPyro SSM)
 

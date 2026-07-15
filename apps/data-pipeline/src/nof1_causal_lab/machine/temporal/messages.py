@@ -7,10 +7,11 @@ polars, or jax.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
     ArtifactVersionInfo,
@@ -39,6 +40,8 @@ SingleLLMTransitionId = Literal[
     "measurement_structure",
     "baseline_report",
 ]
+TransitionRuntimeStatus = Literal["running", "completed", "failed"]
+JournalStatus = Literal["applied", "rejected", "raised"]
 
 
 class EpisodeInit(BaseModel):
@@ -58,7 +61,7 @@ class MoveRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     move: Move
-    payload: dict[str, Any] | None = None  # write moves
+    payload: JsonObject | None = None  # write moves
     options: ExecOptions = Field(default_factory=ExecOptions)  # run moves
 
 
@@ -66,11 +69,11 @@ class MoveOutcome(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     seq: int
-    status: str  # applied | rejected | raised
+    status: JournalStatus
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
-    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: JsonObject = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
     state: EpisodeState
@@ -116,7 +119,7 @@ class OpenRouterLLMConfig(BaseModel):
 class LLMBackendConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    harness: Literal["none", "claude-code", "codex"]
+    harness: Literal["none", "claude-code", "codex", "pi"]
     model: str
     max_tokens: int | None = None
     timeout: int | None = None
@@ -127,6 +130,8 @@ class LLMBackendConfig(BaseModel):
     max_budget_usd: float | None = None
     fallback_model: str | None = None
     service_tier: str | None = None
+    provider: str | None = None
+    thinking: Literal["off", "minimal", "low", "medium", "high", "xhigh"] | None = None
 
 
 class LLMToolSpec(BaseModel):
@@ -136,7 +141,7 @@ class LLMToolSpec(BaseModel):
     description: str
     param_name: str = ""
     param_description: str = ""
-    parameters_schema: dict[str, Any] | None = None
+    parameters_schema: JsonObject | None = None
     kind: Literal["read_only", "checkpoint", "terminal"] = "terminal"
     executor: Literal[
         "context_json_validation",
@@ -150,7 +155,7 @@ class LLMToolSpec(BaseModel):
     success_output: str | None = "VALID"
 
     @property
-    def parameters(self) -> dict[str, Any]:
+    def parameters(self) -> JsonObject:
         if self.parameters_schema is not None:
             return self.parameters_schema
         return {
@@ -294,7 +299,7 @@ class HarnessToolRequest(BaseModel):
     result_ref: str
     tool: LLMToolSpec
     tool_name: str
-    arguments: dict[str, Any]
+    arguments: JsonObject
     request_ref: str
     response_ref: str
 
@@ -390,15 +395,24 @@ class StatisticalModelSpecWorkflowInput(BaseModel):
     options: ExecOptions = Field(default_factory=ExecOptions)
 
 
+class StatisticalModelSpecAdmissionUnit(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    unit_id: str
+    constructs: list[str]
+    predecessors: list[str]
+
+
 class StatisticalModelSpecPlan(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     run_id: str
-    state_ref: str
+    checkpoint_ref: str
     context_ref: str
     pins: dict[ArtifactId, int]
-    order: list[str]
+    units: list[StatisticalModelSpecAdmissionUnit]
+    accepted_constructs: list[str]
     llm: LLMBackendConfig
     max_tool_turns: int
     max_attempts_per_construct: int
@@ -409,8 +423,9 @@ class StatisticalModelSpecAttemptPlanInput(BaseModel):
 
     workspace_id: str
     run_id: str
-    state_ref: str
+    checkpoint_ref: str
     context_ref: str
+    construct_name: str
     attempt: int
 
 
@@ -418,6 +433,7 @@ class StatisticalModelSpecAttemptPlan(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     context_ref: str
+    result_ref: str
     construct_name: str
     attempt: int
     subroutine_id: str
@@ -426,7 +442,7 @@ class StatisticalModelSpecAttemptPlan(BaseModel):
 class StatisticalModelSpecAttemptFinalizeInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    state_ref: str
+    result_ref: str
     construct_name: str
     attempt: int
 
@@ -438,6 +454,41 @@ class StatisticalModelSpecAttemptResult(BaseModel):
     attempt: int
     admitted: bool
     outcome: str
+    checkpoint_ref: str | None = None
+
+
+class StatisticalModelSpecFrontierMergeInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    checkpoint_ref: str
+    branch_checkpoint_refs: list[str]
+    construct_order: list[str]
+
+
+class StatisticalModelSpecFrontierMergeResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    checkpoint_ref: str
+    accepted_constructs: list[str]
+
+
+class StatisticalModelSpecBarrierInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    checkpoint_ref: str
+    context_ref: str
+    construct_order: list[str]
+
+
+class StatisticalModelSpecBarrierResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    passed: bool
+    checkpoint_ref: str
+    accepted_constructs: list[str]
+    reopened_constructs: list[str] = Field(default_factory=list)
 
 
 class StatisticalModelSpecFinalizeInput(BaseModel):
@@ -447,7 +498,7 @@ class StatisticalModelSpecFinalizeInput(BaseModel):
     run_id: str
     state: EpisodeState
     pins: dict[ArtifactId, int]
-    state_ref: str
+    checkpoint_ref: str
     context_ref: str
     trace_refs: list[str] = Field(default_factory=list)
 
@@ -458,6 +509,7 @@ class StatisticalModelSpecFailedEventInput(BaseModel):
     workspace_id: str
     construct_name: str | None = None
     message: str
+    checkpoint_ref: str | None = None
 
 
 class MeasurementChunkRef(BaseModel):
@@ -497,12 +549,12 @@ class ExtractionProgressEventInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    kind: str  # plan | worker | snapshot
+    kind: Literal["plan", "worker", "snapshot"]
     total_workers: int | None = None
     max_concurrent_workers: int | None = None
     max_rpm: int | None = None
     worker_id: int | None = None
-    state: str | None = None
+    state: Literal["pending", "running", "completed", "failed"] | None = None
     n_windows: int | None = None
     n_extractions: int | None = None
     n_llm_calls: int | None = None
@@ -510,13 +562,20 @@ class ExtractionProgressEventInput(BaseModel):
     snapshot: ExtractionProgressSnapshot | None = None
 
 
+class TransitionRuntimeError(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type: str
+    message: str
+
+
 class TransitionRuntimeEventInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     transition_id: str
-    status: str
-    error: dict[str, Any] | None = None
+    status: TransitionRuntimeStatus
+    error: TransitionRuntimeError | None = None
 
 
 class ExtractionChunkWorkflowInput(BaseModel):
@@ -583,7 +642,7 @@ class ExtractionChunkResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     worker_id: int
-    status: str
+    status: Literal["completed", "failed"]
     n_extractions: int
     n_windows: int
     n_llm_calls: int = 0
@@ -608,12 +667,9 @@ class WriteArtifactInput(BaseModel):
 
     workspace_id: str
     artifact_id: ArtifactId
-    payload: dict[str, Any]
+    payload: JsonObject
     provenance: Provenance
     state: EpisodeState
-
-
-JournalStatus = Literal["applied", "rejected", "raised"]
 
 
 class JournalInput(BaseModel):
@@ -626,6 +682,6 @@ class JournalInput(BaseModel):
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
-    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: JsonObject = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)

@@ -1,6 +1,6 @@
-"""Tests for kernel layer: observation and transition kernel factories.
+"""Tests for the observation-kernel layer.
 
-Covers: variance functions, build_observation_kernel, build_transition_kernel.
+Covers variance functions and build_observation_kernel.
 """
 
 from typing import cast
@@ -8,16 +8,61 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 import pytest
+from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.artifacts import LikelihoodSpec, LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
-    build_transition_kernel,
+    compile_observation_model,
 )
+from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
 
 class TestBuildObservationKernel:
+    def test_likelihood_spec_rejects_invalid_family_link_pair(self):
+        with pytest.raises(ValidationError, match="invalid for gaussian"):
+            LikelihoodSpec(
+                variable="y",
+                distribution=DistributionFamily.GAUSSIAN,
+                link=LinkFunction.LOG,
+                reasoning="test",
+            )
+
+    def test_direct_ssm_spec_rejects_invalid_family_link_pair(self):
+        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
+            block_ssm_spec(
+                n_latent=1,
+                dynamics_spec=full_dense_matrix_dynamics_spec(1),
+                manifest_dists=[DistributionFamily.GAUSSIAN],
+                manifest_links=[LinkFunction.LOG],
+            )
+
+    def test_compiled_model_shares_predictor_semantics_for_likelihood_and_sampling(self):
+        manifest_cov = jnp.eye(1)
+        model = compile_observation_model(
+            [DistributionFamily.POISSON],
+            manifest_cov=manifest_cov,
+            manifest_links=[LinkFunction.LOG],
+        )
+        eta = jnp.array([jnp.log(3.0)])
+        log_prob = model.kernel.log_prob_fn(
+            jnp.array([2.0]),
+            eta,
+            manifest_cov,
+            jnp.ones(1),
+        )
+        expected = jax.scipy.stats.poisson.logpmf(2.0, 3.0)
+        assert jnp.isclose(log_prob, expected)
+
+        draws = model.point_sampler.sample_point_trajectory(
+            jax.random.PRNGKey(0),
+            eta[None, :],
+        )
+        assert draws.shape == (1, 1)
+        assert draws[0, 0] >= 0
+        assert jnp.isclose(draws[0, 0], jnp.rint(draws[0, 0]))
+
     def test_gaussian_is_gaussian(self):
         R = jnp.eye(2)
         kernel = build_observation_kernel(
@@ -147,9 +192,17 @@ class TestBuildObservationKernel:
 
     def test_unsupported_link_raises(self):
         invalid_link = cast("LinkFunction", "nonexistent_link")
-        with pytest.raises(ValueError, match="No response function"):
+        with pytest.raises(ValueError, match="Unknown link function"):
             build_observation_kernel(
                 DistributionFamily.GAUSSIAN, invalid_link, manifest_cov=jnp.eye(2)
+            )
+
+    def test_recognized_but_invalid_family_link_pair_raises(self):
+        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
+            build_observation_kernel(
+                DistributionFamily.GAUSSIAN,
+                LinkFunction.LOG,
+                manifest_cov=jnp.eye(2),
             )
 
     def test_gaussian_response_is_identity(self):
@@ -164,68 +217,3 @@ class TestBuildObservationKernel:
         kernel = build_observation_kernel(DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY)
         with pytest.raises(RuntimeError, match="requires manifest_cov"):
             kernel.variance_fn(jnp.array([1.0]))
-
-
-# =============================================================================
-# build_transition_kernel
-# =============================================================================
-
-
-class TestBuildTransitionKernel:
-    def test_gaussian_is_gaussian(self):
-        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
-        assert kernel.is_gaussian
-
-    def test_student_t_not_gaussian(self):
-        kernel = build_transition_kernel([DistributionFamily.STUDENT_T])
-        assert not kernel.is_gaussian
-
-    def test_gaussian_noise_shape(self):
-        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
-        key = jax.random.PRNGKey(0)
-        chol_Q = jnp.eye(3) * 0.1
-        noise = kernel.sample_noise_fn(key, chol_Q)
-        assert noise.shape == (3,)
-
-    def test_student_t_noise_shape(self):
-        kernel = build_transition_kernel(
-            [DistributionFamily.STUDENT_T], extra_params={"proc_df": 5.0}
-        )
-        key = jax.random.PRNGKey(0)
-        chol_Q = jnp.eye(2) * 0.5
-        noise = kernel.sample_noise_fn(key, chol_Q)
-        assert noise.shape == (2,)
-
-    def test_mixed_noise_shape(self):
-        kernel = build_transition_kernel(
-            [DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            extra_params={"proc_df": 5.0},
-        )
-        key = jax.random.PRNGKey(0)
-        chol_Q = jnp.eye(2) * 0.5
-        noise = kernel.sample_noise_fn(key, chol_Q)
-        assert noise.shape == (2,)
-        assert not kernel.is_gaussian
-
-    def test_mixed_noise_preserves_unit_variance_per_standardized_coordinate(self):
-        kernel = build_transition_kernel(
-            [DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            extra_params={"proc_df": 5.0},
-        )
-        chol_Q = jnp.eye(2)
-        keys = jax.random.split(jax.random.PRNGKey(1), 600)
-        samples = jax.vmap(lambda k: kernel.sample_noise_fn(k, chol_Q))(keys)
-        sample_var = jnp.var(samples, axis=0)
-        assert jnp.allclose(sample_var, jnp.ones(2), atol=0.2)
-
-    def test_unsupported_diffusion_raises(self):
-        with pytest.raises(ValueError, match="No transition kernel"):
-            build_transition_kernel([DistributionFamily.POISSON])
-
-    def test_gaussian_noise_mean_near_zero(self):
-        """Gaussian process noise should have approximately zero mean."""
-        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
-        chol_Q = jnp.eye(2) * 0.1
-        keys = jax.random.split(jax.random.PRNGKey(42), 1000)
-        samples = jax.vmap(lambda k: kernel.sample_noise_fn(k, chol_Q))(keys)
-        assert jnp.allclose(samples.mean(axis=0), jnp.zeros(2), atol=0.05)

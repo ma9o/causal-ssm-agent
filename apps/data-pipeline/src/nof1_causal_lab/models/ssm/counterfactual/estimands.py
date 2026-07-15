@@ -7,7 +7,7 @@ vector fields land.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
@@ -56,29 +56,6 @@ def summarize_temporal_effect(
         "peak_effect": peak_effect,
         "time_to_peak_days": time_to_peak_days,
     }
-
-
-ActionMode = Literal["set", "shift"]
-
-
-def resolve_action_value(
-    baseline_value: Array,
-    *,
-    mode: ActionMode,
-    value: float | None = None,
-    amount: float | None = None,
-) -> Array:
-    """Map a analysis set/shift action onto an absolute latent-space value."""
-    baseline = jnp.asarray(baseline_value)
-    if mode == "set":
-        if value is None:
-            raise ValueError("mode='set' requires value")
-        return jnp.asarray(value, dtype=baseline.dtype)
-    if mode == "shift":
-        if amount is None:
-            raise ValueError("mode='shift' requires amount")
-        return baseline + jnp.asarray(amount, dtype=baseline.dtype)
-    raise ValueError(f"Unsupported action mode: {mode}")
 
 
 def build_time_grid(t_start: float, t_end: float, dt: float) -> Array:

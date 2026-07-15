@@ -1,4 +1,3 @@
-from .core import WorkerResult
 from .schemas import (
     WindowExtraction,
     WorkerOutput,
@@ -7,5 +6,4 @@ from .schemas import (
 __all__ = [
     "WindowExtraction",
     "WorkerOutput",
-    "WorkerResult",
 ]

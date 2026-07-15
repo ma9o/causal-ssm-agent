@@ -18,6 +18,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import pytest
+from jax import jit, vmap
 
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
@@ -43,6 +44,48 @@ def _linear_setup(decay: float = 1.0, c: float = 0.5):
 
 
 class TestSimulateSDEMode:
+    def test_indexed_fixed_step_path_replays_identically(self):
+        vf, params, y0, time_grid = _linear_setup()
+        config = SimulationConfig(sde_dt=0.025, use_indexed_brownian_path=True)
+        kwargs = {
+            "config": config,
+            "key": jr.PRNGKey(19),
+            "diffusion_cov": jnp.eye(1) * 0.2,
+        }
+
+        trajectory_a = simulate(vf, params, Intervention.none(), y0, time_grid, **kwargs)
+        trajectory_b = simulate(vf, params, Intervention.none(), y0, time_grid, **kwargs)
+
+        assert jnp.array_equal(trajectory_a, trajectory_b)
+
+    def test_indexed_fixed_step_path_has_expected_ou_moments(self):
+        vf, params, y0, _time_grid = _linear_setup(decay=1.0, c=0.5)
+        time_grid = jnp.linspace(0.0, 2.0, 9)
+        diffusion_cov = jnp.eye(1) * 0.2
+        config = SimulationConfig(sde_dt=0.02, use_indexed_brownian_path=True)
+
+        @jit
+        def _sample(keys):
+            return vmap(
+                lambda key: simulate(
+                    vf,
+                    params,
+                    Intervention.none(),
+                    y0,
+                    time_grid,
+                    config=config,
+                    key=key,
+                    diffusion_cov=diffusion_cov,
+                )
+            )(keys)
+
+        final_states = _sample(jr.split(jr.PRNGKey(23), 512))[:, -1, 0]
+        expected_mean = 0.5 * (1.0 - jnp.exp(-2.0))
+        expected_variance = 0.1 * (1.0 - jnp.exp(-4.0))
+
+        assert jnp.mean(final_states) == pytest.approx(float(expected_mean), abs=0.05)
+        assert jnp.var(final_states) == pytest.approx(float(expected_variance), abs=0.02)
+
     def test_same_key_gives_identical_trajectory(self):
         vf, params, y0, time_grid = _linear_setup()
         diff = jnp.eye(1) * 0.1

@@ -8,8 +8,8 @@ from typing import Any
 import polars as pl
 import pytest
 
-from nof1_causal_lab.flows.transitions.extraction import flow as stage2_extract
 from tests.helpers import run_async as _run
+from tests.transitions.extraction import _flow_support as stage2_extract
 
 
 async def _worker_result(result=None, error: Exception | None = None, delay: float = 0.0):
@@ -108,8 +108,7 @@ def test_collect_worker_results_records_failures():
 
 def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
     import nof1_causal_lab.utils.config as config_mod
-    import nof1_causal_lab.workers.core as worker_core
-    from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
+    import tests.transitions.extraction._worker as worker_core
     from nof1_causal_lab.utils.config import (
         ClaudeCodeDefaults,
         CodexDefaults,
@@ -189,7 +188,7 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
     }
     assert worker_kwargs["logger"] is stage2_extract.logger
     factory = worker_kwargs["session_factory"]
-    assert isinstance(factory, ScopedSessionFactory)
+    assert isinstance(factory, stage2_extract.ScopedSessionFactory)
     # Worker timeout is applied as an override on the profile_llm inside the factory.
     assert factory._profile_llm.model == "openrouter/mock-stage2-model"
     assert factory._profile_llm.timeout == 120
@@ -200,7 +199,7 @@ def test_extract_window_chunk_uses_stage2_generate_config(monkeypatch, caplog):
 
 def test_extract_window_chunk_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
     import nof1_causal_lab.utils.config as config_mod
-    import nof1_causal_lab.workers.core as worker_core
+    import tests.transitions.extraction._worker as worker_core
     from nof1_causal_lab.utils.config import (
         ClaudeCodeDefaults,
         CodexDefaults,

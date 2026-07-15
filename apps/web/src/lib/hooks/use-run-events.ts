@@ -40,6 +40,11 @@ import { getArtifactViewQueryKey } from "./use-artifact-view";
 export type { PipelineProgress, TransitionRunStatus, TransitionTiming } from "./pipeline-progress";
 
 const PROGRESS_POLL_INTERVAL_MS = 2_000;
+const IDLE_PROGRESS_POLL_INTERVAL_MS = 10_000;
+
+export function progressPollIntervalMs(active: boolean): number {
+  return active ? PROGRESS_POLL_INTERVAL_MS : IDLE_PROGRESS_POLL_INTERVAL_MS;
+}
 
 function getPipelineStatusQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "status"] as const;
@@ -352,11 +357,11 @@ export function useRunEvents(
       const progress = workspaceId
         ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
         : undefined;
-      return payload.autoRunning ||
-        hasRunningTransition(progress) ||
-        hasStaleArtifacts(payload.artifacts)
-        ? PROGRESS_POLL_INTERVAL_MS
-        : false;
+      return progressPollIntervalMs(
+        payload.autoRunning ||
+          hasRunningTransition(progress) ||
+          hasStaleArtifacts(payload.artifacts),
+      );
     },
     staleTime: 0,
     gcTime: 0,

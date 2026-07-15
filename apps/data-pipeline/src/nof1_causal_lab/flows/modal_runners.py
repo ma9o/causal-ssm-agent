@@ -10,11 +10,13 @@ stamps come back as plain dicts (Modal pickles across an image boundary).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 import modal
+from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects
 
@@ -69,22 +71,24 @@ async def _run_transition_gpu(
     workspace_id: str,
     artifact_id: str,
     pins: dict[str, int],
-    state: dict[str, Any],
-    options: dict[str, Any],
-) -> dict[str, Any]:
+    state: JsonObject,
+    options: JsonObject,
+) -> JsonObject:
     """Run a transition on Modal GPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions
     from nof1_causal_lab.machine.runners import execute_transition_locally
 
+    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
+    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
     result = await execute_transition_locally(
         workspace_id,
-        artifact_id,  # type: ignore[arg-type]
-        pins,  # type: ignore[arg-type]
+        validated_artifact_id,
+        validated_pins,
         EpisodeState.model_validate(state),
         ExecOptions.model_validate(options),
     )
-    return result.model_dump(mode="json")
+    return cast("JsonObject", result.model_dump(mode="json"))
 
 
 @app.function(
@@ -104,22 +108,24 @@ async def _run_transition_cpu(
     workspace_id: str,
     artifact_id: str,
     pins: dict[str, int],
-    state: dict[str, Any],
-    options: dict[str, Any],
-) -> dict[str, Any]:
+    state: JsonObject,
+    options: JsonObject,
+) -> JsonObject:
     """Run a transition on Modal CPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions
     from nof1_causal_lab.machine.runners import execute_transition_locally
 
+    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
+    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
     result = await execute_transition_locally(
         workspace_id,
-        artifact_id,  # type: ignore[arg-type]
-        pins,  # type: ignore[arg-type]
+        validated_artifact_id,
+        validated_pins,
         EpisodeState.model_validate(state),
         ExecOptions.model_validate(options),
     )
-    return result.model_dump(mode="json")
+    return cast("JsonObject", result.model_dump(mode="json"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

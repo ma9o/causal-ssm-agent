@@ -456,7 +456,12 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
 
 
 def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
-    """Infer per-channel discrete level counts from encoded wide data."""
+    """Resolve per-channel discrete level counts against encoded wide data.
+
+    Declared level counts define the emission support even when the observed
+    panel contains only a subset of those levels. Counts are inferred from the
+    data only for channels whose compiled specification has no declaration.
+    """
     from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
         any_family_needs_level_metadata,
         get_family_spec,
@@ -467,7 +472,16 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
     if not needs_levels:
         return spec
 
-    inferred_counts = [0] * spec.n_manifest
+    declared_counts = (
+        list(spec.manifest_level_counts) if spec.manifest_level_counts is not None else None
+    )
+    if declared_counts is not None and len(declared_counts) != spec.n_manifest:
+        raise ValueError(
+            "SSMSpec manifest_level_counts length does not match n_manifest: "
+            f"{len(declared_counts)} vs {spec.n_manifest}"
+        )
+
+    resolved_counts = [0] * spec.n_manifest
     for idx, (column, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
         family_spec = get_family_spec(dist)
         if family_spec is None or not family_spec.needs_level_metadata:
@@ -486,37 +500,32 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
                 f"Indicator '{column}' uses discrete emission '{dist.value}' but has no data"
             )
 
+        declared_count = declared_counts[idx] if declared_counts is not None else 0
+        if declared_count >= 2:
+            rounded = np.rint(values)
+            if not np.allclose(values, rounded, atol=1e-6):
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but data are "
+                    "not integer-encoded"
+                )
+            if np.any((rounded < 0) | (rounded >= declared_count)):
+                observed_levels = sorted({int(value) for value in rounded.tolist()})
+                raise ValueError(
+                    f"Indicator '{column}' uses discrete emission '{dist.value}' but encoded "
+                    f"levels {observed_levels} fall outside declared range "
+                    f"0..{declared_count - 1}"
+                )
+            resolved_counts[idx] = declared_count
+            continue
+
         try:
-            inferred_count = family_spec.hydrate_levels(values)
+            resolved_count = family_spec.hydrate_levels(values)
         except ValueError as exc:
             raise ValueError(
                 f"Indicator '{column}' uses discrete emission '{dist.value}' but {exc}"
             ) from exc
-        if inferred_count is not None:
-            inferred_counts[idx] = inferred_count
-
-    if spec.manifest_level_counts is None:
-        return replace(spec, manifest_level_counts=inferred_counts)
-
-    if len(spec.manifest_level_counts) != spec.n_manifest:
-        raise ValueError(
-            "SSMSpec manifest_level_counts length does not match n_manifest: "
-            f"{len(spec.manifest_level_counts)} vs {spec.n_manifest}"
-        )
-
-    resolved_counts = list(spec.manifest_level_counts)
-    for idx, inferred_count in enumerate(inferred_counts):
-        if inferred_count == 0:
-            resolved_counts[idx] = 0
-            continue
-        existing_count = resolved_counts[idx]
-        if existing_count in (0, inferred_count):
-            resolved_counts[idx] = inferred_count
-            continue
-        raise ValueError(
-            "Discrete level metadata mismatch for "
-            f"'{manifest_cols[idx]}': spec={existing_count}, data={inferred_count}"
-        )
+        if resolved_count is not None:
+            resolved_counts[idx] = resolved_count
 
     return replace(spec, manifest_level_counts=resolved_counts)
 

@@ -35,7 +35,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -856,18 +856,18 @@ class TestPrepareFitInputs:
         assert jnp.isnan(observations[1, 0])
         assert jnp.isclose(observations[1, 1], 30.0)
 
-    def test_manifest_centering_applies_only_to_centered_channels(self):
-        """prepare_fit_inputs should deterministically center only marked manifests."""
+    def test_manifest_standardization_applies_only_to_standardized_channels(self):
+        """prepare_fit_inputs should deterministically standardize only marked manifests."""
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             manifest_names=["x", "y"],
-            manifest_centered=[True, False],
+            manifest_standardized=[True, False],
         )
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
-                "x": [10.0, 11.0, 12.0],
+                "x": [10.0, 12.0, 14.0],
                 "y": [5.0, 6.0, 7.0],
             }
         )
@@ -876,8 +876,24 @@ class TestPrepareFitInputs:
 
         assert manifest_names == ["x", "y"]
         np.testing.assert_allclose(np.asarray(times), np.array([0.0, 1.0, 2.0]))
-        np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([-1.0, 0.0, 1.0]))
+        np.testing.assert_allclose(
+            np.asarray(observations[:, 0]), np.array([-1.0, 0.0, 1.0]), rtol=1e-6
+        )
         np.testing.assert_allclose(np.asarray(observations[:, 1]), np.array([5.0, 6.0, 7.0]))
+
+    def test_manifest_standardization_of_constant_column_centers_without_scaling(self):
+        """A zero-variance standardized column becomes exactly zero (divisor 1)."""
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=1,
+            manifest_names=["x"],
+            manifest_standardized=[True],
+        )
+        wide = pl.DataFrame({"time": [0.0, 1.0], "x": [4.2, 4.2]})
+
+        observations, _times, _names, _wide = prepare_fit_inputs(spec, wide)
+
+        np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([0.0, 0.0]))
 
     def test_transition_inputs_are_scaled_filled_and_shifted_to_interval_start(self):
         """Known inputs are deterministic transition covariates aligned to interval starts."""

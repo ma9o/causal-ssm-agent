@@ -200,11 +200,6 @@ def _staleness(
     return False
 
 
-def is_fresh(state: EpisodeState, artifact_id: ArtifactId) -> bool:
-    """Exists and its whole provenance chain pins current versions."""
-    return state.has(artifact_id) and not is_stale(state, artifact_id)
-
-
 class ArtifactStatus(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

@@ -1,13 +1,15 @@
 """Unit tests for the gradual construct-admission model-spec flow (data-free pieces).
 
-The full loop over real ``data_for_model`` (prior-predictive reachability on live
-data) is exercised as a Commit-6 integration regression; here we pin the pure
+The Temporal workflow owns the live-data orchestration; here we pin the pure
 payload → contribution mapping, feedback rendering, prompt assembly, and the
 out-of-order submission guard.
 """
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import numpy as np
 import polars as pl
 
 from nof1_causal_lab.artifacts import (
@@ -20,6 +22,7 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import 
     SUBMIT_CONSTRUCT_SCHEMA,
     ConstructBuildState,
     ParamCatalog,
+    _admission_report_payload,
     _closed_loop_target,
     _closing_edge_effects,
     construct_parents,
@@ -33,7 +36,9 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt impor
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
+    AdmissionTiming,
     ConstructContribution,
+    _signal_from_linear_predictor,
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
@@ -199,6 +204,85 @@ def test_submit_construct_rejects_out_of_order():
     assert state.submission_made is True
 
 
+def test_submit_construct_rejects_mixed_family_in_pooled_site():
+    state = ConstructBuildState(
+        causal_design=_make_causal_design_dict(),
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+        admission=AdmissionState(
+            names=("X",),
+            priors={
+                "sigma_X": {
+                    "distribution": "TruncatedNormal",
+                    "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
+                }
+            },
+        ),
+        cursor=1,
+    )
+
+    feedback = state.submit_construct(
+        construct="Y",
+        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        priors={
+            "sigma_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
+            "beta_X_Y": _normal(0.3, 0.1),
+        },
+    )
+
+    assert "Prior family mismatch" in feedback
+    assert "diffusion_diag_free" in feedback
+    assert state.current_construct == "Y"
+
+
+def test_feedback_closure_hard_recheck_blocks_commit(monkeypatch):
+    from nof1_causal_lab.flows.transitions.model_spec.agentic import construct_flow as module
+
+    causal_design = _make_causal_design_dict()
+    feedback_edge = {"cause": "Y", "effect": "X", "lagged": True}
+    causal_design["latent"]["edges"].append(dict(feedback_edge))
+    causal_design["estimation"]["edges"].append(dict(feedback_edge))
+    initial = AdmissionState(names=("X",))
+    state = ConstructBuildState(
+        causal_design=causal_design,
+        data_for_model=pl.DataFrame(),
+        order=["Y"],
+        admission=initial,
+    )
+    active_pass = CheckResult("C1a finiteness", "Y", "0%", "0%", True, "ok")
+    hard_recheck = CheckResult("C1a finiteness", "X", "1%", "0%", False, "bad")
+    tentative = AdmissionState(names=("X", "Y"))
+    admitted_report = AdmissionReport(
+        name="Y",
+        results=(active_pass,),
+        timings=(),
+        outcome="ADMITTED",
+        annotations=(),
+        admitted=True,
+    )
+    monkeypatch.setattr(module, "build_design_info", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(
+        module,
+        "admit_construct",
+        lambda *_args, **_kwargs: (tentative, admitted_report),
+    )
+    monkeypatch.setattr(
+        ConstructBuildState,
+        "_coupled_recheck",
+        lambda *_args, **_kwargs: ([hard_recheck], {"results": [], "timings": []}),
+    )
+
+    feedback = state.submit_construct(
+        construct="Y",
+        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        priors={"beta_Y_X": _normal(0.2, 0.1)},
+    )
+
+    assert "BLOCKED" in feedback
+    assert state.admission is initial
+    assert state.current_construct == "Y"
+
+
 def test_render_admission_feedback_lists_failed_checks():
     report = AdmissionReport(
         name="Y",
@@ -206,6 +290,7 @@ def test_render_admission_feedback_lists_failed_checks():
             CheckResult("C1a finiteness", "Y", "0%", "0%", True, "ok"),
             CheckResult("C3 resolvability", "Y", "0.05 d", "[0.3, 2.5]", False, "too fast"),
         ),
+        timings=(),
         outcome="NEEDS DECISION: C3 resolvability",
         annotations=(),
         admitted=False,
@@ -217,13 +302,79 @@ def test_render_admission_feedback_lists_failed_checks():
     assert "[PASS]" in text
 
 
+def test_admission_report_payload_includes_backend_timing_breakdown():
+    report = AdmissionReport(
+        name="X",
+        results=(CheckResult("C1a finiteness", "X", "0%", "0%", True, "ok"),),
+        timings=(
+            AdmissionTiming("model_compilation", "Model compilation", 12.5),
+            AdmissionTiming(
+                "c1_confinement",
+                "C1 confinement",
+                3.25,
+                ("C1a finiteness",),
+            ),
+        ),
+        outcome="ADMITTED",
+        annotations=(),
+        admitted=True,
+    )
+
+    payload = _admission_report_payload(report, ConstructContribution(name="X"), attempt=2)
+
+    assert payload["attempt"] == 2
+    assert payload["timings"] == [
+        {
+            "phase": "model_compilation",
+            "label": "Model compilation",
+            "duration_ms": 12.5,
+            "checks": [],
+        },
+        {
+            "phase": "c1_confinement",
+            "label": "C1 confinement",
+            "duration_ms": 3.25,
+            "checks": ["C1a finiteness"],
+        },
+    ]
+
+
+def test_ordered_logistic_signal_uses_sampled_cutpoints():
+    linear_predictor = np.array([[-2.0, 0.0, 2.0], [-1.0, 0.5, 1.5]])
+    predictive = {
+        "obs_ordered_base": np.zeros((2, 1)),
+        "obs_ordered_gaps": np.ones((2, 1, 2)),
+    }
+
+    signal = _signal_from_linear_predictor(
+        LinkFunction.CUMULATIVE_LOGIT,
+        linear_predictor,
+        spec=SimpleNamespace(manifest_level_counts=[4]),
+        pred=predictive,
+        manifest_index=0,
+    )
+
+    assert signal.shape == (*linear_predictor.shape, 4)
+    assert np.allclose(signal.sum(axis=2), 1.0)
+    expected_category = np.sum(signal * np.arange(4), axis=2)
+    assert np.all(np.diff(expected_category, axis=1) > 0)
+
+
 def test_build_construct_messages_surfaces_params_and_feedback():
     spec = _make_causal_design_dict()
     state = ConstructBuildState(
         causal_design=spec,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
-        admission=AdmissionState(names=("X",)),
+        admission=AdmissionState(
+            names=("X",),
+            priors={
+                "sigma_X": {
+                    "distribution": "TruncatedNormal",
+                    "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
+                }
+            },
+        ),
         cursor=1,  # active construct is Y, with X already admitted
     )
     system, user = build_construct_messages(
@@ -234,15 +385,20 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         indicator_audits={},
     )
     assert "continuous-time latent state-space model" in system
+    assert "invoking the registered MCP tool `submit_construct`" in system
+    assert "`indicators`, not" in system
+    assert "`emissions`" in system
     assert "Active construct: `Y`" in user
     assert "`rho_Y`" in user  # own-dynamics param offered
     assert "`beta_X_Y`" in user  # parent edge param offered
     assert "Does X drive Y?" in user
+    assert "MUST use `TruncatedNormal` to match admitted parameters" in user
 
     # On a re-attempt, the last failing report for this construct is injected.
     state.last_report = AdmissionReport(
         name="Y",
         results=(CheckResult("C2 latent scale", "Y", "8.0", "[0.3, 3]", False, "too wide"),),
+        timings=(),
         outcome="NEEDS DECISION: C2 latent scale",
         annotations=(),
         admitted=False,
@@ -258,6 +414,37 @@ def test_build_construct_messages_surfaces_params_and_feedback():
     assert "C2 latent scale" in user2
 
 
+def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observed_level():
+    spec = _make_causal_design_dict()
+    state = ConstructBuildState(
+        causal_design=spec,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
+    x1 = next(ind for ind in spec["measurement"]["indicators"] if ind["name"] == "x1")
+    x1["measurement_dtype"] = "ordinal"
+    x1["ordinal_levels"] = ["low", "medium", "high"]
+
+    _system, user = build_construct_messages(
+        state=state,
+        construct="X",
+        question="Does X drive Y?",
+        causal_design=spec,
+        indicator_audits={
+            "x1": {
+                "profile": {
+                    "n_obs": 1,
+                    "min": 0.0,
+                    "max": 0.0,
+                }
+            }
+        },
+    )
+
+    assert "SPARSE LEVEL COVERAGE: only one level is observed" in user
+    assert "declared ordinal levels define the likelihood support" in user
+
+
 def test_submit_construct_schema_is_well_formed():
     props = SUBMIT_CONSTRUCT_SCHEMA["properties"]
     assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {"construct", "indicators", "priors"}
@@ -265,21 +452,7 @@ def test_submit_construct_schema_is_well_formed():
     family_enum = props["indicators"]["items"]["properties"]["family"]["enum"]
     assert "gaussian" in family_enum
     assert "beta" in family_enum
-
-
-def test_public_entrypoints_are_exposed():
-    # The build loop + design derivation are wired into the stage flow in Commit 5;
-    # here we pin their public surface and that the tool builds with the right name.
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
-        build_design_info,
-        make_submit_construct_tool,
-        run_model_spec_construct_build,
-    )
-
-    assert callable(run_model_spec_construct_build)
-    assert callable(build_design_info)
-    state = ConstructBuildState(
-        causal_design=_make_causal_design_dict(), data_for_model=pl.DataFrame(), order=["X"]
-    )
-    tool = make_submit_construct_tool(state)
-    assert tool.name == "submit_construct"
+    prior_schema = props["priors"]["additionalProperties"]
+    assert set(prior_schema["required"]) == {"distribution", "params", "reasoning"}
+    assert prior_schema["additionalProperties"] is False
+    assert "TruncatedNormal" in prior_schema["properties"]["distribution"]["enum"]

@@ -70,7 +70,7 @@ class ObservationFamilySpec:
 
     # --- emissions.py concerns ---
     emission_fns: dict[str, Callable]
-    """link_str -> factory(extra_params) -> emission_log_prob_fn."""
+    """link_str -> factory(extra_params) -> log_prob(y, eta, R, mask)."""
     score_weight_fns: dict[str, Callable]
     """link_str -> factory(extra_params) -> score_weight_fn | None."""
 
@@ -205,19 +205,17 @@ def _emission_factory_poisson(_params: dict):
 
 def _emission_factory_student_t(params: dict):
     df = _positive_param(params, "obs_df", 5.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_student_t(y, z, H, d, R, m, df)
+    return lambda y, eta, R, m: emission_math.emission_log_prob_student_t(y, eta, R, m, df)
 
 
 def _emission_factory_gamma_log(params: dict):
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_gamma(y, z, H, d, R, m, shape)
+    return lambda y, eta, R, m: emission_math.emission_log_prob_gamma(y, eta, R, m, shape)
 
 
 def _emission_factory_gamma_inverse(params: dict):
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_gamma_inverse(
-        y, z, H, d, R, m, shape
-    )
+    return lambda y, eta, R, m: emission_math.emission_log_prob_gamma_inverse(y, eta, R, m, shape)
 
 
 def _emission_factory_bernoulli_logit(_params: dict):
@@ -230,34 +228,30 @@ def _emission_factory_bernoulli_probit(_params: dict):
 
 def _emission_factory_negbin(params: dict):
     r = _positive_param(params, "obs_r", 5.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_negative_binomial(
-        y, z, H, d, R, m, r
-    )
+    return lambda y, eta, R, m: emission_math.emission_log_prob_negative_binomial(y, eta, R, m, r)
 
 
 def _emission_factory_beta_logit(params: dict):
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_beta(y, z, H, d, R, m, conc)
+    return lambda y, eta, R, m: emission_math.emission_log_prob_beta(y, eta, R, m, conc)
 
 
 def _emission_factory_beta_probit(params: dict):
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_beta_probit(
-        y, z, H, d, R, m, conc
-    )
+    return lambda y, eta, R, m: emission_math.emission_log_prob_beta_probit(y, eta, R, m, conc)
 
 
 def _emission_factory_ordered_logistic(params: dict):
     level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_ordered_logistic(
-        y, z, H, d, R, m, cutpoints, level_counts
+    return lambda y, eta, R, m: emission_math.emission_log_prob_ordered_logistic(
+        y, eta, R, m, cutpoints, level_counts
     )
 
 
 def _emission_factory_categorical(params: dict):
     level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
-    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_categorical(
-        y, z, H, d, R, m, intercepts, slopes, level_counts
+    return lambda y, eta, R, m: emission_math.emission_log_prob_categorical(
+        y, eta, R, m, intercepts, slopes, level_counts
     )
 
 
@@ -889,13 +883,8 @@ def get_posterior_predictive_switch_index(
     link: LinkFunction | str | None = None,
 ) -> int:
     """Resolve the lax.switch branch index for posterior predictive sampling."""
-    family = _coerce_distribution_family(dist)
-    spec = FAMILY_REGISTRY[family]
-    default_index = _POSTERIOR_PREDICTIVE_SWITCH_INDEX[(family, spec.default_link)]
-    link_fn = _coerce_link_function(link)
-    if link_fn is None:
-        return default_index
-    return _POSTERIOR_PREDICTIVE_SWITCH_INDEX.get((family, link_fn), default_index)
+    family, link_fn = resolve_family_link(dist, link)
+    return _POSTERIOR_PREDICTIVE_SWITCH_INDEX[(family, link_fn)]
 
 
 def any_family_needs_level_metadata(
@@ -921,11 +910,28 @@ def resolve_manifest_families_and_links(
         )
 
     effective_links = manifest_links if manifest_links is not None else [None] * len(dists)
-    links: list[LinkFunction] = []
-    for dist, link in zip(dists, effective_links, strict=False):
-        link_fn = _coerce_link_function(link)
-        if link_fn is None:
-            links.append(FAMILY_REGISTRY[dist].default_link)
-        else:
-            links.append(link_fn)
+    links = [
+        resolve_family_link(dist, link)[1]
+        for dist, link in zip(dists, effective_links, strict=True)
+    ]
     return dists, links
+
+
+def resolve_family_link(
+    dist: DistributionFamily | str,
+    link: LinkFunction | str | None,
+) -> tuple[DistributionFamily, LinkFunction]:
+    """Resolve one family/link pair and reject incompatible explicit links."""
+    family = _coerce_distribution_family(dist)
+    link_fn = _coerce_link_function(link)
+    if link_fn is None:
+        link_fn = FAMILY_REGISTRY[family].default_link
+
+    allowed_links = VALID_LINKS_FOR_DISTRIBUTION[family]
+    if link_fn not in allowed_links:
+        expected = ", ".join(sorted(candidate.value for candidate in allowed_links))
+        raise ValueError(
+            f"Link '{link_fn.value}' is invalid for observation family '{family.value}'; "
+            f"expected one of {{{expected}}}."
+        )
+    return family, link_fn

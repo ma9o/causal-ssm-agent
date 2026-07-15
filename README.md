@@ -28,7 +28,7 @@ flowchart LR
   DS --> M 
   L --> M --> ETL --> ID
   ID -- yes --> MS
-  subgraph Bayesian modeling state machine 
+  subgraph Bayesian construct-admission state machine
   MS --> SIM
   end
   SIM --> R
@@ -42,7 +42,7 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 - **Methodological rigor without friction** - An user should be simply able to provide a dataset and a question, and the software should provide the most rigorous possible answer without pushing any methodological decision onto the user.
 - **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
 - **Support for large datasets, irregular timestamps and semantic heterogeneity** - via a continuous-discrete nonlinear state-space model — continuous-time latent dynamics observed at discrete, irregular timestamps — with non-Gaussian indicator-specific likelihoods (Poisson, Bernoulli, Beta, etc.).
-- **Robust LLM-based numerical modeling and prior elicitation** - by embedding the LLM decision process in a state machine that minimizes the LLM's decision surface at each step, and gates progression on numerical checks (e.g. prior/posterior predictive, SDE stability, scale adequacy, etc.)
+- **Robust LLM-based numerical modeling and prior elicitation** - by admitting one construct at a time, checkpointing every accepted contribution, and gating progression on exact prior-predictive reachability checks.
 - **Fast and accurate parameter and state estimation in `jax`** - Exact inference in minutes using parallel-in-time particle smoothing on GPU ([Corenflos et al. 2024](https://arxiv.org/pdf/2401.14868)). Efficient caching ensures that we never waste time waiting for compilation.
 - **Compatible with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
 
@@ -52,7 +52,7 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 
 | <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Causal design and measurement structure | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
 |:--:|:--:|
-| <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Functional modeling state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Statistical model specification** <tr></tr> |
+| <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Construct-admission state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Statistical model specification** <tr></tr> |
 | <img src="docs/assets/stage5.gif" width="400" alt="stage5"><br>**Inference diagnostics** | <img src="docs/assets/stage6.gif" width="400" alt="stage2"><br>**Counterfactual simulation** |
 
 ## Modeling

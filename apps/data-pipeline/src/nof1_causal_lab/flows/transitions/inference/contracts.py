@@ -21,8 +21,6 @@ from nof1_causal_lab.models.ssm.inference.schemas import (  # noqa: TC001
     SMCDiagnostics,
 )
 
-IS_INTERACTIVE_CONTEXT = False
-
 
 class PPCResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -34,7 +34,7 @@ from __future__ import annotations
 import functools
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
@@ -58,6 +58,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
     _DSMC_LEAF_PROPOSALS,
     _LATENT_SMOOTHER_DSMC,
+    DSMCLeafProposal,
     MPGibbsLatentSmoother,
     MPGibbsStatic,
     _resolve_latent_smoother,
@@ -72,6 +73,9 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import (
     SMOOTHERS,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
 
 _DEFAULT_MIN_SCALE = 1e-6
 _DEFAULT_MAX_SCALE = 1e3
@@ -128,13 +132,13 @@ class MarginalParticleGibbsKernel:
     adapt_amala_delta: bool
     amala_kappa: float
     amala_grad_clip: float
-    dsmc_leaf_proposal: str
+    dsmc_leaf_proposal: DSMCLeafProposal
     latent_block_coords: int | None
     diagnostic_metrics: frozenset[str]
 
 
 def build_marginal_particle_gibbs_kernel(
-    bundle: dict[str, Any],
+    bundle: ParticleRuntimeBundle,
     *,
     num_particles: int,
     num_parameter_particles: int,
@@ -157,7 +161,7 @@ def build_marginal_particle_gibbs_kernel(
     amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: str = "amala_exact",
+    dsmc_leaf_proposal: DSMCLeafProposal = "amala_exact",
     latent_block_coords: int | None = None,
     paid_mix_z_weight: float = 0.85,
     paid_mix_pilot_weight: float = 0.10,
@@ -264,15 +268,15 @@ def build_marginal_particle_gibbs_kernel(
     if target_accept is None:
         target_accept = _DEFAULT_PARAM_TARGET_ACCEPT
 
-    latent_context_runtime_fn = bundle["latent_context_runtime_fn"]
-    log_prior_unc_fn = bundle["log_prior_unc_fn"]
-    initial_latent_moments_fn = bundle["initial_latent_moments_from_context_fn"]
-    obs_increment_fn = bundle["observation_increment_log_prob_from_context_runtime_fn"]
-    trajectory_log_prob_fn = bundle["trajectory_log_prob_from_context_runtime_fn"]
-    prior_terms_from_context_fn = bundle["prior_terms_from_context_fn"]
-    runtime_observations = bundle["observations"]
-    runtime_times = bundle["times"]
-    complete_log_posterior_runtime_fn = bundle["complete_log_posterior_runtime_fn"]
+    latent_context_runtime_fn = bundle.cached.latent_context_runtime_fn
+    log_prior_unc_fn = bundle.cached.log_prior_unc_fn
+    initial_latent_moments_fn = bundle.cached.initial_latent_moments_from_context_fn
+    obs_increment_fn = bundle.cached.observation_increment_log_prob_from_context_runtime_fn
+    trajectory_log_prob_fn = bundle.cached.trajectory_log_prob_from_context_runtime_fn
+    prior_terms_from_context_fn = bundle.cached.prior_terms_from_context_fn
+    runtime_observations = bundle.observations
+    runtime_times = bundle.times
+    complete_log_posterior_runtime_fn = bundle.cached.complete_log_posterior_runtime_fn
 
     def _theta_logpost_grad(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
         # Conditional parameter-gradient oracle g(z) ≈ ∇_z log π(z): the gradient of the
@@ -290,7 +294,7 @@ def build_marginal_particle_gibbs_kernel(
         if parameter_preconditioner_chol is None
         else jnp.asarray(
             parameter_preconditioner_chol,
-            dtype=bundle["flat_example"].dtype,
+            dtype=bundle.cached.flat_example.dtype,
         )
     )
 
@@ -379,11 +383,11 @@ def build_marginal_particle_gibbs_kernel(
         pilot_means=pilot_means,
         pilot_vars=pilot_vars,
         pilot_wide_vars=pilot_wide_vars,
-        transition_initial_log_prob_fn=bundle["transition_initial_log_prob_from_context_fn"],
-        transition_log_prob_fn=bundle["transition_log_prob_from_context_fn"],
-        transition_log_probs_for_pairs_fn=bundle["transition_log_probs_for_pairs_from_context_fn"],
-        transition_pairwise_log_probs_fn=bundle["transition_pairwise_log_probs_from_context_fn"],
-        transition_sample_fn=bundle["transition_sample_from_context_fn"],
+        transition_initial_log_prob_fn=bundle.cached.transition_initial_log_prob_from_context_fn,
+        transition_log_prob_fn=bundle.cached.transition_log_prob_from_context_fn,
+        transition_log_probs_for_pairs_fn=bundle.cached.transition_log_probs_for_pairs_from_context_fn,
+        transition_pairwise_log_probs_fn=bundle.cached.transition_pairwise_log_probs_from_context_fn,
+        transition_sample_fn=bundle.cached.transition_sample_from_context_fn,
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
 
@@ -463,13 +467,13 @@ def build_marginal_particle_gibbs_kernel(
                 )
                 flipped_latent = latent_path * coord_sign[None, :]
                 flipped_context = latent_context_runtime_fn(flipped_position, runtime_times)
-                flipped_complete, flipped_traj_lp = bundle[
-                    "complete_log_posterior_from_context_runtime_fn"
-                ](
-                    flipped_position,
-                    flipped_context,
-                    flipped_latent,
-                    runtime_observations,
+                flipped_complete, flipped_traj_lp = (
+                    bundle.cached.complete_log_posterior_from_context_runtime_fn(
+                        flipped_position,
+                        flipped_context,
+                        flipped_latent,
+                        runtime_observations,
+                    )
                 )
                 flip_delta = flipped_complete.astype(complete_dtype) - next_complete
                 flip_accepted = (
@@ -590,7 +594,7 @@ def _initialize_chain_state(
     *,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    bundle: dict[str, Any],
+    bundle: ParticleRuntimeBundle,
     initial_latent_delta: jnp.ndarray,
     param_step_size: float,
     param_min_scale: float,
@@ -598,14 +602,14 @@ def _initialize_chain_state(
     param_target_accept: float,
     initial_latent_trajectory: jnp.ndarray | None,
 ) -> TrajectoryMCMCState:
-    context = bundle["latent_context_runtime_fn"](init_position, times)
-    predictive_latent = bundle["initial_latent_from_context_fn"](context)
+    context = bundle.cached.latent_context_runtime_fn(init_position, times)
+    predictive_latent = bundle.cached.initial_latent_from_context_fn(context)
     latent_trajectory = (
         predictive_latent
         if initial_latent_trajectory is None
         else jnp.asarray(initial_latent_trajectory, dtype=predictive_latent.dtype)
     )
-    complete_lp, trajectory_lp = bundle["complete_log_posterior_from_context_runtime_fn"](
+    complete_lp, trajectory_lp = bundle.cached.complete_log_posterior_from_context_runtime_fn(
         init_position,
         context,
         latent_trajectory,
@@ -660,7 +664,7 @@ def _sample_public_latent_batch(
 
 
 def run_marginal_particle_gibbs(
-    bundle: dict[str, Any],
+    bundle: ParticleRuntimeBundle,
     *,
     kernel: MarginalParticleGibbsKernel,
     num_warmup: int,
@@ -708,24 +712,24 @@ def run_marginal_particle_gibbs(
         raise ValueError("profile_trace_start_step must be less than the total step count.")
     if total_steps <= 0:
         raise ValueError("marginal_particle_gibbs requires at least one MCMC step.")
-    observations = bundle["observations"]
-    times = bundle["times"]
+    observations = bundle.observations
+    times = bundle.times
     num_steps = int(observations.shape[0])
     base_key = random.PRNGKey(seed)
     init_key, chain_key = random.split(base_key)
-    dim = int(bundle["flat_example"].shape[0])
+    dim = int(bundle.cached.flat_example.shape[0])
     if init_positions is None:
         init_keys = random.split(init_key, num_chains)
         init_noise = jax.vmap(
             lambda key: random.normal(
                 key,
-                bundle["flat_example"].shape,
-                dtype=bundle["flat_example"].dtype,
+                bundle.cached.flat_example.shape,
+                dtype=bundle.cached.flat_example.dtype,
             )
         )(init_keys)
-        chain_init_positions = bundle["flat_example"][None, :] + init_scale * init_noise
+        chain_init_positions = bundle.cached.flat_example[None, :] + init_scale * init_noise
     else:
-        chain_init_positions = jnp.asarray(init_positions, dtype=bundle["flat_example"].dtype)
+        chain_init_positions = jnp.asarray(init_positions, dtype=bundle.cached.flat_example.dtype)
         if chain_init_positions.shape != (num_chains, dim):
             raise ValueError(
                 "init_positions must have shape (num_chains, dim); got "
@@ -805,7 +809,7 @@ def run_marginal_particle_gibbs(
     diagnostic_flags = build_mpgibbs_diagnostic_flags(
         diagnostic_metrics=kernel.diagnostic_metrics,
     )
-    public_latent_fn = bundle["public_latent_trajectory_runtime_fn"]
+    public_latent_fn = bundle.cached.public_latent_trajectory_runtime_fn
     if compute_latent_posterior_summary:
         public_example = _sample_public_latent_batch(
             states,

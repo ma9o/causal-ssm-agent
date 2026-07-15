@@ -12,15 +12,132 @@ import json
 import pytest
 
 from nof1_causal_lab.utils.harness.stream_json import (
+    ClaudeStreamState,
+    CodexStreamState,
+    PiStreamState,
     apply_claude_event,
     apply_codex_event,
+    apply_pi_event,
     finalize_codex_trace,
     finalize_trace,
     format_claude_event_for_log,
     format_codex_event_for_log,
-    parse_claude_stream,
-    parse_codex_stream,
+    format_pi_event_for_log,
 )
+
+
+def _parse_stream(lines, state, apply_event, label):
+    for idx, raw in enumerate(lines):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{label} stream line {idx} is not valid JSON: {line[:200]!r}"
+            ) from exc
+        if not isinstance(event, dict):
+            raise ValueError(f"{label} stream line {idx} is JSON but not an object: {line[:200]!r}")
+        apply_event(state, event)
+    return state
+
+
+def parse_claude_stream(lines):
+    return _parse_stream(lines, ClaudeStreamState(), apply_claude_event, "claude")
+
+
+def parse_codex_stream(lines):
+    return _parse_stream(lines, CodexStreamState(), apply_codex_event, "codex")
+
+
+def parse_pi_stream(lines):
+    return _parse_stream(lines, PiStreamState(), apply_pi_event, "pi")
+
+
+def _pi_events_tool_loop() -> list[dict]:
+    return [
+        {"type": "session", "version": 3, "id": "pi-session"},
+        {
+            "type": "message_end",
+            "message": {"role": "user", "content": "Validate this", "timestamp": 1000},
+        },
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "toolCall",
+                        "id": "call-1",
+                        "name": "validate_model",
+                        "arguments": {"payload": "x"},
+                    }
+                ],
+                "model": "gpt-5.4-mini",
+                "usage": {"input": 20, "output": 5, "reasoning": 3},
+                "stopReason": "toolUse",
+                "timestamp": 1500,
+            },
+        },
+        {
+            "type": "tool_execution_end",
+            "toolCallId": "call-1",
+            "toolName": "validate_model",
+            "result": {"content": [{"type": "text", "text": "VALID"}], "details": {}},
+            "isError": False,
+        },
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Done."}],
+                "model": "gpt-5.4-mini",
+                "usage": {"input": 8, "output": 2, "reasoning": 1},
+                "stopReason": "stop",
+                "timestamp": 2200,
+            },
+        },
+        {"type": "nof1.turn_timing", "duration_seconds": 1.2},
+    ]
+
+
+class TestPiParser:
+    def test_reconstructs_tool_loop_and_usage(self):
+        state = parse_pi_stream([json.dumps(event) for event in _pi_events_tool_loop()])
+
+        assert state.session_id == "pi-session"
+        assert state.model == "gpt-5.4-mini"
+        assert state.final_text == "Done."
+        assert [message.role for message in state.messages] == [
+            "user",
+            "assistant",
+            "tool",
+            "assistant",
+        ]
+        tool_calls = state.messages[1].tool_calls
+        assert tool_calls is not None
+        assert tool_calls[0]["function"]["name"] == "validate_model"
+        assert state.messages[2].tool_result == "VALID"
+        assert state.usage.input_tokens == 28
+        assert state.usage.output_tokens == 7
+        assert state.usage.reasoning_tokens == 4
+        assert state.total_time_seconds == 1.2
+
+    def test_incremental_apply_and_log_format(self):
+        from nof1_causal_lab.utils.harness.stream_json import PiStreamState
+
+        state = PiStreamState()
+        for event in _pi_events_tool_loop():
+            apply_pi_event(state, event)
+
+        assert state.final_text == "Done."
+        formatted = format_pi_event_for_log(_pi_events_tool_loop()[4])
+        assert formatted == "pi message: Done. [in=8 out=2 reasoning=1]"
+
+    def test_invalid_json_raises(self):
+        with pytest.raises(ValueError, match="pi stream line 0 is not valid JSON"):
+            parse_pi_stream(["not-json"])
 
 
 def _claude_events_simple() -> list[dict]:

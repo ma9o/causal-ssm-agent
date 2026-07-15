@@ -9,7 +9,6 @@ from nof1_causal_lab.machine.moves import (
     apply_transition,
     freshness_report,
     input_pins,
-    is_fresh,
     is_stale,
     legal_moves,
     run_retractions,
@@ -235,9 +234,9 @@ class TestStaleness:
             posterior,
         )
 
-    def test_fresh_chain_reports_fresh(self):
+    def test_fresh_chain_is_not_stale(self):
         state = self._fitted_chain()
-        assert is_fresh(state, "posterior")
+        assert state.has("posterior")
         assert not is_stale(state, "posterior")
 
     def test_editing_measurement_structure_stales_produced_descendants(self):
@@ -263,7 +262,6 @@ class TestStaleness:
         assert is_stale(state, "panel")
         assert is_stale(state, "statistical_model_spec")
         assert is_stale(state, "posterior")
-        assert not is_fresh(state, "posterior")
         # Derived nodes are recomputed in the move and are never reported stale.
         assert not is_stale(state, "causal_design")
         assert not is_stale(state, "identification_report")
@@ -349,7 +347,8 @@ class TestStaleness:
                 )
             ],
         )
-        assert is_fresh(state, "posterior")
+        assert state.has("posterior")
+        assert not is_stale(state, "posterior")
 
 
 class TestInputPins:

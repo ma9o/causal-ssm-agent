@@ -56,7 +56,7 @@ data/
 │   ├── input/             # Raw uploaded files for the raw_data transition
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
 │   ├── episode/           # Transition journal and telemetry events
-│   └── run/               # Internal sidecars only, such as model-spec compile cache
+│   └── run/               # Internal sidecars: LLM traces and immutable model-spec checkpoints
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 

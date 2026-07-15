@@ -6,9 +6,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as ndist
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -203,52 +201,6 @@ def default_prior_registry_for_sites(
 ) -> PriorRegistry:
     """Build a default prior registry keyed by descriptor name for the given active sites."""
     return PriorRegistry({site.name: default_prior_for_descriptor(site) for site in sites})
-
-
-def _broadcast_prior_param(value: Any, shape: tuple[int, ...]):
-    if not shape:
-        return jnp.asarray(value)
-    return jnp.broadcast_to(jnp.asarray(value), shape)
-
-
-def materialize_prior_distribution(prior_cfg: Mapping[str, Any]) -> ndist.Distribution:
-    """Materialize a NumPyro distribution from canonical prior config."""
-    if "params" not in prior_cfg:
-        raise ValueError("Prior config must use the canonical {'family', 'params'} shape.")
-    family = PriorDistributionFamily(prior_cfg.get("family", PriorDistributionFamily.NORMAL))
-    params = prior_cfg.get("params", {})
-    shape = tuple(prior_cfg.get("shape", ()))
-
-    def _bcast(value: Any):
-        return _broadcast_prior_param(value, shape)
-
-    if family is PriorDistributionFamily.NORMAL:
-        return ndist.Normal(_bcast(params.get("mu", 0.0)), _bcast(params.get("sigma", 1.0)))
-    if family is PriorDistributionFamily.HALF_NORMAL:
-        return ndist.HalfNormal(_bcast(params.get("sigma", 1.0)))
-    if family is PriorDistributionFamily.TRUNCATED_NORMAL:
-        return ndist.TruncatedNormal(
-            loc=_bcast(params.get("mu", 0.0)),
-            scale=_bcast(params.get("sigma", 1.0)),
-            low=params.get("lower", -float("inf")),
-            high=params.get("upper", float("inf")),
-        )
-    if family is PriorDistributionFamily.LOG_NORMAL:
-        return ndist.LogNormal(_bcast(params.get("mu", 0.0)), _bcast(params.get("sigma", 1.0)))
-    if family is PriorDistributionFamily.GAMMA:
-        return ndist.Gamma(
-            _bcast(params.get("concentration", 2.0)),
-            _bcast(params.get("rate", 1.0)),
-        )
-    if family is PriorDistributionFamily.EXPONENTIAL:
-        return ndist.Exponential(_bcast(params.get("rate", 1.0)))
-    if family is PriorDistributionFamily.BETA:
-        return ndist.Beta(_bcast(params.get("alpha", 2.0)), _bcast(params.get("beta", 2.0)))
-    if family is PriorDistributionFamily.UNIFORM:
-        return ndist.Uniform(_bcast(params.get("lower", 0.0)), _bcast(params.get("upper", 1.0)))
-    if family is PriorDistributionFamily.DELTA:
-        return ndist.Delta(_bcast(params.get("value", 0.0)))
-    raise ValueError(f"Unsupported prior family for SSM: {family.value!r}")
 
 
 def prior_spec_from_normalized_params(

@@ -30,13 +30,10 @@ from nof1_causal_lab.models.ssm.parameterization import (
     compile_prior_semantics,
     deserialize_prior_runtime_state,
     deserialize_site_registry,
-    group_sites_by_assembly_role,
     load_prior_runtime_bundle,
-    log_prior_unconstrained,
     sample_prior_unconstrained,
     serialize_prior_runtime_state,
     serialize_site_registry,
-    verify_registry_matches_trace,
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
@@ -46,8 +43,8 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind
-from nof1_causal_lab.models.ssm.testing import (
+from nof1_causal_lab.models.ssm.structure.sites import PriorAuthoringTransform, SiteKind
+from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -328,34 +325,41 @@ def statistical_model_spec_and_priors():
 # ---------------------------------------------------------------------------
 
 
+def _assert_registry_matches_trace(registry, site_info):
+    """Keep the registry/trace integration assertion owned by this test module."""
+    assert {site.name for site in registry} == set(site_info)
+    for site in registry:
+        assert site.shape == site_info[site.name]["shape"]
+
+
 class TestSiteRegistry:
     def test_registry_names_match_trace(self, simple_model):
         """Registry produces the same site names as model tracing."""
         spec = simple_model.spec
         registry = build_site_registry(spec)
-        backend = simple_model.make_likelihood_backend()
+        backend = simple_model.make_laplace_backend(6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
-        verify_registry_matches_trace(registry, site_info)
+        _assert_registry_matches_trace(registry, site_info)
 
     def test_registry_names_match_trace_dag(self, dag_model):
         """Registry matches trace for DAG-constrained model with cint."""
         spec = dag_model.spec
         registry = build_site_registry(spec)
-        backend = dag_model.make_likelihood_backend()
+        backend = dag_model.make_laplace_backend(6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
-        verify_registry_matches_trace(registry, site_info)
+        _assert_registry_matches_trace(registry, site_info)
 
     def test_registry_shapes_match_trace(self, simple_model):
         """Registry shapes match traced shapes."""
         spec = simple_model.spec
         registry = build_site_registry(spec)
-        backend = simple_model.make_likelihood_backend()
+        backend = simple_model.make_laplace_backend(6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
@@ -379,13 +383,13 @@ class TestSiteRegistry:
         )
         model = SSMModel(spec)
         registry = build_site_registry(spec)
-        backend = model.make_likelihood_backend()
+        backend = model.make_laplace_backend(6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
 
-        verify_registry_matches_trace(registry, site_info)
+        _assert_registry_matches_trace(registry, site_info)
         manifest_site = next(site for site in registry if site.name == "manifest_var_diag_free")
         assert manifest_site.shape == (1,)
 
@@ -511,11 +515,11 @@ class TestSiteRegistry:
         assert site_map["static_state_sd_free"].shape == (1,)
         assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
 
-        backend = model.make_likelihood_backend()
+        backend = model.make_laplace_backend(6)
         obs = jnp.zeros((5, spec.n_manifest))
         times = jnp.arange(5, dtype=jnp.float32)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
-        verify_registry_matches_trace(registry, site_info)
+        _assert_registry_matches_trace(registry, site_info)
         assert site_info["static_state_sd_free"]["shape"] == (1,)
 
 
@@ -537,11 +541,15 @@ class TestSpecBlockAssembly:
                 template=jnp.eye(2),
             ),
         )
-        cov = spec.assemble_t0_cov(static_state_sd_free=jnp.array([2.0]))
+        model = SSMModel(spec)
+        with handlers.seed(rng_seed=0), handlers.trace() as trace:
+            cov = model._compose_t0_cov({"static_state_sds": jnp.array([2.0])})
+        assert "t0_correlation_positive_definite" in trace
 
         np.testing.assert_allclose(
             np.asarray(cov),
             np.array([[5.0, 4.0], [4.0, 5.0]]),
+            atol=1e-6,
         )
 
 
@@ -566,7 +574,7 @@ class TestTransformsAndUnravel:
         registry = build_site_registry(spec)
         D, _unravel_fn = build_unravel_fn(registry)
 
-        backend = simple_model.make_likelihood_backend()
+        backend = simple_model.make_laplace_backend(6)
         obs = jnp.zeros((10, spec.n_manifest))
         times = jnp.linspace(0, 1, 10)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
@@ -584,18 +592,6 @@ class TestTransformsAndUnravel:
 
 
 class TestDeterministicAssembly:
-    def test_group_sites_by_assembly_role(self, simple_spec):
-        """Assembly grouping is driven by registry metadata."""
-        registry = build_site_registry(simple_spec)
-        grouped = group_sites_by_assembly_role(registry)
-        assert "dynamics" in grouped
-        assert "diffusion" in grouped
-        assert {site.name for site in grouped["dynamics"]} == {
-            "vf_0_decay",
-            "vf_1_weight",
-            "vf_2_weight",
-        }
-
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
         registry = build_site_registry(simple_spec)
@@ -672,7 +668,7 @@ class TestDeterministicAssembly:
             det["t0_means"],
             jnp.broadcast_to(spec.t0_means_block.assemble(), (3, 2)),
         )
-        expected_t0_cov = spec.assemble_t0_cov()
+        expected_t0_cov = spec.t0_chol_block.assemble_cov()
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
@@ -824,185 +820,6 @@ class TestPriorRuntimeState:
 
 
 # ---------------------------------------------------------------------------
-# Prior log-probability correctness
-# ---------------------------------------------------------------------------
-
-
-class TestLogPriorCorrectness:
-    def test_normal_log_prob_matches_numpyro(self):
-        """Pure-JAX Normal log_prob terms match NumPyro."""
-        from nof1_causal_lab.models.ssm.parameterization import _normal_log_prob_terms
-
-        x = jnp.array([0.5, -1.0, 2.0])
-        loc = jnp.array([0.0, 0.0, 1.0])
-        scale = jnp.array([1.0, 2.0, 0.5])
-        expected = jnp.sum(dist.Normal(loc, scale).log_prob(x))
-        actual = jnp.sum(_normal_log_prob_terms(x, loc, scale))
-        assert jnp.allclose(actual, expected, atol=1e-5)
-
-    def test_half_normal_log_prob_matches_numpyro(self):
-        """Pure-JAX HalfNormal log_prob terms match NumPyro."""
-        from nof1_causal_lab.models.ssm.parameterization import _half_normal_log_prob_terms
-
-        x = jnp.array([0.5, 1.0, 2.0])
-        scale = jnp.array([1.0, 2.0, 0.5])
-        expected = jnp.sum(dist.HalfNormal(scale).log_prob(x))
-        actual = jnp.sum(_half_normal_log_prob_terms(x, scale))
-        assert jnp.allclose(actual, expected, atol=1e-5)
-
-    def test_gamma_log_prob_matches_numpyro(self):
-        """Pure-JAX Gamma log_prob terms match NumPyro."""
-        from nof1_causal_lab.models.ssm.parameterization import _gamma_log_prob_terms
-
-        x = jnp.array([0.5, 1.0, 2.0])
-        concentration = jnp.array([2.0, 5.0, 1.0])
-        rate = jnp.array([1.0, 0.5, 2.0])
-        expected = jnp.sum(dist.Gamma(concentration, rate).log_prob(x))
-        actual = jnp.sum(_gamma_log_prob_terms(x, concentration, rate))
-        assert jnp.allclose(actual, expected, atol=1e-5)
-
-    def test_log_prior_unc_matches_trace_based(self, simple_model):
-        """Registry-based log prior matches trace-based log prior."""
-        spec = simple_model.spec
-        registry = build_site_registry(spec)
-        D, unravel_fn = build_unravel_fn(registry)
-        prior_state = build_prior_runtime_state(registry, simple_model.priors)
-
-        # Trace-based reference
-        backend = simple_model.make_likelihood_backend()
-        obs = jnp.zeros((10, spec.n_manifest))
-        times = jnp.linspace(0, 1, 10)
-        site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
-        trace_transforms = {name: info["transform"] for name, info in site_info.items()}
-        trace_distributions = {name: info["distribution"] for name, info in site_info.items()}
-        example_unc = {
-            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
-        }
-        _, trace_unravel = ravel_pytree(example_unc)
-
-        # Evaluate at a random point
-        rng_key = random.PRNGKey(42)
-        z = random.normal(rng_key, (D,)) * 0.5
-
-        # Registry-based
-        lp_registry = log_prior_unconstrained(z, unravel_fn, registry, prior_state)
-
-        # Trace-based
-        unc = trace_unravel(z)
-        con = {name: trace_transforms[name](unc[name]) for name in unc}
-        lp_trace = sum(jnp.sum(trace_distributions[name].log_prob(con[name])) for name in unc)
-        lj_trace = sum(
-            jnp.sum(trace_transforms[name].log_abs_det_jacobian(unc[name], con[name]))
-            for name in unc
-        )
-        lp_trace_total = lp_trace + lj_trace
-
-        assert jnp.allclose(lp_registry, lp_trace_total, atol=1e-4), (
-            f"Registry: {lp_registry}, Trace: {lp_trace_total}"
-        )
-
-    def test_log_prior_unc_gradients_flow(self, simple_spec):
-        """log_prior_unconstrained is differentiable."""
-        registry = build_site_registry(simple_spec)
-        D, unravel_fn = build_unravel_fn(registry)
-        prior_state = build_prior_runtime_state(registry)
-
-        z = jnp.ones(D) * 0.1
-        grad_fn = jax.grad(lambda z: log_prior_unconstrained(z, unravel_fn, registry, prior_state))
-        g = grad_fn(z)
-        assert jnp.all(jnp.isfinite(g))
-        assert g.shape == (D,)
-
-
-# ---------------------------------------------------------------------------
-# Compile stability (no recompilation on prior changes)
-# ---------------------------------------------------------------------------
-
-
-class TestCompileStability:
-    def test_no_retrace_on_prior_value_change(self, simple_spec):
-        """Changing prior values does not trigger JAX retracing."""
-        registry = build_site_registry(simple_spec)
-        D, unravel_fn = build_unravel_fn(registry)
-
-        state1 = build_prior_runtime_state(
-            registry,
-            prior_registry(
-                vf_0_decay=PriorSpec(
-                    PriorDistributionFamily.GAMMA,
-                    {"concentration": 2.0, "rate": 4.0},
-                )
-            ),
-        )
-        state2 = build_prior_runtime_state(
-            registry,
-            prior_registry(
-                vf_0_decay=PriorSpec(
-                    PriorDistributionFamily.GAMMA,
-                    {"concentration": 4.0, "rate": 2.0},
-                )
-            ),
-        )
-
-        trace_count = 0
-
-        @jax.jit
-        def _eval(z, ps):
-            nonlocal trace_count
-            trace_count += 1
-            return log_prior_unconstrained(z, unravel_fn, registry, ps)
-
-        z = jnp.zeros(D)
-
-        # First call: traces and compiles
-        _ = _eval(z, state1)
-        traces_after_first = trace_count
-
-        # Second call with different prior values: should NOT retrace
-        _ = _eval(z, state2)
-        assert trace_count == traces_after_first, (
-            f"Retraced on prior value change: {trace_count} > {traces_after_first}"
-        )
-
-    def test_no_retrace_on_family_switch(self, simple_spec):
-        """Changing family index does not trigger JAX retracing."""
-        from nof1_causal_lab.models.ssm.parameterization import _make_positive_params
-
-        registry = build_site_registry(simple_spec)
-        D, unravel_fn = build_unravel_fn(registry)
-
-        state1 = build_prior_runtime_state(registry)
-        # Switch diffusion_diag_free from HalfNormal (0) to Gamma (1)
-        # Use _make_positive_params to ensure consistent weak_type/dtype.
-        state2 = build_prior_runtime_state(registry)
-        state2["diffusion_diag_free"] = _make_positive_params(
-            (simple_spec.n_latent,),
-            family=1,
-            scale=1.0,
-            concentration=2.0,
-            rate=1.0,
-        )
-
-        trace_count = 0
-
-        @jax.jit
-        def _eval(z, ps):
-            nonlocal trace_count
-            trace_count += 1
-            return log_prior_unconstrained(z, unravel_fn, registry, ps)
-
-        z = jnp.zeros(D)
-
-        _ = _eval(z, state1)
-        traces_after_first = trace_count
-
-        _ = _eval(z, state2)
-        assert trace_count == traces_after_first, (
-            f"Retraced on family switch: {trace_count} > {traces_after_first}"
-        )
-
-
-# ---------------------------------------------------------------------------
 # Sampling
 # ---------------------------------------------------------------------------
 
@@ -1034,6 +851,33 @@ class TestSampling:
         for site in registry:
             if site.support == SupportClass.POSITIVE:
                 assert jnp.all(jnp.exp(unc[site.name]) > 0)
+
+    def test_site_streams_are_stable_under_registry_reordering(self, simple_spec):
+        registry = build_site_registry(simple_spec)
+        reversed_registry = list(reversed(registry))
+        state = build_prior_runtime_state(registry)
+        samples, _ = sample_prior_unconstrained(random.PRNGKey(7), registry, state, n_samples=4)
+        reversed_samples, _ = sample_prior_unconstrained(
+            random.PRNGKey(7), reversed_registry, state, n_samples=4
+        )
+
+        def _split_by_site(values, sites):
+            offset = 0
+            result = {}
+            for site in sites:
+                size = int(np.prod(site.shape or (1,)))
+                result[site.name] = values[:, offset : offset + size].reshape(
+                    (values.shape[0], *site.shape)
+                )
+                offset += size
+            return result
+
+        by_site = _split_by_site(samples, registry)
+        reversed_by_site = _split_by_site(reversed_samples, reversed_registry)
+
+        assert set(by_site) == set(reversed_by_site)
+        for site_name in by_site:
+            assert jnp.array_equal(by_site[site_name], reversed_by_site[site_name])
 
 
 # ---------------------------------------------------------------------------
@@ -1109,9 +953,9 @@ class TestSerialization:
             )
         )
         semantics = compile_prior_semantics(simple_spec, priors)
-        assert semantics["schema_version"] == 5
-        registry = deserialize_site_registry(semantics["site_registry"])
-        state = deserialize_prior_runtime_state(semantics["prior_state"], registry)
+        assert semantics.schema_version == 5
+        registry = deserialize_site_registry(semantics.site_registry)
+        state = deserialize_prior_runtime_state(semantics.prior_state, registry)
         assert "vf_0_decay" in state
         assert jnp.allclose(
             state["vf_0_decay"]["concentration"],
@@ -1224,14 +1068,12 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(statistical_model_spec, priors)
-        assert "priors" not in artifact
-        assert "compiled_prior_semantics" in artifact
-        assert "edge_lag_days" in artifact
-        assert artifact["edge_lag_days"] == []
-        sem = artifact["compiled_prior_semantics"]
-        assert sem["schema_version"] == 5
-        assert "site_registry" in sem
-        assert "prior_state" in sem
+        assert not hasattr(artifact, "priors")
+        assert artifact.edge_lag_days == []
+        sem = artifact.compiled_prior_semantics
+        assert sem.schema_version == 5
+        assert sem.site_registry
+        assert sem.prior_state
 
     def test_known_input_beta_binds_to_input_effect_site(self):
         """A beta from a known input compiles to B, not the latent dynamics matrix."""
@@ -1343,26 +1185,26 @@ class TestCompiledArtifactIntegration:
 
         artifact = compile_ssm_artifact(statistical_model_spec, priors, causal_design=causal_design)
 
-        assert artifact["spec"]["manifest_names"] == ["mood_score"]
-        assert artifact["spec"]["input_names"] == ["dose"]
-        assert artifact["spec"]["input_source_indicators"] == ["dose_mg"]
-        assert artifact["spec"]["input_effect_block"]["free_support"] == [[True]]
+        assert artifact.spec.manifest_names == ["mood_score"]
+        assert artifact.spec.input_names == ["dose"]
+        assert artifact.spec.input_source_indicators == ["dose_mg"]
+        assert artifact.spec.input_effect_block["free_support"] == [[True]]
         beta_binding = next(
             binding
-            for binding in artifact["parameter_bindings"]
-            if binding["parameter"] == "beta_dose_mood"
+            for binding in artifact.parameter_bindings
+            if binding.parameter == "beta_dose_mood"
         )
         assert {
-            "parameter": beta_binding["parameter"],
-            "site_name": beta_binding["site_name"],
-            "flat_index": beta_binding["flat_index"],
+            "parameter": beta_binding.parameter,
+            "site_name": beta_binding.site_name,
+            "flat_index": beta_binding.flat_index,
         } == {
             "parameter": "beta_dose_mood",
             "site_name": "input_effect_free",
             "flat_index": 0,
         }
-        assert beta_binding["site_kind"] == "input_effect"
-        assert beta_binding["transform"] == "dt_effect_to_ct_rate"
+        assert beta_binding.site_kind is SiteKind.INPUT_EFFECT
+        assert beta_binding.transform is PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
 
     def test_model_from_artifact_uses_semantics(self, statistical_model_spec_and_priors):
         """build_model_from_compiled_artifact reads compiled_prior_semantics."""
@@ -1386,22 +1228,18 @@ class TestCompiledArtifactIntegration:
         self, statistical_model_spec_and_priors
     ):
         """Model rebuild fails clearly when compiled semantics are missing."""
-        import polars as pl
+        from pydantic import ValidationError
 
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            build_model_from_compiled_artifact,
-            compile_ssm_artifact,
-        )
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(statistical_model_spec, priors)
-        del artifact["compiled_prior_semantics"]
+        payload = artifact.model_dump(mode="json")
+        del payload["compiled_prior_semantics"]
 
-        with pytest.raises(ValueError, match="compiled_prior_semantics"):
-            build_model_from_compiled_artifact(
-                artifact,
-                pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
-            )
+        with pytest.raises(ValidationError, match="compiled_prior_semantics"):
+            CompiledSSMArtifact.model_validate(payload)
 
     def test_end_to_end_compile_rebuild_sample(self, statistical_model_spec_and_priors):
         """Full roundtrip: compile → rebuild → sample."""
@@ -1471,6 +1309,7 @@ class TestCompiledArtifactIntegration:
             build_model_from_compiled_artifact,
             serialize_ssm_spec,
         )
+        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
         from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs
 
         spec = _make_spec(
@@ -1490,11 +1329,14 @@ class TestCompiledArtifactIntegration:
                 {"sigma": [1.0, 2.0]},
             )
         )
-        artifact = {
-            "spec": serialize_ssm_spec(spec),
-            "compiled_prior_semantics": compile_prior_semantics(spec, priors),
-            "parameter_bindings": [],
-        }
+        artifact = CompiledSSMArtifact(
+            schema_version=1,
+            spec=serialize_ssm_spec(spec),
+            edge_lag_days=[],
+            compiled_prior_semantics=compile_prior_semantics(spec, priors),
+            parameter_bindings=[],
+            compile_diagnostics=[],
+        )
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -1505,7 +1347,7 @@ class TestCompiledArtifactIntegration:
 
         model = build_model_from_compiled_artifact(artifact, wide)
         observations, times, _manifest_names, _wide = prepare_fit_inputs(model.spec, wide)
-        backend = model.make_likelihood_backend()
+        backend = model.make_laplace_backend(6)
         trace = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations,
             times,

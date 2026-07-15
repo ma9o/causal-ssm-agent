@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Unpack
 
 import jax.numpy as jnp
 import polars as pl
@@ -41,30 +41,49 @@ from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+    from nof1_causal_lab.models.ssm.compile.contracts import (
+        CompiledParameterBinding,
+        CompiledPriorSemantics,
+        CompiledSSMArtifact,
+    )
     from nof1_causal_lab.models.ssm.inference import InferenceResult
+    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions, SamplerConfig
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
 
 
-def _center_manifest_columns(
+def _standardize_manifest_columns(
     wide_data: pl.DataFrame,
     manifest_cols: list[str],
-    manifest_centered: list[bool] | None,
+    manifest_standardized: list[bool] | None,
 ) -> pl.DataFrame:
-    """Apply deterministic centering to manifest columns marked centered."""
-    if manifest_centered is None or not any(manifest_centered):
+    """Apply deterministic standardization to manifest columns marked standardized.
+
+    Flagged columns become (y - mean) / sd so their link-scale spread is exactly 1,
+    matching the standardized-latent convention the priors are authored under. When
+    sd is 0 or undefined every centered value is already 0, so any divisor yields
+    identical data; 1 is the canonical completion, not a fallback.
+    """
+    if manifest_standardized is None or not any(manifest_standardized):
         return wide_data
 
-    centered_exprs = []
-    for manifest_name, centered in zip(manifest_cols, manifest_centered, strict=False):
+    standardized_exprs = []
+    for manifest_name, standardized in zip(manifest_cols, manifest_standardized, strict=False):
         base_expr = pl.col(manifest_name).cast(pl.Float64, strict=False)
-        if centered:
-            centered_exprs.append((base_expr - base_expr.mean()).alias(manifest_name))
+        if standardized:
+            centered_expr = base_expr - base_expr.mean()
+            scale_expr = base_expr.std()
+            standardized_exprs.append(
+                (
+                    centered_expr
+                    / pl.when(scale_expr > 0.0).then(scale_expr).otherwise(pl.lit(1.0))
+                ).alias(manifest_name)
+            )
         else:
-            centered_exprs.append(base_expr.alias(manifest_name))
+            standardized_exprs.append(base_expr.alias(manifest_name))
     passthrough = [col_name for col_name in wide_data.columns if col_name not in set(manifest_cols)]
-    return wide_data.select(*passthrough, *centered_exprs)
+    return wide_data.select(*passthrough, *standardized_exprs)
 
 
 @dataclass
@@ -74,7 +93,7 @@ class PreparedModelRuntime:
     model: SSMModel
     spec: SSMSpec
     parameter_layout: SSMParameterLayout
-    sampler_config: dict[str, Any]
+    sampler_config: SamplerConfig
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
@@ -85,7 +104,7 @@ class PreparedModelRuntime:
     manifest_names: list[str]
 
 
-def get_default_sampler_config() -> dict[str, Any]:
+def get_default_sampler_config() -> SamplerConfig:
     """Return default sampler configuration from config.yaml."""
     from nof1_causal_lab.utils.config import get_config
 
@@ -99,7 +118,7 @@ def compile_model_inputs(
     ssm_spec: SSMSpec | None = None,
     prior_registry: PriorRegistry | None = None,
     causal_design: dict | None = None,
-) -> tuple[SSMSpec, PriorRegistry, list[dict[str, object]]]:
+) -> tuple[SSMSpec, PriorRegistry, list[CompiledParameterBinding]]:
     """Compile user-facing or direct SSM inputs into executable model inputs."""
     if statistical_model_spec is not None and (ssm_spec is not None or prior_registry is not None):
         raise ValueError(
@@ -143,10 +162,10 @@ def build_ssm_model(
     priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
     ssm_spec: SSMSpec | None = None,
     prior_registry: PriorRegistry | None = None,
-    compiled_prior_semantics: dict | None = None,
+    compiled_prior_semantics: CompiledPriorSemantics | None = None,
     prior_runtime_bundle: PriorRuntimeBundle | None = None,
     causal_design: dict | None = None,
-    parameter_bindings: list[dict[str, Any]] | None = None,
+    parameter_bindings: list[CompiledParameterBinding] | None = None,
 ) -> SSMModel:
     """Build a live ``SSMModel`` from compiled inputs and wide data."""
     if wide_data.is_empty():
@@ -179,18 +198,22 @@ def prepare_fit_inputs(
     spec: SSMSpec,
     wide_data: pl.DataFrame,
 ) -> tuple[jnp.ndarray, jnp.ndarray, list[str], pl.DataFrame]:
-    """Extract observations, times, manifest order, and centered wide data."""
+    """Extract observations, times, manifest order, and standardized wide data."""
     manifest_cols = (
         list(spec.manifest_names) if spec.manifest_names else default_manifest_columns(wide_data)
     )
-    manifest_centered = list(spec.manifest_centered) if spec.manifest_centered is not None else None
-    centered_data = _center_manifest_columns(wide_data, manifest_cols, manifest_centered)
-    observations = jnp.array(centered_data.select(manifest_cols).to_numpy(), dtype=jnp.float32)
-    if "time" in centered_data.columns:
-        times = jnp.array(centered_data["time"].to_numpy(), dtype=jnp.float32)
+    manifest_standardized = (
+        list(spec.manifest_standardized) if spec.manifest_standardized is not None else None
+    )
+    standardized_data = _standardize_manifest_columns(
+        wide_data, manifest_cols, manifest_standardized
+    )
+    observations = jnp.array(standardized_data.select(manifest_cols).to_numpy(), dtype=jnp.float32)
+    if "time" in standardized_data.columns:
+        times = jnp.array(standardized_data["time"].to_numpy(), dtype=jnp.float32)
     else:
-        times = jnp.arange(centered_data.height, dtype=jnp.float32)
-    return observations, times, manifest_cols, centered_data
+        times = jnp.arange(standardized_data.height, dtype=jnp.float32)
+    return observations, times, manifest_cols, standardized_data
 
 
 def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.ndarray | None:
@@ -235,8 +258,8 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
 def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     *,
-    compiled_ssm: dict | None = None,
-    sampler_config: dict[str, Any] | None = None,
+    compiled_ssm: CompiledSSMArtifact | None = None,
+    sampler_config: SamplerConfig | None = None,
     model: SSMModel | None = None,
     observation_data: pl.DataFrame | None = None,
 ) -> PreparedModelRuntime:
@@ -307,8 +330,8 @@ def prepare_wide_model_runtime(
 def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
-    compiled_ssm: dict | None = None,
-    sampler_config: dict[str, Any] | None = None,
+    compiled_ssm: CompiledSSMArtifact | None = None,
+    sampler_config: SamplerConfig | None = None,
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
@@ -321,7 +344,10 @@ def prepare_model_runtime(
     )
 
 
-def fit_prepared_model(runtime: PreparedModelRuntime, **kwargs: Any) -> InferenceResult:
+def fit_prepared_model(
+    runtime: PreparedModelRuntime,
+    **kwargs: Unpack[MarginalParticleGibbsOptions],
+) -> InferenceResult:
     """Run public SSM inference against a prepared runtime."""
     sampler_config = {**runtime.sampler_config, **kwargs}
     method = sampler_config.get("method", "marginal_particle_gibbs")

@@ -371,14 +371,3 @@ def get_all_treatments(latent_structure: dict) -> list[str]:
         edges=list(latent_structure.get("edges", []) or []),
         outcome=get_outcome_name(latent_structure),
     )
-
-
-def get_estimable_treatments(causal_design: dict) -> list[str]:
-    """Get intervention targets that remain in the retained estimation graph."""
-    state_order = get_estimation_state_order(causal_design)
-    known_input_names = [item["construct"] for item in get_known_inputs(causal_design)]
-    return _get_treatments_from_graph(
-        node_names=[*state_order, *known_input_names],
-        edges=get_estimation_edges(causal_design),
-        outcome=get_outcome_name(causal_design),
-    )

@@ -13,7 +13,7 @@ from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePla
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,

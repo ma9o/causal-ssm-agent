@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -185,7 +185,7 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
     captured_result_ref: str | None = None
     tool_by_name = {tool.name: tool for tool in input.tools}
 
-    for tool_call in assistant_message.get("tool_calls") or []:
+    for tool_index, tool_call in enumerate(assistant_message.get("tool_calls") or []):
         fn = tool_call.get("function") or {}
         tool_name = str(fn.get("name") or tool_call.get("name", ""))
         tool_calls_fired.append(tool_name)
@@ -206,6 +206,7 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
                 tool=tool,
                 args=args,
                 result_ref=input.result_ref,
+                request_id=str(tool_call.get("id") or f"{input.execution_ref}:{tool_index}"),
             )
         except json.JSONDecodeError as exc:
             result_text = f"JSON parse error: {exc}"
@@ -291,7 +292,6 @@ def _build_harness_bridge_tools(input: HarnessTurnInput):
             )
             await handle.signal("harness_tool_requested", request)
             while not storage.exists(response_ref):
-                activity.heartbeat({"waiting_for_tool_response": request_id})
                 await asyncio.sleep(0.2)
             response = HarnessToolExecutionResult.model_validate(read_subroutine_json(response_ref))
             return response.output
@@ -306,6 +306,20 @@ def _build_harness_bridge_tools(input: HarnessTurnInput):
         )
 
     return [_build_one(tool) for tool in input.tools]
+
+
+async def _await_harness_turn(turn: Any, subroutine_id: str) -> Any:
+    """Await a harness turn while heartbeating from the activity task.
+
+    Harness MCP callbacks execute in the server's task context, where Temporal's
+    activity context is unavailable. The owning activity task carries the
+    heartbeat instead while the harness and any bridged tool request run.
+    """
+    task = asyncio.ensure_future(turn)
+    while not task.done():
+        activity.heartbeat({"waiting_for_harness_turn": subroutine_id})
+        await asyncio.sleep(1)
+    return await task
 
 
 @activity.defn
@@ -327,6 +341,7 @@ async def execute_harness_tool_request_activity(
                 tool=input.tool,
                 args=input.arguments,
                 result_ref=input.result_ref,
+                request_id=input.request_id,
             )
         except json.JSONDecodeError as exc:
             output = f"JSON parse error: {exc}"
@@ -341,6 +356,7 @@ async def execute_harness_tool_request_activity(
                 tool=input.tool,
                 args=input.arguments,
                 result_ref=input.result_ref,
+                request_id=input.request_id,
             )
         except json.JSONDecodeError as exc:
             output = f"JSON parse error: {exc}"
@@ -364,6 +380,7 @@ async def execute_harness_tool_request_activity(
 async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResult:
     from nof1_causal_lab.utils.harness.claude import open_claude_harness_session
     from nof1_causal_lab.utils.harness.codex import open_codex_harness_session
+    from nof1_causal_lab.utils.harness.pi import open_pi_harness_session
 
     _system_prompt, user_messages, _tools = subroutine_context_messages(
         input.context_kind, input.context_ref
@@ -371,13 +388,15 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
     if input.user_message_index >= len(user_messages):
         raise IndexError(f"user message index {input.user_message_index} out of range")
 
-    state = (
+    state = cast(
+        "dict[str, Any]",
         read_subroutine_json(input.harness_state_ref)
         if storage.exists(input.harness_state_ref)
-        else {"raw_events": [], "turn_index": 0, "session_id": None}
+        else {"raw_events": [], "turn_index": 0, "session_id": None},
     )
-    raw_events = list(state.get("raw_events") or [])
-    turn_index = int(state.get("turn_index") or 0)
+    raw_events = cast("list[dict[str, Any]]", state.get("raw_events") or [])
+    turn_index = cast("int", state.get("turn_index") or 0)
+    session_id = cast("str | None", state.get("session_id"))
     tools = [] if not input.tools else _build_harness_bridge_tools(input)
     user_message = user_messages[input.user_message_index]
 
@@ -393,11 +412,14 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
             fallback_model=input.llm.fallback_model,
             timeout_seconds=float(input.llm.timeout or 900),
             log_label=input.log_label,
-            session_id=state.get("session_id"),
+            session_id=session_id,
             initial_events=raw_events,
             turn_index=turn_index,
         ) as session:
-            turn = await session.turn(user_message)
+            turn = await _await_harness_turn(
+                session.turn(user_message),
+                input.subroutine_id,
+            )
             result = session.result
             next_state = {
                 "raw_events": session.raw_events,
@@ -418,12 +440,40 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
             initial_events=raw_events,
             turn_index=turn_index,
         ) as session:
-            turn = await session.turn(user_message)
+            turn = await _await_harness_turn(
+                session.turn(user_message),
+                input.subroutine_id,
+            )
             result = session.result
             next_state = {
                 "raw_events": session.raw_events,
                 "turn_index": turn_index + 1,
                 "session_id": None,
+            }
+    elif input.llm.harness == "pi":
+        async with open_pi_harness_session(
+            tools=tools,
+            system_prompt=_system_prompt,
+            provider=input.llm.provider or "openai-codex",
+            model=input.llm.model,
+            thinking=input.llm.thinking or "high",
+            bin=input.llm.bin or "pi",
+            timeout_seconds=float(input.llm.timeout or 1800),
+            log_label=input.log_label,
+            initial_events=raw_events,
+            initial_session_jsonl=cast("str | None", state.get("session_jsonl")),
+            session_id=session_id,
+        ) as session:
+            turn = await _await_harness_turn(
+                session.turn(user_message),
+                input.subroutine_id,
+            )
+            result = session.result
+            next_state = {
+                "raw_events": session.raw_events,
+                "turn_index": turn_index + 1,
+                "session_id": session.session_id,
+                "session_jsonl": session.session_jsonl,
             }
     else:
         raise ValueError(f"harness turn activity received backend {input.llm.harness!r}")

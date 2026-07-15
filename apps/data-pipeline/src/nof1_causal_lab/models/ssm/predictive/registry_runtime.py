@@ -6,12 +6,18 @@ Builds prior predictive samples directly from compiled prior semantics or
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import hashlib
+import json
+import logging
+import threading
+from collections import OrderedDict
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.predictive_simulation import (
@@ -23,6 +29,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 )
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.runtime import pack_vector_field_params_from_samples
+from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
@@ -34,12 +41,27 @@ from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
-    load_prior_runtime_bundle,
     sample_prior_unconstrained,
 )
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
+
+logger = logging.getLogger(__name__)
+
+
+class PredictiveKeys(NamedTuple):
+    """Independent random streams for one predictive simulation."""
+
+    parameters: jax.Array
+    latents: jax.Array
+    observations: jax.Array
+
+
+def predictive_keys(seed: int) -> PredictiveKeys:
+    """Derive independent parameter, latent, and observation streams."""
+    parameter_key, latent_key, observation_key = random.split(random.PRNGKey(seed), 3)
+    return PredictiveKeys(parameter_key, latent_key, observation_key)
 
 
 class _InputDrivenVectorField(eqx.Module):
@@ -124,15 +146,6 @@ def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
         )
 
 
-# One compiled program shared by every prior draw: array leaves (params,
-# state, key, per-draw CFL step size inside SimulationConfig) are traced,
-# structure is static. The bare exact-engine ``simulate`` builds fresh
-# closures per call, which — combined with per-draw host-float step sizes —
-# used to retrace AND recompile XLA once per draw (~0.8s × n_draws per
-# submit_construct).
-_simulate_jit = eqx.filter_jit(simulate)
-
-
 def _prepare_vector_field_for_draw(
     base_vector_field,
     *,
@@ -181,6 +194,69 @@ def _linear_predictors_from_latents(
 # never coarsens it.
 _SDE_CFL_SAFETY = 0.25
 _SDE_MAX_STEPS = 16384
+_PREDICTIVE_MICROBATCH_SIZE = 32
+_LATENT_CACHE_MAX_ENTRIES = 2
+_LATENT_CACHE_ENGINE_VERSION = 1
+_latent_cache: OrderedDict[str, jax.Array] = OrderedDict()
+_latent_cache_lock = threading.Lock()
+
+
+def _update_array_digest(digest: Any, label: str, value: Any) -> None:
+    array = np.asarray(jax.device_get(value))
+    digest.update(label.encode())
+    digest.update(array.dtype.str.encode())
+    digest.update(json.dumps(array.shape, separators=(",", ":")).encode())
+    digest.update(array.tobytes(order="C"))
+
+
+def _prior_predictive_latent_cache_key(
+    spec: SSMSpec,
+    vf_params: Any,
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    transition_inputs: jnp.ndarray | None,
+    rng_key: jax.Array,
+) -> str:
+    """Fingerprint only inputs that can change the latent trajectories."""
+    digest = hashlib.sha256()
+    digest.update(f"latent-cache-v{_LATENT_CACHE_ENGINE_VERSION}".encode())
+    digest.update(
+        json.dumps(
+            dynamics_spec_to_dict(spec.dynamics_spec),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    )
+    digest.update(jax.default_backend().encode())
+    for leaf_index, leaf in enumerate(jax.tree.leaves(vf_params)):
+        _update_array_digest(digest, f"vf:{leaf_index}", leaf)
+    for name in ("t0_cov", "t0_means", "diffusion", "input_effect"):
+        _update_array_digest(digest, name, samples[name])
+    for name in sorted(name for name in samples if name.endswith("_decay")):
+        _update_array_digest(digest, name, samples[name])
+    _update_array_digest(digest, "times", times)
+    if transition_inputs is None:
+        digest.update(b"transition-inputs:none")
+    else:
+        _update_array_digest(digest, "transition-inputs", transition_inputs)
+    _update_array_digest(digest, "rng-key", rng_key)
+    return digest.hexdigest()
+
+
+def _cached_latents(key: str) -> jax.Array | None:
+    with _latent_cache_lock:
+        cached = _latent_cache.pop(key, None)
+        if cached is not None:
+            _latent_cache[key] = cached
+        return cached
+
+
+def _cache_latents(key: str, latents: jax.Array) -> None:
+    with _latent_cache_lock:
+        _latent_cache[key] = latents
+        _latent_cache.move_to_end(key)
+        while len(_latent_cache) > _LATENT_CACHE_MAX_ENTRIES:
+            _latent_cache.popitem(last=False)
 
 
 def _predictive_sde_config(draw: dict[str, jnp.ndarray], span: float) -> SimulationConfig:
@@ -201,7 +277,122 @@ def _predictive_sde_config(draw: dict[str, jnp.ndarray], span: float) -> Simulat
         sde_dt = jnp.asarray(base_dt)
     # Keep the step count within the solver budget for pathologically fast draws.
     sde_dt = jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
-    return SimulationConfig(sde_dt=sde_dt, max_steps=_SDE_MAX_STEPS + 16)
+    return SimulationConfig(
+        sde_dt=sde_dt,
+        max_steps=_SDE_MAX_STEPS + 16,
+        use_indexed_brownian_path=True,
+    )
+
+
+def _predictive_draw_order(
+    samples: dict[str, jnp.ndarray], span: float
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Order draws by expected solver work and return the inverse permutation."""
+    n_draws = int(next(iter(samples.values())).shape[0])
+    if span <= 0.0:
+        identity = jnp.arange(n_draws)
+        return identity, identity
+
+    decay_maxes = []
+    for name, values in samples.items():
+        if not name.endswith("_decay"):
+            continue
+        draw_axes = tuple(range(1, values.ndim))
+        decay_maxes.append(
+            jnp.max(jnp.abs(values), axis=draw_axes) if draw_axes else jnp.abs(values)
+        )
+
+    if decay_maxes:
+        max_rate = jnp.stack(decay_maxes).max(axis=0)
+        base_dt = span / 200.0
+        sde_dt = jnp.minimum(base_dt, _SDE_CFL_SAFETY / jnp.maximum(max_rate, 1e-30))
+        sde_dt = jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
+        step_counts = jnp.ceil(span / sde_dt)
+    else:
+        step_counts = jnp.full(n_draws, 200.0)
+
+    order = jnp.argsort(step_counts, stable=True)
+    return order, jnp.argsort(order)
+
+
+def _simulate_vector_field_predictive_latent_draw(
+    n_latent: int,
+    base_vector_field,
+    vf_params,
+    draw: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    transition_inputs: jnp.ndarray | None,
+    key: jnp.ndarray,
+    span: float,
+) -> jnp.ndarray:
+    """Simulate one exact latent path without binding it to an emission model."""
+    key_init, key_latent = random.split(key)
+    t0_chol = stable_cholesky(
+        draw["t0_cov"],
+        min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+    )
+    eta0 = draw["t0_means"] + t0_chol @ random.normal(key_init, (n_latent,))
+    diffusion_chol = draw["diffusion"]
+    input_effect = draw.get("input_effect", jnp.zeros((n_latent, 0), dtype=eta0.dtype))
+    if int(times.shape[0]) == 1:
+        latent_trajectory = eta0[None, :]
+    else:
+        vector_field = _prepare_vector_field_for_draw(
+            base_vector_field,
+            input_effect=input_effect,
+            times=times,
+            transition_inputs=transition_inputs,
+        )
+        latent_trajectory = simulate(
+            vector_field,
+            vf_params,
+            Intervention.none(),
+            eta0,
+            times,
+            config=_predictive_sde_config(draw, span),
+            key=key_latent,
+            diffusion_cov=diffusion_chol @ diffusion_chol.T,
+        )
+    return latent_trajectory
+
+
+# Compile the draw loop once, executing similarly expensive draws in bounded
+# vmapped chunks. A full vmap makes every draw pay for the slowest draw's Diffrax
+# loop; CFL sorting plus microbatching retains vectorized execution without
+# coupling all 200 draws to one pathological tail timestep.
+def _simulate_vector_field_predictive_draws_microbatched(
+    n_latent: int,
+    base_vector_field,
+    vf_params,
+    draws: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    transition_inputs: jnp.ndarray | None,
+    keys: jnp.ndarray,
+    span: float,
+) -> jnp.ndarray:
+    def _simulate_one(args):
+        draw_params, draw, key = args
+        return _simulate_vector_field_predictive_latent_draw(
+            n_latent,
+            base_vector_field,
+            draw_params,
+            draw,
+            times,
+            transition_inputs,
+            key,
+            span,
+        )
+
+    return jax.lax.map(
+        _simulate_one,
+        (vf_params, draws, keys),
+        batch_size=_PREDICTIVE_MICROBATCH_SIZE,
+    )
+
+
+_simulate_vector_field_predictive_draws = eqx.filter_jit(
+    _simulate_vector_field_predictive_draws_microbatched
+)
 
 
 def _simulate_vector_field_predictive_latents(
@@ -210,80 +401,63 @@ def _simulate_vector_field_predictive_latents(
     times: jnp.ndarray,
     *,
     transition_inputs: jnp.ndarray | None,
-    seed: int,
+    rng_key: jax.Array,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     _ensure_gaussian_process_diffusion(spec)
     compiled = compile_dynamics(spec.dynamics_spec)
     n_draws = int(next(iter(samples.values())).shape[0])
-    draw_keys = random.split(random.PRNGKey(seed), n_draws)
-    latents = []
-    linear_predictors = []
-
+    draw_keys = random.split(rng_key, n_draws)
+    # Pack component parameters before entering the compiled simulation. Closing
+    # over ``spec`` keeps its structural dataclasses out of JIT's static-argument
+    # cache, while vmap broadcasts any component-fixed scalar across draws.
+    vf_params = jax.vmap(lambda draw: pack_vector_field_params_from_samples(spec, draw, draw))(
+        samples
+    )
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
-    intervention = Intervention.none()
-
-    for draw_idx in range(n_draws):
-        key_init, key_latent = random.split(draw_keys[draw_idx])
-        draw = {name: values[draw_idx] for name, values in samples.items()}
-        vf_params = pack_vector_field_params_from_samples(spec, draw, draw)
-        t0_chol = stable_cholesky(
-            draw["t0_cov"],
-            min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+    cache_key = _prior_predictive_latent_cache_key(
+        spec,
+        vf_params,
+        samples,
+        times,
+        transition_inputs,
+        rng_key,
+    )
+    latents = _cached_latents(cache_key)
+    if latents is None:
+        order, inverse_order = _predictive_draw_order(samples, span)
+        sorted_latents = _simulate_vector_field_predictive_draws(
+            spec.n_latent,
+            compiled.vector_field,
+            jax.tree.map(lambda value: value[order], vf_params),
+            jax.tree.map(lambda value: value[order], samples),
+            times,
+            transition_inputs,
+            draw_keys[order],
+            span,
         )
-        eta0 = draw["t0_means"] + t0_chol @ random.normal(key_init, (spec.n_latent,))
-        diffusion_chol = draw["diffusion"]
-        # ``input_effect`` is a deterministic recorded only when the model has
-        # exogenous inputs; posterior samples for input-free models omit it. Fall
-        # back to a zero-width effect (no input forcing). Prior-predictive samples
-        # always assemble it, so this leaves that path unchanged.
-        input_effect = draw.get("input_effect", jnp.zeros((spec.n_latent, 0), dtype=eta0.dtype))
-        if int(times.shape[0]) == 1:
-            latent_trajectory = eta0[None, :]
-        else:
-            vector_field = _prepare_vector_field_for_draw(
-                compiled.vector_field,
-                input_effect=input_effect,
-                times=times,
-                transition_inputs=transition_inputs,
-            )
-            latent_trajectory = _simulate_jit(
-                vector_field,
-                vf_params,
-                intervention,
-                eta0,
-                times,
-                config=_predictive_sde_config(draw, span),
-                key=key_latent,
-                diffusion_cov=diffusion_chol @ diffusion_chol.T,
-            )
-        latents.append(latent_trajectory)
-        linear_predictors.append(
-            _linear_predictors_from_latents(
-                latent_trajectory,
-                draw["lambda"],
-                draw["manifest_means"],
-            )
-        )
-
-    return jnp.stack(latents), jnp.stack(linear_predictors)
+        latents = sorted_latents[inverse_order]
+        _cache_latents(cache_key, latents)
+        logger.info("Prior-predictive latent cache miss %s", cache_key[:12])
+    else:
+        logger.info("Prior-predictive latent cache hit %s", cache_key[:12])
+    linear_predictors = jax.vmap(_linear_predictors_from_latents)(
+        latents,
+        samples["lambda"],
+        samples["manifest_means"],
+    )
+    return latents, linear_predictors
 
 
-def sample_prior_predictive_from_runtime(
+def sample_prior_parameters_from_runtime(
     spec: SSMSpec,
     runtime: PriorRuntimeBundle,
-    times: jnp.ndarray,
     *,
-    observation_support=None,
-    observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
-    num_samples: int = 100,
-    seed: int = 0,
+    num_samples: int,
+    rng_key: jax.Array,
 ) -> dict[str, jnp.ndarray]:
-    """Sample prior predictive draws from a prepared runtime bundle."""
-    _ensure_discrete_metadata(spec)
-
+    """Sample and assemble the parameter layer of a prior predictive run."""
     z_samples, _rng_key = sample_prior_unconstrained(
-        random.PRNGKey(seed),
+        rng_key,
         runtime.site_runtime.registry,
         runtime.prior_state,
         n_samples=num_samples,
@@ -301,19 +475,44 @@ def sample_prior_predictive_from_runtime(
         runtime,
         n_draws=num_samples,
     )
+    return {
+        **constrained_samples,
+        **deterministic_samples,
+        **extra_params,
+    }
 
-    samples: dict[str, jnp.ndarray] = {}
-    samples.update(constrained_samples)
-    samples.update(deterministic_samples)
-    samples.update(extra_params)
-    latents, linear_predictors = _simulate_vector_field_predictive_latents(
+
+def simulate_prior_predictive_latents(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    *,
+    transition_inputs: jnp.ndarray | None,
+    rng_key: jax.Array,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Simulate exact nonlinear latent paths and their linear predictors."""
+    return _simulate_vector_field_predictive_latents(
         spec,
         samples,
         times,
         transition_inputs=transition_inputs,
-        seed=seed,
+        rng_key=rng_key,
     )
-    observations, observations_mask = sample_predictive_observations_from_linear_predictors(
+
+
+def sample_prior_predictive_emissions(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+    linear_predictors: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    observation_support,
+    observation_mask: jnp.ndarray | None,
+    num_samples: int,
+    rng_key: jax.Array,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Sample the observation layer conditional on cached latent predictors."""
+    return sample_predictive_observations_from_linear_predictors(
         linear_predictors,
         samples,
         times,
@@ -323,13 +522,55 @@ def sample_prior_predictive_from_runtime(
         observation_support=observation_support,
         observation_mask=observation_mask,
         n_subsample=num_samples,
-        rng_seed=seed,
+        rng_key=rng_key,
         manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
+    )
+
+
+def sample_prior_predictive_from_runtime(
+    spec: SSMSpec,
+    runtime: PriorRuntimeBundle,
+    times: jnp.ndarray,
+    *,
+    observation_support=None,
+    observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
+    num_samples: int = 100,
+    seed: int = 0,
+) -> dict[str, jnp.ndarray]:
+    """Sample prior predictive draws from a prepared runtime bundle."""
+    _ensure_discrete_metadata(spec)
+
+    keys = predictive_keys(seed)
+
+    samples = sample_prior_parameters_from_runtime(
+        spec,
+        runtime,
+        num_samples=num_samples,
+        rng_key=keys.parameters,
+    )
+    latents, linear_predictors = simulate_prior_predictive_latents(
+        spec,
+        samples,
+        times,
+        transition_inputs=transition_inputs,
+        rng_key=keys.latents,
+    )
+    observations, observations_mask, expected_observations = sample_prior_predictive_emissions(
+        spec,
+        samples,
+        linear_predictors,
+        times,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
+        num_samples=num_samples,
+        rng_key=keys.observations,
     )
     samples["latents"] = latents
     samples["linear_predictors"] = linear_predictors
     samples["observations"] = observations
     samples["observations_mask"] = observations_mask
+    samples["expected_observations"] = expected_observations
     return samples
 
 
@@ -342,7 +583,7 @@ def simulate_posterior_predictive_observations(
     observation_mask: jnp.ndarray | None = None,
     transition_inputs: jnp.ndarray | None = None,
     n_subsample: int = 50,
-    rng_seed: int = 42,
+    seed: int = 42,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Forward-simulate posterior-predictive observations through the exact field.
 
@@ -356,14 +597,15 @@ def simulate_posterior_predictive_observations(
     n_use = min(n_subsample, n_draws)
     indices = jnp.linspace(0, n_draws - 1, n_use).astype(int)
     sub = {name: jnp.asarray(value)[indices] for name, value in samples.items()}
+    keys = predictive_keys(seed)
     _latents, linear_predictors = _simulate_vector_field_predictive_latents(
         spec,
         sub,
         times,
         transition_inputs=transition_inputs,
-        seed=rng_seed,
+        rng_key=keys.latents,
     )
-    return sample_predictive_observations_from_linear_predictors(
+    observations, effective_mask, _expected = sample_predictive_observations_from_linear_predictors(
         linear_predictors,
         sub,
         times,
@@ -373,31 +615,7 @@ def simulate_posterior_predictive_observations(
         observation_support=observation_support,
         observation_mask=observation_mask,
         n_subsample=n_use,
-        rng_seed=rng_seed,
+        rng_key=keys.observations,
         manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
     )
-
-
-def sample_prior_predictive_from_compiled_semantics(
-    spec: SSMSpec,
-    compiled_prior_semantics: dict,
-    times: jnp.ndarray,
-    *,
-    observation_support=None,
-    observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
-    num_samples: int = 100,
-    seed: int = 0,
-) -> dict[str, jnp.ndarray]:
-    """Sample prior predictive draws from serialized compiled semantics."""
-    runtime = load_prior_runtime_bundle(compiled_prior_semantics)
-    return sample_prior_predictive_from_runtime(
-        spec,
-        runtime,
-        times,
-        observation_support=observation_support,
-        observation_mask=observation_mask,
-        transition_inputs=transition_inputs,
-        num_samples=num_samples,
-        seed=seed,
-    )
+    return observations, effective_mask

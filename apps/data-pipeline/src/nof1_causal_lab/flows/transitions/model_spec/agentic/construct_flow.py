@@ -8,14 +8,14 @@ parameter name); the cumulative partial model is compiled and gated by the
 (:mod:`nof1_causal_lab.models.ssm.construct_admission`). A construct that fails a
 hard check reopens for revision; a soft failure is a decision (revise, or accept
 the consequence via ``accept``). When every construct is admitted, the
-accumulated :class:`~nof1_causal_lab.artifacts.statistical_model_spec.StatisticalModelSpec` + priors are
-returned as a :class:`ModelSpecResult`, which the existing materialization turns into
-the ``compiled_ssm`` artifact unchanged.
+accumulated :class:`~nof1_causal_lab.artifacts.statistical_model_spec.StatisticalModelSpec` + priors
+are materialized by the Temporal model-spec workflow.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from time import perf_counter_ns
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
@@ -28,29 +28,26 @@ from nof1_causal_lab.artifacts import (
     ParameterRole,
 )
 from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
+    AdmissionTiming,
     ConstructContribution,
     DesignInfo,
     admit_construct,
-    build_construct_order,
     recheck_member,
     restrict_causal_design,
     trial_admission_state,
 )
-from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult
+from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
 from nof1_causal_lab.utils.causal_design import get_estimation_edges
-
-from .result_types import ModelSpecResult
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
 
     import polars as pl
-
-    from nof1_causal_lab.utils.agent_session import ScopedSessionFactory
 
 # Attempts per construct before the build fails (each attempt is one fresh
 # agent session that must call submit_construct with a revised proposal).
@@ -93,6 +90,7 @@ class ParamCatalog:
     roles: Mapping[str, tuple[ParameterRole, ParameterConstraint]]
     by_construct: Mapping[str, tuple[str, ...]]
     global_params: frozenset[str]
+    site_names: Mapping[str, str]
 
     @classmethod
     def from_causal_design(cls, causal_design: dict) -> ParamCatalog:
@@ -102,6 +100,7 @@ class ParamCatalog:
         roles: dict[str, tuple[ParameterRole, ParameterConstraint]] = {}
         by_construct: dict[str, list[str]] = {}
         global_params: set[str] = set()
+        site_names: dict[str, str] = {}
         for param in (*skeleton.parameters, *skeleton.loading_params):
             role = ParameterRole(param["role"])
             # Initial-state means/SDs and the `cint_` well-centre are pinned by
@@ -120,6 +119,8 @@ class ParamCatalog:
                 continue
             name = param["name"]
             roles[name] = (role, ParameterConstraint(param["constraint"]))
+            if site_name := param.get("compiled_site_name"):
+                site_names[name] = str(site_name)
             owner = param.get("construct")
             if owner is not None:
                 by_construct.setdefault(owner, []).append(name)
@@ -129,6 +130,7 @@ class ParamCatalog:
             roles=roles,
             by_construct={c: tuple(v) for c, v in by_construct.items()},
             global_params=frozenset(global_params),
+            site_names=site_names,
         )
 
     def structural_names(self, construct: str, parents: Sequence[str]) -> set[str]:
@@ -153,6 +155,9 @@ class ParamCatalog:
     def role_for(self, name: str) -> tuple[ParameterRole, ParameterConstraint]:
         return self.roles.get(name, _STRUCTURAL_ROLE)
 
+    def site_for(self, name: str) -> str | None:
+        return self.site_names.get(name)
+
 
 def construct_parents(causal_design: dict, construct: str) -> list[str]:
     """Direct causal parents of ``construct`` (edge sources into it)."""
@@ -163,6 +168,24 @@ def construct_parents(causal_design: dict, construct: str) -> list[str]:
         if effect == construct and cause is not None and str(cause) not in parents:
             parents.append(str(cause))
     return parents
+
+
+def _acceptance_map(
+    decisions: Sequence[Mapping[str, Any]] | None,
+) -> dict[tuple[str, str], str]:
+    """Validate structured, target-scoped soft-check acceptance decisions."""
+    accepted: dict[tuple[str, str], str] = {}
+    for decision in decisions or ():
+        check = str(decision.get("check", "")).strip()
+        target = str(decision.get("target", "")).strip()
+        rationale = str(decision.get("rationale", "")).strip()
+        if not check or not target or not rationale:
+            raise ValueError("Every acceptance requires non-empty check, target, and rationale.")
+        key = (check, target)
+        if key in accepted:
+            raise ValueError(f"Duplicate acceptance for {check} [{target}].")
+        accepted[key] = rationale
+    return accepted
 
 
 def deferred_closing_edge_params(
@@ -354,15 +377,10 @@ def _design_for_state(
         obs_index_by_indicator[manifest] = present
         values_by_indicator[manifest] = observations[present, i]
 
-    diffs = np.diff(times)
-    cadence = float(np.median(diffs)) if diffs.size else 1.0
-    span = float(np.ptp(times)) if times.size else 1.0
     return DesignInfo(
         t_grid=jnp.asarray(times),
         obs_index_by_indicator=obs_index_by_indicator,
         values_by_indicator=values_by_indicator,
-        cadence=cadence,
-        span=span,
         n_draws=n_draws,
         seed=seed,
         observation_support=runtime.observation_support,
@@ -380,7 +398,7 @@ def render_admission_feedback(report: AdmissionReport) -> str:
     lines = [f"## Reachability report for `{report.name}`", "", report.outcome, ""]
     for r in report.results:
         mark = "PASS" if r.passed else "FAIL"
-        lines.append(f"- [{mark}] {r.check}: {r.value} (target {r.band})")
+        lines.append(f"- [{mark}] {r.check} [{r.target}]: {r.value} (target {r.band})")
         if not r.passed:
             if r.note:
                 lines.append(f"    {r.note}")
@@ -398,9 +416,8 @@ def render_admission_feedback(report: AdmissionReport) -> str:
 # --------------------------------------------------------------------------- #
 #
 # These translate the admission dataclasses into the JSON the web construct-
-# admission view reduces. Emission is threaded through the flow (see
-# ``run_model_spec_construct_build``) only when a ``workspace_id`` is present, so the
-# batch/test path (``workspace_id=None``) runs without any telemetry side effect.
+# admission view reduces. The Temporal activities emit them when a ``workspace_id``
+# is present; pure state tests use ``workspace_id=None`` and have no side effects.
 
 
 def _admission_plan_payload(causal_design: dict, order: Sequence[str]) -> dict[str, Any]:
@@ -447,6 +464,15 @@ def _check_result_payload(result: CheckResult) -> dict[str, Any]:
     }
 
 
+def _timing_payload(timing: AdmissionTiming) -> dict[str, Any]:
+    return {
+        "phase": timing.phase,
+        "label": timing.label,
+        "duration_ms": timing.duration_ms,
+        "checks": list(timing.checks),
+    }
+
+
 def _admission_report_payload(
     report: AdmissionReport,
     contribution: ConstructContribution,
@@ -465,10 +491,19 @@ def _admission_report_payload(
         "admitted": report.admitted,
         "annotations": list(report.annotations),
         "results": [_check_result_payload(r) for r in report.results],
+        "timings": [_timing_payload(timing) for timing in report.timings],
         "parameters": _admission_parameters_payload(contribution),
     }
     if coupled_recheck is not None:
         payload["coupled_recheck"] = coupled_recheck
+        payload["timings"].append(
+            {
+                "phase": "coupled_recheck",
+                "label": "Coupled subsystem recheck",
+                "duration_ms": sum(timing["duration_ms"] for timing in coupled_recheck["timings"]),
+                "checks": [],
+            }
+        )
     return payload
 
 
@@ -496,6 +531,8 @@ class ConstructBuildState:
     search_queries: dict[str, str] = field(default_factory=dict)
     search_cache: dict[str, str] = field(default_factory=dict)
     last_report: AdmissionReport | None = None
+    last_coupled_results: tuple[CheckResult, ...] = ()
+    last_tool_feedback: str | None = None
     submission_made: bool = False
     # Kept so a loop-closing admission can re-run the battery on already-admitted members.
     admitted_contributions: dict[str, ConstructContribution] = field(default_factory=dict)
@@ -514,7 +551,7 @@ class ConstructBuildState:
         construct: str,
         indicators: Sequence[Mapping[str, Any]],
         priors: Mapping[str, Any],
-        accept: Mapping[str, str] | None = None,
+        accept: Sequence[Mapping[str, Any]] | None = None,
     ) -> str:
         self.submission_made = True
         expected = self.current_construct
@@ -552,6 +589,27 @@ class ConstructBuildState:
                 "submission (as the `beta_...` prior named above, or its `hill_*` variants) "
                 "— otherwise the compiler rejects the unbound edge site."
             )
+        pooled_families: dict[str, set[str]] = {}
+        for name, prior in {**self.admission.priors, **priors}.items():
+            site_name = self.catalog.site_for(name)
+            distribution = prior.get("distribution")
+            if site_name is not None and isinstance(distribution, str):
+                pooled_families.setdefault(site_name, set()).add(distribution)
+        mixed_sites = {
+            site_name: families
+            for site_name, families in pooled_families.items()
+            if len(families) > 1
+        }
+        if mixed_sites:
+            details = "; ".join(
+                f"`{site_name}` has {', '.join(sorted(families))}"
+                for site_name, families in sorted(mixed_sites.items())
+            )
+            return (
+                "Prior family mismatch within pooled compiler sample site(s): "
+                f"{details}. Match the distribution family already authored for every "
+                "parameter sharing that site."
+            )
         payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
         contribution = contribution_from_payload(self.causal_design, payload, self.catalog)
         if self.workspace_id:
@@ -560,6 +618,7 @@ class ConstructBuildState:
                 "construct_checking",
                 {"construct": construct, "attempt": self.attempt},
             )
+        design_started = perf_counter_ns()
         design = build_design_info(
             self.admission,
             contribution,
@@ -568,107 +627,128 @@ class ConstructBuildState:
             n_draws=self.n_draws,
             seed=self.seed,
         )
-        prior_admitted = set(self.admission.names)
-        new_state, report = admit_construct(
-            self.admission, contribution, self.causal_design, design, accepted=dict(accept or {})
+        design_timing = AdmissionTiming(
+            phase="design_preparation",
+            label="Design preparation",
+            duration_ms=(perf_counter_ns() - design_started) / 1_000_000,
         )
-        self.last_report = report
+        prior_admitted = set(self.admission.names)
+        try:
+            accepted = _acceptance_map(accept)
+        except ValueError as exc:
+            return str(exc)
+        new_state, report = admit_construct(
+            self.admission, contribution, self.causal_design, design, accepted=accepted
+        )
+        report = replace(report, timings=(design_timing, *report.timings))
         coupled_recheck: dict[str, Any] | None = None
+        coupled_results: list[CheckResult] = []
+        if report.admitted:
+            coupled_results, coupled_recheck = self._coupled_recheck(
+                construct, prior_admitted, new_state
+            )
+            if coupled_results:
+                outcome, annotations = stage_outcome([*report.results, *coupled_results], accepted)
+                admitted = outcome.startswith("ADMITTED")
+                report = replace(
+                    report,
+                    outcome=outcome,
+                    annotations=annotations,
+                    admitted=admitted,
+                )
+                new_state = replace(
+                    new_state,
+                    annotations=(*self.admission.annotations, *annotations),
+                )
+        failed_soft = {
+            (result.check, result.target)
+            for result in (*report.results, *coupled_results)
+            if not result.passed and CHECK_MODES[result.check] == "soft"
+        }
+        invalid_acceptances = sorted(set(accepted) - failed_soft)
+        if invalid_acceptances:
+            refs = ", ".join(f"{check} [{target}]" for check, target in invalid_acceptances)
+            return f"Acceptance references must name current failing soft checks exactly: {refs}."
+        self.last_report = report
+        self.last_coupled_results = tuple(coupled_results)
         if report.admitted:
             self.admission = new_state
             self.cursor += 1
             self.admitted_contributions[construct] = contribution
-            # Informational-only, and currently consumed solely via telemetry, so skip its
-            # extra closed-loop compile+sim when nobody is streaming (batch/tests).
-            if self.workspace_id:
-                coupled_recheck = self._coupled_recheck(construct, prior_admitted)
         if self.workspace_id:
             emit_model_spec_admission_event(
                 self.workspace_id,
                 "construct_report",
                 _admission_report_payload(report, contribution, self.attempt, coupled_recheck),
             )
-        return render_admission_feedback(report)
+        feedback = render_admission_feedback(report)
+        if coupled_results:
+            lines = [feedback, "", "Coupled feedback-component checks:"]
+            for result in coupled_results:
+                mark = "PASS" if result.passed else "FAIL"
+                lines.append(
+                    f"- [{mark}] {result.check} [{result.target}]: {result.value} "
+                    f"(target {result.band})"
+                )
+                if not result.passed:
+                    lines.extend(f"    · {diagnosis}" for diagnosis in result.diagnosis)
+            feedback = "\n".join(lines)
+        return feedback
 
     def _coupled_recheck(
-        self, construct: str, prior_admitted: Collection[str]
-    ) -> dict[str, Any] | None:
-        """Re-run the battery on already-admitted member(s) if admitting ``construct`` closed a loop.
-
-        Informational: the closed-loop re-evaluation is surfaced on the report event but does not
-        gate the admission (the loop stays closed regardless of the recheck outcome).
-
-        The right version, long-term, is to GATE rather than inform: a hard closed-loop failure
-        means closing the feedback edge destabilized an already-admitted member, so the correct
-        behavior is to *invalidate* that member's admission — re-open the closing construct for
-        revision of its closing-edge prior — consistent with the "hard check blocks, no override"
-        rule the rest of the battery follows. Kept informational for now to avoid changing
-        admission control flow until real closed-loop recheck outcomes are observed.
-        """
+        self,
+        construct: str,
+        prior_admitted: Collection[str],
+        tentative_state: AdmissionState,
+    ) -> tuple[list[CheckResult], dict[str, Any] | None]:
+        """Gate loop closure by rechecking every already-admitted affected member."""
         members = [
             m
             for m in _closing_edge_effects(self.causal_design, construct, prior_admitted)
             if m in self.admitted_contributions
         ]
         if not members:
-            return None
+            return [], None
+        design_started = perf_counter_ns()
         design = _design_for_state(
-            self.admission,
+            tentative_state,
             self.causal_design,
             self.data_for_model,
             n_draws=self.n_draws,
             seed=self.seed,
         )
-        results: list[dict[str, Any]] = []
+        timings = [
+            AdmissionTiming(
+                phase="design_preparation",
+                label="Design preparation",
+                duration_ms=(perf_counter_ns() - design_started) / 1_000_000,
+            )
+        ]
+        raw_results: list[CheckResult] = []
         for member in members:
             target = _closed_loop_target(
-                self.admitted_contributions[member], self.causal_design, self.admission.priors
+                self.admitted_contributions[member], self.causal_design, tentative_state.priors
             )
-            results.extend(
-                _check_result_payload(r)
-                for r in recheck_member(self.admission, target, self.causal_design, design)
+            member_results, member_timings = recheck_member(
+                tentative_state, target, self.causal_design, design
             )
-        if not results:
-            return None
-        return {
+            raw_results.extend(member_results)
+            timings.extend(
+                replace(
+                    timing,
+                    phase=f"recheck:{member}:{timing.phase}",
+                    label=f"{member}: {timing.label}",
+                )
+                for timing in member_timings
+            )
+        if not raw_results:
+            return [], None
+        return raw_results, {
             "constructs": [*members, construct],
             "closing_edges": [f"{construct}->{m}" for m in members],
-            "results": results,
+            "results": [_check_result_payload(result) for result in raw_results],
+            "timings": [_timing_payload(timing) for timing in timings],
         }
-
-
-def make_submit_construct_tool(state: ConstructBuildState) -> Any:
-    """Build the ``submit_construct`` agent-session tool bound to ``state``."""
-    from nof1_causal_lab.utils.openrouter_client import Tool
-
-    async def _execute(
-        *,
-        construct: str,
-        indicators: list[dict[str, Any]],
-        priors: dict[str, Any],
-        accept: dict[str, str] | None = None,
-    ) -> str:
-        return state.submit_construct(
-            construct=construct,
-            indicators=indicators,
-            priors=priors,
-            accept=accept,
-        )
-
-    return Tool(
-        name="submit_construct",
-        description=(
-            "Submit one construct: its indicator emission choices and its priors "
-            "(keyed by canonical parameter name). The cumulative model is compiled "
-            "and gated by the exact prior-predictive reachability battery; the "
-            "returned report says whether the construct is admitted, blocked "
-            "(revise), or needs a decision (revise or accept the consequence)."
-        ),
-        parameters=SUBMIT_CONSTRUCT_SCHEMA,
-        execute=_execute,
-        stop_on_success=True,
-        success_output=None,
-    )
 
 
 SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
@@ -708,15 +788,49 @@ SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
                 "sigma_<c>, self_limit_<c>, setpoint_<c>, beta_<p>_<c>, "
                 "hill_emax_<p>_<c>/hill_ec50_<p>_<c>/hill_n_<p>_<c>, "
                 "lambda_<ind>_<c>, obs_sd_<ind>). A Hill edge is declared by "
-                "authoring hill_* priors; a self-limiting well by self_limit_<c>."
+                "authoring hill_* priors; a self-limiting well by self_limit_<c>. "
+                "Every value must use the canonical {distribution, params, reasoning} shape."
             ),
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "distribution": {
+                        "type": "string",
+                        "enum": [
+                            family.value
+                            for family in PriorDistributionFamily
+                            if family != PriorDistributionFamily.DELTA
+                        ],
+                    },
+                    "params": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"},
+                    },
+                    "reasoning": {"type": "string"},
+                    "reference_interval_days": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                    },
+                },
+                "required": ["distribution", "params", "reasoning"],
+                "additionalProperties": False,
+            },
         },
         "accept": {
-            "type": "object",
+            "type": "array",
             "description": (
-                "Optional: map a soft-check id (e.g. 'C3 resolvability') to a written "
-                "rationale to accept its consequence instead of revising."
+                "Optional target-scoped decisions accepting current soft-check consequences."
             ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "check": {"type": "string"},
+                    "target": {"type": "string"},
+                    "rationale": {"type": "string", "minLength": 1},
+                },
+                "required": ["check", "target", "rationale"],
+                "additionalProperties": False,
+            },
         },
     },
     "required": ["construct", "indicators", "priors"],
@@ -724,113 +838,9 @@ SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
 }
 
 
-# --------------------------------------------------------------------------- #
-# The build loop
-# --------------------------------------------------------------------------- #
-
-
-async def run_model_spec_construct_build(
-    *,
-    causal_design: dict,
-    question: str,
-    data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict[str, Any]],
-    session_factory: ScopedSessionFactory,
-    enable_literature: bool = False,
-    n_draws: int = 200,
-    seed: int = 0,
-    workspace_id: str | None = None,
-) -> ModelSpecResult:
-    """Drive construct admission one construct at a time and assemble the result.
-
-    When ``workspace_id`` is given, the loop streams construct-admission telemetry
-    (``plan`` → per-attempt ``construct_started``/``construct_checking``/``construct_report``
-    → ``done``/``failed``) for the live web view; with ``None`` it runs silently.
-    """
-    from nof1_causal_lab.flows.transitions.model_spec.tools import make_search_tool
-
-    from .construct_prompt import build_construct_messages
-
-    order = build_construct_order(causal_design)
-    if workspace_id:
-        emit_model_spec_admission_event(
-            workspace_id, "plan", _admission_plan_payload(causal_design, order)
-        )
-    state = ConstructBuildState(
-        causal_design=causal_design,
-        data_for_model=data_for_model,
-        order=order,
-        n_draws=n_draws,
-        seed=seed,
-        workspace_id=workspace_id,
-    )
-
-    try:
-        for construct in order:
-            for _attempt in range(_MAX_ATTEMPTS_PER_CONSTRUCT):
-                if state.current_construct != construct:
-                    break  # admitted on a previous attempt
-                state.attempt = _attempt + 1
-                state.submission_made = False
-                if workspace_id:
-                    emit_model_spec_admission_event(
-                        workspace_id,
-                        "construct_started",
-                        {"construct": construct, "attempt": state.attempt},
-                    )
-                tools = [make_submit_construct_tool(state)]
-                if enable_literature:
-                    tools.append(make_search_tool(state))
-                system_prompt, user_prompt = build_construct_messages(
-                    state=state,
-                    construct=construct,
-                    question=question,
-                    causal_design=causal_design,
-                    indicator_audits=indicator_audits,
-                )
-                async with session_factory.open(
-                    system_prompt=system_prompt,
-                    tools=tools,
-                    log_label=f"model-spec:construct:{construct}",
-                ) as agent_session:
-                    await agent_session.turn(user_prompt)
-                if not state.submission_made:
-                    raise ValueError(
-                        f"model-spec construct `{construct}` did not call submit_construct before "
-                        "the turn ended."
-                    )
-            if state.current_construct == construct:
-                outcome = state.last_report.outcome if state.last_report else "no report"
-                raise ValueError(
-                    f"model-spec construct `{construct}` was not admitted after "
-                    f"{_MAX_ATTEMPTS_PER_CONSTRUCT} attempts (last outcome: {outcome})."
-                )
-    except Exception as exc:
-        if workspace_id:
-            emit_model_spec_admission_event(
-                workspace_id,
-                "failed",
-                {"construct": state.current_construct, "message": str(exc)},
-            )
-        raise
-
-    if workspace_id:
-        emit_model_spec_admission_event(workspace_id, "done", {})
-
-    statistical_model_spec = state.admission.statistical_model_spec().model_dump(mode="json")
-    return ModelSpecResult(
-        statistical_model_spec=statistical_model_spec,
-        authored_priors=dict(state.admission.priors),
-        search_queries=dict(state.search_queries),
-        validation=None,
-    )
-
-
 __all__ = [
     "ConstructBuildState",
     "build_design_info",
     "contribution_from_payload",
-    "make_submit_construct_tool",
     "render_admission_feedback",
-    "run_model_spec_construct_build",
 ]

@@ -1,6 +1,6 @@
-"""Parse Claude Code and Codex CLI event streams into our :class:`LLMTrace`.
+"""Parse Claude Code, Codex, and Pi CLI event streams into our :class:`LLMTrace`.
 
-Both CLIs emit newline-delimited JSON when run with their streaming
+All three CLIs emit newline-delimited JSON when run with their streaming
 output flags:
 
 * ``claude -p --output-format stream-json --verbose`` emits events with
@@ -135,11 +135,23 @@ def _claude_user_prompt_message(message: dict[str, Any]) -> TraceMessage | None:
 def _extract_usage(usage_raw: Any) -> TraceUsage:
     if not isinstance(usage_raw, dict):
         return TraceUsage()
-    input_tokens = int(usage_raw.get("input_tokens") or usage_raw.get("prompt_tokens") or 0)
-    output_tokens = int(usage_raw.get("output_tokens") or usage_raw.get("completion_tokens") or 0)
-    reasoning_tokens_raw = usage_raw.get("reasoning_tokens") or (
-        usage_raw.get("completion_tokens_details") or {}
-    ).get("reasoning_tokens")
+    input_tokens = int(
+        usage_raw.get("input_tokens")
+        or usage_raw.get("prompt_tokens")
+        or usage_raw.get("input")
+        or 0
+    )
+    output_tokens = int(
+        usage_raw.get("output_tokens")
+        or usage_raw.get("completion_tokens")
+        or usage_raw.get("output")
+        or 0
+    )
+    reasoning_tokens_raw = (
+        usage_raw.get("reasoning_tokens")
+        or usage_raw.get("reasoning")
+        or (usage_raw.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    )
     reasoning_tokens = int(reasoning_tokens_raw) if reasoning_tokens_raw is not None else None
     return TraceUsage(
         input_tokens=input_tokens,
@@ -442,28 +454,6 @@ def finalize_trace(state: ClaudeStreamState) -> LLMTrace:
     )
 
 
-def parse_claude_stream(lines: list[str]) -> ClaudeStreamState:
-    """Parse a list of Claude stream-json lines into a populated state.
-
-    Raises ``ValueError`` on any line that is not a JSON object; claude's
-    ``--output-format stream-json`` emits one JSON object per line on stdout,
-    so anything else signals a corrupt stream we refuse to silently drop.
-    """
-    state = ClaudeStreamState()
-    for idx, raw in enumerate(lines):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"claude stream line {idx} is not valid JSON: {line[:200]!r}") from exc
-        if not isinstance(event, dict):
-            raise ValueError(f"claude stream line {idx} is JSON but not an object: {line[:200]!r}")
-        apply_claude_event(state, event)
-    return state
-
-
 # ---------------------------------------------------------------------------
 # Codex parser
 # ---------------------------------------------------------------------------
@@ -598,23 +588,167 @@ def finalize_codex_trace(state: CodexStreamState) -> LLMTrace:
     )
 
 
-def parse_codex_stream(lines: list[str]) -> CodexStreamState:
-    """Parse a list of ``codex exec --json`` lines into an accumulator.
+# ---------------------------------------------------------------------------
+# Pi parser
+# ---------------------------------------------------------------------------
 
-    Raises ``ValueError`` on any line that is not a JSON object — the codex
-    CLI's ``--json`` stdout stream is one JSON object per line, so anything
-    else is a corrupt frame we refuse to silently drop.
-    """
-    state = CodexStreamState()
-    for idx, raw in enumerate(lines):
-        line = raw.strip()
-        if not line:
+
+@dataclass
+class PiStreamState:
+    """Accumulator for Pi's ``--mode json`` event stream."""
+
+    session_id: str | None = None
+    model: str = ""
+    messages: list[TraceMessage] = field(default_factory=list)
+    usage: TraceUsage = field(default_factory=TraceUsage)
+    total_time_seconds: float = 0.0
+    stop_reason: str | None = None
+    final_text: str = ""
+    raw_events: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _pi_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        str(block.get("text") or "")
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def _pi_tool_calls(content: Any) -> list[dict[str, Any]]:
+    if not isinstance(content, list):
+        return []
+    calls: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "toolCall":
             continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"codex stream line {idx} is not valid JSON: {line[:200]!r}") from exc
-        if not isinstance(event, dict):
-            raise ValueError(f"codex stream line {idx} is JSON but not an object: {line[:200]!r}")
-        apply_codex_event(state, event)
-    return state
+        calls.append(
+            {
+                "id": str(block.get("id") or block.get("toolCallId") or ""),
+                "type": "function",
+                "function": {
+                    "name": str(block.get("name") or block.get("toolName") or ""),
+                    "arguments": json.dumps(block.get("arguments") or block.get("input") or {}),
+                },
+            }
+        )
+    return calls
+
+
+def _pi_result_text(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if not isinstance(result, dict):
+        return json.dumps(result) if result is not None else ""
+    content = result.get("content")
+    text = _pi_content_text(content)
+    return text if text else json.dumps(result)
+
+
+def _add_usage(total: TraceUsage, usage_raw: Any) -> TraceUsage:
+    usage = _extract_usage(usage_raw)
+    return TraceUsage(
+        input_tokens=total.input_tokens + usage.input_tokens,
+        output_tokens=total.output_tokens + usage.output_tokens,
+        reasoning_tokens=((total.reasoning_tokens or 0) + (usage.reasoning_tokens or 0)) or None,
+    )
+
+
+def apply_pi_event(state: PiStreamState, event: dict[str, Any]) -> None:
+    """Fold one Pi JSON event into ``state``."""
+    state.raw_events.append(event)
+    etype = event.get("type")
+
+    if etype == "session":
+        session_id = event.get("id")
+        if isinstance(session_id, str):
+            state.session_id = session_id
+        return
+
+    if etype == "nof1.turn_timing":
+        duration = event.get("duration_seconds")
+        if isinstance(duration, (int, float)):
+            state.total_time_seconds += float(duration)
+        return
+
+    if etype == "message_end":
+        message = event.get("message") or {}
+        if not isinstance(message, dict):
+            return
+        role = message.get("role")
+        if role == "user":
+            state.messages.append(
+                TraceMessage(role="user", content=_pi_content_text(message.get("content")))
+            )
+            return
+        if role != "assistant":
+            return
+        content = message.get("content")
+        text = _pi_content_text(content)
+        tool_calls = _pi_tool_calls(content)
+        state.messages.append(
+            TraceMessage(role="assistant", content=text, tool_calls=tool_calls or None)
+        )
+        if text:
+            state.final_text = text
+        model = message.get("model")
+        if isinstance(model, str):
+            state.model = model
+        reason = message.get("stopReason")
+        if isinstance(reason, str):
+            state.stop_reason = reason
+        state.usage = _add_usage(state.usage, message.get("usage"))
+        return
+
+    if etype == "tool_execution_end":
+        result = _pi_result_text(event.get("result"))
+        state.messages.append(
+            TraceMessage(
+                role="tool",
+                content=result,
+                tool_call_id=str(event.get("toolCallId") or ""),
+                tool_result=result,
+                tool_is_error=bool(event.get("isError", False)),
+            )
+        )
+
+
+def format_pi_event_for_log(event: dict[str, Any]) -> str | None:
+    """Return a concise live-log line for a Pi JSON event."""
+    etype = event.get("type")
+    if etype == "session":
+        return f"pi session started ({event.get('id') or '?'})"
+    if etype == "tool_execution_start":
+        args = event.get("args") or {}
+        return f"pi tool call: {event.get('toolName') or '?'}({json.dumps(args, default=str)})"
+    if etype == "tool_execution_end":
+        error = " [error]" if event.get("isError") else ""
+        return (
+            f"pi tool result: {event.get('toolName') or '?'}{error} -> "
+            f"{_pi_result_text(event.get('result'))}"
+        )
+    if etype == "message_end":
+        message = event.get("message") or {}
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            return None
+        text = _pi_content_text(message.get("content"))
+        usage = _format_usage(message.get("usage"))
+        details = f" [{usage}]" if usage else ""
+        return f"pi message: {text}{details}" if text else None
+    if etype == "agent_end":
+        return "pi turn completed"
+    return None
+
+
+def finalize_pi_trace(state: PiStreamState) -> LLMTrace:
+    """Materialize an :class:`LLMTrace` from a Pi accumulator."""
+    return LLMTrace(
+        messages=list(state.messages),
+        model=state.model,
+        total_time_seconds=state.total_time_seconds,
+        usage=state.usage,
+    )

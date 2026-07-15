@@ -9,8 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
 
-IS_INTERACTIVE_CONTEXT = True
-
 
 class ValidateMeasurementStructureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

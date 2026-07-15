@@ -28,6 +28,7 @@ from nof1_causal_lab.models.ssm.compile.spec_translation import (
 from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
@@ -83,19 +84,14 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_design: dict
 
 def _attach_compile_binding_provenance(
     diagnostics: list[PriorValidationResult],
-    bindings: list[dict[str, object]],
+    bindings: list[CompiledParameterBinding],
 ) -> list[PriorValidationResult]:
     """Attach direct-writer parameter provenance to compile diagnostics when possible."""
     binding_index: dict[tuple[str, int], list[str]] = {}
     for binding in bindings:
-        site_name = binding.get("site_name")
-        flat_index = binding.get("flat_index")
-        parameter = binding.get("parameter")
-        if not isinstance(site_name, str) or not isinstance(flat_index, int):
-            continue
-        if not isinstance(parameter, str) or not parameter:
-            continue
-        binding_index.setdefault((site_name, flat_index), []).append(parameter)
+        binding_index.setdefault((binding.site_name, binding.flat_index), []).append(
+            binding.parameter
+        )
 
     for diagnostic in diagnostics:
         if diagnostic.compiled_site_name is None or diagnostic.compiled_flat_index is None:
@@ -117,7 +113,7 @@ def compile_ssm_inputs_from_statistical_model_spec(
 ) -> tuple[
     SSMSpec,
     PriorRegistry,
-    list[dict[str, object]],
+    list[CompiledParameterBinding],
     list[PriorValidationResult],
     dict[tuple[int, int], float],
 ]:
@@ -166,7 +162,7 @@ def compile_ssm_inputs_from_spec(
 ) -> tuple[
     SSMSpec,
     PriorRegistry,
-    list[dict[str, object]],
+    list[CompiledParameterBinding],
     list[PriorValidationResult],
     dict[tuple[int, int], float],
 ]:
@@ -200,7 +196,7 @@ def compile_ssm_inputs_from_spec(
             raw_priors=raw_priors,
             prior_registry=resolved_prior_registry,
         )
-        bindings: list[dict[str, object]] = []
+        bindings: list[CompiledParameterBinding] = []
         diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
         return ssm_spec, resolved_prior_registry, bindings, diagnostics, resolved_edge_lag_days
 

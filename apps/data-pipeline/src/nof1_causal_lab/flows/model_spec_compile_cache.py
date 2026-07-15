@@ -8,11 +8,14 @@ import logging
 import os
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import TypeIs
 
 from nof1_causal_lab.utils import storage
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
 from .run_store import (
     MODEL_SPEC_JAX_CACHE_FILENAMES,
@@ -42,11 +45,9 @@ def load_model_spec_compile_cache_metadata(workspace_id: str) -> dict[str, Any] 
     return payload if isinstance(payload, dict) else None
 
 
-def compiled_ssm_topology_fingerprint(compiled_ssm: dict[str, Any]) -> str:
+def compiled_ssm_topology_fingerprint(compiled_ssm: CompiledSSMArtifact) -> str:
     """Hash the topology-defining portion of a compiled SSM artifact."""
-    spec_payload = compiled_ssm.get("spec")
-    if not isinstance(spec_payload, dict):
-        raise ValueError("Compiled artifact is missing required 'spec'")
+    spec_payload = compiled_ssm.spec.model_dump(mode="json")
     return hashlib.sha256(
         json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -107,7 +108,7 @@ def _wait_for_pending_compile_cache(metadata: dict[str, Any]) -> bool:
 
 def restore_model_spec_compile_cache(
     workspace_id: str | None,
-    compiled_ssm: dict[str, Any] | None,
+    compiled_ssm: CompiledSSMArtifact | None,
     *,
     wait_for_pending: bool,
 ) -> bool:

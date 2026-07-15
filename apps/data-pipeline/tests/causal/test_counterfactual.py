@@ -1,8 +1,8 @@
 """Tests for the Diffrax/Optimistix counterfactual API.
 
 Covers: dense-linear VectorField + Intervention DSL, simulate / simulate_pair,
-compute_steady_state, summarize_draws / summarize_temporal_effect /
-resolve_action_value, compute_interventions.
+compute_steady_state, summarize_draws / summarize_temporal_effect,
+compute_interventions.
 """
 
 from __future__ import annotations
@@ -13,10 +13,8 @@ import pytest
 from nof1_causal_lab.models.ssm.counterfactual import (
     build_time_grid,
     compute_interventions,
-    resolve_action_value,
     summarize_draws,
     summarize_temporal_effect,
-    vmap_steady_state_effect_dynamics,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
     EdgeInputOverride,
@@ -32,6 +30,49 @@ from nof1_causal_lab.models.ssm.dynamics import (
     simulate_pair,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+
+
+def resolve_action_value(baseline_value, *, mode, value=None, amount=None):
+    baseline = jnp.asarray(baseline_value)
+    if mode == "set":
+        if value is None:
+            raise ValueError("mode='set' requires value")
+        return jnp.asarray(value, dtype=baseline.dtype)
+    if mode == "shift":
+        if amount is None:
+            raise ValueError("mode='shift' requires amount")
+        return baseline + jnp.asarray(amount, dtype=baseline.dtype)
+    raise ValueError(f"Unsupported action mode: {mode}")
+
+
+def vmap_steady_state_effect_dynamics(
+    vector_field,
+    param_samples,
+    treat_idx,
+    outcome_idx,
+    *,
+    mode,
+    value=None,
+    amount=None,
+):
+    import jax
+
+    if not param_samples:
+        return jnp.zeros((0,))
+    stacked = jax.tree.map(lambda *values: jnp.stack(values), *param_samples)
+
+    def per_draw(params):
+        baseline = compute_steady_state(vector_field, params, Intervention.none())
+        do_value = resolve_action_value(baseline[treat_idx], mode=mode, value=value, amount=amount)
+        intervention = Intervention(
+            overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
+        )
+        intervened = compute_steady_state(
+            vector_field, params, intervention, initial_guess=baseline
+        )
+        return intervened[outcome_idx] - baseline[outcome_idx]
+
+    return jax.vmap(per_draw)(stacked)
 
 
 def _dense_matrix_vector_field(n_latent: int) -> VectorField:

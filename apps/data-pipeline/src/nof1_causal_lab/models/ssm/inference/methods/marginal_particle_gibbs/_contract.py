@@ -6,13 +6,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     import jax.numpy as jnp
 
+    from nof1_causal_lab.models.ssm.inference.bundle import (
+        InitialLatentMomentsFn,
+        LatentContext,
+        LatentContextRuntimeFn,
+        ObservationIncrementLogProbRuntimeFn,
+        PairwiseTransitionLogProbFn,
+        TrajectoryLogProbRuntimeFn,
+        TransitionLogProbFn,
+        TransitionSampleFn,
+    )
+    from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
+        GaussianTrajectoryPriorTerms,
+    )
     from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 _LATENT_SMOOTHER_DSMC = "dsmc"
@@ -28,6 +41,7 @@ _DSMC_LEAF_PROPOSALS = (
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
 )
 _LATENT_SMOOTHERS = (_LATENT_SMOOTHER_DSMC,)
+type DSMCLeafProposal = Literal["amala_exact", "paid_mix"]
 
 
 @dataclass(frozen=True)
@@ -71,20 +85,20 @@ def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
 class MPGibbsStatic:
     """Build-time configuration and bundle callables for the smoother context."""
 
-    latent_context_runtime_fn: Any
-    log_prior_unc_fn: Any
-    initial_latent_moments_fn: Any
-    obs_increment_fn: Any
-    trajectory_log_prob_fn: Any
-    prior_terms_from_context_fn: Any
-    runtime_observations: Any
-    runtime_times: Any
+    latent_context_runtime_fn: LatentContextRuntimeFn
+    log_prior_unc_fn: Callable[[jnp.ndarray], jnp.ndarray]
+    initial_latent_moments_fn: InitialLatentMomentsFn
+    obs_increment_fn: ObservationIncrementLogProbRuntimeFn
+    trajectory_log_prob_fn: TrajectoryLogProbRuntimeFn
+    prior_terms_from_context_fn: Callable[[LatentContext], GaussianTrajectoryPriorTerms | None]
+    runtime_observations: jnp.ndarray
+    runtime_times: jnp.ndarray
     num_particles: int
     num_parameter_particles: int
     latent_delta: float
     amala_kappa: float
     amala_grad_clip: float
-    dsmc_leaf_proposal: str
+    dsmc_leaf_proposal: DSMCLeafProposal
     # Number of latent coordinates proposed per sweep (None = all). Restricting the
     # per-sweep update to a random coordinate block sidesteps the joint-coherence
     # weight degeneracy of full-state proposals at higher latent dimension; the tree
@@ -95,14 +109,14 @@ class MPGibbsStatic:
     # per-time pilot moments derived from the IEKS warmup paths.
     paid_mix_z_weight: float
     paid_mix_pilot_weight: float
-    pilot_means: Any
-    pilot_vars: Any
-    pilot_wide_vars: Any
-    transition_initial_log_prob_fn: Any
-    transition_log_prob_fn: Any
-    transition_log_probs_for_pairs_fn: Any
-    transition_pairwise_log_probs_fn: Any
-    transition_sample_fn: Any
+    pilot_means: jnp.ndarray | None
+    pilot_vars: jnp.ndarray | None
+    pilot_wide_vars: jnp.ndarray | None
+    transition_initial_log_prob_fn: Callable[[LatentContext, jnp.ndarray], jnp.ndarray]
+    transition_log_prob_fn: TransitionLogProbFn
+    transition_log_probs_for_pairs_fn: PairwiseTransitionLogProbFn
+    transition_pairwise_log_probs_fn: PairwiseTransitionLogProbFn
+    transition_sample_fn: TransitionSampleFn
     diagnostic_metrics: frozenset[str]
 
 
@@ -115,7 +129,7 @@ class SmootherContext:
     :func:`build_smoother_context`; consumed by the smoother modules.
     """
 
-    contexts: Any
+    contexts: LatentContext
     parameter_particles: Float[Array, "K U"]
     parameter_log_probs: Float[Array, " K"]
     initial_label_log_probs: Float[Array, " K"]
@@ -125,34 +139,34 @@ class SmootherContext:
     num_steps: int
     num_free_particles: int
     num_parameter_particles: int
-    latent_dtype: Any
-    traj_dtype: Any
-    complete_dtype: Any
-    obs_increment_fn: Any
-    runtime_observations: Any
-    trajectory_log_prob_fn: Any
-    prior_terms_from_context_fn: Any
-    log_prior_unc_fn: Any
+    latent_dtype: object
+    traj_dtype: object
+    complete_dtype: object
+    obs_increment_fn: ObservationIncrementLogProbRuntimeFn
+    runtime_observations: jnp.ndarray
+    trajectory_log_prob_fn: Callable[..., jnp.ndarray]
+    prior_terms_from_context_fn: Callable[..., GaussianTrajectoryPriorTerms | None]
+    log_prior_unc_fn: Callable[[jnp.ndarray], jnp.ndarray]
     amala_delta: Float[Array, " D"]
     amala_kappa: float
     amala_grad_clip: float
-    dsmc_leaf_proposal: str
+    dsmc_leaf_proposal: DSMCLeafProposal
     latent_block_coords: int | None
     paid_mix_z_weight: float
     paid_mix_pilot_weight: float
-    pilot_means: Any
-    pilot_vars: Any
-    pilot_wide_vars: Any
+    pilot_means: jnp.ndarray | None
+    pilot_vars: jnp.ndarray | None
+    pilot_wide_vars: jnp.ndarray | None
     diagnostic_metrics: frozenset[str]
-    initial_value_grad_by_param: Callable
-    transition_current_value_grad_by_param: Callable
-    transition_next_value_grad_by_param: Callable
-    selected_transition_log_probs: Callable
-    pairwise_transition_log_probs: Callable
-    transition_log_probs_from_fixed_prev: Callable
-    transition_log_probs_by_param: Callable
-    transition_log_probs_to_next_by_param: Callable
-    sample_transition_by_label: Callable
-    segment_terminal_label_log_probs: Callable
-    path_future_tail_log_probs: Callable
-    trajectory_label_log_probs: Callable
+    initial_value_grad_by_param: Callable[..., jnp.ndarray]
+    transition_current_value_grad_by_param: Callable[..., jnp.ndarray]
+    transition_next_value_grad_by_param: Callable[..., jnp.ndarray]
+    selected_transition_log_probs: Callable[..., jnp.ndarray]
+    pairwise_transition_log_probs: Callable[..., jnp.ndarray]
+    transition_log_probs_from_fixed_prev: Callable[..., jnp.ndarray]
+    transition_log_probs_by_param: Callable[..., jnp.ndarray]
+    transition_log_probs_to_next_by_param: Callable[..., jnp.ndarray]
+    sample_transition_by_label: Callable[..., jnp.ndarray]
+    segment_terminal_label_log_probs: Callable[..., jnp.ndarray]
+    path_future_tail_log_probs: Callable[..., jnp.ndarray]
+    trajectory_label_log_probs: Callable[..., jnp.ndarray]

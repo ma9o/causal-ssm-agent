@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import diffrax as dfx
 import equinox as eqx
 import jax.numpy as jnp
+import jax.random as random
 
 from .vector_field import VectorFieldArgs
 
@@ -43,6 +44,48 @@ class SimulationConfig(eqx.Module):
     """Constant step size for the SDE solver. ``None`` → ``(t1 - t0) / 200``."""
     sde_brownian_tol: float = 1e-3
     """Tolerance for ``VirtualBrownianTree``; smaller = finer Brownian path."""
+    use_indexed_brownian_path: bool = eqx.field(static=True, default=False)
+    """Use deterministic integer-step Brownian increments for fixed-step simulation."""
+
+
+class _IndexedBrownianPath(dfx.AbstractBrownianPath):
+    """Fast deterministic Brownian increments for a fixed-step forward solve.
+
+    Every solver interval is keyed by its integer step index rather than the
+    floating-point bit patterns of its endpoints. This has the fixed-step speed
+    of ``UnsafeBrownianPath`` while making the same seed and schedule replay the
+    same increments across process restarts.
+    """
+
+    shape: tuple[int, ...] = eqx.field(static=True)
+    key: Array
+    origin: Array
+    step_size: Array
+    levy_area: type[dfx.BrownianIncrement] = eqx.field(static=True, default=dfx.BrownianIncrement)
+
+    @property
+    def t0(self):
+        return self.origin
+
+    @property
+    def t1(self):
+        return jnp.inf
+
+    @eqx.filter_jit  # noqa: V105 - required by the Diffrax AbstractBrownianPath protocol
+    def evaluate(self, t0, t1=None, left: bool = True, use_levy: bool = False):
+        del left
+        if t1 is None:
+            raise ValueError("Indexed Brownian paths only support interval increments")
+        dtype = jnp.result_type(t0, t1)
+        start = jnp.asarray(t0, dtype=dtype)
+        end = jnp.asarray(t1, dtype=dtype)
+        step_index = jnp.rint((start - self.origin) / self.step_size).astype(jnp.int32)
+        increment_key = random.fold_in(self.key, step_index)
+        dt = end - start
+        increment = random.normal(increment_key, self.shape, dtype=dtype) * jnp.sqrt(dt)
+        if use_levy:
+            return self.levy_area(dt=dt, W=increment)
+        return increment
 
 
 def simulate(
@@ -134,13 +177,25 @@ def simulate(
     jitter = jnp.asarray(1e-8, dtype=dtype)
     chol_G = jnp.linalg.cholesky(diffusion_cov + jitter * jnp.eye(n_latent, dtype=dtype))
 
-    brownian = dfx.VirtualBrownianTree(
-        t0=t0,
-        t1=t1,
-        tol=cfg.sde_brownian_tol,
-        shape=(n_latent,),
-        key=key,
-    )
+    if cfg.use_indexed_brownian_path:
+        if cfg.sde_dt is None:
+            raise ValueError("Indexed Brownian simulation requires an explicit fixed step size")
+        brownian = _IndexedBrownianPath(
+            shape=(n_latent,),
+            key=key,
+            origin=t0,
+            step_size=jnp.asarray(cfg.sde_dt),
+        )
+        adjoint = dfx.ForwardMode()
+    else:
+        brownian = dfx.VirtualBrownianTree(
+            t0=t0,
+            t1=t1,
+            tol=cfg.sde_brownian_tol,
+            shape=(n_latent,),
+            key=key,
+        )
+        adjoint = dfx.RecursiveCheckpointAdjoint()
     ode_term = dfx.ODETerm(lambda t, y, a: vector_field(t, y, a))
     diffusion_term = dfx.ControlTerm(lambda _t, _y, _a: chol_G, brownian)
     term = dfx.MultiTerm(ode_term, diffusion_term)
@@ -157,6 +212,7 @@ def simulate(
         saveat=dfx.SaveAt(ts=time_grid),
         max_steps=cfg.max_steps,
         throw=False,
+        adjoint=adjoint,
     )
     return solution.ys
 

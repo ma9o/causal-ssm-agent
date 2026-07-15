@@ -69,18 +69,3 @@ def _filter_public_samples(
 ) -> dict[str, jnp.ndarray]:
     """Drop internal handler sites, keeping only original model outputs."""
     return {name: values for name, values in samples.items() if name in public_sites}
-
-
-def _apply_reparam(model_fn, reparam_config):
-    """Wrap a model function with reparameterization if config is provided.
-
-    Args:
-        model_fn: A NumPyro model function.
-        reparam_config: A dict, callable (Strategy), or None.
-
-    Returns:
-        The model function, possibly wrapped with handlers.reparam.
-    """
-    if reparam_config is None:
-        return model_fn
-    return handlers.reparam(model_fn, config=reparam_config)

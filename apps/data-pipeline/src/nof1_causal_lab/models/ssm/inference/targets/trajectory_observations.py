@@ -479,7 +479,12 @@ def trajectory_observation_log_probs(
 
     if not observation_operator.requires_interval_summary_handling:
         return jax.vmap(
-            lambda y_t, z_t, mask_t: obs_kernel.emission_fn(y_t, z_t, H, d_meas, R, mask_t)
+            lambda y_t, z_t, mask_t: obs_kernel.log_prob_fn(
+                y_t,
+                H @ z_t + d_meas,
+                R,
+                mask_t,
+            )
         )(clean_obs, latent_trajectory, mask_float)
 
     if mean_log_prob_fn is None:
@@ -491,11 +496,9 @@ def trajectory_observation_log_probs(
     expected_means, semantic_mask = observation_operator.project_response_trajectory(responses)
 
     point_ll = jax.vmap(
-        lambda y_t, z_t, mask_t: obs_kernel.emission_fn(
+        lambda y_t, z_t, mask_t: obs_kernel.log_prob_fn(
             y_t,
-            z_t,
-            H,
-            d_meas,
+            H @ z_t + d_meas,
             R,
             mask_t * point_like_mask,
         )
@@ -554,11 +557,9 @@ def row_observation_log_probs(
     clean_obs = jnp.nan_to_num(observations, nan=0.0)
     obs_mask_float = obs_mask.astype(latent_trajectory.dtype)
     return jax.vmap(
-        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_fn(
+        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.log_prob_fn(
             y_t,
-            z_t,
-            H_t,
-            d_t,
+            H_t @ z_t + d_t,
             R,
             mask_t,
         )

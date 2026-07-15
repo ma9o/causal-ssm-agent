@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
     DEFAULT_PRIOR_RELEASED_SITE_NAMES,
@@ -12,13 +12,15 @@ from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
+    from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
+
 
 def prepare_pmcmc_parameter_warmup(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    bundle: dict[str, Any],
+    bundle: ParticleRuntimeBundle,
     method_label: str,
     phase_label: str,
     trace_key: jnp.ndarray,
@@ -44,7 +46,7 @@ def prepare_pmcmc_parameter_warmup(
         model,
         observations,
         times,
-        bundle=bundle,
+        bundle=bundle.cached,
         method_label=method_label,
         phase_label=phase_label,
         trace_key=trace_key,

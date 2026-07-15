@@ -207,6 +207,55 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     expect(deriveMeasurementsData).toHaveBeenCalledWith(persisted, parquet);
   });
 
+  it("unwraps the causal design artifact for the measurement-structure view", async () => {
+    const measurementStructure = {
+      measurement_structure: { model_clock: "1d", indicators: [] },
+      llm_trace_ref: null,
+    };
+    const causalDesign = {
+      latent: { constructs: [], edges: [] },
+      measurement: { model_clock: "1d", indicators: [] },
+      identifiability: {
+        identifiable_treatments: {},
+        non_identifiable_treatments: {},
+      },
+      estimation: {
+        state_order: [],
+        edges: [],
+        induced_dependencies: [],
+        known_inputs: [],
+      },
+    };
+
+    mockFacade({
+      artifacts: {
+        [facadeArtifactPath("user", "measurement_structure")]: artifactResponse(
+          "measurement_structure",
+          { "measurement_structure.json": measurementStructure },
+        ),
+        [facadeArtifactPath("user", "causal_design")]: artifactResponse("causal_design", {
+          "causal_design.json": { causal_design: causalDesign },
+        }),
+      },
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/artifacts/user/measurement_structure/view"),
+      {
+        params: Promise.resolve({
+          workspaceId: "user",
+          artifactId: "measurement_structure",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ...measurementStructure,
+      causal_design: causalDesign,
+    });
+  });
+
   it("hydrates model-spec likelihood diagnostics from validation + full measurements observations", async () => {
     const modelSpec = {
       statistical_model_spec: {

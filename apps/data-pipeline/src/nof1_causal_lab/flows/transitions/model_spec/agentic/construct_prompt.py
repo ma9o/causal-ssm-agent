@@ -38,12 +38,23 @@ The cumulative partial model is then compiled and simulated through the exact
 prior-predictive engine and gated by a reachability battery (confinement, latent
 scale, design-resolvability, edge overwhelm, saturation, coverage). You will see
 the report. If a hard check fails you must revise; if a soft check fails you may
-revise or accept its consequence with a written rationale via `accept`.
+revise or accept its consequence via `accept`, naming the exact `check` and
+`target` from the current failure plus a written `rationale`.
 
 Author priors on the natural scale of each parameter. Latents are standardized
 (unit scale); loadings map the latent to the indicator's observation scale.
+Gaussian/Student-t indicators with an identity link and mean/first/last summaries
+are themselves standardized (mean 0, sd 1) before fitting — author their noise,
+loading, and manifest-mean priors on that unit scale, not on the raw data scale
+shown in the audit profile. All other families keep their natural data scale.
 Elicit each dynamic construct's settling time so it is resolvable at the
-observation cadence and within the study span."""
+observation cadence and within the study span.
+
+You must finish by invoking the registered MCP tool `submit_construct`; writing
+or describing a `submit_construct(...)` call in text does not execute it and
+fails the attempt. Follow the tool schema exactly (`indicators`, not
+`emissions`). Do not inspect the filesystem or use shell commands: this prompt
+and the registered tool schema contain everything required for the submission."""
 
 
 def _indicators_for(causal_design: dict, construct: str) -> list[dict]:
@@ -101,10 +112,25 @@ def build_construct_messages(
         var = ind["name"]
         role = "reference (unit loading)" if var == reference_var else "free loading"
         audit = indicator_audits.get(var, {})
+        profile = audit.get("profile", {})
         hint = audit.get("recommended_distribution") or audit.get("dtype") or ""
         how = ind.get("how_to_measure", "")
+        sparse_declared_levels = (
+            ind.get("measurement_dtype") == "ordinal"
+            and len(ind.get("ordinal_levels") or []) >= 2
+            and profile.get("n_obs", 0) > 0
+            and profile.get("min") == profile.get("max")
+        )
+        usability = (
+            " SPARSE LEVEL COVERAGE: only one level is observed, but the declared ordinal "
+            "levels define the likelihood support; keep the compatible discrete emission and "
+            "treat limited learning as a data limitation."
+            if sparse_declared_levels
+            else ""
+        )
         lines.append(
-            f"- `{var}` — {role}. {how} {f'(audit hint: {hint})' if hint else ''}".rstrip()
+            f"- `{var}` — {role}. {how} {f'(audit hint: {hint})' if hint else ''}"
+            f"{usability}".rstrip()
         )
 
     closing_betas = sorted(
@@ -121,14 +147,31 @@ def build_construct_messages(
         "Author a prior for each parameter below, plus any optional structural "
         "declaration you choose to enable (listed next). Do NOT author a prior for "
         "any name in neither list — it is not a free parameter of this construct "
-        "and is rejected. Each prior's support must lie within the stated domain.",
+        "and is rejected. Each prior's support must lie within the stated domain. "
+        "Use the exact value shape "
+        '`{"distribution": "Normal", "params": {"mu": 0, "sigma": 1}, '
+        '"reasoning": "..."}`. Do not use `dist` or place distribution parameters '
+        "at the top level.",
         "",
     ]
     for n in param_names:
         role, constraint = catalog.role_for(n)
+        site_name = catalog.site_for(n)
+        pooled_families = {
+            prior.get("distribution")
+            for prior_name, prior in state.admission.priors.items()
+            if site_name is not None and catalog.site_for(prior_name) == site_name
+        }
+        pooled_families.discard(None)
+        family_requirement = (
+            f" — pooled compiler site `{site_name}`: MUST use "
+            f"`{next(iter(pooled_families))}` to match admitted parameters"
+            if len(pooled_families) == 1
+            else ""
+        )
         lines.append(
             f"- `{n}` — {role.value.replace('_', ' ')} — support ⊆ "
-            f"{constraint_domain(constraint.value)}"
+            f"{constraint_domain(constraint.value)}{family_requirement}"
         )
     lines.append("")
     if closing_betas:
@@ -156,7 +199,13 @@ def build_construct_messages(
         "indicator, and the priors object.",
     ]
 
-    if (
+    if state.last_tool_feedback is not None:
+        lines += [
+            "",
+            "## Latest tool feedback — revise the submission",
+            state.last_tool_feedback,
+        ]
+    elif (
         state.last_report is not None
         and state.last_report.name == construct
         and not state.last_report.admitted

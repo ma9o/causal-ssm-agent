@@ -14,7 +14,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
-    discretize_system,
+    discretize_linear_system_exact,
 )
 from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -27,7 +27,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_diagonal_support,
@@ -186,7 +186,7 @@ def _simulate_mixed_continuous_observations(
     n_manifest = int(lambda_mat.shape[0])
     dt = float(times[1] - times[0]) if times.shape[0] > 1 else 1.0
 
-    Ad, Qd, _ = discretize_system(
+    Ad, Qd, _ = discretize_linear_system_exact(
         jnp.diag(decay_diag),
         jnp.diag(diffusion_diag**2),
         None,

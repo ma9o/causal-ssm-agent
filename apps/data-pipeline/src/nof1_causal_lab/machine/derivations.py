@@ -280,7 +280,7 @@ def _derive_compiled_ssm(
         derived_from=pins,
         produced_by="derive:compiled_ssm",
         json_files={
-            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm,
+            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm.model_dump(mode="json"),
             json_filename("compiled_ssm", "report"): report,
         },
     )

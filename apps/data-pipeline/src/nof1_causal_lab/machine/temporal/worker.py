@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
@@ -19,16 +18,26 @@ from nof1_causal_lab.machine.temporal.client import (
     EPISODE_TASK_QUEUE,
     HARNESS_CLAUDE_TASK_QUEUE,
     HARNESS_CODEX_TASK_QUEUE,
+    HARNESS_PI_TASK_QUEUE,
+    MODEL_SPEC_SIMULATION_TASK_QUEUE,
     OPENROUTER_TASK_QUEUE,
     connect_client,
 )
-from nof1_causal_lab.machine.temporal.llm_subroutine_activities import run_harness_turn_activity
+from nof1_causal_lab.machine.temporal.llm_subroutine_activities import (
+    execute_harness_tool_request_activity,
+    execute_llm_tool_calls_activity,
+    run_harness_turn_activity,
+)
 from nof1_causal_lab.machine.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
 from nof1_causal_lab.machine.temporal.llm_transition_workflow import SingleLLMTransitionWorkflow
 from nof1_causal_lab.machine.temporal.measurement_activities import call_openrouter_activity
 from nof1_causal_lab.machine.temporal.measurement_workflow import (
     ExtractionChunkWorkflow,
     MeasurementsWorkflow,
+)
+from nof1_causal_lab.machine.temporal.statistical_model_spec_activities import (
+    plan_statistical_model_spec_activity,
+    validate_statistical_model_spec_barrier_activity,
 )
 from nof1_causal_lab.machine.temporal.statistical_model_spec_workflow import (
     StatisticalModelSpecWorkflow,
@@ -85,14 +94,29 @@ def build_openrouter_worker(client, task_queue: str = OPENROUTER_TASK_QUEUE) -> 
 def build_harness_worker(
     client,
     task_queue: str,
-    *,
-    max_concurrent_activities: int,
 ) -> Worker:
     return Worker(
         client,
         task_queue=task_queue,
         activities=[run_harness_turn_activity],
-        max_concurrent_activities=max_concurrent_activities,
+    )
+
+
+def build_model_spec_simulation_worker(
+    client,
+    task_queue: str = MODEL_SPEC_SIMULATION_TASK_QUEUE,
+) -> Worker:
+    """Serialize exact Stage 4 simulations without limiting harness turns."""
+    return Worker(
+        client,
+        task_queue=task_queue,
+        activities=[
+            execute_harness_tool_request_activity,
+            execute_llm_tool_calls_activity,
+            plan_statistical_model_spec_activity,
+            validate_statistical_model_spec_barrier_activity,
+        ],
+        max_concurrent_activities=1,
     )
 
 
@@ -103,26 +127,32 @@ async def run_worker() -> None:
     claude_worker = build_harness_worker(
         client,
         HARNESS_CLAUDE_TASK_QUEUE,
-        max_concurrent_activities=int(
-            os.environ.get("TEMPORAL_HARNESS_CLAUDE_MAX_CONCURRENT_ACTIVITIES", "1")
-        ),
     )
     codex_worker = build_harness_worker(
         client,
         HARNESS_CODEX_TASK_QUEUE,
-        max_concurrent_activities=int(
-            os.environ.get("TEMPORAL_HARNESS_CODEX_MAX_CONCURRENT_ACTIVITIES", "1")
-        ),
     )
+    pi_worker = build_harness_worker(
+        client,
+        HARNESS_PI_TASK_QUEUE,
+    )
+    model_spec_simulation_worker = build_model_spec_simulation_worker(client)
     logger.info("Episode worker started on task queue %s", EPISODE_TASK_QUEUE)
     logger.info("OpenRouter worker started on task queue %s", OPENROUTER_TASK_QUEUE)
     logger.info("Claude harness worker started on task queue %s", HARNESS_CLAUDE_TASK_QUEUE)
     logger.info("Codex harness worker started on task queue %s", HARNESS_CODEX_TASK_QUEUE)
+    logger.info("Pi harness worker started on task queue %s", HARNESS_PI_TASK_QUEUE)
+    logger.info(
+        "Model-spec simulation worker started on task queue %s",
+        MODEL_SPEC_SIMULATION_TASK_QUEUE,
+    )
     await asyncio.gather(
         episode_worker.run(),
         openrouter_worker.run(),
         claude_worker.run(),
         codex_worker.run(),
+        pi_worker.run(),
+        model_spec_simulation_worker.run(),
     )
 
 

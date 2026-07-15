@@ -54,10 +54,6 @@ def group_indicators_by_window(
     return sorted(grouped.items(), key=lambda item: item[0])
 
 
-def chunk_log_label(chunk_idx: int, n_windows: int, n_events: int) -> str:
-    return f"extraction chunk={chunk_idx} windows={n_windows} events={n_events}"
-
-
 def prepare_semantic_chunks(
     *,
     raw_df: pl.DataFrame,

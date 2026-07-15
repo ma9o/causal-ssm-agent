@@ -8,6 +8,10 @@ from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
 
 EPISODE_TASK_QUEUE = os.environ.get("TEMPORAL_TASK_QUEUE", "nof1-episodes")
+MODEL_SPEC_SIMULATION_TASK_QUEUE = os.environ.get(
+    "TEMPORAL_MODEL_SPEC_SIMULATION_TASK_QUEUE",
+    "nof1-model-spec-simulation",
+)
 OPENROUTER_TASK_QUEUE = os.environ.get("TEMPORAL_OPENROUTER_TASK_QUEUE", "nof1-openrouter")
 HARNESS_CLAUDE_TASK_QUEUE = os.environ.get(
     "TEMPORAL_HARNESS_CLAUDE_TASK_QUEUE",
@@ -16,6 +20,10 @@ HARNESS_CLAUDE_TASK_QUEUE = os.environ.get(
 HARNESS_CODEX_TASK_QUEUE = os.environ.get(
     "TEMPORAL_HARNESS_CODEX_TASK_QUEUE",
     "nof1-harness-codex",
+)
+HARNESS_PI_TASK_QUEUE = os.environ.get(
+    "TEMPORAL_HARNESS_PI_TASK_QUEUE",
+    "nof1-harness-pi",
 )
 
 

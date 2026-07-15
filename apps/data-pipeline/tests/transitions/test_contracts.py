@@ -7,10 +7,8 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.flows.artifact_contracts import (
-    CONTEXT_TOOLS,
-    validate_artifact_payload,
-)
+from nof1_causal_lab.flows.artifact_contracts import CONTEXT_TOOLS
+from tests.artifact_contract_support import validate_artifact_payload
 
 
 @pytest.fixture

@@ -1,103 +1,33 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
+import type { CapabilitiesResponse, LLMTrace } from "@nof1-causal-lab/api-types";
 import type {
-  ArtifactVersionInfo,
-  CapabilitiesResponse,
-  LLMTrace,
-} from "@nof1-causal-lab/api-types";
+  EpisodeArtifactId,
+  EpisodeEvent,
+  JsonObject,
+  EpisodeMove,
+  EpisodeStatus,
+  MachineDescription,
+  MoveOutcome,
+  TransitionRecord,
+} from "@/lib/episode-types";
+
+export type {
+  EpisodeArtifactId,
+  EpisodeArtifactStatus,
+  EpisodeEvent,
+  JsonObject,
+  EpisodeMove,
+  EpisodeProvenance,
+  EpisodeState,
+  EpisodeStatus,
+  MachineDescription,
+  MoveOutcome,
+  RetractedArtifact,
+  TransitionRecord,
+  TransitionStatus,
+} from "@/lib/episode-types";
 
 const TOOL_SERVER = getToolServerUrl();
-
-export type EpisodeProvenance = "computed" | "human" | "llm";
-
-export type EpisodeArtifactId =
-  | "question"
-  | "raw_data"
-  | "latent_structure"
-  | "measurement_structure"
-  | "causal_design"
-  | "identification_report"
-  | "measurements"
-  | "panel"
-  | "validation_report"
-  | "statistical_model_spec"
-  | "compiled_ssm"
-  | "posterior"
-  | "baseline_report"
-  | "saved_scenarios";
-
-export type EpisodeMove =
-  | { kind: "run"; artifact_id: EpisodeArtifactId }
-  | { kind: "write"; artifact_id: EpisodeArtifactId; provenance: EpisodeProvenance };
-
-export interface EpisodeState {
-  current: Partial<Record<EpisodeArtifactId, ArtifactVersionInfo>>;
-}
-
-export type TransitionStatus = "applied" | "rejected" | "raised";
-
-export interface TransitionRecord {
-  seq: number;
-  ts: string;
-  move: EpisodeMove;
-  status: TransitionStatus;
-  reason: string | null;
-  error_type: string | null;
-  error_message: string | null;
-  diagnostics: Record<string, unknown>;
-  produced: ArtifactVersionInfo[];
-  retracted: RetractedArtifact[];
-}
-
-export interface RetractedArtifact {
-  artifact_id: EpisodeArtifactId;
-  reason_ref: string;
-}
-
-export interface MoveOutcome {
-  seq: number;
-  status: TransitionStatus;
-  reason: string | null;
-  error_type: string | null;
-  error_message: string | null;
-  diagnostics: Record<string, unknown>;
-  produced: ArtifactVersionInfo[];
-  retracted: RetractedArtifact[];
-  state: EpisodeState;
-}
-
-export interface EpisodeArtifactStatus {
-  artifact_id: EpisodeArtifactId;
-  exists: boolean;
-  stale: boolean;
-  version: number | null;
-  provenance: EpisodeProvenance | null;
-  produced_by: string | null;
-}
-
-export interface EpisodeStatus {
-  workspace_id: string;
-  seq: number;
-  state: EpisodeState;
-  artifacts: EpisodeArtifactStatus[];
-  legal: EpisodeMove[];
-  auto_running: boolean;
-}
-
-export interface EpisodeEvent {
-  event: string;
-  payload: Record<string, unknown>;
-  cursor: string;
-}
-
-export interface MachineTransition {
-  transition_id: EpisodeArtifactId;
-}
-
-export interface MachineDescription {
-  topological_artifact_order: EpisodeArtifactId[];
-  topological_transition_order: EpisodeArtifactId[];
-  transitions: MachineTransition[];
-}
 
 /** Artifacts a human-edited result can write back into the machine. */
 export const WRITABLE_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
@@ -147,7 +77,7 @@ export async function startEpisode(
 export async function proposeMove(
   workspaceId: string,
   move: EpisodeMove,
-  payload?: Record<string, unknown>,
+  payload?: JsonObject,
 ): Promise<MoveOutcome> {
   return episodeFetch(`/${workspaceId}/moves`, {
     method: "POST",

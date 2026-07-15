@@ -69,6 +69,7 @@ const modelSpecData = {
       reasoning: "Implicit compiler default that should stay hidden in the UI.",
     },
   ],
+  prior_predictive_diagnostics: [],
   likelihood_diagnostics: {},
 } as StatisticalModelSpecData;
 

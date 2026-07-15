@@ -12,7 +12,7 @@ from __future__ import annotations
 import functools
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -47,12 +47,26 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
+class SiteInfoEntry(TypedDict):
+    """Typed trace metadata for one unconstrained NumPyro sample site."""
+
+    shape: tuple[int, ...]
+    distribution: dist.Distribution
+    transform: dist.transforms.Transform
+    value: jnp.ndarray
+
+
+type SiteInfo = dict[str, SiteInfoEntry]
+
+
 # ---------------------------------------------------------------------------
 # Model tracing
 # ---------------------------------------------------------------------------
 
 
-def _discover_sites(model, observations, times, rng_key, likelihood_backend, reparam=None):
+def _discover_sites(
+    model, observations, times, rng_key, likelihood_backend, reparam=None
+) -> SiteInfo:
     """Trace model once to discover sample sites (names, shapes, transforms).
 
     Site discovery is structural: it only needs the latent sample/deterministic
@@ -68,7 +82,7 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
     with handlers.seed(rng_seed=int(rng_key[0])):
         trace = handlers.trace(model_fn).get_trace(observations, times)
 
-    site_info = {}
+    site_info: SiteInfo = {}
     for name, site in trace.items():
         if (
             site["type"] == "sample"
@@ -132,7 +146,7 @@ def _unwrap_base_distribution(d: dist.Distribution) -> dist.Distribution:
 
 
 def _build_original_sample_resolver(
-    site_info: dict,
+    site_info: SiteInfo,
     *,
     model,
     observations: jnp.ndarray,
@@ -217,7 +231,7 @@ class UnconstrainedSiteTransform:
 
 
 def build_unconstrained_site_transform(
-    site_info: dict[str, dict[str, Any]],
+    site_info: SiteInfo,
 ) -> UnconstrainedSiteTransform:
     """Generic builder over a NumPyro-trace-shaped site dict.
 

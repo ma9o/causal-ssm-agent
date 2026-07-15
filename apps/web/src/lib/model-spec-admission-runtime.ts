@@ -42,27 +42,36 @@ export interface ModelSpecAdmissionCheckResult {
   target: string;
   value: string;
   band: string;
-  /** Wall-clock time the check took to run, in milliseconds. */
-  duration_ms: number;
   passed: boolean;
   note: string;
   diagnosis?: string[];
   mode?: "hard" | "soft";
 }
 
+export interface ModelSpecAdmissionTiming {
+  phase: string;
+  label: string;
+  duration_ms: number;
+  checks: string[];
+}
+
 export interface ModelSpecAdmissionCoupledRecheck {
   constructs: string[];
   closing_edges?: string[];
   results: ModelSpecAdmissionCheckResult[];
+  timings: ModelSpecAdmissionTiming[];
 }
 
 export interface ModelSpecAdmissionReport {
   name: string;
   attempt: number;
+  /** End-to-end runtime from check start through the completed report. */
+  durationMs?: number;
   outcome: string;
   admitted: boolean;
   annotations: string[];
   results: ModelSpecAdmissionCheckResult[];
+  timings: ModelSpecAdmissionTiming[];
   /** Priors authored for this attempt; populates the construct's "Authored parameters" table. */
   parameters?: ModelSpecAdmissionParameter[];
   coupled_recheck?: ModelSpecAdmissionCoupledRecheck;
@@ -74,15 +83,28 @@ export interface ModelSpecAdmissionConstructState extends ModelSpecAdmissionPlan
   reports: ModelSpecAdmissionReport[];
 }
 
+export interface ModelSpecAdmissionResumeState {
+  checkpointRef: string;
+  sourceCheckpointRef: string;
+  pinsChanged: boolean;
+  retainedConstructs: string[];
+  reopenedConstruct?: string;
+  reason?: string;
+}
+
 export interface ModelSpecAdmissionReplayState {
   plan: ModelSpecAdmissionPlan | null;
   constructs: ModelSpecAdmissionConstructState[];
-  activeConstruct: string | null;
-  activeAttempt: number | null;
+  /** Previous campaign state held only until a following `resumed` event establishes lineage. */
+  resumeCandidateConstructs: ModelSpecAdmissionConstructState[];
+  activeConstructs: string[];
+  activeAttempts: Record<string, number>;
+  activeCheckStartedAtMs: Record<string, number>;
   phase: "planning" | "authoring" | "checking" | "done" | "failed";
   done: boolean;
   latestReport: ModelSpecAdmissionReport | null;
   error: string | null;
+  resume: ModelSpecAdmissionResumeState | null;
 }
 
 export interface ModelSpecAdmissionEventRecord {
@@ -93,21 +115,48 @@ export interface ModelSpecAdmissionEventRecord {
 
 export type ModelSpecAdmissionEvent =
   | { type: "plan"; plan: ModelSpecAdmissionPlan }
+  | {
+      type: "resumed";
+      checkpointRef: string;
+      sourceCheckpointRef: string;
+      pinsChanged: boolean;
+      retainedConstructs: string[];
+      reopenedConstruct?: string;
+      reason?: string;
+    }
   | { type: "construct_started"; construct: string; attempt: number }
-  | { type: "construct_checking"; construct: string; attempt: number }
-  | { type: "construct_report"; report: ModelSpecAdmissionReport }
+  | {
+      type: "construct_checking";
+      construct: string;
+      attempt: number;
+      occurredAtMs?: number;
+    }
+  | {
+      type: "construct_report";
+      report: ModelSpecAdmissionReport;
+      occurredAtMs?: number;
+    }
+  | {
+      type: "barrier_report";
+      passed: boolean;
+      failedConstructs: string[];
+      reopenedConstructs: string[];
+    }
   | { type: "failed"; construct?: string; message: string }
   | { type: "done" };
 
 export const EMPTY_MODEL_SPEC_ADMISSION_REPLAY_STATE: ModelSpecAdmissionReplayState = {
   plan: null,
   constructs: [],
-  activeConstruct: null,
-  activeAttempt: null,
+  resumeCandidateConstructs: [],
+  activeConstructs: [],
+  activeAttempts: {},
+  activeCheckStartedAtMs: {},
   phase: "planning",
   done: false,
   latestReport: null,
   error: null,
+  resume: null,
 };
 
 export function getModelSpecAdmissionStateQueryKey(workspaceId: string) {
@@ -191,12 +240,34 @@ function parseCheckResult(value: unknown): ModelSpecAdmissionCheckResult | null 
     target: typeof value.target === "string" ? value.target : "",
     value: typeof value.value === "string" ? value.value : "",
     band: typeof value.band === "string" ? value.band : "",
-    duration_ms: typeof value.duration_ms === "number" ? value.duration_ms : 0,
     passed: value.passed === true,
     note: typeof value.note === "string" ? value.note : "",
     diagnosis: stringArray(value.diagnosis),
     mode: value.mode === "hard" || value.mode === "soft" ? value.mode : undefined,
   };
+}
+
+function parseTiming(value: unknown): ModelSpecAdmissionTiming | null {
+  if (
+    !isRecord(value) ||
+    typeof value.phase !== "string" ||
+    typeof value.label !== "string" ||
+    typeof value.duration_ms !== "number"
+  ) {
+    return null;
+  }
+  return {
+    phase: value.phase,
+    label: value.label,
+    duration_ms: value.duration_ms,
+    checks: stringArray(value.checks),
+  };
+}
+
+function parseTimings(value: unknown): ModelSpecAdmissionTiming[] {
+  return Array.isArray(value)
+    ? value.map(parseTiming).filter((timing): timing is ModelSpecAdmissionTiming => timing !== null)
+    : [];
 }
 
 function parseReport(payload: Record<string, unknown>): ModelSpecAdmissionReport | null {
@@ -210,11 +281,13 @@ function parseReport(payload: Record<string, unknown>): ModelSpecAdmissionReport
               .map(parseCheckResult)
               .filter((result): result is ModelSpecAdmissionCheckResult => result !== null)
           : [],
+        timings: parseTimings(payload.coupled_recheck.timings),
       }
     : undefined;
   return {
     name: payload.name,
     attempt: typeof payload.attempt === "number" ? payload.attempt : 1,
+    durationMs: typeof payload.duration_ms === "number" ? payload.duration_ms : undefined,
     outcome: payload.outcome,
     admitted: payload.admitted === true,
     annotations: stringArray(payload.annotations),
@@ -223,10 +296,17 @@ function parseReport(payload: Record<string, unknown>): ModelSpecAdmissionReport
           .map(parseCheckResult)
           .filter((result): result is ModelSpecAdmissionCheckResult => result !== null)
       : [],
+    timings: parseTimings(payload.timings),
     parameters: Array.isArray(payload.parameters) ? parseParameters(payload.parameters) : undefined,
     coupled_recheck:
       coupledRecheck && coupledRecheck.results.length > 0 ? coupledRecheck : undefined,
   };
+}
+
+function parseOccurredAtMs(occurred: string | null | undefined): number | undefined {
+  if (!occurred) return undefined;
+  const timestamp = Date.parse(occurred);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 export function parseModelSpecAdmissionEvent(
@@ -242,19 +322,57 @@ export function parseModelSpecAdmissionEvent(
   }
 
   if (
-    (eventType === "construct_started" || eventType === "construct_checking") &&
-    typeof payload.construct === "string"
+    eventType === "resumed" &&
+    typeof payload.checkpoint_ref === "string" &&
+    typeof payload.source_checkpoint_ref === "string"
   ) {
     return {
-      type: eventType,
+      type: "resumed",
+      checkpointRef: payload.checkpoint_ref,
+      sourceCheckpointRef: payload.source_checkpoint_ref,
+      pinsChanged: payload.pins_changed === true,
+      retainedConstructs: stringArray(payload.retained_constructs),
+      reopenedConstruct:
+        typeof payload.reopened_construct === "string" ? payload.reopened_construct : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    };
+  }
+
+  if (eventType === "construct_started" && typeof payload.construct === "string") {
+    return {
+      type: "construct_started",
       construct: payload.construct,
       attempt: typeof payload.attempt === "number" ? payload.attempt : 1,
     };
   }
 
+  if (eventType === "construct_checking" && typeof payload.construct === "string") {
+    return {
+      type: "construct_checking",
+      construct: payload.construct,
+      attempt: typeof payload.attempt === "number" ? payload.attempt : 1,
+      occurredAtMs: parseOccurredAtMs(record.occurred),
+    };
+  }
+
   if (eventType === "construct_report") {
     const report = parseReport(payload);
-    return report ? { type: "construct_report", report } : null;
+    return report
+      ? {
+          type: "construct_report",
+          report,
+          occurredAtMs: parseOccurredAtMs(record.occurred),
+        }
+      : null;
+  }
+
+  if (eventType === "barrier_report") {
+    return {
+      type: "barrier_report",
+      passed: payload.passed === true,
+      failedConstructs: stringArray(payload.failed_constructs),
+      reopenedConstructs: stringArray(payload.reopened_constructs),
+    };
   }
 
   if (eventType === "failed") {
@@ -293,7 +411,15 @@ export function applyModelSpecAdmissionEvent(
     return {
       ...current,
       plan: event.plan,
+      resumeCandidateConstructs: current.constructs,
       phase: "planning",
+      activeConstructs: [],
+      activeAttempts: {},
+      activeCheckStartedAtMs: {},
+      done: false,
+      latestReport: null,
+      error: null,
+      resume: null,
       constructs: event.plan.constructs.map((construct) => ({
         ...construct,
         status: "pending",
@@ -303,29 +429,124 @@ export function applyModelSpecAdmissionEvent(
     };
   }
 
-  if (event.type === "construct_started" || event.type === "construct_checking") {
-    const status = event.type === "construct_checking" ? "checking" : "active";
+  if (event.type === "resumed") {
+    const retained = new Set(event.retainedConstructs);
+    const previousByName = new Map(
+      current.resumeCandidateConstructs.map((construct) => [construct.name, construct]),
+    );
     return {
       ...current,
-      activeConstruct: event.construct,
-      activeAttempt: event.attempt,
-      phase: status === "checking" ? "checking" : "authoring",
+      resumeCandidateConstructs: [],
+      activeConstructs: [],
+      activeAttempts: {},
+      activeCheckStartedAtMs: {},
+      phase: "planning",
+      done: false,
+      error: null,
+      resume: {
+        checkpointRef: event.checkpointRef,
+        sourceCheckpointRef: event.sourceCheckpointRef,
+        pinsChanged: event.pinsChanged,
+        retainedConstructs: event.retainedConstructs,
+        reopenedConstruct: event.reopenedConstruct,
+        reason: event.reason,
+      },
+      constructs: current.constructs.map((construct) => {
+        const previous = previousByName.get(construct.name);
+        const reports = previous?.reports ?? [];
+        const latest = reports[reports.length - 1];
+        return {
+          ...construct,
+          attempt: previous?.attempt ?? 0,
+          reports,
+          status: retained.has(construct.name)
+            ? latest?.admitted
+              ? statusFromReport(latest)
+              : "admitted"
+            : "pending",
+        };
+      }),
+    };
+  }
+
+  if (event.type === "construct_started") {
+    const attempt =
+      (current.constructs.find((construct) => construct.name === event.construct)?.reports.length ??
+        0) + 1;
+    return {
+      ...current,
+      resumeCandidateConstructs: [],
+      activeConstructs: [...new Set([...current.activeConstructs, event.construct])],
+      activeAttempts: { ...current.activeAttempts, [event.construct]: attempt },
+      activeCheckStartedAtMs: Object.fromEntries(
+        Object.entries(current.activeCheckStartedAtMs).filter(([name]) => name !== event.construct),
+      ),
+      phase: "authoring",
       constructs: updateConstruct(current.constructs, event.construct, (construct) => ({
         ...construct,
-        status,
-        attempt: event.attempt,
+        status: "active",
+        attempt,
+      })),
+    };
+  }
+
+  if (event.type === "construct_checking") {
+    const attempt =
+      (current.constructs.find((construct) => construct.name === event.construct)?.reports.length ??
+        0) + 1;
+    return {
+      ...current,
+      resumeCandidateConstructs: [],
+      activeConstructs: [...new Set([...current.activeConstructs, event.construct])],
+      activeAttempts: { ...current.activeAttempts, [event.construct]: attempt },
+      activeCheckStartedAtMs:
+        event.occurredAtMs === undefined
+          ? current.activeCheckStartedAtMs
+          : { ...current.activeCheckStartedAtMs, [event.construct]: event.occurredAtMs },
+      phase: "checking",
+      constructs: updateConstruct(current.constructs, event.construct, (construct) => ({
+        ...construct,
+        status: "checking",
+        attempt,
       })),
     };
   }
 
   if (event.type === "construct_report") {
-    const report = event.report;
+    const construct = current.constructs.find((candidate) => candidate.name === event.report.name);
+    const attempt = (construct?.reports.length ?? 0) + 1;
+    const checkStartedAtMs = current.activeCheckStartedAtMs[event.report.name];
+    const measuredDurationMs =
+      checkStartedAtMs !== undefined && event.occurredAtMs !== undefined
+        ? Math.max(0, event.occurredAtMs - checkStartedAtMs)
+        : undefined;
+    const report = {
+      ...event.report,
+      attempt,
+      durationMs: event.report.durationMs ?? measuredDurationMs,
+    };
+    const activeConstructs = report.admitted
+      ? current.activeConstructs.filter((name) => name !== report.name)
+      : [...new Set([...current.activeConstructs, report.name])];
+    const activeAttempts = report.admitted
+      ? Object.fromEntries(
+          Object.entries(current.activeAttempts).filter(([name]) => name !== report.name),
+        )
+      : { ...current.activeAttempts, [report.name]: report.attempt };
+    const activeCheckStartedAtMs = Object.fromEntries(
+      Object.entries(current.activeCheckStartedAtMs).filter(([name]) => name !== report.name),
+    );
     return {
       ...current,
+      resumeCandidateConstructs: [],
       latestReport: report,
-      activeConstruct: report.admitted ? null : report.name,
-      activeAttempt: report.admitted ? null : report.attempt,
-      phase: report.admitted ? "authoring" : "checking",
+      activeConstructs,
+      activeAttempts,
+      activeCheckStartedAtMs,
+      phase:
+        !report.admitted || Object.keys(activeCheckStartedAtMs).length > 0
+          ? "checking"
+          : "authoring",
       constructs: updateConstruct(current.constructs, report.name, (construct) => ({
         ...construct,
         status: statusFromReport(report),
@@ -336,10 +557,35 @@ export function applyModelSpecAdmissionEvent(
     };
   }
 
+  if (event.type === "barrier_report") {
+    const failed = new Set(event.failedConstructs);
+    const reopened = new Set(event.reopenedConstructs);
+    return {
+      ...current,
+      resumeCandidateConstructs: [],
+      activeConstructs: [],
+      activeAttempts: {},
+      activeCheckStartedAtMs: {},
+      phase: event.passed ? "checking" : "authoring",
+      constructs: current.constructs.map((construct) => ({
+        ...construct,
+        status: failed.has(construct.name)
+          ? "revising"
+          : reopened.has(construct.name)
+            ? "pending"
+            : construct.status,
+      })),
+    };
+  }
+
   if (event.type === "failed") {
     return {
       ...current,
-      activeConstruct: event.construct ?? current.activeConstruct,
+      resumeCandidateConstructs: [],
+      activeConstructs: event.construct
+        ? [...new Set([...current.activeConstructs, event.construct])]
+        : current.activeConstructs,
+      activeCheckStartedAtMs: {},
       phase: "failed",
       error: event.message,
       constructs: event.construct
@@ -353,8 +599,10 @@ export function applyModelSpecAdmissionEvent(
 
   return {
     ...current,
-    activeConstruct: null,
-    activeAttempt: null,
+    resumeCandidateConstructs: [],
+    activeConstructs: [],
+    activeAttempts: {},
+    activeCheckStartedAtMs: {},
     phase: "done",
     done: true,
   };

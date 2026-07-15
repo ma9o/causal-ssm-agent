@@ -15,7 +15,7 @@ from nof1_causal_lab.machine.graph import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
+    from nof1_causal_lab.machine.artifacts import ArtifactId
 
 
 ContextLayer = Literal["navigator", "registry", "machine", "delegated", "tool"]
@@ -125,14 +125,15 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         label="Model/prior reducer",
         parent_id="episode-machine",
         owns=("statistical_model_spec",),
-        allowed_tools=("search_literature", "submit_statistical_model_spec", "submit_priors"),
+        allowed_tools=("search_literature", "submit_construct"),
         runtime_state=(
             "deterministic_skeleton",
-            "immutable_plan",
-            "cursor",
-            "block_statuses",
-            "accepted_state",
-            "repair_campaign",
+            "construct_order",
+            "current_construct",
+            "attempt",
+            "checkpoint_ref",
+            "accepted_constructs",
+            "rebase",
         ),
     ),
     ContextSpec(
@@ -403,22 +404,6 @@ CONTEXTS_BY_ID: dict[str, ContextSpec] = {context.context_id: context for contex
 ACTIONS_BY_ID: dict[str, ActionSpec] = {action.action_id: action for action in ACTIONS}
 
 
-def action_spec(action_id: str) -> ActionSpec:
-    try:
-        return ACTIONS_BY_ID[action_id]
-    except KeyError as exc:
-        known = ", ".join(ACTIONS_BY_ID)
-        raise KeyError(f"Unknown action '{action_id}'. Expected one of: {known}") from exc
-
-
-def context_spec(context_id: str) -> ContextSpec:
-    try:
-        return CONTEXTS_BY_ID[context_id]
-    except KeyError as exc:
-        known = ", ".join(CONTEXTS_BY_ID)
-        raise KeyError(f"Unknown context '{context_id}'. Expected one of: {known}") from exc
-
-
 def primary_transition_action(artifact_id: ArtifactId) -> ActionSpec:
     matches = [
         action
@@ -432,30 +417,6 @@ def primary_transition_action(artifact_id: ArtifactId) -> ActionSpec:
             f"Expected exactly one primary action for {artifact_id}, found {len(matches)}"
         )
     return matches[0]
-
-
-def action_is_enabled(state: EpisodeState, action: ActionSpec) -> bool:
-    """Affordance-level enabledness for navigator actions.
-
-    This is intentionally not the machine legality engine. Run actions delegate
-    to the transition existence guard; read/query/check actions may add
-    usefulness preconditions so the navigator does not surface actions with no
-    meaningful context.
-    """
-    if action.kind == "read":
-        return True
-    if action.move is not None and action.move.kind == "run":
-        spec = transition_spec(action.move.artifact_id)
-        return all(state.has(artifact) for artifact in spec.consumes)
-    return all(state.has(artifact) for artifact in action.consumes)
-
-
-def legal_actions(state: EpisodeState) -> tuple[ActionSpec, ...]:
-    return tuple(action for action in ACTIONS if action_is_enabled(state, action))
-
-
-def legal_action_ids(state: EpisodeState) -> tuple[str, ...]:
-    return tuple(action.action_id for action in legal_actions(state))
 
 
 def _move_dict(move: MachineMoveSpec | None) -> dict[str, str] | None:

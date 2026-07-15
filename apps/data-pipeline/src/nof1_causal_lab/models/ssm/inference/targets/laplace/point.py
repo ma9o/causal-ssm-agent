@@ -142,7 +142,7 @@ def _point_linearize(
     """Return per-time emission gradients and negative Hessians."""
     obs_mask_float = obs_mask.astype(observations.dtype)
     grads_and_hess = jax.vmap(
-        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_grad_hess_fn(
+        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.latent_grad_hess_fn(
             y_t,
             z_t,
             H_t,
@@ -501,75 +501,6 @@ def _point_laplace_terms_from_mode(
     return log_lik, mode_log_joint, laplace_logdet, min_chol_diag
 
 
-def _point_laplace_from_mode(
-    z_mode: jnp.ndarray,
-    mode_aux: tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ],
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    Ad: jnp.ndarray,
-    Qd: jnp.ndarray,
-    cd: jnp.ndarray,
-    H_rows: jnp.ndarray,
-    d_rows: jnp.ndarray,
-    R: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    obs_kernel,
-    *,
-    solver_kind: int = LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
-    factor_block_cholesky_fn=_factor_block_banded_cholesky,
-) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Evaluate the point-observation Laplace likelihood at an already-solved mode."""
-    (
-        init_log_joint,
-        n_iterations,
-        n_accepted_steps,
-        final_rel_change,
-        final_damping,
-        final_step_alpha,
-        final_step_norm,
-    ) = mode_aux
-    log_lik, mode_log_joint, laplace_logdet, min_chol_diag = _point_laplace_terms_from_mode(
-        z_mode,
-        observations,
-        obs_mask,
-        Ad,
-        Qd,
-        cd,
-        H_rows,
-        d_rows,
-        R,
-        init_mean,
-        init_cov,
-        obs_kernel,
-        factor_block_cholesky_fn=factor_block_cholesky_fn,
-    )
-    inner_eval_aux = build_likelihood_eval_aux(
-        observations.dtype,
-        solver_kind=solver_kind,
-        n_iterations=n_iterations,
-        n_accepted_steps=n_accepted_steps,
-        init_log_joint=init_log_joint,
-        final_log_joint=mode_log_joint,
-        final_rel_change=final_rel_change,
-        final_damping=final_damping,
-        final_step_alpha=final_step_alpha,
-        final_step_norm=final_step_norm,
-        laplace_logdet=laplace_logdet,
-        min_chol_diag=min_chol_diag,
-    )
-    inner_eval_aux["latent_mode"] = z_mode
-    return log_lik, inner_eval_aux
-
-
 def _point_ieks_laplace_core(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
@@ -636,7 +567,7 @@ def _point_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            measurement_semantics_curr.obs_kernel,
+            measurement_semantics_curr.kernel,
         )
 
     def _mode_core(mode_params):

@@ -5,8 +5,7 @@ from the inference domain (kernels: bound JAX callables). Kernels are built
 once per likelihood evaluation from spec enums + sampled hyperparameters,
 then passed to all backend internals.
 
-ObservationKernel: p(y_t | x_t) — emission log-prob, inverse link, EKF variance.
-TransitionKernel: p(x_t | x_{t-1}) — process noise sampling.
+ObservationKernel: p(y_t | eta_t) — predictor log-prob, inverse link, EKF variance.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
-import jax.random as random
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 import numpy as np
@@ -30,6 +28,8 @@ from .emissions import (
     get_mean_param_log_prob_fn,
 )
 from .observation_dispatch import (
+    PredictiveObservationSampler,
+    build_predictive_observation_sampler,
     get_emission_fn,
     get_emission_score_weight_fn,
 )
@@ -51,13 +51,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ObservationKernel:
-    """Pre-resolved observation model for SSM inference.
+    """Pre-resolved predictor-to-observation likelihood operations.
 
     Built once from DistributionFamily + LinkFunction + sampled hyperparameters.
     Consumed by the marginal likelihood and blocked MCMC backends.
 
     Attributes:
-        emission_fn: Log-probability (y, z, H, d, R, mask) -> scalar.
+        log_prob_fn: Log-probability (y, eta, R, mask) -> scalar.
         response_fn: Inverse link, maps linear predictor to mean (elementwise).
         variance_fn: Maps predicted mean to (n_m, n_m) pseudo-covariance for
             EKF linearization. Diagonal for GLM families; full manifest_cov
@@ -65,53 +65,20 @@ class ObservationKernel:
         is_gaussian: Whether the observation family is Gaussian.
     """
 
-    emission_fn: Callable
+    log_prob_fn: Callable
     response_fn: Callable
     variance_fn: Callable
     is_gaussian: bool
-    emission_grad_hess_fn: Callable  # (y, z, H, d, R, mask) → (g_z: (D,), neg_H_z: (D,D))
+    latent_grad_hess_fn: Callable  # (y, z, H, d, R, mask) → (g_z: (D,), neg_H_z: (D,D))
 
 
 @dataclass(frozen=True)
-class TransitionKernel:
-    """Pre-resolved process noise model for SSM transition dynamics.
+class CompiledObservationModel:
+    """One compiled family/link interface shared by fitting and prediction."""
 
-    Callers compute the deterministic mean (Ad @ x + cd) and Cholesky of Qd,
-    then call sample_noise_fn to generate the stochastic perturbation.
-
-    Attributes:
-        sample_noise_fn: (key, chol_Q) -> (n,) noise vector (Cholesky applied).
-        is_gaussian: Whether dynamics are Gaussian.
-    """
-
-    sample_noise_fn: Callable
-    is_gaussian: bool
-
-
-@dataclass(frozen=True)
-class TransitionSemantics:
-    """Compiled process-noise semantics for one latent block."""
-
-    per_var_dists: tuple[DistributionFamily, ...]
-    dispatch_mode: str
-    gaussian_idx: tuple[int, ...] = ()
-    sampled_idx: tuple[int, ...] = ()
-    sampled_block_dist: DistributionFamily | None = None
-
-    @property
-    def is_gaussian(self) -> bool:
-        return self.dispatch_mode == DistributionFamily.GAUSSIAN.value
-
-    @property
-    def is_mixed(self) -> bool:
-        return self.dispatch_mode == "mixed"
-
-
-@dataclass(frozen=True)
-class MeasurementSemantics:
-    """Compiled measurement semantics shared across inference backends."""
-
-    obs_kernel: ObservationKernel
+    kernel: ObservationKernel
+    point_sampler: PredictiveObservationSampler
+    interval_summary_sampler: PredictiveObservationSampler | None
     mean_log_prob_fn: Callable | None
     observation_operator: ObservationOperator
     manifest_dists: tuple[DistributionFamily, ...]
@@ -271,18 +238,17 @@ def build_observation_kernel(
             Gaussian/Student-t (used as EKF pseudo-covariance). Ignored
             for GLM families.
     """
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import FAMILY_REGISTRY
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+        FAMILY_REGISTRY,
+        resolve_family_link,
+    )
 
     extra_params = extra_params or {}
-    family_spec = FAMILY_REGISTRY.get(dist)
-    if family_spec is None:
-        raise ValueError(
-            f"No observation kernel for dist={dist!r}. "
-            f"Supported: {sorted(d.value for d in FAMILY_REGISTRY)}"
-        )
+    dist, link = resolve_family_link(dist, link)
+    family_spec = FAMILY_REGISTRY[dist]
 
     # Emission log-prob (delegates to existing canonical functions)
-    emission_fn = get_emission_fn(dist, extra_params, link=link)
+    log_prob_fn = get_emission_fn(dist, extra_params, link=link)
 
     # Response function (inverse link)
     if family_spec.make_response_fn is not None:
@@ -309,174 +275,11 @@ def build_observation_kernel(
         emission_grad_hess_fn = _make_glm_grad_hess(sw_fn)
 
     return ObservationKernel(
-        emission_fn=emission_fn,
+        log_prob_fn=log_prob_fn,
         response_fn=response_fn,
         variance_fn=variance_fn,
         is_gaussian=is_gaussian,
-        emission_grad_hess_fn=emission_grad_hess_fn,
-    )
-
-
-# =============================================================================
-# TransitionKernel factory
-# =============================================================================
-
-
-def _make_gaussian_noise() -> Callable:
-    def sample_noise(key: jax.Array, chol_Q: jnp.ndarray) -> jnp.ndarray:
-        n = chol_Q.shape[0]
-        return chol_Q @ random.normal(key, (n,))
-
-    return sample_noise
-
-
-def _make_student_t_noise(df: float) -> Callable:
-    def sample_noise(key: jax.Array, chol_Q: jnp.ndarray) -> jnp.ndarray:
-        n = chol_Q.shape[0]
-        df_safe = jnp.maximum(df, 2.1)
-        key_z, key_chi2 = random.split(key)
-        z = random.normal(key_z, (n,))
-        chi2 = jnp.maximum(random.gamma(key_chi2, df_safe / 2.0) * 2.0, 1e-8)
-        scale = jnp.sqrt((df_safe - 2.0) / chi2)
-        return chol_Q @ (z * scale)
-
-    return sample_noise
-
-
-def _make_mixed_noise(
-    per_var_dists: tuple[DistributionFamily, ...],
-    df: float,
-) -> Callable:
-    """Build a mixed per-coordinate noise sampler with unit-variance standardized shocks.
-
-    Each latent innovation coordinate draws a standardized shock according to
-    its declared family, then the full innovation covariance is induced by
-    left-multiplying with ``chol_Q``.
-    """
-
-    supported = {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}
-    unsupported = sorted({dist.value for dist in per_var_dists if dist not in supported})
-    if unsupported:
-        raise ValueError(
-            "Mixed transition kernels only support gaussian/student_t families. "
-            f"Received: {unsupported}"
-        )
-
-    student_t_mask = jnp.asarray(
-        [dist == DistributionFamily.STUDENT_T for dist in per_var_dists],
-        dtype=bool,
-    )
-    has_student_t = any(student_t_mask.tolist())
-
-    def sample_noise(key: jax.Array, chol_Q: jnp.ndarray) -> jnp.ndarray:
-        n = chol_Q.shape[0]
-        key_z, key_chi2 = random.split(key)
-        z = random.normal(key_z, (n,))
-        if not has_student_t:
-            standardized = z
-        else:
-            df_safe = jnp.maximum(df, 2.1)
-            chi2 = jnp.maximum(
-                random.gamma(key_chi2, jnp.full((n,), df_safe / 2.0, dtype=chol_Q.dtype)) * 2.0,
-                1e-8,
-            )
-            scale = jnp.sqrt((df_safe - 2.0) / chi2)
-            standardized = jnp.where(student_t_mask, z * scale, z)
-        return chol_Q @ standardized
-
-    return sample_noise
-
-
-def compile_transition_semantics(
-    diffusion_dists: TransitionSemantics
-    | list[DistributionFamily | str]
-    | tuple[DistributionFamily | str, ...],
-    n_latent: int | None = None,
-) -> TransitionSemantics:
-    """Resolve per-latent diffusion families into a compiled description."""
-    if isinstance(diffusion_dists, TransitionSemantics):
-        semantics = diffusion_dists
-    else:
-        if not isinstance(diffusion_dists, (list, tuple)):
-            raise TypeError(
-                "compile_transition_semantics requires a per-latent diffusion_dists list "
-                "or a compiled TransitionSemantics."
-            )
-        per_var_dists = tuple(
-            dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
-            for dist in diffusion_dists
-        )
-        if n_latent is not None and len(per_var_dists) != n_latent:
-            raise ValueError(
-                f"diffusion_dists length {len(per_var_dists)} does not match n_latent={n_latent}"
-            )
-
-        unique = set(per_var_dists)
-        gaussian_idx = tuple(
-            i for i, family in enumerate(per_var_dists) if family == DistributionFamily.GAUSSIAN
-        )
-        sampled_idx = tuple(
-            i for i, family in enumerate(per_var_dists) if family != DistributionFamily.GAUSSIAN
-        )
-        sampled_unique = {per_var_dists[i] for i in sampled_idx}
-
-        if unique == {DistributionFamily.GAUSSIAN}:
-            dispatch_mode = DistributionFamily.GAUSSIAN.value
-        elif len(unique) == 1:
-            dispatch_mode = next(iter(unique)).value
-        else:
-            dispatch_mode = "mixed"
-
-        semantics = TransitionSemantics(
-            per_var_dists=per_var_dists,
-            dispatch_mode=dispatch_mode,
-            gaussian_idx=gaussian_idx,
-            sampled_idx=sampled_idx,
-            sampled_block_dist=next(iter(sampled_unique)) if len(sampled_unique) == 1 else None,
-        )
-
-    if n_latent is not None and len(semantics.per_var_dists) != n_latent:
-        raise ValueError(
-            f"transition semantics width {len(semantics.per_var_dists)} does not match n_latent={n_latent}"
-        )
-    return semantics
-
-
-def build_transition_kernel(
-    diffusion_dists: TransitionSemantics
-    | list[DistributionFamily | str]
-    | tuple[DistributionFamily | str, ...],
-    extra_params: dict | None = None,
-) -> TransitionKernel:
-    """Build a TransitionKernel from spec enum + sampled hyperparameters.
-
-    Args:
-        diffusion_dists: Compiled semantics or canonical per-latent diffusion families.
-        extra_params: Sampled hyperparameters (proc_df, etc.).
-    """
-    extra_params = extra_params or {}
-    semantics = compile_transition_semantics(diffusion_dists)
-
-    if semantics.dispatch_mode == DistributionFamily.GAUSSIAN.value:
-        return TransitionKernel(
-            sample_noise_fn=_make_gaussian_noise(),
-            is_gaussian=True,
-        )
-    if semantics.dispatch_mode == DistributionFamily.STUDENT_T.value:
-        df = extra_params.get("proc_df", 5.0)
-        return TransitionKernel(
-            sample_noise_fn=_make_student_t_noise(df),
-            is_gaussian=False,
-        )
-    if semantics.dispatch_mode == "mixed":
-        df = extra_params.get("proc_df", 5.0)
-        return TransitionKernel(
-            sample_noise_fn=_make_mixed_noise(semantics.per_var_dists, df),
-            is_gaussian=False,
-        )
-    raise ValueError(
-        "No transition kernel for transition dispatch mode="
-        f"{semantics.dispatch_mode!r}. Supported: gaussian, student_t, mixed gaussian/student_t."
+        latent_grad_hess_fn=emission_grad_hess_fn,
     )
 
 
@@ -494,7 +297,7 @@ def build_heterogeneous_observation_kernel(
     """Build an ObservationKernel that handles per-channel heterogeneous distributions.
 
     Groups channels by unique (dist, link) combination, builds one kernel per group,
-    and composes their emission_fn and emission_grad_hess_fn by dispatching per group.
+    and composes their predictor log-probabilities and latent derivatives per group.
 
     When all channels share the same (dist, link), delegates to the standard
     build_observation_kernel for zero overhead.
@@ -541,17 +344,16 @@ def build_heterogeneous_observation_kernel(
         )
         group_kernels.append((ch_indices, kernel))
 
-    # Compose emission_fn: sum per-group emission log-probs
-    def heterogeneous_emission_fn(y_t, z_t, H, d, R, mask_t):
+    # Compose predictor-space log-probability: sum per-group contributions.
+    def heterogeneous_log_prob_fn(y_t, eta, R, mask_t):
         total_ll = 0.0
         for ch_indices, kernel in group_kernels:
             idx = jnp.array(ch_indices)
             y_g = y_t[idx]
-            H_g = H[idx, :]
-            d_g = d[idx]
+            eta_g = eta[idx]
             R_g = R[jnp.ix_(idx, idx)]
             mask_g = mask_t[idx]
-            total_ll = total_ll + kernel.emission_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
+            total_ll = total_ll + kernel.log_prob_fn(y_g, eta_g, R_g, mask_g)
         return total_ll
 
     # Compose emission_grad_hess_fn: sum per-group gradients and Hessians
@@ -566,7 +368,7 @@ def build_heterogeneous_observation_kernel(
             d_g = d[idx]
             R_g = R[jnp.ix_(idx, idx)]
             mask_g = mask_t[idx]
-            g, neg_H = kernel.emission_grad_hess_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
+            g, neg_H = kernel.latent_grad_hess_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
             total_grad = total_grad + g
             total_hess = total_hess + neg_H
         return total_grad, total_hess
@@ -586,23 +388,23 @@ def build_heterogeneous_observation_kernel(
         return variance
 
     return ObservationKernel(
-        emission_fn=heterogeneous_emission_fn,
+        log_prob_fn=heterogeneous_log_prob_fn,
         response_fn=heterogeneous_response_fn,
         variance_fn=heterogeneous_variance_fn,
         is_gaussian=False,  # heterogeneous is never purely Gaussian
-        emission_grad_hess_fn=heterogeneous_emission_grad_hess_fn,
+        latent_grad_hess_fn=heterogeneous_emission_grad_hess_fn,
     )
 
 
-def compile_measurement_semantics(
+def compile_observation_model(
     manifest_dists: Sequence[DistributionFamily | str],
     *,
-    manifest_cov: jnp.ndarray | None = None,
+    manifest_cov: jnp.ndarray,
     extra_params: dict | None = None,
     manifest_links: Sequence[LinkFunction | str | None] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
-) -> MeasurementSemantics:
-    """Compile observation kernels, mean-space likelihoods, and support semantics together."""
+) -> CompiledObservationModel:
+    """Compile likelihood, prediction, and support semantics through one pair resolution."""
     from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
         resolve_manifest_families_and_links,
     )
@@ -611,7 +413,7 @@ def compile_measurement_semantics(
     )
 
     n_manifest = len(manifest_dists)
-    if manifest_cov is not None and int(manifest_cov.shape[0]) != n_manifest:
+    if int(manifest_cov.shape[0]) != n_manifest:
         raise ValueError(
             "manifest_cov width must match manifest_dists length: "
             f"{int(manifest_cov.shape[0])} vs {n_manifest}"
@@ -627,14 +429,14 @@ def compile_measurement_semantics(
         manifest_links=manifest_links,
     )
     if len(set(zip(dists, links, strict=True))) == 1:
-        obs_kernel = build_observation_kernel(
+        kernel = build_observation_kernel(
             dists[0],
             links[0],
             extra_params,
             manifest_cov=manifest_cov,
         )
     else:
-        obs_kernel = build_heterogeneous_observation_kernel(
+        kernel = build_heterogeneous_observation_kernel(
             dists,
             links,
             extra_params,
@@ -642,20 +444,39 @@ def compile_measurement_semantics(
         )
 
     observation_operator = compile_observation_operator(observation_support)
+    point_sampler = build_predictive_observation_sampler(
+        dists,
+        manifest_cov,
+        manifest_links=links,
+        extra_params=extra_params,
+    )
     mean_log_prob_fn = None
+    interval_summary_sampler = None
     if observation_operator.requires_interval_summary_handling:
         interval_summary_indices = list(observation_operator.interval_summary_indices)
         interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
+        interval_summary_links = [links[idx] for idx in interval_summary_indices]
+        interval_extra_params = _slice_observation_extra_params(
+            extra_params,
+            interval_summary_indices,
+        )
         if len(set(interval_summary_dists)) == 1:
             base_mean_log_prob_fn = get_mean_param_log_prob_fn(
-                interval_summary_dists[0], extra_params
+                interval_summary_dists[0], interval_extra_params
             )
         else:
             base_mean_log_prob_fn = build_heterogeneous_mean_log_prob_fn(
                 [dist.value for dist in interval_summary_dists],
-                _slice_observation_extra_params(extra_params, interval_summary_indices),
+                interval_extra_params,
             )
+
+        interval_summary_sampler = build_predictive_observation_sampler(
+            interval_summary_dists,
+            manifest_cov[np.ix_(interval_summary_idx, interval_summary_idx)],
+            manifest_links=interval_summary_links,
+            extra_params=interval_extra_params,
+        )
 
         def mean_log_prob_fn(y_t, mean_t, R, obs_mask_t):
             y_interval_summary = y_t[interval_summary_idx]
@@ -669,8 +490,10 @@ def compile_measurement_semantics(
                 mask_interval_summary,
             )
 
-    return MeasurementSemantics(
-        obs_kernel=obs_kernel,
+    return CompiledObservationModel(
+        kernel=kernel,
+        point_sampler=point_sampler,
+        interval_summary_sampler=interval_summary_sampler,
         mean_log_prob_fn=mean_log_prob_fn,
         observation_operator=observation_operator,
         manifest_dists=tuple(dists),

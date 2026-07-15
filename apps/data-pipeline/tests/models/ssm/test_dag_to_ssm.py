@@ -27,7 +27,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_vector_support,
@@ -199,7 +199,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         weight_sites = sorted(
@@ -216,7 +216,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         weight_sites = [
@@ -244,7 +244,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((5, 1)),
             times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         assert not any(name.startswith("vf_") and name.endswith("_weight") for name in trace)
@@ -290,7 +290,7 @@ class TestLambdaMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         # Only 1 free loading sampled
@@ -327,7 +327,7 @@ class TestLambdaMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         # No lambda_free sampled
@@ -448,7 +448,7 @@ class TestPerElementPriors:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((5, 2)),
             times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         # The off-diagonal value should be near 2.0 (tight prior)
@@ -886,8 +886,8 @@ class TestRuntimeStructuralSupport:
         np.testing.assert_array_equal(spec.t0_means_block.free_support, np.array([False, False]))
         np.testing.assert_array_equal(spec.t0_chol_block.diag_support, np.array([False, False]))
 
-    def test_translate_spec_marks_centerable_gaussian_mean_indicators(self):
-        """Gaussian identity indicators with interval means should be auto-centered."""
+    def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
+        """Gaussian identity indicators with interval means should be auto-standardized."""
         from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
@@ -929,7 +929,7 @@ class TestRuntimeStructuralSupport:
 
         spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
 
-        assert spec.manifest_centered == [True, True, True, True]
+        assert spec.manifest_standardized == [True, True, True, True]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
         """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
@@ -1391,7 +1391,7 @@ class TestTraceVerification:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
 
         assert trace["vf_0_decay"]["value"].shape == (3,)
@@ -1534,7 +1534,7 @@ class TestGradualBuildComponents:
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
             observations=jnp.zeros((8, 4)),
             times=jnp.arange(8, dtype=jnp.float32),
-            likelihood_backend=model.make_likelihood_backend(),
+            likelihood_backend=model.make_laplace_backend(6),
         )
         quartic_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_quartic")]
         emax_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_Emax")]

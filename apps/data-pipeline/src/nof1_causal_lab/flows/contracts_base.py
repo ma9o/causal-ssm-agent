@@ -3,20 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-
-ArtifactContractId = Literal[
-    "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "measurements",
-    "validation_report",
-    "statistical_model_spec",
-    "posterior",
-    "baseline_report",
-]
 
 
 def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:

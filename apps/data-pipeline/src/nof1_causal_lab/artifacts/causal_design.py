@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .latent_structure import CausalEdge, LatentStructure  # noqa: TC001
-from .measurement_structure import MeasurementStructure, validate_measurement_structure
+from .measurement_structure import MeasurementStructure  # noqa: TC001
 
 
 class IdentifiedTreatmentStatus(BaseModel):
@@ -218,48 +218,6 @@ class CausalDesign(BaseModel):
 
         return self
 
-    def get_edge_lag_hours(self, edge: CausalEdge) -> float:
-        """Compute lag in hours for a causal edge."""
-        return self.measurement.model_clock_hours if edge.lagged else 0
-
-
-def validate_causal_design(
-    latent_data: dict,
-    measurement_data: dict,
-    known_inputs: list[dict] | None = None,
-) -> tuple[CausalDesign | None, list[str]]:
-    """Validate both latent and measurement structures together."""
-    from nof1_causal_lab.utils.estimation_projection import build_estimation_projection
-
-    from .latent_structure import validate_latent_structure
-
-    latent, latent_errors = validate_latent_structure(latent_data)
-    if latent is None:
-        return None, ["Latent structure errors:", *latent_errors]
-
-    measurement, measurement_errors = validate_measurement_structure(measurement_data, latent)
-    if measurement is None:
-        return None, ["Measurement structure errors:", *measurement_errors]
-
-    try:
-        latent_payload = latent.model_dump(mode="json")
-        measurement_payload = measurement.model_dump(mode="json")
-        model = CausalDesign(
-            latent=latent,
-            measurement=measurement,
-            estimation=EstimationSpec.model_validate(
-                build_estimation_projection(
-                    latent_payload,
-                    measurement_payload,
-                    identifiability_result=None,
-                    known_inputs=known_inputs,
-                )
-            ),
-        )
-        return model, []
-    except (ValidationError, ValueError, TypeError) as exc:
-        return None, [f"CausalDesign validation failed: {exc}"]
-
 
 __all__ = [
     "CausalDesign",
@@ -269,5 +227,4 @@ __all__ = [
     "InducedDependency",
     "KnownInput",
     "NonIdentifiableTreatmentStatus",
-    "validate_causal_design",
 ]

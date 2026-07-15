@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal, Required, TypedDict
 
 import jax.numpy as jnp
 import jax.random as random
 from numpyro.infer import Predictive
 
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
+    EnergyDiagnosticsData,
+    PosteriorMarginalData,
+    PosteriorPairData,
+    RankHistogramData,
+    TraceSeriesData,
+    compute_posterior_marginals,
+    compute_posterior_pairs,
+)
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -19,12 +28,17 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
-from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
-    compute_posterior_marginals,
-    compute_posterior_pairs,
-    format_summary,
-)
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from numpy.typing import NDArray
+
+    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +47,105 @@ InferenceMethod = Literal["marginal_particle_gibbs"]
 InferenceResultMethod = Literal["marginal_particle_gibbs", "map"]
 
 
+class InferenceDiagnostics(TypedDict, total=False):
+    """Known live inference diagnostics shared by MAP and particle methods."""
+
+    mcmc: TrajectoryMCMCResult
+    public_sites: list[str]
+    likelihood_backend: object
+    latent_posterior_summary: dict[str, jnp.ndarray]
+    latent_paths: jnp.ndarray
+    warmup_latent_paths: jnp.ndarray
+    all_latent_paths: jnp.ndarray
+    beta_schedule: jnp.ndarray
+    ess_history: jnp.ndarray
+    accept_rates: jnp.ndarray
+    n_levels: int
+    n_csmc_particles: int
+    optimizer: str
+    success: bool
+    status: int
+    n_iters: int
+    n_function_evals: int
+    objective_at_mode: float
+    mode_log_posterior: float
+    mode_log_likelihood: float
+    mode_log_prior: float
+    mode_grad_norm: float | None
+    mode_inner_solver: str
+    mode_inner_iterations: int
+    mode_inner_accepted_steps: int
+    mode_inner_rel_change: float
+    mode_inner_damping: float
+    mode_inner_step_alpha: float
+    mode_inner_step_norm: float
+    mode_inner_log_joint_gain: float | None
+    mode_inner_laplace_logdet: float
+    mode_inner_min_chol_diag: float
+    init_log_posterior_best: float
+    n_init_samples: int
+    n_ieks_iters: int
+    parameter_covariance: jnp.ndarray | NDArray
+    covariance_diag: list[float]
+    compute_parameter_hessian: bool
+    parameter_posterior_strategy: str
+    parameter_covariance_method: str
+    hessian_condition_number: float | None
+    parameter_hessian_min_eig: float | None
+    parameter_hessian_max_eig: float | None
+    hessian_jitter: float
+    marginal_particle_gibbs: JsonObject
+    marginal_particle_gibbs_phase_extra_fields: dict[str, dict[str, jnp.ndarray]]
+    chain_complete_log_posterior_history: jnp.ndarray
+    warmup_complete_log_posterior_history: jnp.ndarray
+    all_complete_log_posterior_history: jnp.ndarray
+
+
+class MCMCParameterDiagnostic(TypedDict, total=False):
+    """Convergence metrics for one scalar or array-valued parameter."""
+
+    parameter: Required[str]
+    r_hat: float | list[float]
+    ess_bulk: float | list[float]
+    ess_tail: float | list[float]
+    mcse_mean: float | list[float]
+
+
+class MCMCResultDiagnostics(TypedDict, total=False):
+    """JSON-ready diagnostics exposed by a particle-MCMC result."""
+
+    per_parameter: list[MCMCParameterDiagnostic]
+    num_divergences: int
+    divergence_rate: float
+    tree_depth_mean: float
+    tree_depth_max: int
+    accept_prob_mean: float
+    latent_accept_prob_mean: float
+    parameter_accept_prob_mean: float
+    energy: EnergyDiagnosticsData
+    num_chains: int
+    num_samples: int
+    trace_data: list[TraceSeriesData]
+    rank_histograms: list[RankHistogramData]
+
+
 @dataclass
 class InferenceResult:
     """Container for inference results across all backends."""
 
     _samples: dict[str, jnp.ndarray]
     method: InferenceResultMethod
-    diagnostics: dict = field(default_factory=dict)
+    diagnostics: InferenceDiagnostics = field(default_factory=dict)
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
         """Return posterior samples dict."""
         return self._samples
 
-    def get_latent_posterior_summary(self) -> dict[str, Any] | None:
-        """Return latent-path posterior summaries when available."""
-        return self.diagnostics.get("latent_posterior_summary")
-
     def get_latent_paths(self) -> jnp.ndarray | None:
         """Return retained latent path samples when available."""
         return self.diagnostics.get("latent_paths")
 
-    def get_mcmc_diagnostics(self) -> dict[str, Any] | None:
+    def get_mcmc_diagnostics(self) -> MCMCResultDiagnostics | None:
         """Extract JSON-serializable MCMC diagnostics."""
         if self.method == "map":
             return None
@@ -64,7 +156,7 @@ class InferenceResult:
 
         from numpyro.diagnostics import summary as numpyro_summary
 
-        result: dict[str, Any] = {}
+        result: MCMCResultDiagnostics = {}
 
         chain_samples = mcmc.get_samples(group_by_chain=True)
         public_sites = self.diagnostics.get("public_sites")
@@ -84,9 +176,9 @@ class InferenceResult:
             return az.from_dict(**kwargs)
 
         summ = numpyro_summary(chain_samples)
-        per_param: list[dict[str, Any]] = []
+        per_param: list[MCMCParameterDiagnostic] = []
         for name, stats in summ.items():
-            entry: dict[str, Any] = {"parameter": name}
+            entry: MCMCParameterDiagnostic = {"parameter": name}
             if "r_hat" in stats:
                 val = stats["r_hat"]
                 entry["r_hat"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
@@ -109,7 +201,7 @@ class InferenceResult:
         ess_tail = az.ess(idata, method="tail")
         mcse_mean = az.mcse(idata, method="mean")
 
-        for entry in result["per_parameter"]:
+        for entry in per_param:
             name = entry["parameter"]
             if name in ess_tail:
                 v = ess_tail[name].values
@@ -152,7 +244,7 @@ class InferenceResult:
 
         return result
 
-    def get_smc_diagnostics(self) -> dict[str, Any] | None:
+    def get_smc_diagnostics(self) -> JsonObject | None:
         """Extract JSON-serializable SMC diagnostics."""
         beta = self.diagnostics.get("beta_schedule")
         if beta is None:
@@ -168,10 +260,10 @@ class InferenceResult:
 
     def get_loo_diagnostics(
         self,
-        model_fn: Any = None,
+        model_fn: Callable[..., object] | None = None,
         observations: jnp.ndarray | None = None,
         times: jnp.ndarray | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> JsonObject | None:
         """Extract LOO-CV diagnostics via ArviZ using one-step-ahead predictive LL."""
         if model_fn is None or observations is None:
             return None
@@ -272,7 +364,7 @@ class InferenceResult:
 
         loo_result = az.loo(idata)
 
-        result: dict[str, Any] = {
+        result: JsonObject = {
             "elpd_loo": float(loo_result.elpd_loo),
             "p_loo": float(loo_result.p_loo),
             "se": float(loo_result.se),
@@ -295,19 +387,20 @@ class InferenceResult:
 
         return result
 
-    def get_posterior_marginals(self, n_bins: int = 50) -> list[dict[str, Any]]:
+    def get_posterior_marginals(self, n_bins: int = 50) -> list[PosteriorMarginalData]:
         """Compute marginal posterior density data for visualization."""
         return compute_posterior_marginals(self._samples, n_bins)
 
     def get_posterior_pairs(
         self, max_params: int = 6, max_samples: int = 200
-    ) -> list[dict[str, Any]]:
+    ) -> list[PosteriorPairData]:
         """Compute pairwise scatter data for joint posterior visualization."""
-        return compute_posterior_pairs(self._samples, self.diagnostics, max_params, max_samples)
-
-    def print_summary(self) -> None:
-        """Log summary statistics for posterior samples."""
-        logger.info("\n%s", format_summary(self._samples, self.method))
+        return compute_posterior_pairs(
+            self._samples,
+            self.diagnostics.get("mcmc"),
+            max_params,
+            max_samples,
+        )
 
 
 def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult | None:
@@ -319,9 +412,9 @@ def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult 
     """
     if result is None:
         return None
-    diagnostics = {
-        key: result.diagnostics[key] for key in ("latent_paths",) if key in result.diagnostics
-    }
+    diagnostics: InferenceDiagnostics = {}
+    if "latent_paths" in result.diagnostics:
+        diagnostics["latent_paths"] = result.diagnostics["latent_paths"]
     return InferenceResult(
         _samples=result.get_samples(),
         method=result.method,
@@ -334,12 +427,12 @@ class FittedArtifact:
     """Canonical persisted output of inference."""
 
     result: InferenceResult | None
-    spec: Any | None
-    times: Any
-    observation_support: Any | None = None
-    ppc_result: dict[str, Any] | None = None
+    spec: SSMSpec | None
+    times: jnp.ndarray
+    observation_support: ObservationSupportRuntime | None = None
+    ppc_result: JsonObject | None = None
 
-    def __getstate__(self) -> dict[str, Any]:
+    def __getstate__(self) -> FittedArtifactState:
         """Persist only the analysis inputs, never live inference caches/backends."""
         return {
             "result": _serialize_fitted_result(self.result),
@@ -349,9 +442,19 @@ class FittedArtifact:
             "ppc_result": self.ppc_result,
         }
 
-    def __setstate__(self, state: dict[str, Any]) -> None:
+    def __setstate__(self, state: FittedArtifactState) -> None:
         self.result = state["result"]
         self.spec = state["spec"]
         self.times = state["times"]
         self.observation_support = state["observation_support"]
         self.ppc_result = state["ppc_result"]
+
+
+class FittedArtifactState(TypedDict):
+    """Pickled analysis-only state for a fitted artifact."""
+
+    result: InferenceResult | None
+    spec: SSMSpec | None
+    times: jnp.ndarray
+    observation_support: ObservationSupportRuntime | None
+    ppc_result: JsonObject | None

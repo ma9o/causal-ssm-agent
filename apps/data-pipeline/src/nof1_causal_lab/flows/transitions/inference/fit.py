@@ -1,11 +1,12 @@
 """posterior: Bayesian inference and diagnostics."""
 
+from __future__ import annotations
+
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
-import polars as pl
 
 from nof1_causal_lab.flows.model_spec_compile_cache import restore_model_spec_compile_cache
 from nof1_causal_lab.models.ssm.runtime import (
@@ -15,7 +16,11 @@ from nof1_causal_lab.models.ssm.runtime import (
 )
 
 if TYPE_CHECKING:
+    import polars as pl
+
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.inference import InferenceResult
+    from nof1_causal_lab.sampler_config import SamplerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +64,9 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
 
 
 def fit_model(
-    compiled_ssm: dict | None,
+    compiled_ssm: CompiledSSMArtifact | None,
     data_for_model: pl.DataFrame,
-    sampler_config: dict | None = None,
+    sampler_config: SamplerConfig | None = None,
     model: Any = None,
     workspace_id: str | None = None,
     wait_for_compile_cache: bool = False,

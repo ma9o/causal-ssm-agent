@@ -1,18 +1,14 @@
-THINK VERY HARD
-
 - Project description: nof1-causal-lab is for observational longitudinal causal questions, especially intensive longitudinal data (ILD) and idiographic / N-of-1 settings where measurements are irregular, messy, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors. It combines explicit causal-identification checks with continuous-time latent state-space estimation, and only produces numeric causal claims when those checks support them.
 
-- At the start of each session, check if `scratchpad/TODO.md` exists. If so, read it to understand where work left off. Only update it when the user explicitly ends the session. This file is gitignored and used for local continuity.
+- When the user references TODOs, it means the top level `scratchpad/TODO.md`. This file is gitignored and used for local continuity.
 
 - Interpret `cp` as an alias for "commit and push". Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one. This operation should be write safe so that another coding agent working in the same directory is not disrupted by eg stashing or rebasing. It's ok if this prevents you from perfect atomicity.
 
-- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
-
-- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
-
-- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
+- NEVER add backwards compatibility code or defensive engineering with fallbacks. NEVER add backwards compatibility code or defensive engineering with fallbacks. NEVER add backwards compatibility code or defensive engineering with fallbacks. 
 
 - For integration testing, starting services, health-checking the stack, or triggering pipeline runs manually, always read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md). Do not improvise steps from memory.
+
+- Use `ast-grep` if possible to navigate code. For example the definition of `DesignInfo` can be found more token-efficiently with `bunx ast-grep run --json=stream --lang python --pattern $'@$_DECORATOR\nclass DesignInfo: $$$BODY' ./ | jq -r '.text'`
 
 # Notebooks
 

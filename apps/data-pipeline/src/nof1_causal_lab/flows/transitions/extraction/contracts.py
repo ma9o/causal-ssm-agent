@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
 
-IS_INTERACTIVE_CONTEXT = False
-
 
 class ValidateExtractionsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")

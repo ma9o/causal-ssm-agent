@@ -8,13 +8,13 @@ import logging
 
 import pytest
 
-from nof1_causal_lab.workers.core import (
+from tests.helpers import make_mock_session_factory
+from tests.helpers import run_async as _run
+from tests.transitions.extraction._worker import (
     WorkerMessages,
     _format_indicators,
     run_worker_extraction,
 )
-from tests.helpers import make_mock_session_factory
-from tests.helpers import run_async as _run
 
 
 def _measurement_structure():

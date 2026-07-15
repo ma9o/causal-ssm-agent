@@ -8,6 +8,7 @@ import jax.random as random
 import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
+from numpyro import handlers
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
@@ -16,8 +17,6 @@ from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.inference import _eval_model
-from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     InitialStateParams,
@@ -38,7 +37,7 @@ from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discove
 from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.testing import (
+from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
@@ -46,6 +45,28 @@ from nof1_causal_lab.models.ssm.testing import (
 )
 
 pytestmark = pytest.mark.slow
+
+
+def _apply_reparam(model_fn, reparam_config):
+    if reparam_config is None:
+        return model_fn
+    return handlers.reparam(model_fn, config=reparam_config)
+
+
+def _eval_model(model_fn, params_dict, observations, times):
+    with handlers.seed(rng_seed=0), handlers.substitute(data=params_dict):
+        trace = handlers.trace(model_fn).get_trace(observations, times)
+
+    log_lik = 0.0
+    log_prior = 0.0
+    for name, site in trace.items():
+        if site["type"] != "sample":
+            continue
+        if name == "log_likelihood":
+            log_lik = site["fn"].log_factor
+        elif not site.get("is_observed", False):
+            log_prior = log_prior + jnp.sum(site["fn"].log_prob(site["value"]))
+    return log_lik, log_prior
 
 
 def _dense_matrix_ssm_spec(n_latent: int, n_manifest: int):
@@ -345,7 +366,7 @@ class TestPureJaxLikelihoodEvaluator:
     @staticmethod
     def _assert_log_likelihood_match(reparam) -> None:
         model, observations, times = TestPureJaxLikelihoodEvaluator._build_poisson_case()
-        backend = model.make_likelihood_backend()
+        backend = model.make_laplace_backend(6)
         site_info = _discover_sites(
             model,
             observations,

@@ -4,19 +4,145 @@ These schemas define the structure for per-parameter prior research
 conducted by worker LLMs with Exa literature search.
 """
 
-from typing import Literal
+from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Literal, cast
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     format_prior_distribution_name_list,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 _QUOTE = "'"
 PRIOR_DISTRIBUTION_DESCRIPTION = (
     f"Distribution family ({format_prior_distribution_name_list(quote=_QUOTE)})"
 )
+
+
+class PriorParamsModel(BaseModel):
+    """Strict immutable base for family-specific prior parameters."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class LocationScalePriorParams(PriorParamsModel):
+    """Location and positive scale parameters for Normal or LogNormal priors."""
+
+    mu: float
+    sigma: float = Field(gt=0)
+
+
+class ScalePriorParams(PriorParamsModel):
+    """Positive scale parameter for HalfNormal priors."""
+
+    sigma: float = Field(gt=0)
+
+
+class BoundsPriorParams(PriorParamsModel):
+    """Finite ordered bounds for Uniform priors."""
+
+    lower: float
+    upper: float
+
+    @model_validator(mode="after")
+    def validate_ordered_bounds(self) -> BoundsPriorParams:
+        if self.lower >= self.upper:
+            raise ValueError("Uniform prior requires lower < upper")
+        return self
+
+
+class TruncatedNormalPriorParams(LocationScalePriorParams):
+    """Location, scale, and finite ordered bounds for TruncatedNormal priors."""
+
+    lower: float
+    upper: float
+
+    @model_validator(mode="after")
+    def validate_ordered_bounds(self) -> TruncatedNormalPriorParams:
+        if self.lower >= self.upper:
+            raise ValueError("TruncatedNormal prior requires lower < upper")
+        return self
+
+
+class GammaPriorParams(PriorParamsModel):
+    """Positive shape and rate for Gamma priors."""
+
+    concentration: float = Field(gt=0)
+    rate: float = Field(gt=0)
+
+
+class RatePriorParams(PriorParamsModel):
+    """Positive rate for Exponential priors."""
+
+    rate: float = Field(gt=0)
+
+
+class BetaPriorParams(PriorParamsModel):
+    """Positive shape parameters for Beta priors."""
+
+    alpha: float = Field(gt=0)
+    beta: float = Field(gt=0)
+
+
+class ValuePriorParams(PriorParamsModel):
+    """Point value for Delta priors."""
+
+    value: float
+
+
+type PriorParams = (
+    LocationScalePriorParams
+    | ScalePriorParams
+    | BoundsPriorParams
+    | TruncatedNormalPriorParams
+    | GammaPriorParams
+    | RatePriorParams
+    | BetaPriorParams
+    | ValuePriorParams
+)
+
+
+def _prior_params_type(distribution: PriorDistributionFamily) -> type[PriorParamsModel]:
+    if distribution in {
+        PriorDistributionFamily.NORMAL,
+        PriorDistributionFamily.LOG_NORMAL,
+    }:
+        return LocationScalePriorParams
+    if distribution == PriorDistributionFamily.HALF_NORMAL:
+        return ScalePriorParams
+    if distribution == PriorDistributionFamily.UNIFORM:
+        return BoundsPriorParams
+    if distribution == PriorDistributionFamily.TRUNCATED_NORMAL:
+        return TruncatedNormalPriorParams
+    if distribution == PriorDistributionFamily.GAMMA:
+        return GammaPriorParams
+    if distribution == PriorDistributionFamily.EXPONENTIAL:
+        return RatePriorParams
+    if distribution == PriorDistributionFamily.BETA:
+        return BetaPriorParams
+    return ValuePriorParams
+
+
+def prior_params_model(
+    distribution: PriorDistributionFamily,
+    params: Mapping[str, int | float],
+) -> PriorParams:
+    """Validate a parameter mapping against its declared prior family."""
+    return cast("PriorParams", _prior_params_type(distribution).model_validate(params))
+
+
+class DensityPoint(BaseModel):
+    """One evaluated point on a prior density curve."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    x: float
+    y: float = Field(ge=0)
 
 
 class PriorSource(BaseModel):
@@ -39,7 +165,7 @@ class PriorProposal(BaseModel):
 
     parameter: str = Field(description="Name of the parameter this prior is for")
     distribution: PriorDistributionFamily = Field(description=PRIOR_DISTRIBUTION_DESCRIPTION)
-    params: dict[str, float] = Field(
+    params: PriorParams = Field(
         description="Distribution parameters (e.g., {'mu': 0.3, 'sigma': 0.1})"
     )
     sources: list[PriorSource] = Field(
@@ -58,7 +184,7 @@ class PriorProposal(BaseModel):
             "(e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence)."
         ),
     )
-    density_points: list[dict[str, float]] | None = Field(
+    density_points: list[DensityPoint] | None = Field(
         default=None,
         description=(
             "Pre-computed density curve points [{x, y}, ...] for frontend visualization. "
@@ -66,6 +192,16 @@ class PriorProposal(BaseModel):
             "to approximate the PDF client-side."
         ),
     )
+
+    @model_validator(mode="after")
+    def validate_params_match_distribution(self) -> PriorProposal:
+        expected_type = _prior_params_type(self.distribution)
+
+        if not isinstance(self.params, expected_type):
+            raise ValueError(
+                f"{self.distribution.value} prior parameters must match {expected_type.__name__}"
+            )
+        return self
 
 
 class PriorRepairScope(BaseModel):
@@ -180,29 +316,3 @@ class PriorValidationResult(BaseModel):
         default=None,
         description="Comparable pathology summary for same-scope retry gating",
     )
-
-
-class RawPriorSample(BaseModel):
-    """A single prior elicitation from one paraphrased prompt."""
-
-    paraphrase_id: int = Field(description="Index of the paraphrase template used (0-indexed)")
-    mu: float = Field(description="Elicited mean/location parameter")
-    sigma: float = Field(description="Elicited standard deviation/scale parameter")
-    reasoning: str = Field(description="Justification for this elicitation")
-
-
-class AggregatedPrior(BaseModel):
-    """Aggregated prior from multiple paraphrased elicitations."""
-
-    method: str = Field(description="Aggregation method used ('simple' or 'gmm')")
-    mu: float = Field(description="Aggregated mean/location parameter")
-    sigma: float = Field(description="Aggregated standard deviation/scale parameter")
-    # GMM-specific fields (only populated when method='gmm')
-    mixture_weights: list[float] | None = Field(
-        default=None, description="Mixture weights for GMM components"
-    )
-    mixture_means: list[float] | None = Field(default=None, description="Means of GMM components")
-    mixture_stds: list[float] | None = Field(
-        default=None, description="Standard deviations of GMM components"
-    )
-    n_samples: int = Field(description="Number of paraphrase samples aggregated")
