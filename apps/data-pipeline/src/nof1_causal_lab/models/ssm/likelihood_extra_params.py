@@ -56,6 +56,11 @@ def assemble_sampled_extra_params(
         else:
             ordered_gaps = jnp.zeros((spec.n_manifest, 0), dtype=ordered_base.dtype)
 
+        # Cutpoints are NOT centered: the threshold base is the channel-side
+        # location parameter, identified against the construct's latent-side
+        # location anchor (see docs/reference/statistical-model-spec/identification.md).
+        # Centering here would both kill the base (it cancels exactly) and
+        # over-anchor constructs whose location is already pinned elsewhere.
         raw_cutpoints = jnp.concatenate(
             [
                 ordered_base[:, None],
@@ -67,14 +72,7 @@ def assemble_sampled_extra_params(
             level_counts[:, None] - 1,
             0,
         )
-        cutpoint_sum = jnp.sum(jnp.where(cutpoint_mask, raw_cutpoints, 0.0), axis=1)
-        cutpoint_count = jnp.maximum(level_counts - 1, 1)
-        cutpoint_center = cutpoint_sum / cutpoint_count
-        extra_params["obs_ordered_cutpoints"] = jnp.where(
-            cutpoint_mask,
-            raw_cutpoints - cutpoint_center[:, None],
-            0.0,
-        )
+        extra_params["obs_ordered_cutpoints"] = jnp.where(cutpoint_mask, raw_cutpoints, 0.0)
 
     if DistributionFamily.CATEGORICAL in manifest_dist_set:
         cat_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(level_counts[:, None] - 1, 0)

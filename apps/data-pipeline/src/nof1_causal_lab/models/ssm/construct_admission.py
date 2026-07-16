@@ -394,7 +394,6 @@ def _signal_from_linear_predictor(
             )
         else:
             cutpoints = base[:, None]
-        cutpoints = cutpoints - np.mean(cutpoints, axis=1, keepdims=True)
         mid_cdf = 1.0 / (
             1.0 + np.exp(-np.clip(cutpoints[:, None, :] - _lp[:, :, None], -30.0, 30.0))
         )
