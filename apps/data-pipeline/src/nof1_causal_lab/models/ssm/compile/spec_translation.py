@@ -617,6 +617,102 @@ def _latent_standardized_anchor_mask(
     return mask
 
 
+def _audit_identification_anchors(
+    latent_names: list[str],
+    manifest_cols: list[str],
+    manifest_dists: list[DistributionFamily],
+    manifest_standardized: list[bool],
+    manifest_cat_anchor: np.ndarray,
+    lambda_mat: jnp.ndarray,
+    lambda_support: np.ndarray,
+    state_intercept_support: np.ndarray,
+    t0_means_support: np.ndarray,
+    time_invariant_mask: np.ndarray | None,
+    *,
+    causal_design: dict | None,
+) -> list[str]:
+    """Verify every retained construct has a location anchor and a scale anchor.
+
+    Invariant (docs/reference/statistical-model-spec/identification.md): each
+    construct's location is pinned by a standardized channel or by its dynamics
+    (potential well at zero, or fixed t0 mean for time-invariant states), and
+    its scale by a fixed loading on a fixed-link-scale channel or by a pinned
+    categorical anchor slope. A free latent-side location parameter
+    (equilibrium center, static t0 mean) requires the standardized-channel
+    anchor. Violations are exact likelihood ridges, so they fail compilation.
+    """
+    if causal_design is None:
+        return []
+
+    errors: list[str] = []
+    latent_idx = {name: idx for idx, name in enumerate(latent_names)}
+    manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
+    construct_channels: dict[str, list[int]] = {}
+    for indicator in get_indicators(causal_design):
+        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
+        construct_name = (
+            indicator.get("construct_name")
+            if isinstance(indicator, dict)
+            else indicator.construct_name
+        )
+        if ind_name in manifest_idx and construct_name in latent_idx:
+            construct_channels.setdefault(construct_name, []).append(manifest_idx[ind_name])
+
+    time_inv = (
+        np.zeros(len(latent_names), dtype=bool)
+        if time_invariant_mask is None
+        else np.asarray(time_invariant_mask, dtype=bool)
+    )
+
+    for name, latent_index in latent_idx.items():
+        channels = construct_channels.get(name, [])
+        if not channels:
+            errors.append(
+                f"Construct {name!r} retains no indicators; its latent location and scale "
+                "are unidentified (marginalize or drop it instead)."
+            )
+            continue
+
+        has_standardized = any(manifest_standardized[channel] for channel in channels)
+        free_latent_location = (
+            bool(t0_means_support[latent_index])
+            if time_inv[latent_index]
+            else bool(state_intercept_support[latent_index])
+        )
+        if free_latent_location and not has_standardized:
+            location_parameter = "t0 mean" if time_inv[latent_index] else "equilibrium center"
+            errors.append(
+                f"Construct {name!r} has no location anchor: its free {location_parameter} "
+                "rides an exact additive ridge with the channel-side location parameters. "
+                "Add a standardized channel or fix the latent-side location."
+            )
+
+        has_fixed_link_scale_anchor = any(
+            manifest_dists[channel] != DistributionFamily.CATEGORICAL
+            and float(lambda_mat[channel, latent_index]) != 0.0
+            and not lambda_support[channel, latent_index]
+            for channel in channels
+        )
+        has_cat_anchor = any(manifest_cat_anchor[channel] for channel in channels)
+        if not (has_fixed_link_scale_anchor or has_cat_anchor):
+            errors.append(
+                f"Construct {name!r} has no scale anchor: no non-categorical channel carries "
+                "a fixed loading and no categorical anchor slope is pinned."
+            )
+
+        for channel in channels:
+            if (
+                manifest_dists[channel] == DistributionFamily.CATEGORICAL
+                and lambda_support[channel, latent_index]
+            ):
+                errors.append(
+                    f"Categorical channel {manifest_cols[channel]!r} has a free loading; "
+                    "it is exactly redundant with the free class slopes."
+                )
+
+    return errors
+
+
 def _build_static_factor_structure(
     statistical_model_spec: StatisticalModelSpec,
     latent_names: list[str],
@@ -909,6 +1005,23 @@ def translate_spec(
     if time_invariant_mask is not None:
         static_mask = np.asarray(time_invariant_mask, dtype=bool)
         t0_means_support[static_mask & ~latent_standardized_anchor] = False
+
+    if not errors:
+        errors.extend(
+            _audit_identification_anchors(
+                latent_names,
+                manifest_cols,
+                manifest_dists,
+                manifest_standardized,
+                manifest_cat_anchor,
+                lambda_mat,
+                lambda_support,
+                state_intercept_support,
+                t0_means_support,
+                time_invariant_mask,
+                causal_design=causal_design,
+            )
+        )
 
     if errors:
         raise SpecTranslationError(errors)
