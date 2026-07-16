@@ -165,6 +165,9 @@ class TestCompileDynamics:
         mult = compiled.vector_field.components[2]
         lin = compiled.vector_field.components[3]
         hill = compiled.vector_field.components[4]
+        assert isinstance(mult, MultiplicativeEdge)
+        assert isinstance(lin, LinearEdge)
+        assert isinstance(hill, HillEdge)
         assert (mult.source_a, mult.source_b, mult.target) == (DOSE, ADHERENCE, C_P)
         assert (lin.source, lin.target) == (C_P, C_E)
         assert (hill.source, hill.target) == (C_E, AFFECTIVE)

@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any
 
 import polars as pl
 import pytest
@@ -777,7 +778,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
             self._tools = tools
             self.session_id = "fake-claude-session"
             self.session_jsonl = '{"type":"session","id":"fake-pi-session"}\n'
-            self.raw_events = [{"type": "system", "subtype": "init"}]
+            self.raw_events: list[dict[str, Any]] = [{"type": "system", "subtype": "init"}]
             self._tool_output = ""
 
         async def turn(self, user_message):

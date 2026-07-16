@@ -13,6 +13,7 @@ from .spec import compile_dynamics
 if TYPE_CHECKING:
     from jax import Array
 
+    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
     from .vector_field import VectorField
@@ -74,7 +75,7 @@ def posterior_dynamics_from_samples(
 
 def posterior_dynamics_from_result(
     spec: SSMSpec,
-    result,
+    result: ParticleMCMCPosterior,
     *,
     prefix: str = "vf",
 ) -> PosteriorDynamicsSamples:

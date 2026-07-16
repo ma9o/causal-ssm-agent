@@ -1,61 +1,86 @@
 # Inference Routing for State-Space Models
 
-The implemented inference surface is deliberately small: a single default method, `marginal_particle_gibbs`, plus `particle_marginal_mh` as a pseudo-marginal comparator. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
+The implemented inference surface has one method: `marginal_particle_gibbs`. It
+targets the joint latent-state and parameter posterior using the true nonlinear
+drift, Euler-Maruyama transitions, and the true emission density. For the CT-SDE
+formulation, see [estimation.md](estimation.md).
 
 ## The Marginalization Challenge
 
-Given a state-space model with latent states **x**_1:T and observations **y**_1:T, parameter inference requires the marginal likelihood:
+Given latent states **x**_1:T and observations **y**_1:T, parameter inference
+would otherwise require the marginal likelihood:
 
 ```text
 p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 ```
 
-For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. `marginal_particle_gibbs` avoids forming it directly: it targets the directly evaluable joint latent/parameter posterior with a collapsed Particle Gibbs sweep, alternating a conditional-SMC latent-trajectory update with a parameter move. `particle_marginal_mh` instead targets the parameter posterior alone, using a bootstrap particle filter to produce an unbiased estimate of the marginal likelihood inside a pseudo-marginal Metropolis-Hastings accept/reject.
+For T timesteps and n latent dimensions, this integral is over an `(n x T)`
+dimensional space. `marginal_particle_gibbs` avoids replacing that integral with
+a reported Gaussian approximation. It alternates an exact-invariant dSMC
+latent-trajectory update with a parameter move against the directly evaluable
+joint posterior.
 
 ## Method Taxonomy
 
-| Method | Strategy | Latent update | Parameter update | Primary use |
-|---|---|---|---|---|
-| `marginal_particle_gibbs` | Collapsed Particle Gibbs over the joint latent/parameter posterior | Conditional SMC smoother (selectable: `plain`, `amala`, `amala_plus`, `mgrad`, `dsmc`) | Pseudo-Langevin or random-walk parameter proposal | Default fit |
-| `particle_marginal_mh` | Pseudo-marginal MH over parameters | Bootstrap particle-filter marginal-likelihood estimate; latent paths not retained | Preconditioned Metropolis-Hastings | Comparator / validation |
+| Method | Latent update | Parameter update | Primary use |
+|---|---|---|---|
+| `marginal_particle_gibbs` | Divide-and-conquer SMC with an exactly corrected leaf proposal | Pseudo-Langevin or random walk | Production fitting |
 
 ## Structural Routing
 
-The default routing resolves to `marginal_particle_gibbs`. Routing also records the structural backend for runtime/frontend diagnostics:
-
-- **`laplace`**: non-Gaussian observations or support-aware summaries use the IEKS/Laplace approximate marginal likelihood when a method needs a marginal-likelihood objective.
+The route always resolves to `marginal_particle_gibbs`. The runtime may build an
+IEKS/Laplace backend for initialization, proposal construction, and diagnostics,
+but that approximation does not replace the particle posterior target or any
+reported simulation path.
 
 ## User Overrides
 
-Selection happens on two axes. The method is chosen with the `method` argument to [`inference.fit()`](estimation.md#data-flow); within `marginal_particle_gibbs` the latent smoother and parameter proposal are chosen with keyword arguments.
+The method itself is fixed. These options tune its proposals without changing
+the posterior target:
 
-| Need | Override | Why |
+| Need | Override | Effect |
 |---|---|---|
-| Pseudo-marginal parameter inference with a bootstrap likelihood | `method="particle_marginal_mh"` | Targets the parameter posterior alone; an independent check on the collapsed sampler. |
-| A different latent-trajectory smoother | `latent_smoother=` `"plain"` \| `"amala"` \| `"amala_plus"` \| `"mgrad"` \| `"dsmc"` | Trades off mixing, gradient use, and parallel-in-time depth for the conditional-SMC latent update. |
-| A gradient-informed vs. gradient-free parameter move | `parameter_proposal=` `"pseudo_langevin"` (default) \| `"random_walk"` | Pseudo-Langevin uses a conditional parameter-gradient drift; random-walk is the gradient-free fallback. |
+| Select the dSMC leaf proposal | `dsmc_leaf_proposal="amala_exact"` or `dsmc_leaf_proposal="paid_mix"` | Uses exactly corrected aMALA, or a corrected mixture that includes an IEKS-derived pilot component |
+| Restrict the latent update | `latent_block_coords=<positive integer>` | Proposes only that many latent coordinates per update; `None` updates all coordinates |
+| Select the parameter move | `parameter_proposal="pseudo_langevin"` or `parameter_proposal="random_walk"` | Uses a conditional-gradient drift or a gradient-free random walk |
+| Select initialization | `init_method="pathfinder"` or `init_method="random"` | Uses data-informed Pathfinder initialization or random initialization |
 
 ## Method Reference
 
 ### Marginalized Particle Gibbs
 
-`marginal_particle_gibbs` (default) targets the directly evaluable latent/parameter posterior with a collapsed Particle Gibbs update: a conditional-SMC latent-trajectory smoother conditioned on the retained reference path, alternated with a parameter move.
+`marginal_particle_gibbs` conditions dSMC on the retained reference trajectory,
+then alternates that latent update with a parameter ensemble move.
 
-**Latent smoothers** (`latent_smoother`):
+The only `latent_smoother` value is `"dsmc"`. Its leaf proposal is one of:
 
-- `plain` — plain conditional SMC (cSMC) over the latent trajectory. Default.
-- `amala` / `amala_plus` — particle-aMALA and particle-aMALA+ smoothers, which add a Metropolis-adjusted Langevin move to the conditional particle update.
-- `mgrad` — particle-mGRAD smoother, a prior-informed gradient proposal. Its `latent_kernel_algorithm` selects the sequential `particle_mgrad` construction or the parallel-in-time `pit_aux_csmc` construction.
-- `dsmc` — divide-and-conquer SMC smoother with logarithmic parallel depth in T.
+- `amala_exact` — gradient-informed aMALA with an auxiliary-potential correction
+  that preserves the exact target.
 
-**Parameter proposals** (`parameter_proposal`): `pseudo_langevin` (default) uses a conditional parameter-gradient drift; `random_walk` is the gradient-free fallback.
+- `paid_mix` — a corrected mixture of the exact aMALA component and pilot-based
+  components. IEKS moments shape the proposal only; the importance correction
+  preserves the true nonlinear target.
 
-**When to use:** Default complete-data inference. The smoother and proposal knobs tune mixing and parallel-in-time cost without changing the target.
+The parameter proposal is `pseudo_langevin` by default. `random_walk` remains
+available for gradient-free comparisons.
 
-### Particle Marginal Metropolis-Hastings
+All posterior samples, diagnostics, posterior-predictive checks, and forward
+simulations use the exact production engines. Linearized Gaussian machinery is
+limited to initialization or corrected proposal construction.
 
-`particle_marginal_mh` targets the parameter posterior using a bootstrap particle-filter estimate of the marginal likelihood inside a pseudo-marginal MH accept/reject. It shares the discretized runtime bundle with the default method.
+## Proof-Carrying Result Types
 
-**When to use:** As an independent comparator on the parameter posterior.
+Inference paths have nominally distinct outputs. Laplace/IEKS code returns a
+`WarmupProposal`; marginalized Particle Gibbs returns a
+`ParticleMCMCPosterior` carrying evidence for the particle engine and nonlinear
+Euler-Maruyama transition target. Persisted `FittedArtifact` values accept only
+the latter.
 
-**Limitations:** Does not retain latent paths or compute latent posterior summaries. Pseudo-marginal mixing degrades if the particle count is too low for the likelihood-estimator variance.
+Before numeric causal effects are computed, the analysis boundary validates the
+persisted engine evidence and joins it to an estimand-specific
+`IdentifiedEstimand`. Both proofs carry the same workspace-local causal-design
+version. The resulting `CertifiedCausalAnalysis` is the only input accepted by
+baseline intervention reporting; interactive simulations construct the same
+proof object when loading their artifact context. A warmup result, an
+unidentified treatment, or evidence from a different design therefore fails
+before numeric reporting.

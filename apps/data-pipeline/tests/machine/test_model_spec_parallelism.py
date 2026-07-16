@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
 from nof1_causal_lab.machine.temporal.messages import (
     LLMBackendConfig,
     StatisticalModelSpecAdmissionUnit,
@@ -27,6 +29,9 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     validate_full_admission_state,
 )
 from tests.helpers import run_async
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.construct_admission import DesignInfo
 
 
 def _causal_design() -> dict:
@@ -110,7 +115,7 @@ def test_barrier_reopens_failed_feedback_suffix_and_descendants():
 def test_full_barrier_shares_one_exact_simulation(monkeypatch):
     from nof1_causal_lab.models.ssm import construct_admission
 
-    calls = {"compile": 0, "sample": 0, "battery": []}
+    calls: dict[str, Any] = {"compile": 0, "sample": 0, "battery": []}
 
     def fake_compile(*_args):
         calls["compile"] += 1
@@ -136,7 +141,7 @@ def test_full_barrier_shares_one_exact_simulation(monkeypatch):
         AdmissionState(names=("A", "B")),
         (ConstructContribution(name="A"), ConstructContribution(name="B")),
         {},
-        object(),
+        cast("DesignInfo", object()),
     )
 
     assert calls == {"compile": 1, "sample": 1, "battery": ["A", "B"]}

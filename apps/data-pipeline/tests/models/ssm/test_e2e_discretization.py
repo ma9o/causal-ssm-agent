@@ -845,20 +845,20 @@ class TestE2ESpecToDiscretization:
             causal_design=two_construct_causal_design,
         )
 
-        assert compiled["schema_version"] == 1
-        assert compiled["spec"]["latent_names"] == ["mood", "stress"]
-        assert compiled["spec"]["manifest_names"] == [
+        assert compiled.schema_version == 1
+        assert compiled.spec.latent_names == ["mood", "stress"]
+        assert compiled.spec.manifest_names == [
             "mood_rating",
             "stress_self_report",
             "stress_cortisol",
         ]
         parameter_bindings = [
             {
-                "parameter": binding["parameter"],
-                "site_name": binding["site_name"],
-                "flat_index": binding["flat_index"],
+                "parameter": binding.parameter,
+                "site_name": binding.site_name,
+                "flat_index": binding.flat_index,
             }
-            for binding in compiled["parameter_bindings"]
+            for binding in compiled.parameter_bindings
         ]
         assert parameter_bindings == [
             {"parameter": "beta_stress_mood", "site_name": "vf_2_weight", "flat_index": 0},
@@ -916,7 +916,7 @@ class TestE2ESpecToDiscretization:
         runtime = model.get_prior_runtime_bundle()
         assert runtime.prior_state["vf_0_decay"]["concentration"].shape == ()
         assert runtime.prior_state["vf_1_decay"]["concentration"].shape == ()
-        assert model.parameter_bindings == compiled["parameter_bindings"]
+        assert model.parameter_bindings == compiled.parameter_bindings
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_causal_design, two_construct_statistical_model_spec

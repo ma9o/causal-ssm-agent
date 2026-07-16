@@ -13,10 +13,9 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.inference.bundle import (
-    AUX_JITTER,
-)
 from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar, Int
+
+AUX_JITTER = 1e-6
 
 
 def _normalize_log_probs(

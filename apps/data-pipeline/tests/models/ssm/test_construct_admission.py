@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jax.numpy as jnp
 import numpy as np
@@ -32,6 +32,9 @@ from nof1_causal_lab.models.ssm.construct_admission import (
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 _SOFT_CHECKS = {
     "C1b confinement",
@@ -316,7 +319,7 @@ def test_known_input_edge_off_zeroes_only_the_compiled_input_cell(monkeypatch):
         "_simulate_vector_field_predictive_latents",
         _capture_samples,
     )
-    spec = SimpleNamespace(input_names=["dose", "exercise"])
+    spec = cast("SSMSpec", SimpleNamespace(input_names=["dose", "exercise"]))
     contribution = ConstructContribution(name="mood", edge_parents=("dose",))
     edge_target = _incoming_edge_off_target(spec, contribution, ["mood", "sleep"], 0)
     input_effect = jnp.arange(8, dtype=float).reshape(2, 2, 2) + 1.0

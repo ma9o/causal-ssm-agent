@@ -21,8 +21,6 @@ def make_mock_session_factory(responses: list[str]):
     with it (so ``make_context_tool`` capture dicts populate the same way
     they do in the real tool loop), and returns it as the turn completion.
 
-    ``accumulated_trace`` is present but empty — stages that attach a
-    trace to their payload skip the attach when the trace is empty.
     """
     from contextlib import asynccontextmanager
 
@@ -59,8 +57,6 @@ def make_mock_session_factory(responses: list[str]):
             return AgentResult(completion=self._last_completion, trace=LLMTrace())
 
     class _MockFactory:
-        accumulated_trace = LLMTrace()
-
         @asynccontextmanager
         async def open(self, *, system_prompt=None, tools=None, log_label=None):
             yield _MockSession(tools)

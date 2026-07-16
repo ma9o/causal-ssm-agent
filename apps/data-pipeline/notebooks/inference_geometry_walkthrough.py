@@ -46,7 +46,7 @@ def intro(mo):
     4. **The synthesis.** One move, two geometries: the funnel goes away for free, the
        ridge is exposed for inspection.
 
-    Support code (simulators reused from `confounder_lab`, the likelihood surfaces, all
+    Support code (simulators, the likelihood surfaces, all
     plotting) lives in `inference_geometry_support.py`; the ideas are inline.
     """)
     return
@@ -54,11 +54,10 @@ def intro(mo):
 
 @app.cell
 def imports_lab():
-    import confounder_lab as clab
     import inference_geometry_support as lab
     import numpy as np
 
-    return clab, lab, np
+    return lab, np
 
 
 @app.cell(hide_code=True)
@@ -288,11 +287,11 @@ def ridge_dag(mo):
 
 
 @app.cell
-def ridge_fig(clab, lab, np):
-    _on = clab.simulate_confounded(np.random.default_rng(7))
-    _off = clab.simulate_offpath(np.random.default_rng(11))
-    _s2_on = clab.sample_cov(_on, ["X", "Y"])
-    _s2_off = clab.sample_cov(_off, ["X", "Y"])
+def ridge_fig(lab, np):
+    _on = lab.simulate_confounded(np.random.default_rng(7))
+    _off = lab.simulate_offpath(np.random.default_rng(11))
+    _s2_on = lab.sample_cov(_on, ["X", "Y"])
+    _s2_off = lab.sample_cov(_off, ["X", "Y"])
     lab.fig_ridge_and_cuts(_s2_on, _s2_off)
     return
 

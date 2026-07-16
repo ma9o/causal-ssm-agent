@@ -19,13 +19,13 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
-    from nof1_causal_lab.models.ssm.inference import InferenceResult
-    from nof1_causal_lab.sampler_config import SamplerConfig
+    from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.sampler_config import SamplerConfigInput
 
 logger = logging.getLogger(__name__)
 
 
-def _elapsed_seconds(start: float) -> float:
+def _fit_elapsed_seconds(start: float) -> float:
     return time.monotonic() - start
 
 
@@ -66,7 +66,7 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
 def fit_model(
     compiled_ssm: CompiledSSMArtifact | None,
     data_for_model: pl.DataFrame,
-    sampler_config: SamplerConfig | None = None,
+    sampler_config: SamplerConfigInput | None = None,
     model: Any = None,
     workspace_id: str | None = None,
     wait_for_compile_cache: bool = False,
@@ -118,7 +118,7 @@ def fit_model(
         logger.info(
             "Prepared runtime in %.1fs: wide_rows=%d timepoints=%d manifest_vars=%d "
             "observed_cells=%d/%d time_span_days=%.2f support=%s",
-            _elapsed_seconds(prep_t0),
+            _fit_elapsed_seconds(prep_t0),
             len(runtime.wide_data),
             len(runtime.times),
             len(runtime.manifest_names),
@@ -139,13 +139,13 @@ def fit_model(
             inference_structure.method_override or "none",
         )
 
-        # Fit the model — returns InferenceResult.
+        # Fit the model — returns a production particle posterior.
         logger.info("Starting inference kernel...")
         fit_t0 = time.monotonic()
         result = fit_prepared_model(runtime)
         logger.info(
             "Inference kernel complete in %.1fs: method=%s wide_rows=%d manifest_vars=%d",
-            _elapsed_seconds(fit_t0),
+            _fit_elapsed_seconds(fit_t0),
             result.method,
             len(runtime.wide_data),
             len(runtime.manifest_names),
@@ -187,7 +187,7 @@ def fit_model(
         )
         logger.info(
             "Posterior summaries ready in %.1fs: n_samples=%d",
-            _elapsed_seconds(t0),
+            _fit_elapsed_seconds(t0),
             n_samples,
         )
 
@@ -195,7 +195,7 @@ def fit_model(
             "fitted": True,
             "inference_type": result.method,
             "n_samples": n_samples,
-            "duration_seconds": _elapsed_seconds(t0),
+            "duration_seconds": _fit_elapsed_seconds(t0),
             "result": result,
             "spec": runtime.spec,
             "runtime": runtime,
@@ -212,7 +212,7 @@ def fit_model(
         return {
             "fitted": False,
             "error": "SSM implementation not available",
-            "duration_seconds": _elapsed_seconds(t0),
+            "duration_seconds": _fit_elapsed_seconds(t0),
         }
 
 
@@ -235,7 +235,7 @@ def run_ppc(fitted_result: dict) -> dict:
 
     t0 = time.monotonic()
     try:
-        result: InferenceResult = fitted_result["result"]
+        result: ParticleMCMCPosterior = fitted_result["result"]
         runtime: PreparedModelRuntime = fitted_result["runtime"]
         spec = runtime.spec
         samples = result.get_samples()
@@ -265,12 +265,12 @@ def run_ppc(fitted_result: dict) -> dict:
         )
         logger.info(
             "Posterior predictive checks complete in %.1fs: warnings=%d",
-            _elapsed_seconds(t0),
+            _fit_elapsed_seconds(t0),
             len(ppc_result.per_variable_warnings),
         )
 
         return ppc_result.model_dump(mode="json")
 
     except (ValueError, RuntimeError, ArithmeticError, FloatingPointError):
-        logger.exception("PPC check failed after %.1fs", _elapsed_seconds(t0))
+        logger.exception("PPC check failed after %.1fs", _fit_elapsed_seconds(t0))
         return {"checked": False, "per_variable_warnings": []}

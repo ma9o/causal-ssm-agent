@@ -46,8 +46,12 @@ if TYPE_CHECKING:
         CompiledPriorSemantics,
         CompiledSSMArtifact,
     )
-    from nof1_causal_lab.models.ssm.inference import InferenceResult
-    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions, SamplerConfig
+    from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.sampler_config import (
+        MarginalParticleGibbsOptions,
+        SamplerConfig,
+        SamplerConfigInput,
+    )
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
@@ -93,7 +97,7 @@ class PreparedModelRuntime:
     model: SSMModel
     spec: SSMSpec
     parameter_layout: SSMParameterLayout
-    sampler_config: SamplerConfig
+    sampler_config: SamplerConfigInput
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
@@ -261,7 +265,7 @@ def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     *,
     compiled_ssm: CompiledSSMArtifact | None = None,
-    sampler_config: SamplerConfig | None = None,
+    sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
     observation_data: pl.DataFrame | None = None,
 ) -> PreparedModelRuntime:
@@ -333,7 +337,7 @@ def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
     compiled_ssm: CompiledSSMArtifact | None = None,
-    sampler_config: SamplerConfig | None = None,
+    sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
@@ -349,7 +353,7 @@ def prepare_model_runtime(
 def fit_prepared_model(
     runtime: PreparedModelRuntime,
     **kwargs: Unpack[MarginalParticleGibbsOptions],
-) -> InferenceResult:
+) -> ParticleMCMCPosterior:
     """Run public SSM inference against a prepared runtime."""
     sampler_config = {**runtime.sampler_config, **kwargs}
     method = sampler_config.get("method", "marginal_particle_gibbs")

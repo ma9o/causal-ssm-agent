@@ -4,7 +4,7 @@
 |---|---|---|
 | Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
-Fits the compiled state-space model from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. The default sampler is `marginal_particle_gibbs` (see [structural routing](../reference/inference-routing.md#structural-routing)); the user can override to another [available method](../reference/inference-routing.md#method-taxonomy).
+Fits the compiled state-space model from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
 
 ## Inputs
 
@@ -12,7 +12,7 @@ Fits the compiled state-space model from [`statistical_model_spec` transition](s
 |---|---|---|
 | `compiled_ssm` | [`statistical_model_spec` transition](statistical-model-spec.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with statistical model spec, priors, and compiled SSM |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
-| `inference_method` | Pipeline config | Optional sampler override (`"marginal_particle_gibbs"`, the default, or `"particle_marginal_mh"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional explicit `"marginal_particle_gibbs"`; `null` uses the same [production route](../reference/inference-routing.md#structural-routing) |
 
 `statistical_model_spec` transition provided the compiled model and priors; `posterior` transition is where that model is fitted to data and the posterior is characterized.
 
@@ -26,7 +26,7 @@ flowchart LR
     F -- failure --> X([Pipeline halts])
 ```
 
-**Model fitting:** The transition resolves the inference method—either the user-supplied override or the [default route](../reference/inference-routing.md#structural-routing)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference).
+**Model fitting:** The transition resolves the [production route](../reference/inference-routing.md#structural-routing) and runs marginalized Particle Gibbs with the configured proposal controls.
 
 **LOO cross-validation:** For MCMC and SMC backends, the transition computes PSIS-LOO via ArviZ using the state-space innovation decomposition[^durbin2012]: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ. Vehtari, Gelman, and Gabry (2017)[^vehtari2017] justify PSIS-LOO once those pointwise log-likelihood terms are available. For dependent time series, this should be read as a one-step-ahead predictive diagnostic rather than a substitute for leave-future-out validation[^burkner2020].
 
@@ -46,11 +46,18 @@ For a longitudinal study of teacher workload and student outcomes with latent co
 | `ppc` | [`PPCResult`](#ppcresult) | Per-variable posterior predictive interval-coverage, autocorrelation, and variance checks |
 | `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| `null` | Per-parameter posterior mean, sd, and 94% HDI |
 | `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| `null` | Pairwise posterior scatter data with divergence flags (MCMC only) |
-| `_fitted_artifact` | [`FittedArtifact`](#fittedartifact) | Persisted runtime artifact consumed by [`baseline_report` transition](analysis.md); bundles posterior samples, runtime builder, and diagnostic results |
+| `_fitted_artifact` | [`FittedArtifact`](#fittedartifact) | Persisted runtime artifact consumed by [`baseline_report` transition](analysis.md); binds a production particle posterior and model spec to their causal-design provenance |
 
 ### `FittedArtifact`
 
-Bundles posterior samples, runtime builder, and diagnostic results for [`baseline_report` transition](analysis.md) intervention simulations.
+| Field | Type | Description |
+|---|---|---|
+| `result` | `ParticleMCMCPosterior` | Production particle posterior; a `WarmupProposal` is rejected by the type and runtime boundary |
+| `spec` | `SSMSpec` | Non-optional executable model specification associated with the posterior |
+| `times` | JAX array | Observation times used by the fit |
+| `provenance` | `PosteriorProvenance` | Workspace, causal-design version, compiled-SSM version, and panel version supporting the fit |
+| `observation_support` | `ObservationSupportRuntime` \| `null` | Runtime interval/point-support metadata |
+| `ppc_result` | JSON object \| `null` | Persisted posterior-predictive diagnostics |
 
 ### `PowerScalingResult`
 

@@ -29,7 +29,7 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
-from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, InferenceResult
+from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, WarmupProposal
 from nof1_causal_lab.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
@@ -51,7 +51,7 @@ _SOLVER_KIND_LABELS = {
 }
 
 
-def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
+def _map_shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
     return tuple(array.shape), str(jnp.dtype(array.dtype))
 
 
@@ -253,8 +253,8 @@ def _build_map_laplace_bundle(
         "map_laplace_runtime_bundle",
         id(likelihood_backend),
         id(reparam),
-        _shape_dtype_signature(observations),
-        _shape_dtype_signature(times),
+        _map_shape_dtype_signature(observations),
+        _map_shape_dtype_signature(times),
     )
 
     def _build_runtime_bundle() -> dict[str, Any]:
@@ -707,8 +707,6 @@ def fit_map(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     num_samples: int = 1000,
-    num_warmup: int | None = None,  # noqa: ARG001
-    num_chains: int | None = None,  # noqa: ARG001
     seed: int = 0,
     n_ieks_iters: int = 5,
     maxiter: int = 100,
@@ -721,7 +719,7 @@ def fit_map(
     ] = "optimizer_hess_inv",
     reparam=None,
     **kwargs: Any,
-) -> InferenceResult:
+) -> WarmupProposal:
     """Fit an approximate posterior with KFAS-style Laplace optimization.
 
     The latent-state side uses the existing IEKS/Laplace marginal likelihood
@@ -916,12 +914,9 @@ def fit_map(
             int(unc_samples.shape[0]),
         )
     else:
-        prior_runtime = model.get_prior_runtime_bundle()
         samples = assemble_deterministics_from_registry(
             {},
             model.spec,
-            prior_runtime.site_runtime.registry,
-            parameter_layout=model.parameter_layout,
             n_draws=num_samples,
         )
 
@@ -999,9 +994,8 @@ def fit_map(
         mode_log_posterior,
     )
 
-    return InferenceResult(
+    return WarmupProposal(
         _samples=samples,
-        method="map",
         diagnostics=diagnostics,
     )
 

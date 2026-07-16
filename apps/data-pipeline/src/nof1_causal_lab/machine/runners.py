@@ -54,6 +54,7 @@ async def _run_posterior(
         build_sampler_config,
         run_inference_with_data,
     )
+    from nof1_causal_lab.models.causal_proofs import CausalDesignRef, PosteriorProvenance
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.utils.config import get_config
 
@@ -63,12 +64,22 @@ async def _run_posterior(
         )
     )
     panel = _panel_df(store, pins)
+    compiled_meta = store.read_meta("compiled_ssm", pins["compiled_ssm"])
+    provenance = PosteriorProvenance(
+        causal_design=CausalDesignRef(
+            workspace_id=workspace_id,
+            version=compiled_meta.derived_from["causal_design"],
+        ),
+        compiled_ssm_version=pins["compiled_ssm"],
+        panel_version=pins["panel"],
+    )
 
     result = await asyncio.to_thread(
         run_inference_with_data,
         compiled_ssm=compiled_ssm,
         data_for_model=panel,
         sampler_config=build_sampler_config(options.inference_method),
+        provenance=provenance,
         workspace_id=workspace_id,
         compute_loo_diagnostics=get_config().inference.compute_loo_diagnostics,
     )

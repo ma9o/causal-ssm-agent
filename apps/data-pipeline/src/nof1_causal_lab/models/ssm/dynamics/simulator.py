@@ -57,19 +57,14 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath):
     same increments across process restarts.
     """
 
+    # Diffrax declares these through Equinox AbstractVar. Ty currently models
+    # AbstractVar as a class variable even though Diffrax requires instance fields.
+    t0: Array  # ty: ignore[invalid-attribute-override]
+    t1: Array  # ty: ignore[invalid-attribute-override]
     shape: tuple[int, ...] = eqx.field(static=True)
     key: Array
-    origin: Array
     step_size: Array
     levy_area: type[dfx.BrownianIncrement] = eqx.field(static=True, default=dfx.BrownianIncrement)
-
-    @property
-    def t0(self):
-        return self.origin
-
-    @property
-    def t1(self):
-        return jnp.inf
 
     @eqx.filter_jit  # noqa: V105 - required by the Diffrax AbstractBrownianPath protocol
     def evaluate(self, t0, t1=None, left: bool = True, use_levy: bool = False):
@@ -79,7 +74,7 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath):
         dtype = jnp.result_type(t0, t1)
         start = jnp.asarray(t0, dtype=dtype)
         end = jnp.asarray(t1, dtype=dtype)
-        step_index = jnp.rint((start - self.origin) / self.step_size).astype(jnp.int32)
+        step_index = jnp.rint((start - self.t0) / self.step_size).astype(jnp.int32)
         increment_key = random.fold_in(self.key, step_index)
         dt = end - start
         increment = random.normal(increment_key, self.shape, dtype=dtype) * jnp.sqrt(dt)
@@ -181,9 +176,10 @@ def simulate(
         if cfg.sde_dt is None:
             raise ValueError("Indexed Brownian simulation requires an explicit fixed step size")
         brownian = _IndexedBrownianPath(
+            t0=t0,
+            t1=t1,
             shape=(n_latent,),
             key=key,
-            origin=t0,
             step_size=jnp.asarray(cfg.sde_dt),
         )
         adjoint = dfx.ForwardMode()

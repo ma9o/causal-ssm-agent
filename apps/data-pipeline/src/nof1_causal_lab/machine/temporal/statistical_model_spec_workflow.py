@@ -12,7 +12,6 @@ from temporalio.exceptions import ApplicationError
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
     from nof1_causal_lab.machine.temporal.client import MODEL_SPEC_SIMULATION_TASK_QUEUE
-    from nof1_causal_lab.machine.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
     from nof1_causal_lab.machine.temporal.messages import (
         LLMSubroutineInput,
         LLMSubroutineResult,
@@ -127,7 +126,7 @@ async def _run_construct(
             summary=f"Plan model-spec {construct} attempt {attempt}",
         )
         await workflow.execute_child_workflow(
-            LLMSubroutineWorkflow.run,
+            "LLMSubroutineWorkflow",
             LLMSubroutineInput(
                 workspace_id=input.workspace_id,
                 run_id=plan.run_id,

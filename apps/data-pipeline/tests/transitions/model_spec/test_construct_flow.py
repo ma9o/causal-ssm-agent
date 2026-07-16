@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import polars as pl
@@ -43,6 +44,9 @@ from nof1_causal_lab.models.ssm.construct_admission import (
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 def _normal(mu: float, sigma: float) -> dict:
@@ -350,7 +354,7 @@ def test_ordered_logistic_signal_uses_sampled_cutpoints():
     signal = _signal_from_linear_predictor(
         LinkFunction.CUMULATIVE_LOGIT,
         linear_predictor,
-        spec=SimpleNamespace(manifest_level_counts=[4]),
+        spec=cast("SSMSpec", SimpleNamespace(manifest_level_counts=[4])),
         pred=predictive,
         manifest_index=0,
     )

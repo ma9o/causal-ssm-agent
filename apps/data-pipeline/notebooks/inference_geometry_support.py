@@ -51,6 +51,20 @@ def simulate_confounded(rng: np.random.Generator, *, n: int = 8000) -> dict[str,
     return {"U": u, "X": x, "Y": y}
 
 
+def simulate_offpath(rng: np.random.Generator, *, n: int = 8000) -> dict[str, np.ndarray]:
+    """Simulate an unconfounded cause with a latent parent of the outcome."""
+    u = rng.standard_normal(n)
+    x = SX * rng.standard_normal(n)
+    y = BETA_TRUE * x + B_UY * u + SY * rng.standard_normal(n)
+    return {"U": u, "X": x, "Y": y}
+
+
+def sample_cov(samples: dict[str, np.ndarray], names: list[str]) -> np.ndarray:
+    """Return the population covariance matrix for selected simulated variables."""
+    values = np.column_stack([samples[name] for name in names])
+    return np.cov(values, rowvar=False, ddof=0)
+
+
 def _layout(fig: go.Figure, title: str, height: int = 420, width: int = 820) -> go.Figure:
     fig.update_layout(
         title=f"<b>{title}</b>",

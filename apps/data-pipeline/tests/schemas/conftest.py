@@ -1,5 +1,9 @@
 """Factory fixtures for Construct/Indicator schema tests."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
+
 import pytest
 
 from nof1_causal_lab.artifacts import (
@@ -9,6 +13,9 @@ from nof1_causal_lab.artifacts import (
     Role,
     TemporalStatus,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
 
 
 @pytest.fixture
@@ -50,12 +57,12 @@ def indicator_factory():
     def _make(
         name: str,
         construct_name: str,
-        dtype: str = "continuous",
-        aggregation: str = "mean",
+        dtype: MeasurementDtype = "continuous",
+        aggregation: AggregationFunction = "mean",
         construct_polarity: IndicatorPolarity = IndicatorPolarity.POSITIVE,
         ordinal_levels: list[str] | None = None,
         source_columns: list[str] | None = None,
-        extraction_mode: str = "semantic",
+        extraction_mode: Literal["computed", "semantic"] = "semantic",
     ) -> Indicator:
         # Auto-provide ordinal_levels for ordinal dtype if not specified
         if dtype == "ordinal" and ordinal_levels is None:

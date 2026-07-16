@@ -74,6 +74,12 @@ class MarginalParticleGibbsOptions(_MarginalParticleGibbsMethodOptions, total=Fa
     seed: int
 
 
+class SamplerConfigOverride(MarginalParticleGibbsOptions, total=False):
+    """Partial sampler configuration accepted at runtime boundaries."""
+
+    method: Literal["marginal_particle_gibbs"]
+
+
 class SamplerConfig(_MarginalParticleGibbsMethodOptions):
     """Resolved flat inference config with required common controls."""
 
@@ -82,3 +88,6 @@ class SamplerConfig(_MarginalParticleGibbsMethodOptions):
     num_samples: int
     num_chains: int
     seed: int
+
+
+type SamplerConfigInput = SamplerConfig | SamplerConfigOverride

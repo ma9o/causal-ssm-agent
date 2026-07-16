@@ -5,7 +5,7 @@ This document describes what `SSMModel.model()` computes when the [compilation p
 **Reader guide:**
 
 - **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives using IEKS/Laplace likelihoods.
-- **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `InferenceResult`.
+- **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `ParticleMCMCPosterior`.
 
 ## 1. CT-SDE Formulation
 
@@ -64,7 +64,7 @@ For a time series with T observations and potentially irregular intervals, the d
 
 ## 3. State-Side Objectives
 
-The IEKS/Laplace machinery implements a shared `compute_log_likelihood()` protocol and can inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The `marginal_particle_gibbs` method updates latent trajectories directly through conditional-SMC smoothers, while `particle_marginal_mh` integrates them out with a bootstrap particle filter. The routing details live in [inference-routing.md](inference-routing.md).
+The IEKS/Laplace machinery supplies initialization, corrected proposal components, and diagnostic objectives. It does not replace the reported posterior target. The `marginal_particle_gibbs` method updates latent trajectories with dSMC against the true nonlinear drift and emission density. The routing details live in [inference-routing.md](inference-routing.md).
 
 ### IEKS/Laplace backend
 
@@ -78,7 +78,7 @@ Approximate marginal likelihood for non-Gaussian observation models and support-
 
 Some method internals do not use only the generic `models/likelihoods` package as their inner objective:
 
-- The **`marginal_particle_gibbs`** latent smoothers (conditional SMC: `plain`, `amala`, `amala_plus`, `mgrad`, `dsmc`) update latent trajectories as part of the collapsed Particle Gibbs sweep rather than sampling only from a marginalized parameter target.
+- The **`marginal_particle_gibbs`** dSMC smoother updates latent trajectories as part of the collapsed Particle Gibbs sweep. Its `amala_exact` and `paid_mix` leaves are exactly corrected, so proposal approximations do not replace the true target.
 
 ### Missing data handling
 
@@ -105,10 +105,10 @@ flowchart LR
     D --> F["fit_prepared_model()"]
     E --> F
     F --> G["inference.fit()"]
-    G --> H["InferenceResult"]
+    G --> H["ParticleMCMCPosterior"]
 ```
 
-A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-compileartifactpy) arrives from the compilation pipeline. `build_model_from_compiled_artifact()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. Inside the NumPyro model function, `SSMModel.model()` samples from the runtime prior bundle, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `fit_prepared_model()` passes the prepared model and arrays to `inference.fit()`, which returns an `InferenceResult` with posterior samples and diagnostics.
+A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-compileartifactpy) arrives from the compilation pipeline. `build_model_from_compiled_artifact()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. Inside the NumPyro model function, `SSMModel.model()` samples from the runtime prior bundle, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `fit_prepared_model()` passes the prepared model and arrays to `inference.fit()`, which returns a `ParticleMCMCPosterior` with production-engine evidence, posterior samples, and diagnostics. Laplace/IEKS fitting returns the distinct `WarmupProposal` type and therefore cannot enter reported-posterior APIs.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [`baseline_report` transition](../pipeline/analysis.md).
 

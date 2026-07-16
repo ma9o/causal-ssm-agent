@@ -56,7 +56,6 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 
 
@@ -128,10 +127,7 @@ class PriorRuntimeBundle:
 # ---------------------------------------------------------------------------
 
 
-def build_site_registry(
-    spec: SSMSpec,
-    parameter_layout: SSMParameterLayout | None = None,  # noqa: ARG001
-) -> list[SiteDescriptor]:
+def build_site_registry(spec: SSMSpec) -> list[SiteDescriptor]:
     """Enumerate all sample sites deterministically from *spec*.
 
     Core model sites come from ``spec.iter_sample_sites()`` (each dynamics
@@ -319,12 +315,9 @@ def _build_site_runtime_bundle_from_registry(
     )
 
 
-def build_site_runtime_bundle(
-    spec: SSMSpec,
-    parameter_layout: SSMParameterLayout | None = None,
-) -> SiteRuntimeBundle:
+def build_site_runtime_bundle(spec: SSMSpec) -> SiteRuntimeBundle:
     """Build reusable topology-only runtime components from ``spec``."""
-    registry = build_site_registry(spec, parameter_layout)
+    registry = build_site_registry(spec)
     return _build_site_runtime_bundle_from_registry(registry)
 
 
@@ -420,9 +413,7 @@ def _compose_t0_cov_batched(
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
-    registry: list[SiteDescriptor],  # noqa: ARG001 - kept for ABI compat
     *,
-    parameter_layout: SSMParameterLayout | None = None,  # noqa: ARG001
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic matrices from per-site posterior samples.

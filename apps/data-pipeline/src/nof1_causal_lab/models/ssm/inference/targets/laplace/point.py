@@ -77,12 +77,12 @@ def _row_joint_log_prob(
     )
 
 
-def _negate_cotangent_tree(tree):
+def _negate_point_cotangent_tree(tree):
     """Negate every leaf in a cotangent pytree, preserving Nones."""
     return jax.tree_util.tree_map(lambda leaf: None if leaf is None else -leaf, tree)
 
 
-def _add_cotangent_trees(lhs, rhs):
+def _add_point_cotangent_trees(lhs, rhs):
     """Add cotangent pytrees, treating missing leaves as additive identities."""
     leaves_lhs = jax.tree_util.tree_leaves(lhs, is_leaf=lambda leaf: leaf is None)
     leaves_rhs = jax.tree_util.tree_leaves(rhs, is_leaf=lambda leaf: leaf is None)
@@ -678,7 +678,7 @@ def _point_ieks_laplace_core(
 
         _, vjp_fn = jax.vjp(_optimality, mode_params)
         (mode_params_bar,) = vjp_fn(lambda_mode)
-        return (_negate_cotangent_tree(mode_params_bar),)
+        return (_negate_point_cotangent_tree(mode_params_bar),)
 
     _implicit_mode_solve.defvjp(_implicit_mode_solve_fwd, _implicit_mode_solve_bwd)
 
@@ -843,7 +843,10 @@ def _point_ieks_laplace_core(
                 jnp.zeros_like(system_rhs),
             )
         )
-        mode_params_bar = _add_cotangent_trees(mode_params_joint_bar, mode_params_logdet_bar)
+        mode_params_bar = _add_point_cotangent_trees(
+            mode_params_joint_bar,
+            mode_params_logdet_bar,
+        )
         z_mode_bar = z_mode_joint_bar + z_mode_logdet_bar
         return mode_params_bar, z_mode_bar
 

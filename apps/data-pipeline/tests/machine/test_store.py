@@ -121,6 +121,7 @@ class TestEpisodeJournal:
         records = journal.read_all()
         assert [r.seq for r in records] == [1, 2, 3]
         assert records[1].status == "rejected"
+        assert records[1].reason is not None
         assert "raw_data" in records[1].reason
         assert records[2].error_type == "ModelFitError"
         assert records[2].diagnostics["rhat_max"] == 2.4

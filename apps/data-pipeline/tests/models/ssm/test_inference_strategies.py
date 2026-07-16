@@ -20,6 +20,7 @@ Test Matrix:
 
 import logging
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import jax
 import jax.numpy as jnp
@@ -29,7 +30,7 @@ import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import InferenceResult, SSMModel, fit
+from nof1_causal_lab.models.ssm import ParticleMCMCPosterior, SSMModel, fit
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
@@ -98,6 +99,11 @@ from tests.ssm_spec_fixtures import (
     diagonal_diffusion_block,
     make_observation_support_runtime,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
+    from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
+    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
 
 
 def _dense_matrix_dynamics_spec(
@@ -1163,7 +1169,9 @@ class TestLaplaceBackendCaching:
         assert float(ll_0) == pytest.approx(-1.0)
         assert float(ll_1) == pytest.approx(-1.0)
         assert seen_inits[0] is None
-        np.testing.assert_allclose(seen_inits[1], np.asarray(returned_mode))
+        cached_init = seen_inits[1]
+        assert cached_init is not None
+        np.testing.assert_allclose(cached_init, np.asarray(returned_mode))
 
     def test_laplace_backend_caches_support_window_derivative_builders(self, monkeypatch):
         support = make_observation_support_runtime(
@@ -1432,10 +1440,10 @@ class TestDefaultMethodRouting:
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
         def fake_fit_marginal_particle_gibbs(_model, _observations, _times, **kwargs):
-            return InferenceResult(
+            del kwargs
+            return ParticleMCMCPosterior(
                 _samples={"vf_0_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="marginal_particle_gibbs",
-                diagnostics={"kwargs": kwargs},
+                diagnostics={},
             )
 
         monkeypatch.setattr(
@@ -1456,7 +1464,12 @@ class TestDefaultMethodRouting:
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
         with pytest.raises(ValueError, match="Unknown inference method"):
-            fit(model, observations=observations, times=times, method="map")
+            fit(
+                model,
+                observations=observations,
+                times=times,
+                method=cast("InferenceMethod", "map"),
+            )
 
 
 def test_map_optimizer_smoke_on_small_kalman_model():
@@ -1548,18 +1561,22 @@ def test_map_optimizer_smoke_on_small_kalman_model():
     assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
 
 
-def _make_aux_kalman_mcmc_smoke_spec(**overrides):
-    kwargs = {
-        "n_latent": 1,
-        "n_manifest": 1,
-        "dynamics_spec": _dense_matrix_dynamics_spec(
+def _make_aux_kalman_mcmc_smoke_spec(
+    *,
+    lambda_block: SparseMatrixBlockSpec | None = None,
+):
+    return block_ssm_spec(
+        n_latent=1,
+        n_manifest=1,
+        dynamics_spec=_dense_matrix_dynamics_spec(
             1,
             decay_support=np.array([False]),
             edge_support=np.zeros((1, 1), dtype=bool),
             coupling_template=jnp.array([[-0.4]], dtype=jnp.float32),
         ),
-        "diffusion_block": diagonal_diffusion_block(1),
-        "lambda_block": SparseMatrixBlockSpec(
+        diffusion_block=diagonal_diffusion_block(1),
+        lambda_block=lambda_block
+        or SparseMatrixBlockSpec(
             n_rows=1,
             n_cols=1,
             free_support=np.zeros((1, 1), dtype=bool),
@@ -1572,7 +1589,7 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             fixed_spec_field="lambda_mat",
             priors_field="lambda_free",
         ),
-        "manifest_means_block": SparseVectorBlockSpec(
+        manifest_means_block=SparseVectorBlockSpec(
             n=1,
             free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
@@ -1584,12 +1601,12 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             fixed_spec_field="manifest_means",
             priors_field="manifest_means",
         ),
-        "manifest_chol_block": ManifestCholBlockSpec(
+        manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=1,
             diag_support=np.array([True]),
             template=jnp.array([[0.0]], dtype=jnp.float32),
         ),
-        "t0_means_block": SparseVectorBlockSpec(
+        t0_means_block=SparseVectorBlockSpec(
             n=1,
             free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
@@ -1601,15 +1618,13 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             fixed_spec_field="t0_means",
             priors_field="t0_means",
         ),
-        "t0_chol_block": T0CholBlockSpec(
+        t0_chol_block=T0CholBlockSpec(
             n_latent=1,
             diag_support=np.array([True]),
             correlation_support=np.zeros((1, 1), dtype=bool),
             template=jnp.array([[1.0]], dtype=jnp.float32),
         ),
-    }
-    kwargs.update(overrides)
-    return block_ssm_spec(**kwargs)
+    )
 
 
 def _small_kalman_observations_and_times():
@@ -1770,7 +1785,9 @@ def test_marginal_particle_gibbs_dsmc_paid_mix_smoke():
     assert diag["latent_smoother"] == "dsmc"
     assert diag["dsmc_leaf_proposal"] == "paid_mix"
     assert diag["latent_transition_kind"] == "euler_maruyama"
-    assert 0.0 <= diag["latent_frozen_fraction"] <= 1.0
+    latent_frozen_fraction = diag["latent_frozen_fraction"]
+    assert isinstance(latent_frozen_fraction, int | float)
+    assert 0.0 <= latent_frozen_fraction <= 1.0
 
 
 def test_marginal_particle_gibbs_dsmc_coordinate_block_smoke():
@@ -1808,7 +1825,9 @@ def test_marginal_particle_gibbs_dsmc_coordinate_block_smoke():
     )
     diag = result.diagnostics["marginal_particle_gibbs"]
     assert diag["latent_block_coords"] == 1
-    assert 0.0 <= diag["latent_frozen_fraction"] <= 1.0
+    latent_frozen_fraction = diag["latent_frozen_fraction"]
+    assert isinstance(latent_frozen_fraction, int | float)
+    assert 0.0 <= latent_frozen_fraction <= 1.0
 
 
 def test_marginal_particle_gibbs_sign_flip_moves_smoke():
@@ -1860,7 +1879,9 @@ def test_marginal_particle_gibbs_sign_flip_moves_smoke():
     )
     diag = result.diagnostics["marginal_particle_gibbs"]
     assert diag["latent_sign_flip_moves"] is True
-    assert 0.0 <= diag["sign_flip_accept_rate"] <= 1.0
+    sign_flip_accept_rate = diag["sign_flip_accept_rate"]
+    assert isinstance(sign_flip_accept_rate, int | float)
+    assert 0.0 <= sign_flip_accept_rate <= 1.0
 
 
 def test_marginal_particle_gibbs_paid_mix_requires_pilot_moments():
@@ -1936,10 +1957,7 @@ def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
     observations, times = _small_kalman_observations_and_times()
     n_steps = int(observations.shape[0])
     n_latent = int(spec.n_latent)
-    common = {
-        "observations": observations,
-        "times": times,
-        "method": "marginal_particle_gibbs",
+    options: MarginalParticleGibbsOptions = {
         "num_warmup": 1,
         "num_samples": 1,
         "num_chains": 1,
@@ -1954,22 +1972,32 @@ def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
         "auto_preconditioner_method": "none",
         "init_scale": 0.0,
         "retain_latent_paths": True,
-        "reparam": None,
     }
 
     # A non-finite supplied trajectory must trip the init fail-fast, proving the
     # supplied path is what seeds the reference trajectory.
+    options["initial_latent_trajectories"] = jnp.full(
+        (1, n_steps, n_latent),
+        jnp.nan,
+    )
     with pytest.raises(ValueError, match="non-finite for chain"):
         fit(
             model,
-            initial_latent_trajectories=jnp.full((1, n_steps, n_latent), jnp.nan),
-            **common,
+            observations=observations,
+            times=times,
+            method="marginal_particle_gibbs",
+            reparam=None,
+            **options,
         )
 
+    options["initial_latent_trajectories"] = jnp.zeros((1, n_steps, n_latent))
     result = fit(
         model,
-        initial_latent_trajectories=jnp.zeros((1, n_steps, n_latent)),
-        **common,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        reparam=None,
+        **options,
     )
     _assert_small_particle_mcmc_result(
         result,
@@ -1986,7 +2014,7 @@ def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
     # Validation fires before any bundle access, so an empty bundle is fine here.
     with pytest.raises(ValueError, match="parameter_proposal"):
         build_marginal_particle_gibbs_kernel(
-            {},
+            cast("ParticleRuntimeBundle", {}),
             num_particles=2,
             num_parameter_particles=2,
             param_step_size=0.1,
@@ -2002,7 +2030,7 @@ def test_marginal_particle_gibbs_rejects_unknown_latent_smoother():
 
     with pytest.raises(ValueError, match="latent_smoother"):
         build_marginal_particle_gibbs_kernel(
-            {},
+            cast("ParticleRuntimeBundle", {}),
             num_particles=2,
             num_parameter_particles=2,
             param_step_size=0.1,
@@ -2026,7 +2054,7 @@ def test_marginal_particle_gibbs_rejects_unknown_adaptation_scheme():
             num_samples=1,
             num_chains=1,
             seed=0,
-            adaptation_scheme="bogus",
+            adaptation_scheme=cast("Literal['simple', 'dual_averaging']", "bogus"),
         )
 
 
@@ -2086,7 +2114,7 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
     observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0], dtype=jnp.float32)
     flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     class _FakeModel:
         observation_support = SimpleNamespace(requires_interval_summary_handling=True)
@@ -2252,7 +2280,7 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
     observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0], dtype=jnp.float32)
     flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     class _FakeModel:
         observation_support = None

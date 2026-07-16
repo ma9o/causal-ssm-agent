@@ -103,7 +103,33 @@ def stage4_report() -> dict[str, Any]:
 
 
 def compiled_ssm() -> dict[str, Any]:
-    return {"spec": {"fixture": "compiled"}, "compile_diagnostics": []}
+    from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
+    from nof1_causal_lab.models.ssm.compile.contracts import (
+        CompiledPriorSemantics,
+        CompiledSSMArtifact,
+    )
+    from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
+
+    spec = block_ssm_spec(
+        n_latent=2,
+        n_manifest=2,
+        dynamics_spec=full_dense_matrix_dynamics_spec(2),
+        latent_names=["Stress", "Sleep"],
+        manifest_names=["stress_score", "sleep_score"],
+    )
+    artifact = CompiledSSMArtifact(
+        schema_version=1,
+        spec=serialize_ssm_spec(spec),
+        edge_lag_days=[],
+        compiled_prior_semantics=CompiledPriorSemantics(
+            schema_version=5,
+            site_registry=[],
+            prior_state={},
+        ),
+        parameter_bindings=[],
+        compile_diagnostics=[],
+    )
+    return artifact.model_dump(mode="json")
 
 
 def state_from(*infos: ArtifactVersionInfo) -> EpisodeState:

@@ -3,7 +3,7 @@
 Lifted out of the synthetic-nonlinear benchmark CLI so the recovery math is
 reusable by the evaluation registry's recovery scorer rather than buried in an
 83 KB script. ``parameter_recovery`` and ``scalar_posterior_ess`` are the public
-entry points; both read an ``InferenceResult`` and compute per-target coverage /
+entry points; both read a ``ParticleMCMCPosterior`` and compute per-target coverage /
 ESS against the fixture's ``RECOVERY_TARGETS``.
 """
 

@@ -11,7 +11,6 @@ from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
-    from nof1_causal_lab.machine.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
     from nof1_causal_lab.machine.temporal.messages import (
         ExtractionChunkFinalizeInput,
         ExtractionChunkResult,
@@ -98,7 +97,7 @@ class ExtractionChunkWorkflow:
         attempt = workflow.info().attempt
         subroutine_id = f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
         subroutine = await workflow.execute_child_workflow(
-            LLMSubroutineWorkflow.run,
+            "LLMSubroutineWorkflow",
             LLMSubroutineInput(
                 workspace_id=input.workspace_id,
                 run_id=input.run_id,
@@ -224,7 +223,7 @@ class MeasurementsWorkflow:
 
                     try:
                         result = await workflow.execute_child_workflow(
-                            ExtractionChunkWorkflow.run,
+                            "ExtractionChunkWorkflow",
                             ExtractionChunkWorkflowInput(
                                 workspace_id=input.workspace_id,
                                 run_id=plan.run_id,

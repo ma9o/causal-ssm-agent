@@ -272,6 +272,7 @@ def test_constant_vector_field_local_linearization_matches_affine_view():
     drift, cint = dynamics.vector_field.linearize(x_lin, args)
 
     np.testing.assert_allclose(drift, affine.drift, rtol=1e-6, atol=1e-6)
+    assert affine.cint is not None
     np.testing.assert_allclose(cint, affine.cint, rtol=1e-6, atol=1e-6)
 
 
@@ -305,6 +306,8 @@ def test_constant_vector_field_local_discretization_matches_affine_discretizatio
         time_intervals,
     )
 
+    assert local_cd is not None
+    assert affine_cd is not None
     np.testing.assert_allclose(local_Ad, affine_Ad, rtol=2e-5, atol=2e-5)
     np.testing.assert_allclose(local_Qd, affine_Qd, rtol=2e-5, atol=2e-5)
     np.testing.assert_allclose(local_cd, affine_cd, rtol=2e-5, atol=2e-5)
@@ -347,6 +350,8 @@ def test_transition_builder_preserves_affine_input_discretization():
 
     np.testing.assert_allclose(transitions.Ad, expected_Ad, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(transitions.Qd, expected_Qd, rtol=1e-6, atol=1e-6)
+    assert transitions.cd is not None
+    assert expected_cd is not None
     np.testing.assert_allclose(transitions.cd, expected_cd, rtol=1e-6, atol=1e-6)
 
 
@@ -386,6 +391,7 @@ def test_transition_builder_discretizes_trajectory_dependent_dynamics_at_states(
 
     np.testing.assert_allclose(transitions.Ad, expected_Ad, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(transitions.Qd, expected_Qd, rtol=1e-6, atol=1e-6)
+    assert transitions.cd is not None
     np.testing.assert_allclose(transitions.cd, expected_cd, rtol=1e-6, atol=1e-6)
 
 

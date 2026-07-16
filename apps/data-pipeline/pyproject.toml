@@ -210,10 +210,12 @@ ignore_names = [
 python-version = "3.12"
 
 [tool.ty.src]
-include = ["src", "notebooks"]
+include = ["src", "notebooks", "evaluation", "scripts", "tests"]
+# notebooks/data contains study fixtures and their standalone generators.
+exclude = ["notebooks/data"]
 
 [tool.ty.rules]
-unused-type-ignore-comment = "ignore"
+unused-type-ignore-comment = "error"
 
 [tool.ty.analysis]
 respect-type-ignore-comments = true

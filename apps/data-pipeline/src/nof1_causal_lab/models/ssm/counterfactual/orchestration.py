@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 from jax import Array
@@ -25,6 +25,9 @@ from .estimands import (
     build_time_grid,
     summarize_temporal_effect,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +83,7 @@ def _temporal_treatment_effect_canonical(
 
 
 def compute_interventions(
-    param_samples: list[tuple[dict[str, Array], ...]],
+    param_samples: Sequence[tuple[dict[str, Array], ...]],
     vector_field: VectorField,
     treatments: list[str],
     outcome: str,

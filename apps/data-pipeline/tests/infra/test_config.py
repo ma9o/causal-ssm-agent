@@ -60,9 +60,9 @@ class TestToSamplerConfig:
         assert result["n_ieks_iters"] == 10
 
     def test_unknown_method_raises(self):
-        cfg = InferenceConfig(method="hmc")
+        cfg = InferenceConfig()
         with pytest.raises(ValueError, match="Unsupported inference method"):
-            cfg.to_sampler_config()
+            cfg.to_sampler_config("hmc")
 
     def test_custom_chains_and_seed(self):
         cfg = InferenceConfig(num_chains=8, seed=42)

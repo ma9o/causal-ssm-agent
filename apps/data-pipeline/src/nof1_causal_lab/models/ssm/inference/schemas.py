@@ -1,8 +1,8 @@
 """Pydantic models for inference diagnostics (MCMC, LOO, posterior).
 
 These are the typed schemas for Stage 5 diagnostic payloads. They mirror
-the dict structures already produced by InferenceResult.get_*_diagnostics()
-and InferenceResult.get_posterior_*() methods, making them the source of
+the dict structures already produced by ParticleMCMCPosterior.get_*_diagnostics()
+and ParticleMCMCPosterior.get_posterior_*() methods, making them the source of
 truth for the generated TypeScript types.
 """
 

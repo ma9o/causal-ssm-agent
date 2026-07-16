@@ -31,7 +31,7 @@ from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.bundle import CachedParticleRuntimeBundle
-    from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+    from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _phase_elapsed(t0: float) -> float:
 
 
 def _laplace_preconditioner_chol_from_map_result(
-    map_result: InferenceResult, jitter: float = 1e-6
+    map_result: WarmupProposal, jitter: float = 1e-6
 ) -> jnp.ndarray:
     """Build a parameter-kernel preconditioner Cholesky from ``fit_map`` covariance."""
     covariance = np.asarray(map_result.diagnostics["parameter_covariance"])

@@ -19,7 +19,10 @@ from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
     DynamicsSpec,
+    HillEdge,
     Intervention,
+    LinearEdge,
+    MultiplicativeEdge,
     StateDecay,
     StateIntercept,
     VectorFieldArgs,
@@ -102,6 +105,9 @@ class TestDynamicsSpecFromDict:
         mult = compiled.vector_field.components[2]
         lin = compiled.vector_field.components[3]
         hill = compiled.vector_field.components[4]
+        assert isinstance(mult, MultiplicativeEdge)
+        assert isinstance(lin, LinearEdge)
+        assert isinstance(hill, HillEdge)
         assert (mult.source_a, mult.source_b, mult.target) == (DOSE, ADHERENCE, C_P)
         assert (lin.source, lin.target) == (C_P, C_E)
         assert (hill.source, hill.target) == (C_E, AFFECTIVE)
@@ -318,10 +324,13 @@ class TestDynamicsSpecRoundTrip:
         restored = dynamics_spec_from_dict(payload)
 
         c0 = restored.components[0]
+        assert isinstance(c0, StateDecaySpec)
         assert c0.target == 0
         c1 = restored.components[1]
+        assert isinstance(c1, LinearEdgeSpec)
         assert (c1.source, c1.target) == (0, 1)
         c2 = restored.components[2]
+        assert isinstance(c2, StateInterceptSpec)
         assert c2.target == 1
 
         assert dynamics_spec_to_dict(restored) == payload
@@ -418,7 +427,11 @@ class TestDynamicsSpecRoundTrip:
         payload = serialize_ssm_spec(spec)
         assert isinstance(payload.dynamics_spec, dict)
         assert payload.dynamics_spec["n_latent"] == 2
-        assert payload.dynamics_spec["components"][0]["kind"] == "DiagonalDecay"
+        components = payload.dynamics_spec["components"]
+        assert isinstance(components, list)
+        first_component = components[0]
+        assert isinstance(first_component, dict)
+        assert first_component["kind"] == "DiagonalDecay"
 
         restored = deserialize_ssm_spec(payload)
         assert restored.dynamics_spec is not None

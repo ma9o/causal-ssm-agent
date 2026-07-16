@@ -8,28 +8,25 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference import FittedArtifact
+    from nof1_causal_lab.models.causal_proofs import CertifiedCausalAnalysis
 
 
 def run_interventions(
-    fitted_artifact: FittedArtifact,
-    treatments: list[str],
-    outcome: str,
-    causal_design: dict | None = None,
+    analysis: CertifiedCausalAnalysis,
 ) -> list[dict]:
-    """Run do-operator interventions and rank treatments by effect size."""
+    """Run interventions only after identification and engine proofs are joined."""
     from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
     from nof1_causal_lab.models.ssm.dynamics import posterior_dynamics_from_result
 
+    fitted_artifact = analysis.posterior.artifact
+    treatments = analysis.treatments
+    outcome = analysis.outcome
     logger.info(
         "Running interventions: treatments=%d outcome=%s fitted=%s",
         len(treatments),
         outcome or "unknown",
-        fitted_artifact.result is not None,
+        True,
     )
-
-    if fitted_artifact.result is None or fitted_artifact.spec is None:
-        return [{"treatment": t} for t in treatments]
 
     result = fitted_artifact.result
     spec = fitted_artifact.spec
@@ -52,7 +49,7 @@ def run_interventions(
         treatments=treatments,
         outcome=outcome,
         latent_names=latent_names,
-        causal_design=causal_design,
+        causal_design=analysis.causal_design.model_dump(mode="json"),
         manifest_names=manifest_names,
         times=fitted_artifact.times,
         lambda_mean=lambda_mean,

@@ -66,8 +66,14 @@ def _first_baseline_assistant_summary(trace: dict[str, Any]) -> str | None:
 async def plan_baseline_report_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
+    from nof1_causal_lab.artifacts import CausalDesign
     from nof1_causal_lab.flows.transitions.analysis.interventions import run_interventions
-    from nof1_causal_lab.utils.causal_design import get_outcome_name
+    from nof1_causal_lab.models.causal_proofs import (
+        CausalDesignRef,
+        CertifiedCausalAnalysis,
+        certify_identified_estimand,
+        certify_reportable_posterior,
+    )
     from nof1_causal_lab.utils.config import get_config
 
     store = ArtifactStore(input.workspace_id)
@@ -95,16 +101,35 @@ async def plan_baseline_report_activity(
         store.file_path("posterior", pins["posterior"], pickle_filename("posterior", "fitted"))
     )
     treatments = identification_report["estimable_treatments"]
-    outcome_name = get_outcome_name(causal_design) or ""
+    outcome_name = identification_report["outcome_name"]
+    causal_design_model = CausalDesign.model_validate(causal_design)
+    identification_meta = store.read_meta("identification_report", pins["identification_report"])
+    causal_design_ref = CausalDesignRef(
+        workspace_id=input.workspace_id,
+        version=identification_meta.derived_from["causal_design"],
+    )
+    estimands = tuple(
+        certify_identified_estimand(
+            causal_design_model,
+            causal_design_ref=causal_design_ref,
+            treatment=treatment,
+            outcome=outcome_name,
+        )
+        for treatment in treatments
+    )
+    analysis = CertifiedCausalAnalysis(
+        causal_design=causal_design_model,
+        causal_design_ref=CausalDesignRef(
+            workspace_id=input.workspace_id,
+            version=pins["causal_design"],
+        ),
+        estimands=estimands,
+        posterior=certify_reportable_posterior(fitted_artifact),
+    )
 
     logger.info("=== analysis: Treatment Effects ===")
     logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
-    intervention_results = run_interventions(
-        fitted_artifact,
-        treatments,
-        outcome_name,
-        causal_design,
-    )
+    intervention_results = run_interventions(analysis)
 
     ppc_warnings = [
         {

@@ -6,11 +6,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.machine.errors import ModelFitError
-from nof1_causal_lab.models.ssm.inference import FittedArtifact
+from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.causal_proofs import PosteriorProvenance
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.sampler_config import SamplerConfig
 
@@ -51,6 +52,7 @@ def run_inference_with_data(
     compiled_ssm: CompiledSSMArtifact | None,
     data_for_model: Any,
     sampler_config: SamplerConfig,
+    provenance: PosteriorProvenance,
     workspace_id: str,
     compute_loo_diagnostics: bool,
 ) -> dict[str, Any]:
@@ -83,12 +85,19 @@ def run_inference_with_data(
         )
 
     ppc_result = run_ppc(fitted_result)
+    result = fitted_result["result"]
+    if not isinstance(result, ParticleMCMCPosterior):
+        raise ModelFitError(
+            "Production inference did not return a particle-MCMC posterior",
+            transition_id="posterior",
+        )
 
     fitted_artifact = FittedArtifact(
-        result=fitted_result.get("result"),
-        spec=fitted_result.get("spec"),
-        times=fitted_result.get("times"),
-        observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
+        result=result,
+        spec=fitted_result["spec"],
+        times=fitted_result["times"],
+        provenance=provenance,
+        observation_support=fitted_result["runtime"].observation_support,
         ppc_result=ppc_result,
     )
 

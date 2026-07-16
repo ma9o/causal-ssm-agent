@@ -1,8 +1,17 @@
 """Model-spec assembly and SSM compilation tests."""
 
 from types import SimpleNamespace
+from typing import Any
+
+import jax.numpy as jnp
 
 from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm.compile.contracts import (
+    CompiledParameterBinding,
+    CompiledPriorSemantics,
+    CompiledSSMArtifact,
+    SerializedSSMSpec,
+)
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -26,6 +35,25 @@ from tests.transitions.model_spec._support import (
     pl,
     pytest,
 )
+
+
+def _compiled_prior_artifact(payload: dict[str, Any]) -> CompiledSSMArtifact:
+    """Build the minimal current artifact needed by prior-resolution tests."""
+    spec_payload = payload.get("spec", {})
+    latent_names = spec_payload.get("latent_names") if isinstance(spec_payload, dict) else None
+    return CompiledSSMArtifact.model_construct(
+        schema_version=1,
+        spec=SerializedSSMSpec.model_construct(latent_names=latent_names),
+        edge_lag_days=[],
+        compiled_prior_semantics=CompiledPriorSemantics.model_validate(
+            payload["compiled_prior_semantics"]
+        ),
+        parameter_bindings=[
+            CompiledParameterBinding.model_construct(**binding)
+            for binding in payload.get("parameter_bindings", [])
+        ],
+        compile_diagnostics=[],
+    )
 
 
 def _prior_params(prior_registry, site_name: str):
@@ -84,9 +112,9 @@ def _default_ssm_spec(
             n_latent=n_latent,
             decay_support=np.ones(n_latent, dtype=bool),
             edge_support=np.asarray(edge_support, dtype=bool),
-            coupling_template=np.zeros((n_latent, n_latent)),
+            coupling_template=jnp.zeros((n_latent, n_latent)),
             intercept_support=np.zeros(n_latent, dtype=bool),
-            cint_template=np.zeros(n_latent),
+            cint_template=jnp.zeros(n_latent),
         )
     else:
         dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
@@ -171,7 +199,7 @@ class TestModelSpecAssembly:
                     ),
                 )
             ],
-            compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
+            compiled_ssm=CompiledSSMArtifact.model_construct(),
         )
 
         with (
@@ -289,50 +317,52 @@ class TestModelSpecAssembly:
         """Implicit initial-state priors should come from compiled semantics."""
         from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
-        compiled_ssm = {
-            "spec": {"latent_names": ["stress", "sleep"]},
-            "compiled_prior_semantics": {
-                "schema_version": 5,
-                "site_registry": [
-                    {
-                        "name": "t0_means_free",
-                        "shape": [2],
-                        "support": "real",
-                        "assembly_group": "t0",
-                        "site_kind": "t0_means",
-                        "transform_kind": "identity",
-                        "deterministic_name": "t0_means",
-                        "fixed_spec_field": "t0_means",
-                        "priors_field": "t0_means",
-                        "runtime_prior_key": "t0_means_free",
-                        "is_runtime_prior_controlled": True,
-                    },
-                    {
-                        "name": "t0_var_diag_free",
-                        "shape": [2],
-                        "support": "positive",
-                        "assembly_group": "t0",
-                        "site_kind": "t0_var_diag",
-                        "transform_kind": "exp",
-                        "deterministic_name": "t0_cov",
-                        "fixed_spec_field": "t0_var",
-                        "priors_field": "t0_var_diag",
-                        "runtime_prior_key": "t0_var_diag_free",
-                        "is_runtime_prior_controlled": True,
-                    },
-                ],
-                "prior_state": {
-                    "t0_means_free": {"family": 0, "loc": [0.0, 1.0], "scale": [2.0, 3.0]},
-                    "t0_var_diag_free": {
-                        "family": 0,
-                        "scale": [4.0, 5.0],
-                        "concentration": [1.0, 1.0],
-                        "rate": [1.0, 1.0],
+        compiled_ssm = _compiled_prior_artifact(
+            {
+                "spec": {"latent_names": ["stress", "sleep"]},
+                "compiled_prior_semantics": {
+                    "schema_version": 5,
+                    "site_registry": [
+                        {
+                            "name": "t0_means_free",
+                            "shape": [2],
+                            "support": "real",
+                            "assembly_group": "t0",
+                            "site_kind": "t0_means",
+                            "transform_kind": "identity",
+                            "deterministic_name": "t0_means",
+                            "fixed_spec_field": "t0_means",
+                            "priors_field": "t0_means",
+                            "runtime_prior_key": "t0_means_free",
+                            "is_runtime_prior_controlled": True,
+                        },
+                        {
+                            "name": "t0_var_diag_free",
+                            "shape": [2],
+                            "support": "positive",
+                            "assembly_group": "t0",
+                            "site_kind": "t0_var_diag",
+                            "transform_kind": "exp",
+                            "deterministic_name": "t0_cov",
+                            "fixed_spec_field": "t0_var",
+                            "priors_field": "t0_var_diag",
+                            "runtime_prior_key": "t0_var_diag_free",
+                            "is_runtime_prior_controlled": True,
+                        },
+                    ],
+                    "prior_state": {
+                        "t0_means_free": {"family": 0, "loc": [0.0, 1.0], "scale": [2.0, 3.0]},
+                        "t0_var_diag_free": {
+                            "family": 0,
+                            "scale": [4.0, 5.0],
+                            "concentration": [1.0, 1.0],
+                            "rate": [1.0, 1.0],
+                        },
                     },
                 },
-            },
-            "parameter_bindings": [],
-        }
+                "parameter_bindings": [],
+            }
+        )
 
         assert resolve_prior_proposals(compiled_ssm, authored_priors={}) == [
             {
@@ -406,63 +436,69 @@ class TestModelSpecAssembly:
         """Compiled semantics should surface LogNormal and bounded real priors."""
         from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
-        compiled_ssm = {
-            "compiled_prior_semantics": {
-                "schema_version": 5,
-                "site_registry": [
+        compiled_ssm = _compiled_prior_artifact(
+            {
+                "compiled_prior_semantics": {
+                    "schema_version": 5,
+                    "site_registry": [
+                        {
+                            "name": "diffusion_diag_free",
+                            "shape": [1],
+                            "support": "positive",
+                            "assembly_group": "diffusion",
+                            "site_kind": "diffusion_diag",
+                            "transform_kind": "exp",
+                            "deterministic_name": "diffusion",
+                            "fixed_spec_field": "diffusion",
+                            "priors_field": "diffusion_diag",
+                            "runtime_prior_key": "diffusion_diag_free",
+                            "is_runtime_prior_controlled": True,
+                        },
+                        {
+                            "name": "vf_0_weight",
+                            "shape": [1],
+                            "support": "real",
+                            "assembly_group": "dynamics",
+                            "site_kind": "dynamics_weight",
+                            "transform_kind": "identity",
+                            "deterministic_name": None,
+                            "fixed_spec_field": None,
+                            "priors_field": "linear_edge_weight",
+                            "runtime_prior_key": "vf_0_weight",
+                            "is_runtime_prior_controlled": True,
+                        },
+                    ],
+                    "prior_state": {
+                        "diffusion_diag_free": {
+                            "family": [2],
+                            "loc": [0.2],
+                            "scale": [0.7],
+                            "concentration": [1.0],
+                            "rate": [1.0],
+                        },
+                        "vf_0_weight": {
+                            "family": 2,
+                            "loc": [0.0],
+                            "scale": [0.3],
+                            "low": [-1.0],
+                            "high": [1.0],
+                        },
+                    },
+                },
+                "parameter_bindings": [
                     {
-                        "name": "diffusion_diag_free",
-                        "shape": [1],
-                        "support": "positive",
-                        "assembly_group": "diffusion",
-                        "site_kind": "diffusion_diag",
-                        "transform_kind": "exp",
-                        "deterministic_name": "diffusion",
-                        "fixed_spec_field": "diffusion",
-                        "priors_field": "diffusion_diag",
-                        "runtime_prior_key": "diffusion_diag_free",
-                        "is_runtime_prior_controlled": True,
+                        "parameter": "sigma_mood",
+                        "site_name": "diffusion_diag_free",
+                        "flat_index": 0,
                     },
                     {
-                        "name": "vf_0_weight",
-                        "shape": [1],
-                        "support": "real",
-                        "assembly_group": "dynamics",
-                        "site_kind": "dynamics_weight",
-                        "transform_kind": "identity",
-                        "deterministic_name": None,
-                        "fixed_spec_field": None,
-                        "priors_field": "linear_edge_weight",
-                        "runtime_prior_key": "vf_0_weight",
-                        "is_runtime_prior_controlled": True,
+                        "parameter": "cor_stress_sleep",
+                        "site_name": "vf_0_weight",
+                        "flat_index": 0,
                     },
                 ],
-                "prior_state": {
-                    "diffusion_diag_free": {
-                        "family": [2],
-                        "loc": [0.2],
-                        "scale": [0.7],
-                        "concentration": [1.0],
-                        "rate": [1.0],
-                    },
-                    "vf_0_weight": {
-                        "family": 2,
-                        "loc": [0.0],
-                        "scale": [0.3],
-                        "low": [-1.0],
-                        "high": [1.0],
-                    },
-                },
-            },
-            "parameter_bindings": [
-                {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
-                {
-                    "parameter": "cor_stress_sleep",
-                    "site_name": "vf_0_weight",
-                    "flat_index": 0,
-                },
-            ],
-        }
+            }
+        )
 
         resolved = {
             prior["parameter"]: prior
@@ -479,38 +515,40 @@ class TestModelSpecAssembly:
         """Canonical low/high leaves must not force Normal sites to look truncated."""
         from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
-        compiled_ssm = {
-            "compiled_prior_semantics": {
-                "schema_version": 5,
-                "site_registry": [
-                    {
-                        "name": "vf_0_weight",
-                        "shape": [1],
-                        "support": "real",
-                        "assembly_group": "dynamics",
-                        "site_kind": "dynamics_weight",
-                        "transform_kind": "identity",
-                        "deterministic_name": None,
-                        "fixed_spec_field": None,
-                        "priors_field": "linear_edge_weight",
-                        "runtime_prior_key": "vf_0_weight",
-                        "is_runtime_prior_controlled": True,
-                    }
-                ],
-                "prior_state": {
-                    "vf_0_weight": {
-                        "family": [0],
-                        "loc": [0.15],
-                        "scale": [0.4],
-                        "low": [-1000000.0],
-                        "high": [1000000.0],
-                    }
+        compiled_ssm = _compiled_prior_artifact(
+            {
+                "compiled_prior_semantics": {
+                    "schema_version": 5,
+                    "site_registry": [
+                        {
+                            "name": "vf_0_weight",
+                            "shape": [1],
+                            "support": "real",
+                            "assembly_group": "dynamics",
+                            "site_kind": "dynamics_weight",
+                            "transform_kind": "identity",
+                            "deterministic_name": None,
+                            "fixed_spec_field": None,
+                            "priors_field": "linear_edge_weight",
+                            "runtime_prior_key": "vf_0_weight",
+                            "is_runtime_prior_controlled": True,
+                        }
+                    ],
+                    "prior_state": {
+                        "vf_0_weight": {
+                            "family": [0],
+                            "loc": [0.15],
+                            "scale": [0.4],
+                            "low": [-1000000.0],
+                            "high": [1000000.0],
+                        }
+                    },
                 },
-            },
-            "parameter_bindings": [
-                {"parameter": "beta_sleep_mood", "site_name": "vf_0_weight", "flat_index": 0}
-            ],
-        }
+                "parameter_bindings": [
+                    {"parameter": "beta_sleep_mood", "site_name": "vf_0_weight", "flat_index": 0}
+                ],
+            }
+        )
 
         resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
 
@@ -532,42 +570,44 @@ class TestModelSpecAssembly:
         """Compiled correlation-support sites should reconstruct bounded real priors."""
         from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
-        compiled_ssm = {
-            "compiled_prior_semantics": {
-                "schema_version": 5,
-                "site_registry": [
+        compiled_ssm = _compiled_prior_artifact(
+            {
+                "compiled_prior_semantics": {
+                    "schema_version": 5,
+                    "site_registry": [
+                        {
+                            "name": "t0_var_lower_free",
+                            "shape": [1],
+                            "support": "correlation",
+                            "assembly_group": "t0",
+                            "site_kind": "t0_var_lower",
+                            "transform_kind": "identity",
+                            "deterministic_name": "t0_cov",
+                            "fixed_spec_field": "t0_var",
+                            "priors_field": "t0_var_offdiag",
+                            "runtime_prior_key": "t0_var_lower_free",
+                            "is_runtime_prior_controlled": True,
+                        }
+                    ],
+                    "prior_state": {
+                        "t0_var_lower_free": {
+                            "family": [2],
+                            "loc": [0.0],
+                            "scale": [0.25],
+                            "low": [-1.0],
+                            "high": [1.0],
+                        }
+                    },
+                },
+                "parameter_bindings": [
                     {
-                        "name": "t0_var_lower_free",
-                        "shape": [1],
-                        "support": "correlation",
-                        "assembly_group": "t0",
-                        "site_kind": "t0_var_lower",
-                        "transform_kind": "identity",
-                        "deterministic_name": "t0_cov",
-                        "fixed_spec_field": "t0_var",
-                        "priors_field": "t0_var_offdiag",
-                        "runtime_prior_key": "t0_var_lower_free",
-                        "is_runtime_prior_controlled": True,
+                        "parameter": "cor0_sleep_stress",
+                        "site_name": "t0_var_lower_free",
+                        "flat_index": 0,
                     }
                 ],
-                "prior_state": {
-                    "t0_var_lower_free": {
-                        "family": [2],
-                        "loc": [0.0],
-                        "scale": [0.25],
-                        "low": [-1.0],
-                        "high": [1.0],
-                    }
-                },
-            },
-            "parameter_bindings": [
-                {
-                    "parameter": "cor0_sleep_stress",
-                    "site_name": "t0_var_lower_free",
-                    "flat_index": 0,
-                }
-            ],
-        }
+            }
+        )
 
         resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
 

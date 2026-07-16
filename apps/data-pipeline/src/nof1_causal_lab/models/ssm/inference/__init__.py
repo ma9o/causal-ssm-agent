@@ -5,11 +5,8 @@ model; this module provides fit() to run inference with the supported backends.
 
 Method:
 - Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
-  using posterior-mixture conditional SMC, with selectable latent smoother
-  (plain CSMC, particle-aMALA, or particle-mGRAD).
-- Particle marginal Metropolis-Hastings: parameter-space pseudo-marginal MH
-  using the same discretized runtime bundle and bootstrap particle likelihood
-  estimator.
+  using the dSMC smoother with exactly corrected aMALA or PAID-mixture leaf
+  proposals.
 """
 
 from __future__ import annotations
@@ -23,9 +20,14 @@ from nof1_causal_lab.models.ssm.inference.shared import (
 from nof1_causal_lab.models.ssm.inference.types import (
     FittedArtifact as FittedArtifact,
 )
-from nof1_causal_lab.models.ssm.inference.types import (  # noqa: TC001
-    InferenceMethod,
-    InferenceResult,
+from nof1_causal_lab.models.ssm.inference.types import (
+    InferenceMethod,  # noqa: TC001 - public runtime re-export
+)
+from nof1_causal_lab.models.ssm.inference.types import (
+    ParticleMCMCPosterior as ParticleMCMCPosterior,  # noqa: TC001 - public runtime re-export
+)
+from nof1_causal_lab.models.ssm.inference.types import (
+    WarmupProposal as WarmupProposal,
 )
 from nof1_causal_lab.models.ssm.preflight import (
     validate_observations_for_fit as validate_observations_for_fit,
@@ -56,7 +58,7 @@ def fit(
     method: InferenceMethod = "marginal_particle_gibbs",
     reparam=_AUTO_REPARAM,
     **kwargs: Unpack[MarginalParticleGibbsOptions],
-) -> InferenceResult:
+) -> ParticleMCMCPosterior:
     """Fit an SSM using the specified inference method.
 
     Args:
@@ -73,7 +75,7 @@ def fit(
         **kwargs: Method-specific arguments
 
     Returns:
-        InferenceResult with posterior samples and diagnostics
+        ParticleMCMCPosterior with posterior samples and diagnostics
     """
     validate_observations_for_fit(model, observations)
     reparam = _resolve_reparam(reparam, method)

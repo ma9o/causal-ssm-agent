@@ -415,15 +415,16 @@ def _cache_path(cache_dir: Path) -> str:
 
 def _build_phantom_refs(cache_dir: Path, paths: list[str]) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
+    source_paths = [Path(path) for path in paths]
     _write_phantom(
         cache_dir,
         "_data_class_field_refs.py",
-        _collect_data_class_fields(paths),
+        _collect_data_class_fields(source_paths),
     )
     _write_phantom(
         cache_dir,
         "_string_type_refs.py",
-        _collect_string_type_refs(paths),
+        _collect_string_type_refs(source_paths),
     )
 
 

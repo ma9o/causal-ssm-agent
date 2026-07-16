@@ -5,6 +5,7 @@ Covers validation formatting and the OpenRouter client.
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any, cast
 
 import pytest
@@ -100,7 +101,7 @@ class TestWorkerValidationTools:
 
 
 class _FakeChatCompletions:
-    def __init__(self, response: dict[str, object], seen: dict[str, object]):
+    def __init__(self, response: Mapping[str, object], seen: dict[str, object]):
         self._response = response
         self._seen = seen
 
@@ -110,7 +111,7 @@ class _FakeChatCompletions:
 
 
 class _FakeOpenRouterClient:
-    def __init__(self, response: dict[str, object], seen: dict[str, object]):
+    def __init__(self, response: Mapping[str, object], seen: dict[str, object]):
         self.chat = type(
             "_FakeChatNamespace",
             (),

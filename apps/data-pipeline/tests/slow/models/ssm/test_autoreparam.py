@@ -30,6 +30,7 @@ def _make_simple_ssm():
 
 class TestAutoReparamSSM:
     def test_fit_map_filters_auxiliary_sites(self):
+        from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
         from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 
         model = _make_simple_ssm()
@@ -40,9 +41,7 @@ class TestAutoReparamSSM:
             model,
             observations,
             times,
-            num_warmup=10,
             num_samples=10,
-            num_chains=1,
             seed=0,
         )
 
@@ -51,5 +50,4 @@ class TestAutoReparamSSM:
         assert "diffusion_diag_free" in sample_names
         assert all("_decentered" not in name for name in sample_names)
 
-        diag = result.get_mcmc_diagnostics()
-        assert diag is None
+        assert isinstance(result, WarmupProposal)

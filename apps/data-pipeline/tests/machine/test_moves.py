@@ -126,12 +126,16 @@ class TestApplyTransition:
     def test_produced_versions_become_current(self):
         state = apply_transition(EpisodeState(), [_version("raw_data")])
         assert state.has("raw_data")
-        assert state.get("raw_data").version == 1
+        raw_data = state.get("raw_data")
+        assert raw_data is not None
+        assert raw_data.version == 1
 
     def test_rerun_supersedes_version(self):
         state = _state(_version("raw_data", version=1))
         state = apply_transition(state, [_version("raw_data", version=2)])
-        assert state.get("raw_data").version == 2
+        raw_data = state.get("raw_data")
+        assert raw_data is not None
+        assert raw_data.version == 2
 
     def test_optional_artifact_retracted_when_withheld(self):
         spec = transition_spec("measurements")
@@ -149,7 +153,9 @@ class TestApplyTransition:
         ]
         next_state = apply_transition(state, produced, retracted)
         assert not next_state.has("panel")
-        assert next_state.get("measurements").version == 2
+        measurements = next_state.get("measurements")
+        assert measurements is not None
+        assert measurements.version == 2
 
     def test_no_retraction_when_optional_still_produced(self):
         spec = transition_spec("measurements")

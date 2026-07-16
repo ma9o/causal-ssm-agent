@@ -1,11 +1,118 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import pytest
 from fastapi.testclient import TestClient
 
 import nof1_causal_lab.tool_server as tool_server
+from nof1_causal_lab.artifacts import (
+    CausalDesign,
+    CausalEdge,
+    Construct,
+    IdentifiabilityStatus,
+    IdentifiedTreatmentStatus,
+    LatentStructure,
+    MeasurementStructure,
+    Role,
+    TemporalStatus,
+)
+from nof1_causal_lab.models.causal_proofs import (
+    CausalDesignRef,
+    CertifiedCausalAnalysis,
+    PosteriorProvenance,
+    certify_identified_estimand,
+    certify_reportable_posterior,
+)
+from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics
+
+
+def _identified_causal_design(treatment: str, outcome: str) -> CausalDesign:
+    return CausalDesign(
+        latent=LatentStructure(
+            constructs=[
+                Construct(
+                    name=treatment,
+                    description="Treatment",
+                    role=Role.EXOGENOUS,
+                    temporal_status=TemporalStatus.TIME_VARYING,
+                ),
+                Construct(
+                    name=outcome,
+                    description="Outcome",
+                    role=Role.ENDOGENOUS,
+                    is_outcome=True,
+                    temporal_status=TemporalStatus.TIME_VARYING,
+                ),
+            ],
+            edges=[CausalEdge(cause=treatment, effect=outcome, description="Test edge")],
+        ),
+        measurement=MeasurementStructure(indicators=[], model_clock="1d"),
+        identifiability=IdentifiabilityStatus(
+            identifiable_treatments={
+                treatment: IdentifiedTreatmentStatus(
+                    method="do_calculus",
+                    estimand=f"E[{outcome} | do({treatment})]",
+                )
+            }
+        ),
+    )
+
+
+def _certified_simulation_context(
+    *,
+    samples: dict[str, jnp.ndarray],
+    spec: Any,
+    runtime: Any,
+    treatment: str,
+    outcome: str,
+    latent_paths: jnp.ndarray | None = None,
+    timestamps: list[datetime] | None = None,
+) -> dict[str, Any]:
+    design = _identified_causal_design(treatment, outcome)
+    design_ref = CausalDesignRef(workspace_id="test-workspace", version=1)
+    diagnostics: InferenceDiagnostics = {}
+    if latent_paths is not None:
+        diagnostics["latent_paths"] = latent_paths
+    artifact = FittedArtifact(
+        result=ParticleMCMCPosterior(_samples=samples, diagnostics=diagnostics),
+        spec=spec,
+        times=runtime.times,
+        provenance=PosteriorProvenance(
+            causal_design=design_ref,
+            compiled_ssm_version=1,
+            panel_version=1,
+        ),
+    )
+    analysis = CertifiedCausalAnalysis(
+        causal_design=design,
+        causal_design_ref=design_ref,
+        estimands=(
+            certify_identified_estimand(
+                design,
+                causal_design_ref=design_ref,
+                treatment=treatment,
+                outcome=outcome,
+            ),
+        ),
+        posterior=certify_reportable_posterior(artifact),
+    )
+    return {
+        "_fitted_artifact": artifact,
+        "_causal_analysis": analysis,
+        "_prepared_runtime": runtime,
+        "_identifiable_treatments": [treatment],
+        "_outcome_name": outcome,
+        "_observation_timestamps": timestamps or [],
+        "causal_design": {"causal_design": design.model_dump(mode="json")},
+        "baseline_report": {},
+    }
 
 
 def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
@@ -75,9 +182,16 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=["sleep_obs"],
     )
-    fitted_artifact = SimpleNamespace(
+    design = _identified_causal_design("screen_time", "sleep_quality")
+    fitted_artifact = FittedArtifact(
+        result=ParticleMCMCPosterior(_samples={"vf_0_decay": jnp.zeros((1, 2), dtype=jnp.float32)}),
         spec=spec,
-        observation_support=None,
+        times=jnp.array([0.0]),
+        provenance=PosteriorProvenance(
+            causal_design=CausalDesignRef(workspace_id="user-123", version=1),
+            compiled_ssm_version=1,
+            panel_version=1,
+        ),
     )
     model_data = pl.DataFrame(
         {"indicator": ["sleep_obs"], "value": [1.0], "timestamp": ["2024-01-01T00:00:00"]}
@@ -106,9 +220,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
             "measurement_structure": measurement_structure.version,
         },
         produced_by="run:measurement_structure",
-        json_files={
-            "causal_design.json": {"causal_design": {"identifiability": {}, "measurement": {}}}
-        },
+        json_files={"causal_design.json": {"causal_design": design.model_dump(mode="json")}},
     )
     measurements = store.write_version(
         "measurements",
@@ -172,7 +284,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         observation_support="support-runtime",
         observation_data=None,
     )
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_prepare_model_runtime(
         *, data_for_model, model, compiled_ssm=None, sampler_config=None
@@ -183,7 +295,6 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         return rebuilt_runtime
 
     monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
-    monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
 
     ctx = tool_server._build_ranking_context("user-123")
 
@@ -195,7 +306,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     assert captured["data_for_model"].equals(model_data)
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime
-    assert ctx["causal_design"] == {"causal_design": {"identifiability": {}, "measurement": {}}}
+    assert ctx["causal_design"] == {"causal_design": design.model_dump(mode="json")}
     assert ctx["posterior"] == {"outcome": "warn"}
     assert ctx["_outcome_name"] == "sleep_quality"
     assert ctx["_identifiable_treatments"] == ["screen_time"]
@@ -204,26 +315,6 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
 
 
 def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
-    class FakeResult:
-        def __init__(self, samples):
-            self._samples = samples
-            self.method = "marginal_particle_gibbs"
-            self._latent_paths = jnp.array(
-                [
-                    [[0.0, 0.0], [1.0, 1.0], [2.0, 3.0]],
-                    [[0.0, 0.0], [4.0, 5.0], [6.0, 7.0]],
-                ]
-            )
-            self.diagnostics = {
-                "latent_paths": self._latent_paths,
-            }
-
-        def get_samples(self):
-            return self._samples
-
-        def get_latent_paths(self):
-            return self._latent_paths
-
     from nof1_causal_lab.models.ssm.dynamics import (
         DiagonalDecaySpec,
         DynamicsSpec,
@@ -272,30 +363,32 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
     monkeypatch.setattr(tool_server, "vmap_simulate_clamps_from_state", fake_vmap_simulate)
 
-    ctx = {
-        "_fitted_artifact": SimpleNamespace(
-            result=FakeResult(samples),
-            spec=SimpleNamespace(
-                dynamics_spec=spec,
-                latent_names=["treat", "outcome"],
-                manifest_names=[],
-            ),
-            observation_support=None,
+    runtime = SimpleNamespace(
+        observations=jnp.zeros((3, 1)),
+        times=jnp.array([0.0, 1.0, 2.0]),
+    )
+    ctx = _certified_simulation_context(
+        samples=samples,
+        spec=SimpleNamespace(
+            dynamics_spec=spec,
+            latent_names=["treat", "outcome"],
+            manifest_names=[],
         ),
-        "_prepared_runtime": SimpleNamespace(
-            observations=jnp.zeros((3, 1)),
-            times=jnp.array([0.0, 1.0, 2.0]),
+        runtime=runtime,
+        treatment="treat",
+        outcome="outcome",
+        latent_paths=jnp.array(
+            [
+                [[0.0, 0.0], [1.0, 1.0], [2.0, 3.0]],
+                [[0.0, 0.0], [4.0, 5.0], [6.0, 7.0]],
+            ]
         ),
-        "_identifiable_treatments": ["treat"],
-        "_outcome_name": "outcome",
-        "_observation_timestamps": [
+        timestamps=[
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "baseline_report": {},
-    }
+    )
     args = {
         "start": {"kind": "abducted"},
         "clamps": [{"variable": "treat", "mode": "shift", "amount": 1.0}],
@@ -359,7 +452,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
 
 def test_simulate_intervention_dispatches_to_vector_field_path():
-    """End-to-end: a vector-field-fitted InferenceResult flows through
+    """End-to-end: a vector-field particle posterior flows through
     ``_prepare_analysis_simulation`` and ``_execute_simulate_intervention``
     without touching the affine deterministic sample shape.
 
@@ -392,36 +485,26 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
         "vf_1_n": jnp.full((n_draws,), 2.0),
     }
 
-    fake_result = SimpleNamespace(
-        method="marginal_particle_gibbs",
-        diagnostics={},
-        get_samples=lambda: samples,
+    runtime = SimpleNamespace(
+        observations=jnp.zeros((3, 1)),
+        times=jnp.array([0.0, 1.0, 2.0]),
     )
-
-    ctx = {
-        "_fitted_artifact": SimpleNamespace(
-            result=fake_result,
-            spec=SimpleNamespace(
-                dynamics_spec=spec,
-                latent_names=["src", "tgt"],
-                manifest_names=[],
-            ),
-            observation_support=None,
+    ctx = _certified_simulation_context(
+        samples=samples,
+        spec=SimpleNamespace(
+            dynamics_spec=spec,
+            latent_names=["src", "tgt"],
+            manifest_names=[],
         ),
-        "_prepared_runtime": SimpleNamespace(
-            observations=jnp.zeros((3, 1)),
-            times=jnp.array([0.0, 1.0, 2.0]),
-        ),
-        "_identifiable_treatments": ["src"],
-        "_outcome_name": "tgt",
-        "_observation_timestamps": [
+        runtime=runtime,
+        treatment="src",
+        outcome="tgt",
+        timestamps=[
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "baseline_report": {},
-    }
+    )
     args = {
         "start": {"kind": "baseline"},
         "clamps": [{"variable": "src", "mode": "shift", "amount": 0.5}],
@@ -467,38 +550,27 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
         "vf_1_n": jnp.full((n_draws,), 2.0),
     }
     latent_paths = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
-    fake_result = SimpleNamespace(
-        method="marginal_particle_gibbs",
-        diagnostics={
-            "latent_paths": latent_paths,
-        },
-        get_samples=lambda: samples,
+    runtime = SimpleNamespace(
+        observations=jnp.zeros((3, 1)),
+        times=jnp.array([0.0, 1.0, 2.0]),
     )
-
-    ctx = {
-        "_fitted_artifact": SimpleNamespace(
-            result=fake_result,
-            spec=SimpleNamespace(
-                dynamics_spec=spec,
-                latent_names=["src", "tgt"],
-                manifest_names=[],
-            ),
-            observation_support=None,
+    ctx = _certified_simulation_context(
+        samples=samples,
+        spec=SimpleNamespace(
+            dynamics_spec=spec,
+            latent_names=["src", "tgt"],
+            manifest_names=[],
         ),
-        "_prepared_runtime": SimpleNamespace(
-            observations=jnp.zeros((3, 1)),
-            times=jnp.array([0.0, 1.0, 2.0]),
-        ),
-        "_identifiable_treatments": ["src"],
-        "_outcome_name": "tgt",
-        "_observation_timestamps": [
+        runtime=runtime,
+        treatment="src",
+        outcome="tgt",
+        latent_paths=latent_paths,
+        timestamps=[
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 2, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
         ],
-        "causal_design": {"causal_design": {"measurement": {"model_clock": "1d"}}},
-        "baseline_report": {},
-    }
+    )
     args = {
         "start": {"kind": "abducted"},
         "clamps": [{"variable": "src", "mode": "shift", "amount": 0.5}],

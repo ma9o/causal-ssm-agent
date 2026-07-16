@@ -48,7 +48,7 @@ graph TD
         registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
     end
 
-    ssm_model --> fit["fit_prepared_model(runtime) → InferenceResult"]
+    ssm_model --> fit["fit_prepared_model(runtime) → ParticleMCMCPosterior"]
     fit --> execute["SSMModel.model() execution"]
     assemble --> execute
 
@@ -70,7 +70,8 @@ graph TD
 | `SemanticBindingRegistry` | `models/ssm/compile/prior_indexing.py` | Named registry of parameter-name → compiled sample-site bindings; replaces the old positional prior-index tuple |
 | `CompiledSSMArtifact` | `models/ssm/compile/artifact.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
-| `InferenceResult` | `models/ssm/inference/types.py` | Posterior samples + diagnostics |
+| `ParticleMCMCPosterior` | `models/ssm/inference/types.py` | Production particle-MCMC samples, diagnostics, and engine evidence |
+| `WarmupProposal` | `models/ssm/inference/types.py` | Laplace/IEKS initialization draws and proposal preconditioning only |
 
 ## Stage 1: Spec Translation (`compile/spec_translation.py`)
 
@@ -145,7 +146,7 @@ Creates the mapping from semantic parameter names to NumPyro sample sites — th
 
 Each binding is: `{parameter: "rho_mood", site_name: "vf_0_decay", flat_index: 0}`
 
-This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `SemanticBindingRegistry` from `validation_report` derivation rather than rebuilding it, and only the compile entrypoints decide whether semantic bindings should exist at all.
+This allows `ParticleMCMCPosterior` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `SemanticBindingRegistry` from `validation_report` derivation rather than rebuilding it, and only the compile entrypoints decide whether semantic bindings should exist at all.
 
 ## Stage 5: Artifact Serialization (`compile/artifact.py`)
 
@@ -182,7 +183,7 @@ Also provides validation entry points used by earlier pipeline transitions:
 
 - `build_ssm_model(wide_data, ...)` → `SSMModel` — materializes the NumPyro model from direct specs or compiled inputs
 - `prepare_model_runtime(data_for_model, ...)` → `PreparedModelRuntime` — prepares observations, times, observation support, transition inputs, and sampler config
-- `fit_prepared_model(runtime)` → `InferenceResult` — routes prepared arrays into `inference.fit()`
+- `fit_prepared_model(runtime)` → `ParticleMCMCPosterior` — routes prepared arrays into production particle inference
 - `sample_prior_predictive(model, ...)` — generates prior predictive samples for validation
 
 Runtime reconstruction now has three layers:

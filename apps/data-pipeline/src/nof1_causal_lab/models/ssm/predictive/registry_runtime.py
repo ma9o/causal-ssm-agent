@@ -466,7 +466,6 @@ def sample_prior_parameters_from_runtime(
     deterministic_samples = assemble_deterministics_from_registry(
         constrained_samples,
         spec,
-        runtime.site_runtime.registry,
         n_draws=num_samples,
     )
     extra_params = _assemble_extra_params_batched(

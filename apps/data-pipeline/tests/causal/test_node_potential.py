@@ -178,6 +178,7 @@ class TestSerializationRoundTrip:
             ),
         )
         comp = dynamics_spec_from_dict(dynamics_spec_to_dict(spec)).components[0]
+        assert isinstance(comp, NodePotentialSpec)
         assert comp.fixed_center == pytest.approx(0.5)
         assert comp.fixed_stiffness == pytest.approx(1.2)
         assert comp.fixed_quartic is None

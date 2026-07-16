@@ -193,10 +193,11 @@ class TestLaplaceSupportAware:
         observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
+        affine = derive_affine_dynamics(ct_params)
         Ad, Qd, cd = discretize_system_batched(
-            derive_affine_dynamics(ct_params).dynamics,
-            derive_affine_dynamics(ct_params).diffusion_cov,
-            derive_affine_dynamics(ct_params).cint,
+            affine.drift,
+            affine.diffusion_cov,
+            affine.cint,
             time_intervals,
         )
         assert cd is not None
@@ -267,9 +268,7 @@ class TestParameterRecoveryMAP:
             model,
             observations=observations,
             times=times,
-            num_warmup=200,
             num_samples=200,
-            num_chains=1,
         )
 
         samples = result.get_samples()
@@ -310,9 +309,7 @@ class TestParameterRecoveryMAP:
             model,
             observations=observations,
             times=times,
-            num_warmup=200,
             num_samples=200,
-            num_chains=1,
         )
 
         samples = result.get_samples()

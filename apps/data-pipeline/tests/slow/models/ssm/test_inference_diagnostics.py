@@ -6,31 +6,10 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.models.ssm.inference import InferenceResult
+from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 pytestmark = pytest.mark.slow
-
-
-class _FakeBlockedMCMC:
-    backend = "marginal_particle_gibbs"
-
-    def __init__(self, chain_samples, extra_fields):
-        self._chain_samples = chain_samples
-        self._extra_fields = extra_fields
-        first = next(iter(chain_samples.values()))
-        self.num_chains = first.shape[0]
-        self.num_samples = first.shape[1]
-
-    def get_samples(self, group_by_chain: bool = False):
-        if group_by_chain:
-            return self._chain_samples
-        return {
-            name: values.reshape((-1, *values.shape[2:]))
-            for name, values in self._chain_samples.items()
-        }
-
-    def get_extra_fields(self):
-        return self._extra_fields
 
 
 def _toy_model(x, y=None):
@@ -57,11 +36,16 @@ def mcmc_result():
         "accept_prob": jnp.full((2, 200), 0.84),
         "energy": 4.0 + random.normal(k_energy, (2, 200)),
     }
-    mcmc = _FakeBlockedMCMC(chain_samples, extra_fields)
+    mcmc = TrajectoryMCMCResult(
+        chain_samples=chain_samples,
+        chain_extra_fields=extra_fields,
+        num_chains=2,
+        num_samples=200,
+        backend="marginal_particle_gibbs",
+    )
 
-    return InferenceResult(
+    return ParticleMCMCPosterior(
         _samples=mcmc.get_samples(),
-        method="marginal_particle_gibbs",
         diagnostics={"mcmc": mcmc},
     )
 
@@ -132,7 +116,9 @@ class TestLOODiagnostics:
         assert "p_loo" in loo
         assert "se" in loo
         assert "pareto_k" in loo
-        assert len(loo["pareto_k"]) == n_obs
+        pareto_k = loo["pareto_k"]
+        assert isinstance(pareto_k, list)
+        assert len(pareto_k) == n_obs
         assert loo["n_bad_k"] == 0
 
     def test_loo_without_model_returns_none(self, mcmc_result):
@@ -160,9 +146,8 @@ class TestLOODiagnostics:
             "sigma": 0.5 + 0.04 * random.normal(k_sigma, (200,)),
         }
 
-        inference_result = InferenceResult(
+        inference_result = ParticleMCMCPosterior(
             _samples=samples,
-            method="marginal_particle_gibbs",
             diagnostics={},
         )
         loo = inference_result.get_loo_diagnostics(
@@ -173,7 +158,9 @@ class TestLOODiagnostics:
         assert "p_loo" in loo
         assert "se" in loo
         assert "pareto_k" in loo
-        assert len(loo["pareto_k"]) == n_obs
+        pareto_k = loo["pareto_k"]
+        assert isinstance(pareto_k, list)
+        assert len(pareto_k) == n_obs
         assert loo["observation_unit"] == "timestep"
 
 

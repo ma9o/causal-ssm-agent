@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -43,6 +45,9 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.sampler_config import SamplerConfigOverride
 from nof1_causal_lab.models.ssm.structure.sites import PriorAuthoringTransform, SiteKind
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
@@ -594,7 +599,6 @@ class TestTransformsAndUnravel:
 class TestDeterministicAssembly:
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
-        registry = build_site_registry(simple_spec)
         samples = {
             "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "vf_1_weight": jnp.array([0.1], dtype=jnp.float32),
@@ -607,7 +611,7 @@ class TestDeterministicAssembly:
             "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, simple_spec, registry)
+        det = assemble_deterministics_from_registry(samples, simple_spec)
         assert jnp.allclose(det["diffusion"][0], jnp.array([[0.4, 0.0], [0.25, 0.6]]))
         assert det["lambda"].shape == (1, 2, 2)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.49, 0.64])))
@@ -649,9 +653,7 @@ class TestDeterministicAssembly:
                 template=jnp.array([[0.7, 0.0], [0.0, 0.8]], dtype=jnp.float32),
             ),
         )
-        registry = build_site_registry(spec)
-
-        det = assemble_deterministics_from_registry({}, spec, registry, n_draws=3)
+        det = assemble_deterministics_from_registry({}, spec, n_draws=3)
         assert jnp.allclose(
             det["diffusion"],
             jnp.broadcast_to(spec.diffusion_block.assemble(), (3, 2, 2)),
@@ -682,7 +684,6 @@ class TestDeterministicAssembly:
                 template=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
             ),
         )
-        registry = build_site_registry(spec)
         samples = {
             "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
@@ -693,7 +694,7 @@ class TestDeterministicAssembly:
             "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec, registry)
+        det = assemble_deterministics_from_registry(samples, spec)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.16, 0.81])))
 
     def test_assemble_deterministics_from_registry_initial_state_correlations(self):
@@ -710,7 +711,6 @@ class TestDeterministicAssembly:
                 template=jnp.eye(2),
             ),
         )
-        registry = build_site_registry(spec)
         samples = {
             "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
@@ -722,7 +722,7 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec, registry)
+        det = assemble_deterministics_from_registry(samples, spec)
 
         assert jnp.allclose(
             det["t0_cov"][0],
@@ -745,7 +745,6 @@ class TestDeterministicAssembly:
                 template=jnp.eye(3),
             ),
         )
-        registry = build_site_registry(spec)
         samples = {
             "vf_0_decay": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
@@ -757,7 +756,7 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.array([[0.9, 0.9, -0.9]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec, registry)
+        det = assemble_deterministics_from_registry(samples, spec)
         min_eig = jnp.min(jnp.linalg.eigvalsh(det["t0_cov"][0]))
 
         assert bool(jnp.isfinite(det["t0_cov"]).all())
@@ -1285,7 +1284,10 @@ class TestCompiledArtifactIntegration:
         runtime = prepare_wide_model_runtime(
             pivot_to_wide(data_for_model),
             compiled_ssm=artifact,
-            sampler_config={"method": "marginal_particle_gibbs"},
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
         )
         samples = sample_prior_predictive(
             runtime.model,

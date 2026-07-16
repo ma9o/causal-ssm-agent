@@ -157,12 +157,13 @@ def build_exact_prior_predictive_samples(
     n_draws: int = 200,
 ) -> dict[str, list[float]]:
     """Simulate the admitted full model once for the persisted Data-vs-Prior view."""
+    import jax.numpy as jnp
     import numpy as np
 
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime, sample_prior_predictive
 
     runtime = prepare_model_runtime(data_for_model, compiled_ssm=compiled_ssm)
-    observation_mask = np.isfinite(np.asarray(runtime.observations))
+    observation_mask = jnp.isfinite(jnp.asarray(runtime.observations))
     predictive = sample_prior_predictive(
         runtime.model,
         samples=n_draws,

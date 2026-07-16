@@ -1,6 +1,7 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
 import logging
+from typing import TYPE_CHECKING, cast
 
 import jax.numpy as jnp
 import numpy as np
@@ -8,7 +9,7 @@ import polars as pl
 
 from nof1_causal_lab.flows.transitions.inference import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.inference import InferenceResult
+from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -25,8 +26,12 @@ from tests.ssm_spec_fixtures import (
     full_dense_matrix_dynamics_spec,
 )
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
-class _FakeResult(InferenceResult):
+
+class _FakeResult(ParticleMCMCPosterior):
     def __init__(self) -> None:
         self.method = "marginal_particle_gibbs"
         self.diagnostics = {"likelihood_backend": object()}
@@ -109,7 +114,10 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         model=model,
         spec=model.spec,
         parameter_layout=model.parameter_layout,
-        sampler_config={"method": "marginal_particle_gibbs"},
+        sampler_config=cast(
+            "SamplerConfigOverride",
+            {"method": "marginal_particle_gibbs"},
+        ),
         wide_data=pl.DataFrame(
             {
                 "time": [0.0, 1.5],
@@ -155,7 +163,10 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         result = stage5_inference.fit_model(
             None,
             data_for_model,
-            sampler_config={"method": "marginal_particle_gibbs"},
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
             model=fake_model,
         )
 
@@ -194,7 +205,10 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
         result = stage5_inference.fit_model(
             None,
             data_for_model,
-            sampler_config={"method": "marginal_particle_gibbs"},
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
             model=fake_model,
             compute_loo_diagnostics=False,
         )
@@ -231,9 +245,12 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     compiled_ssm = {"spec": {"n_latent": 1}}
 
     result = stage5_inference.fit_model(
-        compiled_ssm,
+        cast("CompiledSSMArtifact", compiled_ssm),
         data_for_model,
-        sampler_config={"method": "marginal_particle_gibbs"},
+        sampler_config=cast(
+            "SamplerConfigOverride",
+            {"method": "marginal_particle_gibbs"},
+        ),
         workspace_id="workspace-123",
         wait_for_compile_cache=True,
     )

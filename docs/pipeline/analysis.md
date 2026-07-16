@@ -10,11 +10,19 @@ Applies steady-state interventional-effect and trajectory-simulation semantics t
 
 | Input | Source | Description |
 |---|---|---|
-| `fitted_artifact` | [`posterior` transition](inference.md) | [`FittedArtifact`](inference.md#fittedartifact) with posterior samples, runtime builder, observation times, PPC result, and power-scaling result |
+| `fitted_artifact` | [`posterior` transition](inference.md) | [`FittedArtifact`](inference.md#fittedartifact) with a production particle posterior, non-optional model spec, observation times, and causal-design provenance |
 | `causal_design` | [`measurement_structure` transition](measurement-structure.md) | [`CausalDesign`](measurement-structure.md#causaldesign) with identifiability status, measurement structure, and outcome construct designation |
+| `identification_report` | [`measurement_structure` transition](measurement-structure.md) | Positive identification artifact naming the estimable treatments and outcome |
 | `question` | User | Original research question for grounding the opening commentary |
 
 `posterior` transition provided the posterior and diagnostics; `measurement_structure` transition provided the identifiability verdicts. `baseline_report` transition is the first point where posterior samples are translated into causal decision quantities.
+
+Before that translation, the transition constructs one `IdentifiedEstimand` per
+treatment and validates that each proof, the loaded `CausalDesign`, and the
+`ParticleMCMCPosterior` reference the same workspace-local causal-design
+version. Numeric intervention code accepts only the joined
+`CertifiedCausalAnalysis`; Laplace/IEKS warmup output and cross-design evidence
+cannot reach it.
 
 ## Process
 

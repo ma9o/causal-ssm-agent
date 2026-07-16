@@ -23,7 +23,7 @@ from nof1_causal_lab.machine.temporal import (
     measurement_activities,
     measurement_structure_activities,
 )
-from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
+from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveOutcome, MoveRequest
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     latest_failed_model_spec_checkpoint_ref,
     read_model_spec_checkpoint,
@@ -353,7 +353,9 @@ def test_episode_workflow_journey(machine_env):
 
                 async def propose(move, **kwargs):
                     return await handle.execute_update(
-                        EpisodeWorkflow.propose, MoveRequest(move=move, **kwargs)
+                        "propose",
+                        MoveRequest(move=move, **kwargs),
+                        result_type=MoveOutcome,
                     )
 
                 # 1. Illegal move first: rejected AND journaled.

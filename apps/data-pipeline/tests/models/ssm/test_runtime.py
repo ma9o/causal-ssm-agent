@@ -3,6 +3,10 @@
 Covers: normalize_prior_params, split_compound_name, fit-input preparation.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
@@ -21,7 +25,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
 )
-from nof1_causal_lab.models.ssm.model import SSMSpec
+from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.runtime import (
     build_ssm_model,
     prepare_fit_inputs,
@@ -48,6 +52,9 @@ from tests.ssm_spec_fixtures import (
     full_dense_matrix_dynamics_spec,
     full_diagonal_support,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
 # =============================================================================
 # normalize_prior_params
@@ -1010,8 +1017,11 @@ class TestPrepareModelRuntime:
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
                 data_for_model,
-                model=StubModel(),
-                sampler_config={"method": "marginal_particle_gibbs"},
+                model=cast("SSMModel", StubModel()),
+                sampler_config=cast(
+                    "SamplerConfigOverride",
+                    {"method": "marginal_particle_gibbs"},
+                ),
             )
 
         assert runtime.observation_data is not None
@@ -1079,8 +1089,11 @@ class TestPrepareModelRuntime:
 
         runtime = prepare_model_runtime(
             data_for_model,
-            model=StubModel(),
-            sampler_config={"method": "marginal_particle_gibbs"},
+            model=cast("SSMModel", StubModel()),
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
         )
 
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
@@ -1125,7 +1138,10 @@ class TestPrepareModelRuntime:
         runtime = prepare_model_runtime(
             data_for_model,
             model=model,
-            sampler_config={"method": "marginal_particle_gibbs"},
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
         )
 
         samples = sample_prior_predictive(

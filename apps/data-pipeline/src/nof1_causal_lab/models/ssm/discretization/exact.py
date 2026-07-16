@@ -11,6 +11,8 @@ This module is decoupled from state marginalization (Kalman/UKF/Particle)
 to support different inference strategies.
 """
 
+from typing import overload
+
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
@@ -116,6 +118,24 @@ def _normalize_batched_cint(discrete_cint: jnp.ndarray) -> jnp.ndarray:
     if discrete_cint.ndim > 0 and discrete_cint.shape[-1] == 1:
         return discrete_cint.squeeze(-1)
     return discrete_cint
+
+
+@overload
+def discretize_linear_system_exact(
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array,
+    dt: float | jax.Array,
+) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Array]: ...
+
+
+@overload
+def discretize_linear_system_exact(
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: None,
+    dt: float | jax.Array,
+) -> tuple[Float[Array, "D D"], Float[Array, "D D"], None]: ...
 
 
 def discretize_linear_system_exact(

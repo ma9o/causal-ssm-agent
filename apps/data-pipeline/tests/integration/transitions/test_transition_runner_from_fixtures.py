@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from nof1_causal_lab.machine.artifact_files import json_filename
+from nof1_causal_lab.machine.artifact_files import json_filename, pickle_filename
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import ExecOptions, input_pins
 from nof1_causal_lab.machine.runners import execute_transition_locally
@@ -14,13 +14,14 @@ from tests.helpers import run_async
 from tests.integration import transition_runner_fixtures as fx
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.machine.artifacts import ArtifactId
     from nof1_causal_lab.machine.store import ArtifactStore
 
 
 def _run_transition(
     workspace_id: str,
     state,
-    artifact_id: str,
+    artifact_id: ArtifactId,
     options: ExecOptions | None = None,
 ):
     spec = transition_spec(artifact_id)
@@ -36,11 +37,16 @@ def _run_transition(
     )
 
 
-def _produced(effects, artifact_id: str):
+def _produced(effects, artifact_id: ArtifactId):
     return next(info for info in effects.produced if info.artifact_id == artifact_id)
 
 
-def _assert_contract(store: ArtifactStore, artifact_id: str, version: int, context_id: str) -> dict:
+def _assert_contract(
+    store: ArtifactStore,
+    artifact_id: ArtifactId,
+    version: int,
+    context_id: str,
+) -> dict:
     file_by_context = {
         "posterior": ("posterior", "diagnostics"),
     }[context_id]
@@ -56,10 +62,17 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
     artifact_store: ArtifactStore,
     monkeypatch,
 ) -> None:
+    import jax.numpy as jnp
+
     from nof1_causal_lab.flows.transitions.inference import fit as stage5_fit
+    from nof1_causal_lab.models.ssm.compile.artifact import deserialize_ssm_spec
+    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 
     compiled_ssm = fx.seed_compiled_ssm(artifact_store)
     panel = fx.seed_panel(artifact_store)
+    compiled_payload = CompiledSSMArtifact.model_validate(fx.compiled_ssm())
+    fitted_spec = deserialize_ssm_spec(compiled_payload.spec)
 
     def fake_fit_model(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {
@@ -67,10 +80,12 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
             "inference_type": "marginal_particle_gibbs",
             "n_samples": 4,
             "duration_seconds": 0.01,
-            "result": None,
-            "spec": None,
+            "result": ParticleMCMCPosterior(
+                _samples={"vf_0_decay": jnp.zeros((4, 2), dtype=jnp.float32)}
+            ),
+            "spec": fitted_spec,
             "runtime": SimpleNamespace(observation_support=None),
-            "times": [0.0, 1.0],
+            "times": jnp.array([0.0, 1.0], dtype=jnp.float32),
             "mcmc_diagnostics": None,
             "smc_diagnostics": None,
             "loo_diagnostics": None,
@@ -100,3 +115,11 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
     }
     payload = _assert_contract(artifact_store, "posterior", info.version, "posterior")
     assert payload["inference_metadata"]["n_samples"] == 4
+    fitted = artifact_store.read_pickle_file(
+        "posterior",
+        info.version,
+        pickle_filename("posterior", "fitted"),
+    )
+    assert fitted.provenance.causal_design.version == 1
+    assert fitted.provenance.compiled_ssm_version == compiled_ssm.version
+    assert fitted.provenance.panel_version == panel.version

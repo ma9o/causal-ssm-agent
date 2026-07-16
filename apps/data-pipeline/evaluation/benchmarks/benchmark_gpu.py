@@ -18,13 +18,13 @@ Two execution targets, same core (`_run_benchmark`):
   The GPU is selected via the BENCHMARK_GPU env var (Modal binds resources at
   decoration time, so it cannot be a runtime CLI flag); it defaults to H100 (80GB):
 
-    modal run scripts/benchmarks/benchmark_gpu.py                     # H100 80GB (default)
-    BENCHMARK_GPU=A100 modal run scripts/benchmarks/benchmark_gpu.py
-    BENCHMARK_GPU=H100 modal run scripts/benchmarks/benchmark_gpu.py --headline-only
-    BENCHMARK_GPU=H100 modal run scripts/benchmarks/benchmark_gpu.py --headline-only --no-trace --no-compile-analysis
-    BENCHMARK_GPU=H100 modal run scripts/benchmarks/benchmark_gpu.py --headline-only --force-build
+    modal run evaluation/benchmarks/benchmark_gpu.py                     # H100 80GB (default)
+    BENCHMARK_GPU=A100 modal run evaluation/benchmarks/benchmark_gpu.py
+    BENCHMARK_GPU=H100 modal run evaluation/benchmarks/benchmark_gpu.py --headline-only
+    BENCHMARK_GPU=H100 modal run evaluation/benchmarks/benchmark_gpu.py --headline-only --no-trace --no-compile-analysis
+    BENCHMARK_GPU=H100 modal run evaluation/benchmarks/benchmark_gpu.py --headline-only --force-build
 
-    modal volume get nof1-mpgibbs-prof /H100/dsmc_amala_plus_N512_T1024 ./h100_trace
+    modal volume get nof1-mpgibbs-prof /H100/dsmc_amala_exact_N512_T1024 ./h100_trace
 
   CPU (local, no Modal, no spend). The static rung — HLO, cost-analysis (FLOPs vs
   bytes => roofline), and the gather/dot/triangular-solve/while access-pattern
@@ -34,11 +34,11 @@ Two execution targets, same core (`_run_benchmark`):
   the dev loop close: iterate the static analysis locally for free, reserve the
   GPU/ncu for confirming the one fusion the analysis points at.
 
-    uv run python scripts/benchmarks/benchmark_gpu.py --local                  # headline N512/T1024
-    uv run python scripts/benchmarks/benchmark_gpu.py --local --n 64 --t 128   # quick shape
-    uv run python scripts/benchmarks/benchmark_gpu.py --local --p 2 --no-trace # production P, analysis only
+    uv run python evaluation/benchmarks/benchmark_gpu.py --local                  # headline N512/T1024
+    uv run python evaluation/benchmarks/benchmark_gpu.py --local --n 64 --t 128   # quick shape
+    uv run python evaluation/benchmarks/benchmark_gpu.py --local --p 2 --no-trace # production P, analysis only
 
-The model is the ``scripts/benchmarks/synthetic_nonlinear.py`` fixture (3 latent
+The model is the ``evaluation/fixtures/synthetic_nonlinear.py`` fixture (3 latent
 states, mixed observation families), built with random init (no Pathfinder) —
 numerics are irrelevant; only the compiled-kernel shapes/op-structure matter.
 """
@@ -49,7 +49,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import modal
 
@@ -78,14 +78,11 @@ def _build_image() -> modal.Image:
         # CUDA 12 wheels (GPU-agnostic, one image for any card), pinned to uv.lock so the
         # resolve cannot drift JAX off 0.9.0.1 between benchmark runs.
         .uv_pip_install("jax[cuda12]==0.9.0.1")
-        .env({"PYTHONPATH": "/root/src"})
+        .env({"PYTHONPATH": "/root/src:/root"})
         .add_local_file(root / "config.yaml", remote_path="/root/config.yaml")
         .add_local_file(root / "pyproject.toml", remote_path="/root/pyproject.toml")
         .add_local_dir(root / "src" / "nof1_causal_lab", remote_path="/root/src/nof1_causal_lab")
-        .add_local_file(
-            root / "scripts" / "benchmarks" / "synthetic_nonlinear.py",
-            remote_path="/root/scripts/synthetic_nonlinear.py",
-        )
+        .add_local_dir(root / "evaluation", remote_path="/root/evaluation")
     )
 
 
@@ -100,16 +97,16 @@ volume = modal.Volume.from_name("nof1-mpgibbs-prof", create_if_missing=True)
 
 
 class MethodSpec(NamedTuple):
-    smoother: str
-    leaf: str
-    block_size: int
+    smoother: Literal["dsmc"]
+    leaf: Literal["amala_exact", "paid_mix"]
+    block_coords: int
     trace: bool = False
 
 
 class BenchmarkConfig(NamedTuple):
-    smoother: str
-    leaf: str
-    block_size: int
+    smoother: Literal["dsmc"]
+    leaf: Literal["amala_exact", "paid_mix"]
+    block_coords: int
     n_particles: int
     t_steps: int
     trace: bool
@@ -117,7 +114,7 @@ class BenchmarkConfig(NamedTuple):
     @property
     def tag(self) -> str:
         return (
-            f"{self.smoother}/{self.leaf}/N{self.n_particles}/T{self.t_steps}/bs{self.block_size}"
+            f"{self.smoother}/{self.leaf}/N{self.n_particles}/T{self.t_steps}/bc{self.block_coords}"
         )
 
     @property
@@ -125,20 +122,20 @@ class BenchmarkConfig(NamedTuple):
         return f"{self.smoother}_{self.leaf}_N{self.n_particles}_T{self.t_steps}"
 
 
-DEFAULT_BLOCK_SIZE = 256
+DEFAULT_BLOCK_COORDS = 256
 
 # dsmc's pure-JAX (num_pairs, P, N, N) combine materialization can OOM on
 # memory-tight cards. The default sweep targets the H100 80GB large-N regime.
 N_GRID = (512,)
 T_GRID = (1024,)
-METHODS = (MethodSpec("dsmc", "amala_plus", DEFAULT_BLOCK_SIZE, trace=True),)
+METHODS = (MethodSpec("dsmc", "amala_exact", DEFAULT_BLOCK_COORDS, trace=True),)
 
 
 def _config(method: MethodSpec, n_particles: int, t_steps: int) -> BenchmarkConfig:
     return BenchmarkConfig(
         method.smoother,
         method.leaf,
-        method.block_size,
+        method.block_coords,
         n_particles,
         t_steps,
         method.trace,
@@ -196,10 +193,7 @@ def _run_benchmark(
         build_marginal_particle_gibbs_kernel,
         run_marginal_particle_gibbs,
     )
-    from nof1_causal_lab.models.ssm.transition_kinds import (
-        LATENT_TRANSITION_EULER_MARUYAMA,
-        LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
-    )
+    from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
     total_steps = warmup_steps + sample_steps
     print("JAX devices:", jax.devices(), "| config:", cfg.tag, flush=True)
@@ -207,23 +201,15 @@ def _run_benchmark(
     model = build_synthetic_nonlinear_model(
         data, include_interval_support=False, diffusion_scale=1.0
     )
-    # The discretization is method-requested, not a model property (mirrors fit.py):
-    # the amala/amala_plus leaves request Euler-Maruyama; plain / prior_predictive
-    # request the local-linear-Gaussian target.
-    scheme = (
-        LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN
-        if cfg.smoother == "plain" or cfg.leaf == "prior_predictive"
-        else LATENT_TRANSITION_EULER_MARUYAMA
-    )
     bundle = build_particle_runtime_bundle(
         model,
         data.observations,
         data.times,
-        scheme=scheme,
+        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
         trace_key=random.PRNGKey(0),
         reparam=None,
     )
-    dim = int(bundle["flat_example"].shape[0])
+    dim = int(bundle.cached.flat_example.shape[0])
     kernel = build_marginal_particle_gibbs_kernel(
         bundle,
         num_particles=cfg.n_particles,
@@ -231,7 +217,7 @@ def _run_benchmark(
         param_step_size=0.01,
         latent_smoother=cfg.smoother,
         dsmc_leaf_proposal=cfg.leaf,
-        latent_block_size=cfg.block_size,
+        latent_block_coords=cfg.block_coords,
     )
     started = time.monotonic()
     run = run_marginal_particle_gibbs(
@@ -260,7 +246,7 @@ def _run_benchmark(
     row = {
         "smoother": cfg.smoother,
         "leaf": cfg.leaf,
-        "block": cfg.block_size,
+        "block_coords": cfg.block_coords,
         "N": cfg.n_particles,
         "T": cfg.t_steps,
         "P": num_parameter_particles,
@@ -297,10 +283,8 @@ def run_config(
 ) -> dict:
     """Modal GPU worker: profile the headline config to the Volume; time the rest."""
     import os
-    import sys
     import traceback
 
-    sys.path.insert(0, "/root/scripts")
     # CUDA graphs / command buffers: capture the per-step kernel sequence into
     # replayable graphs to amortize host launch overhead (the dispatch-bound regime).
     # Must be set before _run_benchmark imports jax so XLA reads it at backend init.
@@ -317,7 +301,7 @@ def run_config(
     is_headline = (
         cfg.smoother == HEADLINE_CONFIG.smoother
         and cfg.leaf == HEADLINE_CONFIG.leaf
-        and cfg.block_size == HEADLINE_CONFIG.block_size
+        and cfg.block_coords == HEADLINE_CONFIG.block_coords
         and cfg.n_particles == HEADLINE_CONFIG.n_particles
         and cfg.t_steps == HEADLINE_CONFIG.t_steps
     )
@@ -345,7 +329,7 @@ def run_config(
         return {
             "smoother": cfg.smoother,
             "leaf": cfg.leaf,
-            "block": cfg.block_size,
+            "block_coords": cfg.block_coords,
             "N": cfg.n_particles,
             "T": cfg.t_steps,
             "error": f"{type(exc).__name__}: {exc}",
@@ -362,7 +346,7 @@ def _result_ms(
         if (
             result.get("smoother") == method.smoother
             and result.get("leaf") == method.leaf
-            and result.get("block") == method.block_size
+            and result.get("block_coords") == method.block_coords
             and result.get("N") == n_particles
             and result.get("T") == t_steps
         ):
@@ -396,7 +380,7 @@ def _scaling(results: list[dict], method: MethodSpec) -> None:
             )
     if not lines:
         return
-    print(f"\n  scaling for {method.smoother}({method.leaf}, bs={method.block_size}):")
+    print(f"\n  scaling for {method.smoother}({method.leaf}, bc={method.block_coords}):")
     for line in lines:
         print(line)
 
@@ -448,7 +432,7 @@ def main(
     )
     print(f"\n================ MPGibbs GPU benchmark [{GPU}] ================")
     hdr = (
-        f"{'smoother':<11}{'leaf':<16}{'N':>5}{'T':>6}{'bs':>5}"
+        f"{'smoother':<11}{'leaf':<16}{'N':>5}{'T':>6}{'bc':>5}"
         f"{'dim':>5}{'compile_s':>11}{'ms/step':>11}"
     )
     print(hdr)
@@ -457,11 +441,12 @@ def main(
         if "error" in r:
             print(
                 f"{r['smoother']:<11}{r['leaf']:<16}{r['N']:>5}{r['T']:>6}"
-                f"{r['block']:>5}{'':>5}  ERROR: {r['error']}"
+                f"{r['block_coords']:>5}{'':>5}  ERROR: {r['error']}"
             )
         else:
             print(
-                f"{r['smoother']:<11}{r['leaf']:<16}{r['N']:>5}{r['T']:>6}{r['block']:>5}"
+                f"{r['smoother']:<11}{r['leaf']:<16}{r['N']:>5}{r['T']:>6}"
+                f"{r['block_coords']:>5}"
                 f"{r['dim']:>5}{r['compile_s']:>11}{r['steady_ms_per_step']:>11}"
             )
     for method in METHODS:
@@ -492,7 +477,7 @@ def _run_local() -> int:
     import traceback
 
     parser = argparse.ArgumentParser(
-        description="Local-CPU MPGibbs dsmc/amala+ profiling (no Modal, no spend)."
+        description="Local-CPU MPGibbs dsmc/amala_exact profiling (no Modal, no spend)."
     )
     parser.add_argument("--local", action="store_true", help="Required: run on local CPU.")
     parser.add_argument(
@@ -504,7 +489,12 @@ def _run_local() -> int:
     parser.add_argument(
         "--p", type=int, default=NUM_PARAMETER_PARTICLES, help="num parameter particles (P)"
     )
-    parser.add_argument("--block", type=int, default=DEFAULT_BLOCK_SIZE, help="latent block size")
+    parser.add_argument(
+        "--block-coords",
+        type=int,
+        default=DEFAULT_BLOCK_COORDS,
+        help="number of latent coordinates proposed per update",
+    )
     # Few steps: cost/HLO/access-patterns dump at compile time (before the loop), so a
     # couple of steps is enough to confirm execution + grab a short trace on CPU.
     parser.add_argument("--warmup", type=int, default=1, help="warmup steps (CPU: keep small)")
@@ -522,11 +512,15 @@ def _run_local() -> int:
 
     # JAX reads the platform at first import; set it before _run_benchmark imports jax.
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
-    # synthetic_nonlinear.py is this script's sibling.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-
     method = HEADLINE_METHOD
-    cfg = BenchmarkConfig(method.smoother, method.leaf, cli.block, cli.n, cli.t, not cli.no_trace)
+    cfg = BenchmarkConfig(
+        method.smoother,
+        method.leaf,
+        cli.block_coords,
+        cli.n,
+        cli.t,
+        not cli.no_trace,
+    )
     profile_dir = f"{cli.out.rstrip('/')}/cpu/{cfg.profile_name}"
     print(
         f"[local-cpu] {cfg.tag}  P={cli.p}  warmup={cli.warmup} samples={cli.samples}"

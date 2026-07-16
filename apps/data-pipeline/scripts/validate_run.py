@@ -25,15 +25,16 @@ import argparse
 import graphlib
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from scripts.artifact_contract_catalog import ARTIFACT_CONTRACTS
 from pydantic import ValidationError
+from scripts.artifact_contract_catalog import ARTIFACT_CONTRACTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from nof1_causal_lab.machine.artifacts import ArtifactId
+
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
@@ -121,7 +122,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
         raise ValueError(f"Unknown artifact '{up_to}'. Expected one of: {', '.join(artifact_ids)}")
     artifact_order = list(_result_artifact_order())
     if up_to is not None:
-        artifact_order = artifact_order[: artifact_order.index(up_to) + 1]
+        artifact_order = artifact_order[: artifact_order.index(cast("ArtifactId", up_to)) + 1]
 
     artifacts: dict[str, dict[str, Any]] = {}
     artifact_paths: dict[str, str] = {}

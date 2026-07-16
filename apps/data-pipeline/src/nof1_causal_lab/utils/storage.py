@@ -128,7 +128,9 @@ def makedirs(path: str) -> None:
 def rm_tree(path: str) -> None:
     """Remove a directory tree or object prefix when it exists."""
     if is_remote():
-        get_fs().rm(path, recursive=True, missing_ok=True)
+        fs = get_fs()
+        if fs.exists(path):
+            fs.rm(path, recursive=True)
         return
     import shutil
 

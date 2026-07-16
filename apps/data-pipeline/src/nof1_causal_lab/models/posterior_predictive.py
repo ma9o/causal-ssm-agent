@@ -417,7 +417,7 @@ def run_posterior_predictive_checks(
     linearised drift matrix) and compares them to the observed data.
 
     Args:
-        samples: Posterior samples from InferenceResult.get_samples()
+        samples: Posterior samples from ParticleMCMCPosterior.get_samples()
         observations: (T, n_manifest) observed data
         times: (T,) observation times
         manifest_names: list of manifest variable names

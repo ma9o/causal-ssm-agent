@@ -34,7 +34,6 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     MeasurementParams,
     RuntimeDynamics,
 )
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
@@ -107,21 +106,9 @@ def _discover_sites(
 def _assemble_deterministics(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
-    *,
-    registry=None,
-    parameter_layout: SSMParameterLayout | None = None,
 ) -> dict[str, jnp.ndarray]:
-    """Thin wrapper over the registry-driven deterministic assembly path."""
-    if parameter_layout is None:
-        parameter_layout = SSMParameterLayout.from_spec(spec)
-    if registry is None:
-        registry = build_site_registry(spec, parameter_layout)
-    return assemble_deterministics_from_registry(
-        samples,
-        spec,
-        registry,
-        parameter_layout=parameter_layout,
-    )
+    """Thin wrapper over deterministic assembly owned by ``spec``."""
+    return assemble_deterministics_from_registry(samples, spec)
 
 
 # ---------------------------------------------------------------------------
@@ -365,11 +352,8 @@ def _assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
     registry=None,
-    parameter_layout: SSMParameterLayout | None = None,
 ) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
-    if parameter_layout is None:
-        parameter_layout = SSMParameterLayout.from_spec(spec)
     det = _assemble_single_likelihood_deterministics(
         samples,
         spec,
@@ -380,9 +364,7 @@ def _assemble_likelihood_inputs(
         det,
     )
 
-    runtime_registry = (
-        registry if registry is not None else build_site_registry(spec, parameter_layout)
-    )
+    runtime_registry = registry if registry is not None else build_site_registry(spec)
     extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
 
     return (
@@ -455,15 +437,8 @@ def extract_constrained_samples(
         profiling["constrain_batched_seconds"] = time.perf_counter() - constrain_start
 
     if reparam is None:
-        parameter_layout = (
-            model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
-        )
         det_start = time.perf_counter()
-        det_samples = _assemble_deterministics(
-            samples,
-            spec,
-            parameter_layout=parameter_layout,
-        )
+        det_samples = _assemble_deterministics(samples, spec)
         _block_until_ready_tree(det_samples)
         if profiling is not None:
             profiling["deterministic_assembly_seconds"] = time.perf_counter() - det_start
@@ -502,15 +477,8 @@ def extract_constrained_samples(
         profiling["original_sample_resolution_seconds"] = time.perf_counter() - resolve_start
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
-    parameter_layout = (
-        model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
-    )
     det_start = time.perf_counter()
-    det_samples = _assemble_deterministics(
-        original_samples,
-        spec,
-        parameter_layout=parameter_layout,
-    )
+    det_samples = _assemble_deterministics(original_samples, spec)
     _block_until_ready_tree(det_samples)
     if profiling is not None:
         profiling["deterministic_assembly_seconds"] = time.perf_counter() - det_start
@@ -564,8 +532,7 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
-    parameter_layout = model.parameter_layout
-    runtime_registry = build_site_registry(model.spec, parameter_layout)
+    runtime_registry = build_site_registry(model.spec)
     bound_transition_inputs = getattr(model, "transition_inputs", None)
 
     def _constrain(z):
@@ -580,7 +547,6 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            parameter_layout=parameter_layout,
         )
         time_intervals = (
             jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
@@ -617,7 +583,6 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            parameter_layout=parameter_layout,
         )
         time_intervals = (
             jnp.diff(runtime_times, prepend=runtime_times[0])
@@ -666,7 +631,6 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            parameter_layout=parameter_layout,
         )
         time_intervals = (
             jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
@@ -709,7 +673,6 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            parameter_layout=parameter_layout,
         )
         time_intervals = (
             jnp.diff(runtime_times, prepend=runtime_times[0])

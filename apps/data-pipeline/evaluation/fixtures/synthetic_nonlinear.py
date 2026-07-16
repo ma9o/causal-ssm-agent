@@ -241,7 +241,7 @@ class SyntheticNonlinearData:
     times: jnp.ndarray
     latent: jnp.ndarray
     transition_inputs: jnp.ndarray
-    observation_support: object
+    observation_support: ObservationSupportRuntime
 
 
 def _synthetic_nonlinear_dynamics_spec() -> DynamicsSpec:

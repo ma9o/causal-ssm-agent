@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from typing import Any
+from typing import Any, TypeGuard
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -42,10 +42,6 @@ with workflow.unsafe.imports_passed_through():
         validate_move,
     )
     from nof1_causal_lab.machine.store import ResumeRef
-    from nof1_causal_lab.machine.temporal.llm_transition_workflow import (
-        SingleLLMTransitionWorkflow,
-    )
-    from nof1_causal_lab.machine.temporal.measurement_workflow import MeasurementsWorkflow
     from nof1_causal_lab.machine.temporal.messages import (
         EpisodeInit,
         EpisodeStatus,
@@ -55,19 +51,17 @@ with workflow.unsafe.imports_passed_through():
         MoveOutcome,
         MoveRequest,
         RunArtifactInput,
+        SingleLLMTransitionId,
         SingleLLMTransitionWorkflowInput,
         StatisticalModelSpecWorkflowInput,
         WriteArtifactInput,
-    )
-    from nof1_causal_lab.machine.temporal.statistical_model_spec_workflow import (
-        StatisticalModelSpecWorkflow,
     )
 
 _RUN_TRANSITION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _JOURNAL_TIMEOUT = timedelta(minutes=1)
 _RUN_COLLECTION_TIMEOUT = timedelta(minutes=10)
-_SINGLE_LLM_TRANSITIONS = frozenset(
+_SINGLE_LLM_TRANSITIONS: frozenset[SingleLLMTransitionId] = frozenset(
     {
         "raw_data",
         "latent_structure",
@@ -75,6 +69,11 @@ _SINGLE_LLM_TRANSITIONS = frozenset(
         "baseline_report",
     }
 )
+
+
+def _is_single_llm_transition(artifact_id: str) -> TypeGuard[SingleLLMTransitionId]:
+    return artifact_id in _SINGLE_LLM_TRANSITIONS
+
 
 _NON_RETRYABLE_ERRORS = [
     "TransitionExecutionError",
@@ -140,9 +139,9 @@ class EpisodeWorkflow:
                 return self._outcome(seq, status="rejected", reason=reason)
 
             try:
-                if isinstance(move, RunArtifact) and move.artifact_id in _SINGLE_LLM_TRANSITIONS:
+                if isinstance(move, RunArtifact) and _is_single_llm_transition(move.artifact_id):
                     effects = await workflow.execute_child_workflow(
-                        SingleLLMTransitionWorkflow.run,
+                        "SingleLLMTransitionWorkflow",
                         SingleLLMTransitionWorkflowInput(
                             workspace_id=self._workspace_id,
                             seq=seq,
@@ -167,7 +166,7 @@ class EpisodeWorkflow:
                     )
                 elif isinstance(move, RunArtifact) and move.artifact_id == "measurements":
                     effects = await workflow.execute_child_workflow(
-                        MeasurementsWorkflow.run,
+                        "MeasurementsWorkflow",
                         MeasurementsWorkflowInput(
                             workspace_id=self._workspace_id,
                             seq=seq,
@@ -191,7 +190,7 @@ class EpisodeWorkflow:
                     )
                 elif isinstance(move, RunArtifact) and move.artifact_id == "statistical_model_spec":
                     effects = await workflow.execute_child_workflow(
-                        StatisticalModelSpecWorkflow.run,
+                        "StatisticalModelSpecWorkflow",
                         StatisticalModelSpecWorkflowInput(
                             workspace_id=self._workspace_id,
                             seq=seq,

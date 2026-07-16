@@ -1226,10 +1226,7 @@ def compile_priors(
     return prior_registry, bindings, diagnostics
 
 
-def bind_parameters(
-    bindings: SemanticBindingRegistry,
-    ssm_spec: SSMSpec,  # noqa: ARG001 - retained so call sites document spec provenance
-) -> list[CompiledParameterBinding]:
+def bind_parameters(bindings: SemanticBindingRegistry) -> list[CompiledParameterBinding]:
     """Map semantic parameter names to NumPyro sample sites."""
     return [
         CompiledParameterBinding(

@@ -190,7 +190,7 @@ class TestIndicator:
 
     def test_invalid_aggregation(self):
         """Invalid aggregation is rejected."""
-        with pytest.raises(ValueError, match="Unknown aggregation"):
+        with pytest.raises(ValueError, match="aggregation"):
             Indicator(
                 name="mood_rating",
                 construct_name="mood",
@@ -201,7 +201,7 @@ class TestIndicator:
 
     def test_invalid_measurement_dtype(self):
         """Invalid measurement_dtype is rejected."""
-        with pytest.raises(ValueError, match="Invalid measurement_dtype"):
+        with pytest.raises(ValueError, match="measurement_dtype"):
             Indicator(
                 name="mood_rating",
                 construct_name="mood",
@@ -281,7 +281,7 @@ class TestIndicator:
 
     def test_invalid_extraction_mode(self):
         """Invalid extraction_mode is rejected."""
-        with pytest.raises(ValueError, match="extraction_mode must be"):
+        with pytest.raises(ValueError, match="extraction_mode"):
             Indicator(
                 name="mood_rating",
                 construct_name="mood",
@@ -614,8 +614,7 @@ class TestCausalDesign:
                 }
             )
 
-    def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
-        """CausalDesign.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
+    def test_lagged_edge_uses_measurement_clock(self, construct_factory, indicator_factory):
         latent = LatentStructure(
             constructs=[
                 construct_factory("sleep", Role.EXOGENOUS),
@@ -635,8 +634,8 @@ class TestCausalDesign:
             ],
         )
         causal_design = CausalDesign(latent=latent, measurement=measurement)
-        lag = causal_design.get_edge_lag_hours(latent.edges[0])
-        assert lag == 24  # 1 day
+        assert latent.edges[0].lagged is True
+        assert causal_design.measurement.model_clock_hours == 24
 
 
 class TestParseDurationToHours:

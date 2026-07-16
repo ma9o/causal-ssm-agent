@@ -23,10 +23,6 @@ from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_observation_model
-from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
-    GaussianTrajectoryPriorTerms,
-    build_gaussian_trajectory_prior_terms,
-)
 from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
@@ -44,11 +40,10 @@ from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeState, build
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
+    from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
+        GaussianTrajectoryPriorTerms,
+    )
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
-
-# Match laplace/shared.py's default jitter so the runtime bundle and the target
-# trajectory log-prob agree on the covariance being evaluated.
-AUX_JITTER = 1e-6
 
 
 class LatentContext(NamedTuple):
@@ -267,7 +262,7 @@ def build_particle_runtime_bundle(
             )
 
         prior_runtime = model.get_prior_runtime_bundle()
-        runtime_registry = build_site_registry(model.spec, model.parameter_layout)
+        runtime_registry = build_site_registry(model.spec)
         manifest_chol_template = np.asarray(model.spec.manifest_chol_block.template)
         manifest_chol_offdiag = manifest_chol_template - np.diag(np.diag(manifest_chol_template))
         gaussian_measurement_block_is_diagonal = bool(np.allclose(manifest_chol_offdiag, 0.0))
@@ -298,7 +293,6 @@ def build_particle_runtime_bundle(
                 original_samples,
                 model.spec,
                 registry=runtime_registry,
-                parameter_layout=model.parameter_layout,
             )
             time_intervals = (
                 jnp.diff(runtime_times, prepend=runtime_times[0])
@@ -424,19 +418,8 @@ def build_particle_runtime_bundle(
         def prior_terms_from_context_fn(
             context: LatentContext,
         ) -> GaussianTrajectoryPriorTerms | None:
-            if not declared_target.supports_affine_prefix_marginals:
-                return None
-            # Ad/Qd/cd are populated (non-None) exactly when the target supports
-            # affine prefix marginals, which is the branch we are in; ty cannot
-            # correlate the flag with the LatentContext fields' nullability.
-            return build_gaussian_trajectory_prior_terms(
-                context.Ad,  # ty: ignore[invalid-argument-type]
-                context.Qd,  # ty: ignore[invalid-argument-type]
-                context.cd,  # ty: ignore[invalid-argument-type]
-                context.init_mean,
-                context.init_cov,
-                jitter=AUX_JITTER,
-            )
+            del context
+            return None
 
         def trajectory_log_prob_from_context_runtime_fn(
             context: LatentContext,
@@ -444,8 +427,6 @@ def build_particle_runtime_bundle(
             runtime_observations: jnp.ndarray,
             prior_terms: GaussianTrajectoryPriorTerms | None = None,
         ) -> jnp.ndarray:
-            if prior_terms is None and declared_target.supports_affine_prefix_marginals:
-                prior_terms = prior_terms_from_context_fn(context)
             prior_lp = declared_target.trajectory_prior_log_prob(
                 context,
                 latent_trajectory,

@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from nof1_causal_lab.utils.openrouter_client import Tool
+    from collections.abc import Callable, Sequence
 
 MAX_TOOL_REPAIR_ERROR_CHARS = 1200
+
+
+class NamedTool(Protocol):
+    """Minimal tool surface needed when constructing retry guidance."""
+
+    name: str
 
 
 class TraceMessage(BaseModel):
@@ -90,7 +94,7 @@ def _truncate_tool_error(error_text: str, limit: int = MAX_TOOL_REPAIR_ERROR_CHA
     return error_text[:limit] + "\n...[truncated]"
 
 
-def _tool_retry_message(error_text: str, tools: list[Tool] | None) -> dict[str, str]:
+def _tool_retry_message(error_text: str, tools: Sequence[NamedTool] | None) -> dict[str, str]:
     """Build a repair instruction after a malformed or failed tool response."""
     guidance = (
         "Retry the same step. If you need a tool, emit a valid tool call with a JSON object "

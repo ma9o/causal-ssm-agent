@@ -386,9 +386,9 @@ def _parse_inference(raw: dict) -> InferenceConfig:
 
 
 @lru_cache(maxsize=1)
-def load_config() -> PipelineConfig:
+def load_config(config_path: Path | None = None) -> PipelineConfig:
     """Load, parse, and validate the pipeline configuration."""
-    config_path = _find_config_path()
+    config_path = config_path or _find_config_path()
     with config_path.open() as f:
         raw = yaml.safe_load(f) or {}
 

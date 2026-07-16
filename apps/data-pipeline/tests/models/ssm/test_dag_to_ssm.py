@@ -8,6 +8,9 @@ Tests that:
 5. Pipeline threading passes causal_design through
 """
 
+from typing import Any, cast
+
+import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -614,7 +617,7 @@ class TestRuntimeStructuralSupport:
                     "lambda_block": SparseMatrixBlockSpec(
                         n_rows=4,
                         n_cols=3,
-                        free_support=None,
+                        free_support=cast("np.ndarray", None),
                         template=jnp.eye(4, 3),
                         free_site_name="lambda_free",
                         det_site_name="lambda",
@@ -672,9 +675,13 @@ class TestRuntimeStructuralSupport:
             ),
         ],
     )
-    def test_ssm_spec_rejects_invalid_structural_metadata(self, override, error_pattern):
+    def test_ssm_spec_rejects_invalid_structural_metadata(
+        self,
+        override: dict[str, Any],
+        error_pattern: str,
+    ):
         """SSMSpec rejects invalid mask shapes, missing masks, and mismatched lengths."""
-        base = {
+        base: dict[str, Any] = {
             "n_latent": 3,
             "n_manifest": 4,
             "dynamics_spec": dense_matrix_dynamics_spec(
@@ -722,7 +729,7 @@ class TestRuntimeStructuralSupport:
                     n_rows=2,
                     n_cols=2,
                     free_support=zero_loading_support(2, 2),
-                    template="free",
+                    template=cast("jax.Array", "free"),
                     free_site_name="lambda_free",
                     det_site_name="lambda",
                     support=SupportClass.REAL,

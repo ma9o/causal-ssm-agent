@@ -174,7 +174,7 @@ def validate_jaxtyping_wiring(repo_root: Path) -> tuple[list[str], list[str]]:
     src_root = repo_root / "src"
     pyproject = repo_root / "pyproject.toml"
     if not src_root.is_dir() or not pyproject.is_file():
-        return []
+        return [], []
 
     wired = _wired_jaxtyping_packages(pyproject)
     annotated, future_disabled = _scan_jaxtyping_modules(src_root)
@@ -269,12 +269,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: config file not found: {args.config}", file=sys.stderr)
             return 1
         load_config.cache_clear()
-        config_mod._find_config_path = lambda: args.config  # type: ignore[attr-defined]
 
-    print(f"Validating: {config_mod._find_config_path()}")
+    config_path = args.config or config_mod._find_config_path()
+    print(f"Validating: {config_path}")
 
     try:
-        config = load_config()
+        config = load_config(config_path)
     except ValueError as exc:
         print("\nSchema errors:")
         print(exc)

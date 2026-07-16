@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.models.causal_proofs import PosteriorProvenance
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -44,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 
 InferenceMethod = Literal["marginal_particle_gibbs"]
-InferenceResultMethod = Literal["marginal_particle_gibbs", "map"]
 
 
 class InferenceDiagnostics(TypedDict, total=False):
@@ -129,13 +129,37 @@ class MCMCResultDiagnostics(TypedDict, total=False):
     rank_histograms: list[RankHistogramData]
 
 
+@dataclass(frozen=True, slots=True)
+class ParticleMCMCEvidence:
+    """Proof that samples came from the production particle-MCMC target."""
+
+    engine: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
+    latent_transition: Literal["euler_maruyama"] = "euler_maruyama"
+
+
 @dataclass
-class InferenceResult:
-    """Container for inference results across all backends."""
+class WarmupProposal:
+    """Laplace/IEKS approximation usable only for sampler initialization."""
 
     _samples: dict[str, jnp.ndarray]
-    method: InferenceResultMethod
     diagnostics: InferenceDiagnostics = field(default_factory=dict)
+    method: Literal["map"] = field(init=False, default="map")
+
+    def get_samples(self) -> dict[str, jnp.ndarray]:
+        """Return approximate parameter draws for warmup consumers."""
+        return self._samples
+
+
+@dataclass
+class ParticleMCMCPosterior:
+    """Posterior draws produced by the invariant particle-MCMC engine."""
+
+    _samples: dict[str, jnp.ndarray]
+    diagnostics: InferenceDiagnostics = field(default_factory=dict)
+    evidence: ParticleMCMCEvidence = field(default_factory=ParticleMCMCEvidence)
+    method: Literal["marginal_particle_gibbs"] = field(
+        init=False, default="marginal_particle_gibbs"
+    )
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
         """Return posterior samples dict."""
@@ -147,9 +171,6 @@ class InferenceResult:
 
     def get_mcmc_diagnostics(self) -> MCMCResultDiagnostics | None:
         """Extract JSON-serializable MCMC diagnostics."""
-        if self.method == "map":
-            return None
-
         mcmc = self.diagnostics.get("mcmc")
         if mcmc is None:
             return None
@@ -403,32 +424,31 @@ class InferenceResult:
         )
 
 
-def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult | None:
+def _serialize_fitted_result(result: ParticleMCMCPosterior) -> ParticleMCMCPosterior:
     """Reduce persisted inference output to the posterior samples analysis uses.
 
     Fits store dynamics parameters in ``_samples`` and keep retained latent
     paths in ``diagnostics`` for analysis counterfactual starts. Live inference
     caches such as the MCMC object are not picklable and are dropped.
     """
-    if result is None:
-        return None
     diagnostics: InferenceDiagnostics = {}
     if "latent_paths" in result.diagnostics:
         diagnostics["latent_paths"] = result.diagnostics["latent_paths"]
-    return InferenceResult(
+    return ParticleMCMCPosterior(
         _samples=result.get_samples(),
-        method=result.method,
         diagnostics=diagnostics,
+        evidence=result.evidence,
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class FittedArtifact:
     """Canonical persisted output of inference."""
 
-    result: InferenceResult | None
-    spec: SSMSpec | None
+    result: ParticleMCMCPosterior
+    spec: SSMSpec
     times: jnp.ndarray
+    provenance: PosteriorProvenance
     observation_support: ObservationSupportRuntime | None = None
     ppc_result: JsonObject | None = None
 
@@ -438,23 +458,26 @@ class FittedArtifact:
             "result": _serialize_fitted_result(self.result),
             "spec": self.spec,
             "times": self.times,
+            "provenance": self.provenance,
             "observation_support": self.observation_support,
             "ppc_result": self.ppc_result,
         }
 
     def __setstate__(self, state: FittedArtifactState) -> None:
-        self.result = state["result"]
-        self.spec = state["spec"]
-        self.times = state["times"]
-        self.observation_support = state["observation_support"]
-        self.ppc_result = state["ppc_result"]
+        object.__setattr__(self, "result", state["result"])
+        object.__setattr__(self, "spec", state["spec"])
+        object.__setattr__(self, "times", state["times"])
+        object.__setattr__(self, "provenance", state["provenance"])
+        object.__setattr__(self, "observation_support", state["observation_support"])
+        object.__setattr__(self, "ppc_result", state["ppc_result"])
 
 
 class FittedArtifactState(TypedDict):
     """Pickled analysis-only state for a fitted artifact."""
 
-    result: InferenceResult | None
-    spec: SSMSpec | None
+    result: ParticleMCMCPosterior
+    spec: SSMSpec
     times: jnp.ndarray
+    provenance: PosteriorProvenance
     observation_support: ObservationSupportRuntime | None
     ppc_result: JsonObject | None

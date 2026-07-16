@@ -36,6 +36,8 @@ is what makes the sliders in the walkthrough live.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -70,6 +72,12 @@ C_UNDER = C_CONT  # underconfident: posterior too wide — blue
 C_BIAS = C_PROBE  # biased location — orange
 C_TRUE = C_PROBE  # the prior draw θ̃ (the "truth" of a run)
 C_BAND = "rgba(148,163,184,0.30)"  # simultaneous null band fill (slate)
+
+
+class _RankScenarioKwargs(TypedDict, total=False):
+    scale: float
+    bias: float
+    rho: float
 
 
 def _layout(fig: go.Figure, title: str, height: int = 460, width: int = 940) -> go.Figure:
@@ -441,7 +449,7 @@ def fig_calibrated(S: int = S_DEFAULT, bins: int = BINS_DEFAULT) -> go.Figure:
 
 
 # ── Figure 3: the dictionary of shapes (hero) ──────────────────────────────────
-_GALLERY = (
+_GALLERY: tuple[tuple[str, _RankScenarioKwargs, str], ...] = (
     ("calibrated  (exact)", dict(), C_PASS),
     ("overconfident  (σ × 0.5)", dict(scale=0.5), C_OVER),
     ("underconfident  (σ × 2)", dict(scale=2.0), C_UNDER),
@@ -537,7 +545,7 @@ def fig_dial(
 # ── Figure 5: the ECDF-difference signatures ───────────────────────────────────
 def fig_ecdf_gallery(S: int = S_DEFAULT) -> go.Figure:
     """The same defects as the histogram gallery, read off binning-free ECDF curves."""
-    cases = (
+    cases: tuple[tuple[str, _RankScenarioKwargs, str], ...] = (
         ("calibrated", dict(), C_PASS),
         ("overconfident", dict(scale=0.5), C_OVER),
         ("underconfident", dict(scale=2.0), C_UNDER),

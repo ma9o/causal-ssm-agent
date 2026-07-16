@@ -32,7 +32,11 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     build_marginal_particle_gibbs_kernel,
     run_marginal_particle_gibbs,
 )
-from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, InferenceResult
+from nof1_causal_lab.models.ssm.inference.types import (
+    InferenceDiagnostics,
+    ParticleMCMCEvidence,
+    ParticleMCMCPosterior,
+)
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
@@ -49,7 +53,7 @@ _DEFAULT_PARAM_STEP_SIZE_MIN = 1e-6
 _DEFAULT_PARAM_STEP_SIZE_MAX = 1e3
 
 
-def _phase_elapsed(t0: float) -> float:
+def _mpg_phase_elapsed(t0: float) -> float:
     return time.monotonic() - t0
 
 
@@ -121,7 +125,7 @@ def fit_marginal_particle_gibbs(
     profile_runtime_trace: bool = True,
     profile_trace_start_step: int = 0,
     profile_trace_steps: int = 3,
-) -> InferenceResult:
+) -> ParticleMCMCPosterior:
     """Fit an SSM with marginalized Particle Gibbs.
 
     This method targets the directly evaluable latent/parameter posterior using
@@ -176,7 +180,7 @@ def fit_marginal_particle_gibbs(
     )
     logger.info(
         "phase 1/4: bundle ready in %.1fs (dim=%d, public_sites=%d)",
-        _phase_elapsed(phase_t0),
+        _mpg_phase_elapsed(phase_t0),
         int(bundle.cached.flat_example.shape[0]),
         len(bundle.cached.public_sites),
     )
@@ -210,7 +214,7 @@ def fit_marginal_particle_gibbs(
     )
     init_positions = warmup_result.init_positions
     parameter_preconditioner_chol = warmup_result.preconditioner_chol
-    logger.info("phase 2/4: parameter warmup ready in %.1fs", _phase_elapsed(phase_t0))
+    logger.info("phase 2/4: parameter warmup ready in %.1fs", _mpg_phase_elapsed(phase_t0))
 
     pilot_means = pilot_vars = pilot_wide_vars = None
     if dsmc_leaf_proposal == "paid_mix":
@@ -319,7 +323,7 @@ def fit_marginal_particle_gibbs(
         profile_trace_start_step=profile_trace_start_step,
         profile_trace_steps=profile_trace_steps,
     )
-    mcmc_phase_seconds = _phase_elapsed(phase_t0)
+    mcmc_phase_seconds = _mpg_phase_elapsed(phase_t0)
     logger.info("phase 3/4: MCMC complete in %.1fs", mcmc_phase_seconds)
 
     phase_t0 = time.monotonic()
@@ -471,11 +475,13 @@ def fit_marginal_particle_gibbs(
 
     logger.info(
         "phase 4/4: posterior extraction complete in %.1fs. marginal_particle_gibbs total: %.1fs",
-        _phase_elapsed(phase_t0),
-        _phase_elapsed(overall_t0),
+        _mpg_phase_elapsed(phase_t0),
+        _mpg_phase_elapsed(overall_t0),
     )
-    return InferenceResult(
+    if bundle.cached.latent_transition_kind != LATENT_TRANSITION_EULER_MARUYAMA:
+        raise RuntimeError("Particle posterior used a non-production latent transition target")
+    return ParticleMCMCPosterior(
         _samples=mcmc.get_samples(),
-        method="marginal_particle_gibbs",
         diagnostics=diagnostics,
+        evidence=ParticleMCMCEvidence(),
     )

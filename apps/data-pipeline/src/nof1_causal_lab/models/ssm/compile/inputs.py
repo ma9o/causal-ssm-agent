@@ -146,7 +146,7 @@ def compile_ssm_inputs_from_statistical_model_spec(
 
             raise PriorIndexingError(backward_gaps)
 
-    bindings = bind_parameters(index_maps, ssm_spec)
+    bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days
 
@@ -228,7 +228,7 @@ def compile_ssm_inputs_from_spec(
 
             raise PriorIndexingError(backward_gaps)
 
-    bindings = bind_parameters(index_maps, ssm_spec)
+    bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return ssm_spec, prior_registry, bindings, diagnostics, resolved_edge_lag_days
 

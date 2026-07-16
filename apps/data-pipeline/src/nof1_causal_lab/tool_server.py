@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
+from nof1_causal_lab.artifacts import CausalDesign
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 from nof1_causal_lab.episode_api import (
     capabilities_router,
@@ -42,6 +43,12 @@ from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
     execute_public_search_literature as _execute_search_literature,
 )
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
+from nof1_causal_lab.models.causal_proofs import (
+    CausalDesignRef,
+    CertifiedCausalAnalysis,
+    certify_identified_estimand,
+    certify_reportable_posterior,
+)
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
     ClampSpec,
@@ -59,7 +66,6 @@ from nof1_causal_lab.utils.causal_design import (
     get_estimation_constructs,
     get_estimation_state_order,
     get_indicators,
-    get_outcome_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -389,20 +395,38 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
         json_filename("identification_report", "identification_report"),
     )
 
-    fitted_spec = getattr(fitted_artifact, "spec", None)
-    if fitted_spec is None:
-        raise HTTPException(
-            500,
-            "Posterior fitted artifact is missing the compiled SSMSpec required for ranking tools.",
-        )
+    reportable_posterior = certify_reportable_posterior(fitted_artifact)
+    fitted_spec = reportable_posterior.artifact.spec
     runtime = prepare_model_runtime(
         data_for_model=data_for_model,
         model=SSMModel(fitted_spec),
     )
-    fitted_artifact.observation_support = runtime.observation_support
+    fitted_artifact = replace(fitted_artifact, observation_support=runtime.observation_support)
 
-    causal_design = causal_design_payload.get("causal_design", {})
-    outcome_name = get_outcome_name(causal_design)
+    causal_design = CausalDesign.model_validate(causal_design_payload["causal_design"])
+    outcome_name = identification_report["outcome_name"]
+    causal_design_ref = CausalDesignRef(
+        workspace_id=workspace_id,
+        version=identification_report_info.derived_from["causal_design"],
+    )
+    estimands = tuple(
+        certify_identified_estimand(
+            causal_design,
+            causal_design_ref=causal_design_ref,
+            treatment=treatment,
+            outcome=outcome_name,
+        )
+        for treatment in identification_report["estimable_treatments"]
+    )
+    causal_analysis = CertifiedCausalAnalysis(
+        causal_design=causal_design,
+        causal_design_ref=CausalDesignRef(
+            workspace_id=workspace_id,
+            version=spec_info.version,
+        ),
+        estimands=estimands,
+        posterior=reportable_posterior,
+    )
 
     serving_chain = (
         "posterior",
@@ -424,6 +448,7 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
         "posterior": posterior_payload,
         "baseline_report": baseline_report,
         "_fitted_artifact": fitted_artifact,
+        "_causal_analysis": causal_analysis,
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
         "_outcome_name": outcome_name,
@@ -434,7 +459,7 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class AnalysisSimulationSetup:
-    fitted_artifact: Any
+    causal_analysis: CertifiedCausalAnalysis
     runtime: Any
     samples: dict[str, Any]
     causal_design: dict[str, Any]
@@ -477,14 +502,15 @@ def _prepare_analysis_simulation(
     ctx: dict[str, Any],
     args: dict[str, Any],
 ) -> tuple[AnalysisSimulationSetup | None, dict[str, Any] | None]:
-    fitted_artifact = ctx["_fitted_artifact"]
+    causal_analysis: CertifiedCausalAnalysis = ctx["_causal_analysis"]
+    fitted_artifact = causal_analysis.posterior.artifact
     runtime = ctx["_prepared_runtime"]
-    if fitted_artifact.result is None or fitted_artifact.spec is None:
-        return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
     samples = fitted_artifact.result.get_samples() or {}
 
-    causal_design = ctx["causal_design"].get("causal_design", {})
-    outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
+    causal_design = causal_analysis.causal_design.model_dump(mode="json")
+    outcome = str(args.get("outcome") or causal_analysis.outcome)
+    if outcome != causal_analysis.outcome:
+        return None, _tool_error_result("Outcome does not match the identified estimand.")
     spec = fitted_artifact.spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
@@ -496,7 +522,7 @@ def _prepare_analysis_simulation(
     raw_clamps = list(args.get("clamps") or [])
     if not raw_clamps:
         return None, _tool_error_result("At least one clamp is required.")
-    identifiable = ctx["_identifiable_treatments"]
+    identifiable = causal_analysis.treatments
     clamps: list[ClampSpec] = []
     for raw in raw_clamps:
         variable = str(raw.get("variable", ""))
@@ -541,7 +567,7 @@ def _prepare_analysis_simulation(
 
     return (
         AnalysisSimulationSetup(
-            fitted_artifact=fitted_artifact,
+            causal_analysis=causal_analysis,
             runtime=runtime,
             samples=samples,
             causal_design=causal_design,
@@ -865,7 +891,9 @@ def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, An
     estimand = str(setup.query.get("estimand", "trajectory"))
 
     if kind == "abducted":
-        latent_paths = _fitted_latent_paths_from_result(setup.fitted_artifact.result)
+        latent_paths = _fitted_latent_paths_from_result(
+            setup.causal_analysis.posterior.artifact.result
+        )
         if latent_paths is None:
             return _tool_error_result(
                 "Posterior fitted artifact is missing persisted latent state paths required "
