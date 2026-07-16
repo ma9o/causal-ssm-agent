@@ -32,6 +32,7 @@
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
 | High-level map of the model-spec reducer and repair loop | [reference/statistical-model-spec/state-machine.md](reference/statistical-model-spec/state-machine.md) |
 | How model-spec constrains LLM model-form and prior decisions | [reference/statistical-model-spec/llm-driven-specification.md](reference/statistical-model-spec/llm-driven-specification.md) |
+| Parameter-level identification: location/scale anchors and ridge prevention | [reference/statistical-model-spec/identification.md](reference/statistical-model-spec/identification.md) |
 
 ## Guides
 

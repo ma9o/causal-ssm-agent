@@ -122,7 +122,7 @@ For a study of classroom engagement and academic performance, the transition cou
 | `parameters` | `list[ParameterSpec]` | Compiler-authoritative semantic prior surfaces that remain active after model decisions are locked |
 | `initialization_policy` | `\"stationary\" \| \"free\"` | Whether dynamic-state initial conditions are stationary-derived or exposed as free `t0_*` surfaces |
 | `observation_intercept_policy` | `\"free\" \| \"fixed\"` | Whether eligible manifest intercepts `manifest_mean_*` remain free or are fixed |
-| `equilibrium_forcing` | `bool` | Whether eligible standardized dynamic constructs may expose a continuous-time intercept `cint_*` |
+| `equilibrium_forcing` | `bool` | Whether eligible dynamic constructs may expose a continuous-time intercept `cint_*`; eligible means the construct has a standardized channel serving as its [location anchor](../reference/statistical-model-spec/identification.md#location-anchors) |
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)

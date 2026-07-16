@@ -32,6 +32,10 @@ Central literature reference for the nof1-causal-lab documentation. Individual d
 
 - **Asparouhov, Hamaker & Muthén (2018).** Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic Structural Equation Models. *Structural Equation Modeling*, 25(3), 359–388. https://doi.org/10.1080/10705511.2017.1406803
 
+- **Bock (1972).** Bock, R. D. (1972). Estimating Item Parameters and Latent Ability when Responses Are Scored in Two or More Nominal Categories. *Psychometrika*, 37(1), 29–51. https://doi.org/10.1007/BF02291411
+
+- **Driver, Oud & Voelkle (2017).** Driver, C. C., Oud, J. H. L., & Voelkle, M. C. (2017). Continuous Time Structural Equation Modeling with R Package ctsem. *Journal of Statistical Software*, 77(5). https://doi.org/10.18637/jss.v077.i05
+
 - **Hamaker, Kuiper & Grasman (2015).** Hamaker, E. L., Kuiper, R. M., & Grasman, R. P. P. P. (2015). A Critique of the Cross-Lagged Panel Model. *Psychological Methods*, 20(1), 102–116. https://doi.org/10.1037/a0038889
 
 - **Diamantopoulos & Siguaw (2006).** Diamantopoulos, A., & Siguaw, J. A. (2006). Formative Versus Reflective Indicators in Organizational Measure Development: A Comparison and Empirical Illustration. *British Journal of Management*, 17(4), 263–282. https://doi.org/10.1111/j.1467-8551.2006.00500.x
