@@ -38,20 +38,38 @@ def get_indicator_polarity(indicator: dict) -> str:
     return str(polarity)
 
 
+# How strongly a pinned reference loading anchors the latent scale, by dtype:
+# continuous channels standardize (data units pin scale and location), ordinal
+# channels pin scale through the fixed logistic link, binary/count pin scale
+# through their link but carry less information, and a pinned categorical
+# loading anchors nothing because the free class slopes absorb it.
+_REFERENCE_DTYPE_TIERS = {
+    "continuous": 0,
+    "ordinal": 1,
+    "binary": 2,
+    "count": 2,
+    "categorical": 3,
+}
+
+
 def choose_reference_indicator(indicators: list[dict]) -> dict | None:
     """Choose a deterministic marker indicator for one construct.
 
-    Prefer the first positive-polarity indicator so the latent orientation matches
-    the construct name whenever the measurement structure provides one. If none are
-    positive, fall back to the first declared indicator.
+    Prefer the dtype whose fixed loading anchors the latent scale most strongly
+    (see ``_REFERENCE_DTYPE_TIERS``); within a tier prefer positive polarity so
+    the latent orientation matches the construct name, then declaration order.
     """
     if not indicators:
         return None
 
-    for indicator in indicators:
-        if get_indicator_polarity(indicator) == "positive":
-            return indicator
-    return indicators[0]
+    def _rank(item: tuple[int, dict]) -> tuple[int, int, int]:
+        declaration_index, indicator = item
+        dtype = str(indicator.get("measurement_dtype") or "")
+        tier = _REFERENCE_DTYPE_TIERS.get(dtype, 2)
+        polarity_rank = 0 if get_indicator_polarity(indicator) == "positive" else 1
+        return (tier, polarity_rank, declaration_index)
+
+    return min(enumerate(indicators), key=_rank)[1]
 
 
 def build_reference_indicator_lookup(indicators: list[dict]) -> dict[str, str]:
