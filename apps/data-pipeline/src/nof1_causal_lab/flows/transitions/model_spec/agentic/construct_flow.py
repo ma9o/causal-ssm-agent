@@ -30,6 +30,7 @@ from nof1_causal_lab.artifacts import (
 from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -631,14 +632,20 @@ class ConstructBuildState:
                 {"construct": construct, "attempt": self.attempt},
             )
         design_started = perf_counter_ns()
-        design = build_design_info(
-            self.admission,
-            contribution,
-            self.causal_design,
-            self.data_for_model,
-            n_draws=self.n_draws,
-            seed=self.seed,
-        )
+        try:
+            design = build_design_info(
+                self.admission,
+                contribution,
+                self.causal_design,
+                self.data_for_model,
+                n_draws=self.n_draws,
+                seed=self.seed,
+            )
+        except AggregatedCompileError as exc:
+            # Compile-time identification/translation errors are revision-shaped:
+            # return them as tool feedback so the admission loop can repair the
+            # submission instead of crashing the activity.
+            return str(exc)
         design_timing = AdmissionTiming(
             phase="design_preparation",
             label="Design preparation",
