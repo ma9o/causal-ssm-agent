@@ -68,8 +68,20 @@ def parameter_is_active_for_statistical_model_spec(
         )
 
     if role in {"initial_state_mean", "initial_state_sd"}:
+        is_time_invariant = str(parameter.get("temporal_status") or "") == "time_invariant"
+        if role == "initial_state_mean" and is_time_invariant:
+            # A time-invariant construct has no dynamics anchor (no potential
+            # well relaxing it toward zero), so a free t0 mean rides an exact
+            # additive ridge with the channel-side location parameters unless a
+            # standardized channel pins the construct's location.
+            construct_name = str(parameter.get("construct") or "")
+            return any(
+                bool(likelihood.get("standardized"))
+                and str(likelihood.get("construct_name") or "") == construct_name
+                for likelihood in chosen_likelihood_by_variable.values()
+            )
         if initialization_policy == InitializationPolicy.FREE.value:
             return True
-        return str(parameter.get("temporal_status") or "") == "time_invariant"
+        return is_time_invariant
 
     return True

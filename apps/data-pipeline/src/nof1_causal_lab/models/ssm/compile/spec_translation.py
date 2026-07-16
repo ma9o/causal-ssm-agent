@@ -556,6 +556,33 @@ def _build_manifest_standardized_flags(
     return standardized
 
 
+def _latent_standardized_anchor_mask(
+    latent_names: list[str],
+    manifest_cols: list[str],
+    manifest_standardized: list[bool],
+    *,
+    causal_design: dict | None,
+) -> np.ndarray:
+    """Mark latents whose location is pinned by a standardized manifest channel."""
+    mask = np.zeros(len(latent_names), dtype=bool)
+    if causal_design is None:
+        return mask
+
+    latent_idx = {name: idx for idx, name in enumerate(latent_names)}
+    standardized_lookup = dict(zip(manifest_cols, manifest_standardized, strict=True))
+    for indicator in get_indicators(causal_design):
+        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
+        construct_name = (
+            indicator.get("construct_name")
+            if isinstance(indicator, dict)
+            else indicator.construct_name
+        )
+        latent_index = latent_idx.get(construct_name)
+        if latent_index is not None and standardized_lookup.get(ind_name):
+            mask[latent_index] = True
+    return mask
+
+
 def _build_static_factor_structure(
     statistical_model_spec: StatisticalModelSpec,
     latent_names: list[str],
@@ -827,6 +854,20 @@ def translate_spec(
         manifest_cols,
         causal_design=causal_design,
     )
+
+    # Time-invariant constructs have no dynamics anchor (no potential well),
+    # so a free t0 mean rides an exact additive ridge with the channel-side
+    # location parameters unless a standardized channel pins the construct's
+    # location (see docs/reference/statistical-model-spec/identification.md).
+    latent_standardized_anchor = _latent_standardized_anchor_mask(
+        latent_names,
+        manifest_cols,
+        manifest_standardized,
+        causal_design=causal_design,
+    )
+    if time_invariant_mask is not None:
+        static_mask = np.asarray(time_invariant_mask, dtype=bool)
+        t0_means_support[static_mask & ~latent_standardized_anchor] = False
 
     if errors:
         raise SpecTranslationError(errors)
