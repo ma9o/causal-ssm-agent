@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from nof1_causal_lab.artifacts.statistical_model_spec import (
+    DistributionFamily,
     InitializationPolicy,
     ObservationInterceptPolicy,
 )
@@ -40,6 +41,16 @@ def parameter_is_active_for_statistical_model_spec(
         return False
 
     role = str(parameter["role"])
+    if role == "loading":
+        indicator_name = str(parameter.get("indicator") or "")
+        likelihood = chosen_likelihood_by_variable.get(indicator_name) or {}
+        distribution = likelihood.get("distribution")
+        if distribution is None:
+            return False
+        # Categorical slopes multiply the whole linear predictor, so a free
+        # loading is exactly redundant with them; the compiler pins it instead.
+        return DistributionFamily(distribution) != DistributionFamily.CATEGORICAL
+
     if role == "observation_intercept":
         if observation_intercept_policy == ObservationInterceptPolicy.FIXED.value:
             return False

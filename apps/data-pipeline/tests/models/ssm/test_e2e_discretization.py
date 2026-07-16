@@ -25,6 +25,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec, discretize_linear_system_exact
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
@@ -1649,12 +1650,15 @@ class TestExactMatrixLogConversion:
             build_structural_support_from_causal_design,
         )
 
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_design(
-            ["mood", "stress"],
-            ["mood_rating", "stress_self_report"],
-            2,
-            2,
-            causal_design=two_construct_causal_design,
+        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = (
+            build_structural_support_from_causal_design(
+                ["mood", "stress"],
+                ["mood_rating", "stress_self_report"],
+                2,
+                2,
+                manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
+                causal_design=two_construct_causal_design,
+            )
         )
 
         # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
@@ -1724,12 +1728,15 @@ class TestExactMatrixLogConversion:
             build_structural_support_from_causal_design,
         )
 
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_design(
-            ["mood", "stress"],
-            ["mood_rating", "stress_self_report"],
-            2,
-            2,
-            causal_design=two_construct_causal_design,
+        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = (
+            build_structural_support_from_causal_design(
+                ["mood", "stress"],
+                ["mood_rating", "stress_self_report"],
+                2,
+                2,
+                manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
+                causal_design=two_construct_causal_design,
+            )
         )
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.models.ssm.compile.inputs"):
             _compile_priors_for_test(

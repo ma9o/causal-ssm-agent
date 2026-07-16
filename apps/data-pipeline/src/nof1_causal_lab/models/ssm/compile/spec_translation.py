@@ -223,11 +223,13 @@ def build_structural_support_from_causal_design(
     n_latent: int,
     n_manifest: int,
     *,
+    manifest_dists: list[DistributionFamily],
     causal_design: dict | None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
     jnp.ndarray,
+    np.ndarray,
     np.ndarray,
     dict[tuple[int, int], float],
 ]:
@@ -238,6 +240,7 @@ def build_structural_support_from_causal_design(
             np.zeros((n_latent, 0), dtype=bool),
             jnp.eye(n_manifest, n_latent),
             _zero_loading_support(n_manifest, n_latent),
+            np.zeros(n_manifest, dtype=bool),
             {},
         )
 
@@ -303,6 +306,7 @@ def build_structural_support_from_causal_design(
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     matched_manifests: set[str] = set()
     invalid_construct_manifests: set[str] = set()
+    construct_channels: dict[str, list[int]] = {}
 
     for indicator in indicators:
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
@@ -324,8 +328,16 @@ def build_structural_support_from_causal_design(
         manifest_idx_value = manifest_idx[ind_name]
         latent_idx_value = latent_idx[construct_name]
         matched_manifests.add(ind_name)
+        construct_channels.setdefault(construct_name, []).append(manifest_idx_value)
 
-        if ind_name == reference_indicator_lookup.get(construct_name):
+        if manifest_dists[manifest_idx_value] == DistributionFamily.CATEGORICAL:
+            # Categorical slopes multiply the whole linear predictor, so a free
+            # loading is exactly redundant with them (only the products enter
+            # the likelihood). The loading is pinned and the slopes carry the
+            # channel's discrimination; sign lives in the slopes as well, so
+            # polarity is ignored.
+            lambda_mat_np[manifest_idx_value, latent_idx_value] = 1.0
+        elif ind_name == reference_indicator_lookup.get(construct_name):
             lambda_mat_np[manifest_idx_value, latent_idx_value] = (
                 1.0 if get_indicator_polarity(indicator) == "positive" else -1.0
             )
@@ -333,6 +345,21 @@ def build_structural_support_from_causal_design(
             lambda_support[manifest_idx_value, latent_idx_value] = True
 
     lambda_mat = jnp.array(lambda_mat_np)
+
+    # A construct measured only by categorical channels has no fixed-link-scale
+    # channel pinning its latent scale, and nominal categories break no
+    # reflection symmetry. Pin the reference channel's first non-baseline slope
+    # to +1 as the construct's scale and sign anchor (Bock-NRM style).
+    manifest_cat_anchor = np.zeros(n_manifest, dtype=bool)
+    for construct_name, channel_indices in construct_channels.items():
+        if not all(
+            manifest_dists[channel] == DistributionFamily.CATEGORICAL for channel in channel_indices
+        ):
+            continue
+        reference_name = reference_indicator_lookup.get(construct_name)
+        reference_channel = manifest_idx.get(reference_name or "")
+        if reference_channel in channel_indices:
+            manifest_cat_anchor[reference_channel] = True
 
     unmatched_manifests = sorted(
         set(manifest_cols)
@@ -349,7 +376,14 @@ def build_structural_support_from_causal_design(
     if errors:
         raise SpecTranslationError(errors)
 
-    return state_dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days
+    return (
+        state_dynamics_support,
+        input_effect_support,
+        lambda_mat,
+        lambda_support,
+        manifest_cat_anchor,
+        edge_lag_days,
+    )
 
 
 def build_manifest_variance_from_causal_design(
@@ -712,14 +746,20 @@ def translate_spec(
     ]
 
     try:
-        state_dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days = (
-            build_structural_support_from_causal_design(
-                latent_names,
-                manifest_cols,
-                n_latent,
-                n_manifest,
-                causal_design=causal_design,
-            )
+        (
+            state_dynamics_support,
+            input_effect_support,
+            lambda_mat,
+            lambda_support,
+            manifest_cat_anchor,
+            edge_lag_days,
+        ) = build_structural_support_from_causal_design(
+            latent_names,
+            manifest_cols,
+            n_latent,
+            n_manifest,
+            manifest_dists=manifest_dists,
+            causal_design=causal_design,
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
@@ -727,6 +767,7 @@ def translate_spec(
         input_effect_support = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
         lambda_support = _zero_loading_support(n_manifest, n_latent)
+        manifest_cat_anchor = np.zeros(n_manifest, dtype=bool)
         edge_lag_days = {}
 
     if causal_design is None:
@@ -1006,6 +1047,7 @@ def translate_spec(
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
         manifest_standardized=manifest_standardized,
+        manifest_cat_anchor=[bool(flag) for flag in manifest_cat_anchor],
         manifest_level_counts=manifest_level_counts,
         latent_names=latent_names,
         manifest_names=manifest_cols,

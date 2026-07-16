@@ -147,6 +147,9 @@ class SSMSpec:
     manifest_level_counts: list[int] | None = None
     manifest_links: list[LinkFunction] | None = None
     manifest_standardized: list[bool] | None = None
+    # Categorical channels acting as their construct's scale/sign anchor: the
+    # first non-baseline slope of these channels is pinned to +1 at assembly.
+    manifest_cat_anchor: list[bool] | None = None
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
     input_names: list[str] | None = None
@@ -399,6 +402,13 @@ class SSMSpec:
             raise ValueError(
                 "manifest_standardized length must match n_manifest: "
                 f"{len(self.manifest_standardized)} vs {self.n_manifest}"
+            )
+        if self.manifest_cat_anchor is None:
+            self.manifest_cat_anchor = [False] * self.n_manifest
+        elif len(self.manifest_cat_anchor) != self.n_manifest:
+            raise ValueError(
+                "manifest_cat_anchor length must match n_manifest: "
+                f"{len(self.manifest_cat_anchor)} vs {self.n_manifest}"
             )
         if self.static_factor_names is None:
             self.static_factor_names = [f"tau_{idx}" for idx in range(n_static_factor)]

@@ -50,6 +50,7 @@ class SerializedSSMSpec(PersistedModel):
     manifest_level_counts: list[int] | None = None
     manifest_links: list[LinkFunction] | None = None
     manifest_standardized: list[bool] | None = None
+    manifest_cat_anchor: list[bool] | None = None
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
     input_names: list[str] | None = None

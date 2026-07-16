@@ -81,10 +81,14 @@ def assemble_sampled_extra_params(
             sampled_values["obs_cat_intercepts"],
             0.0,
         )
-        extra_params["obs_cat_slopes"] = jnp.where(
-            cat_mask,
-            sampled_values["obs_cat_slopes"],
-            0.0,
-        )
+        cat_slopes = jnp.where(cat_mask, sampled_values["obs_cat_slopes"], 0.0)
+        if spec.manifest_cat_anchor is not None and any(spec.manifest_cat_anchor):
+            # Scale/sign anchor for all-categorical constructs: the anchor
+            # channel's first non-baseline slope is pinned to +1 (see
+            # docs/reference/statistical-model-spec/identification.md).
+            anchor_rows = jnp.asarray(spec.manifest_cat_anchor, dtype=bool)
+            anchor_entries = anchor_rows[:, None] & (jnp.arange(max_cutpoints)[None, :] == 0)
+            cat_slopes = jnp.where(anchor_entries, 1.0, cat_slopes)
+        extra_params["obs_cat_slopes"] = cat_slopes
 
     return extra_params

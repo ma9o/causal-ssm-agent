@@ -478,10 +478,20 @@ class TestRuntimeStructuralSupport:
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
-        dynamics_support, _input_effect_support, lambda_mat, lambda_support, _edge_lag_days = (
-            build_structural_support_from_causal_design(
-                latent_names, manifest_cols, 3, 4, causal_design=causal_design
-            )
+        (
+            dynamics_support,
+            _input_effect_support,
+            lambda_mat,
+            lambda_support,
+            _cat,
+            _edge_lag_days,
+        ) = build_structural_support_from_causal_design(
+            latent_names,
+            manifest_cols,
+            3,
+            4,
+            manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
+            causal_design=causal_design,
         )
 
         # Dynamics mask: baseline persistence diagonals + X→Y + Y→Z
@@ -512,8 +522,20 @@ class TestRuntimeStructuralSupport:
             build_structural_support_from_causal_design,
         )
 
-        dynamics_support, input_effect_support, _lambda_mat, lambda_support, _edge_lag_days = (
-            build_structural_support_from_causal_design(None, ["x1"], 1, 1, causal_design=None)
+        (
+            dynamics_support,
+            input_effect_support,
+            _lambda_mat,
+            lambda_support,
+            _cat,
+            _edge_lag_days,
+        ) = build_structural_support_from_causal_design(
+            None,
+            ["x1"],
+            1,
+            1,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
+            causal_design=None,
         )
         np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
         np.testing.assert_array_equal(input_effect_support, np.zeros((1, 0), dtype=bool))
@@ -593,12 +615,13 @@ class TestRuntimeStructuralSupport:
             },
         }
 
-        dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days = (
+        dynamics_support, input_effect_support, lambda_mat, lambda_support, _cat, edge_lag_days = (
             build_structural_support_from_causal_design(
                 ["mood"],
                 ["mood_rating"],
                 1,
                 1,
+                manifest_dists=[DistributionFamily.GAUSSIAN],
                 causal_design=causal_design,
             )
         )

@@ -409,7 +409,9 @@ def _signal_from_linear_predictor(
 
     if link == LinkFunction.SOFTMAX:
         intercepts = np.asarray(pred["obs_cat_intercepts"])[:, manifest_index, : level_count - 1]
-        slopes = np.asarray(pred["obs_cat_slopes"])[:, manifest_index, : level_count - 1]
+        slopes = np.asarray(pred["obs_cat_slopes"])[:, manifest_index, : level_count - 1].copy()
+        if spec.manifest_cat_anchor is not None and spec.manifest_cat_anchor[manifest_index]:
+            slopes[:, 0] = 1.0
         nonbaseline = intercepts[:, None, :] + slopes[:, None, :] * _lp[:, :, None]
         logits = np.concatenate([np.zeros((*_lp.shape, 1)), nonbaseline], axis=2)
         logits = logits - np.max(logits, axis=2, keepdims=True)
