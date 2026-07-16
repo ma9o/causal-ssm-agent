@@ -512,6 +512,13 @@ def build_construct_messages(
             f"- `{n}` — {role.value.replace('_', ' ')} — support ⊆ "
             f"{constraint_domain(constraint.value)}{family_requirement}"
         )
+    if "obs_cat_slopes" in param_names:
+        lines.append(
+            "- Note: if every indicator of this construct uses a `categorical` "
+            "likelihood, the reference channel's first non-baseline slope is "
+            "compiler-pinned to +1 (the construct's scale and sign anchor); the "
+            "`obs_cat_slopes` prior applies to the remaining free slopes."
+        )
     lines.append("")
     if closing_betas:
         lines += [

@@ -1,6 +1,6 @@
 # LLM-Driven Model-Spec Specification
 
-This page defines the exact LLM-facing control semantics of the [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md). For the reducer and recovery overview, see the [construct-admission state machine](state-machine.md). For allowed observation models, see [likelihoods](likelihoods.md). For parameter roles and prior families, see [parameters and priors](parameters.md).
+This page defines the exact LLM-facing control semantics of the [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md). For the reducer and recovery overview, see the [construct-admission state machine](state-machine.md). For allowed observation models, see [likelihoods](likelihoods.md). For parameter roles and prior families, see [parameters and priors](parameters.md). The parameter surface offered to the LLM is shaped by the [identification anchor invariant](identification.md): latent-side location parameters and loadings that would ride an exact likelihood ridge are never surfaced, and the compiler audits the invariant on every submission.
 
 ## Entry Conditions
 

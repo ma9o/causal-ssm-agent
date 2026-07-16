@@ -331,13 +331,20 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.ORDERED_LOGISTIC,
-        summary="Ordered categorical outcomes with ranked levels.",
+        summary=(
+            "Ordered categorical outcomes with ranked levels. Keeps a loading on the "
+            "latent (fixed logistic scale), unlike `categorical`."
+        ),
         links=("cumulative_logit",),
         hyperparameters=("obs_ordered_base", "obs_ordered_gaps"),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.CATEGORICAL,
-        summary="Unordered multi-class outcomes.",
+        summary=(
+            "Unordered multi-class outcomes. Choosing it removes the channel's loading "
+            "(the class slopes are exactly redundant with it, so the compiler pins it); "
+            "discrimination moves into `obs_cat_slopes`."
+        ),
         links=("softmax",),
         hyperparameters=("obs_cat_intercepts", "obs_cat_slopes"),
     ),
@@ -508,7 +515,10 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "obs_cat_slopes (categorical logits)",
         "Normal(0, 1)",
         "[-4, 4]",
-        "Category-specific slope adjustments on the latent predictor scale",
+        "Category-specific slope adjustments on the latent predictor scale; when every "
+        "indicator of a construct is categorical, the reference channel's first "
+        "non-baseline slope is compiler-pinned to +1 as the scale/sign anchor and the "
+        "prior applies to the remaining slopes",
     ),
     PriorParameterGuidanceRow(
         "cor (correlation)",

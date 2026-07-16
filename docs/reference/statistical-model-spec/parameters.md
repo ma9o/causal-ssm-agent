@@ -74,6 +74,6 @@ The `Use When` column is the authoritative short guidance reused by the model-sp
 | obs_ordered_base (ordered thresholds) | Normal(0, 1) | [-3, 3] | Ordered-logistic threshold location on the latent predictor scale |
 | obs_ordered_gaps (ordered threshold gaps) | HalfNormal(1) | [0, 3] | Positive spacing between adjacent ordered-logistic thresholds |
 | obs_cat_intercepts (categorical logits) | Normal(0, 1) | [-4, 4] | Baseline category-logit offsets on the latent predictor scale |
-| obs_cat_slopes (categorical logits) | Normal(0, 1) | [-4, 4] | Category-specific slope adjustments on the latent predictor scale |
+| obs_cat_slopes (categorical logits) | Normal(0, 1) | [-4, 4] | Category-specific slope adjustments on the latent predictor scale; when every indicator of a construct is categorical, the reference channel's first non-baseline slope is compiler-pinned to +1 as the scale/sign anchor and the prior applies to the remaining slopes |
 | cor (correlation) | Uniform(-1, 1) or TruncatedNormal(0, 0.3, -1, 1) | [-1, 1] | Innovation correlation |
 | tau (random SD) | HalfNormal(0.5) | [0, 2] | Data scale |
