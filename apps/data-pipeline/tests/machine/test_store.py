@@ -16,7 +16,7 @@ from nof1_causal_lab.machine.store import (
 def workspace(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     return "test_workspace"
 
 
@@ -84,6 +84,8 @@ class TestArtifactStore:
 
 class TestEpisodeJournal:
     def _record(self, seq, move, status="applied", **kwargs):
+        kwargs.setdefault("trace_ids", [])
+        kwargs.setdefault("resume", None)
         return TransitionRecord(
             seq=seq,
             ts="2026-07-03T00:00:00+00:00",
@@ -126,11 +128,18 @@ class TestEpisodeJournal:
         assert records[0].move.kind == "write"
         assert records[2].move.artifact_id == "posterior"
 
-    def test_duplicate_seq_refused(self, workspace):
+    def test_identical_duplicate_seq_is_idempotent(self, workspace):
+        journal = EpisodeJournal(workspace)
+        record = self._record(1, WriteArtifact(artifact_id="question"))
+        journal.append(record)
+        journal.append(record)
+        assert journal.read_all() == [record]
+
+    def test_different_duplicate_seq_refused(self, workspace):
         journal = EpisodeJournal(workspace)
         journal.append(self._record(1, WriteArtifact(artifact_id="question")))
         with pytest.raises(FileExistsError):
-            journal.append(self._record(1, WriteArtifact(artifact_id="question")))
+            journal.append(self._record(1, RunArtifact(artifact_id="raw_data")))
 
     def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
         journal = EpisodeJournal(workspace)
@@ -149,6 +158,8 @@ class TestDerivedCurrentState:
                 status=status,
                 produced=produced or [],
                 retracted=retracted or [],
+                trace_ids=[],
+                resume=None,
             )
         )
 

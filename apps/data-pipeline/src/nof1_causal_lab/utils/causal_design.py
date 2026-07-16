@@ -104,11 +104,15 @@ def get_known_input_source_indicators(causal_design: dict) -> set[str]:
 
 def get_manifest_indicators(causal_design: dict) -> list[dict]:
     """Get indicators that remain in the manifest likelihood."""
-    input_sources = get_known_input_source_indicators(causal_design)
+    input_constructs = {
+        str(item.get("construct") or item.get("construct_name"))
+        for item in get_known_inputs(causal_design)
+        if item.get("construct") or item.get("construct_name")
+    }
     return [
         indicator
         for indicator in get_indicators(causal_design)
-        if indicator.get("name") not in input_sources
+        if indicator.get("construct_name") not in input_constructs
     ]
 
 

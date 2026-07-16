@@ -1,1 +1,564 @@
-{"column_descriptions":[{"name":"timestamp","description":"UTC-normalized datetime for the observation or event start time."},{"name":"local_date","description":"Date of the observation in the source-local America/New_York calendar."},{"name":"timestamp_inferred","description":"True when the source lacked an exact clock time and a midnight or nearby inferred time was used."},{"name":"source_file","description":"Original staged file that supplied the row."},{"name":"source","description":"Normalized source system or export name."},{"name":"record_type","description":"Specific parsed row type within the source."},{"name":"observation_id","description":"Stable identifier created from source identifiers or row sequence."},{"name":"interval_start","description":"UTC-normalized start datetime for interval-based observations."},{"name":"interval_end","description":"UTC-normalized end datetime for interval-based observations."},{"name":"genetic_rsid","description":"23andMe SNP rsid or variant identifier."},{"name":"genetic_chromosome","description":"Chromosome for the genotype variant."},{"name":"genetic_position","description":"Genome build 37 position for the genotype variant."},{"name":"genotype","description":"23andMe genotype call."},{"name":"apple_record_type","description":"Cleaned Apple Health quantity record type."},{"name":"apple_value","description":"Numeric value from an Apple Health quantity record."},{"name":"apple_unit","description":"Unit reported for the Apple Health value."},{"name":"apple_source_name","description":"Apple Health source device or app name."},{"name":"apple_source_version","description":"Apple Health source app or device software version."},{"name":"apple_creation_date","description":"UTC-normalized Apple Health creation date for the record."},{"name":"apple_metadata_json","description":"JSON string of Apple Health metadata entries attached to the record."},{"name":"step_count_count","description":"Apple Health step count for the interval."},{"name":"active_energy_burned_kcal","description":"Apple Health active energy burned in kilocalories."},{"name":"apple_exercise_time_min","description":"Apple Health exercise time in minutes."},{"name":"walking_speed_m_s","description":"Apple Health walking speed in meters per second."},{"name":"apple_workout_activity_type","description":"Cleaned Apple Health workout activity type."},{"name":"workout_duration_min","description":"Apple workout duration in minutes."},{"name":"workout_total_energy_kcal","description":"Apple workout total energy burned in kilocalories."},{"name":"activity_active_energy_burned_kcal","description":"Apple daily Activity Summary active energy burned in kilocalories."},{"name":"activity_active_energy_goal_kcal","description":"Apple daily Activity Summary active energy goal in kilocalories."},{"name":"activity_exercise_time_min","description":"Apple daily Activity Summary exercise minutes."},{"name":"activity_exercise_time_goal_min","description":"Apple daily Activity Summary exercise minute goal."},{"name":"activity_stand_hours","description":"Apple daily Activity Summary stand hours."},{"name":"activity_stand_hours_goal","description":"Apple daily Activity Summary stand hours goal."},{"name":"mood_kind","description":"Apple State of Mind entry kind."},{"name":"mood_valence","description":"Apple State of Mind valence score."},{"name":"mood_labels","description":"Apple State of Mind labels."},{"name":"mood_associations","description":"Apple State of Mind associations."},{"name":"oura_sleep_id","description":"Oura sleep period identifier."},{"name":"oura_day","description":"Oura sleep day date."},{"name":"oura_sleep_type","description":"Oura sleep period type."},{"name":"average_breath_per_min","description":"Oura nightly average breathing rate per minute."},{"name":"average_heart_rate_bpm","description":"Oura nightly average heart rate in beats per minute."},{"name":"average_hrv_ms","description":"Oura nightly average HRV RMSSD in milliseconds."},{"name":"awake_time_sec","description":"Oura awake time during sleep period in seconds."},{"name":"deep_sleep_duration_sec","description":"Oura deep sleep duration in seconds."},{"name":"light_sleep_duration_sec","description":"Oura light sleep duration in seconds."},{"name":"rem_sleep_duration_sec","description":"Oura REM sleep duration in seconds."},{"name":"total_sleep_duration_sec","description":"Oura total sleep duration in seconds."},{"name":"time_in_bed_sec","description":"Oura time in bed in seconds."},{"name":"sleep_efficiency_pct","description":"Oura sleep efficiency percentage."},{"name":"sleep_latency_sec","description":"Oura sleep latency in seconds."},{"name":"lowest_heart_rate_bpm","description":"Oura lowest nightly heart rate in beats per minute."},{"name":"restless_periods","description":"Oura count of restless periods during the sleep period."},{"name":"sleep_phase_5_min","description":"Oura 5-minute sleep phase hypnogram string."},{"name":"readiness_score","description":"Oura readiness score."},{"name":"readiness_score_delta","description":"Oura readiness score delta."},{"name":"sleep_score_delta","description":"Oura sleep score delta."},{"name":"readiness_activity_balance","description":"Oura readiness contributor score for activity balance."},{"name":"readiness_body_temperature","description":"Oura readiness contributor score for body temperature."},{"name":"readiness_hrv_balance","description":"Oura readiness contributor score for HRV balance."},{"name":"readiness_previous_day_activity","description":"Oura readiness contributor score for previous day activity."},{"name":"readiness_previous_night","description":"Oura readiness contributor score for previous night."},{"name":"readiness_recovery_index","description":"Oura readiness contributor score for recovery index."},{"name":"readiness_resting_heart_rate","description":"Oura readiness contributor score for resting heart rate."},{"name":"readiness_sleep_balance","description":"Oura readiness contributor score for sleep balance."},{"name":"oura_low_battery_alert","description":"Whether Oura reported a low battery alert for the sleep period."},{"name":"oura_sample_heart_rate_bpm","description":"Oura sleep sample heart rate in beats per minute."},{"name":"oura_sample_hrv_ms","description":"Oura sleep sample HRV RMSSD in milliseconds."},{"name":"oura_sample_interval_sec","description":"Sampling interval for Oura sleep time-series points in seconds."},{"name":"rx_number","description":"Pharmacy prescription number."},{"name":"drug_name","description":"Dispensed drug name from pharmacy fill record."},{"name":"ndc","description":"National Drug Code from pharmacy fill record."},{"name":"strength","description":"Medication strength from pharmacy fill record."},{"name":"medication_name","description":"Medication name normalized from clinical or pharmacy source."},{"name":"medication_dose_mg","description":"Medication dose in milligrams when available."},{"name":"form","description":"Medication dosage form."},{"name":"quantity","description":"Dispensed medication quantity."},{"name":"days_supply","description":"Days of supply dispensed."},{"name":"refill_number","description":"Refill number for the pharmacy fill."},{"name":"refills_remaining","description":"Remaining refills after the pharmacy fill."},{"name":"prescriber_name","description":"Prescriber name for pharmacy or clinical medication context."},{"name":"prescriber_npi","description":"Prescriber NPI for pharmacy fills."},{"name":"pharmacy_name","description":"Dispensing pharmacy name."},{"name":"pharmacy_address","description":"Dispensing pharmacy address."},{"name":"pharmacy_phone","description":"Dispensing pharmacy phone number."},{"name":"transaction_id","description":"Plaid transaction identifier."},{"name":"account_id","description":"Plaid account identifier."},{"name":"account_name","description":"Plaid account display name."},{"name":"account_official_name","description":"Plaid official account name."},{"name":"account_type","description":"Plaid account type."},{"name":"account_subtype","description":"Plaid account subtype."},{"name":"account_mask","description":"Plaid account mask."},{"name":"amount_usd","description":"Transaction amount in USD."},{"name":"iso_currency_code","description":"ISO currency code for the transaction."},{"name":"transaction_name","description":"Raw Plaid transaction name."},{"name":"merchant_name","description":"Plaid merchant name."},{"name":"finance_category_primary","description":"Plaid primary personal finance category."},{"name":"finance_category_detailed","description":"Plaid detailed personal finance category."},{"name":"payment_channel","description":"Plaid payment channel."},{"name":"transaction_pending","description":"Whether the Plaid transaction was pending."},{"name":"calendar_uid","description":"Calendar VEVENT UID."},{"name":"calendar_summary","description":"Calendar event summary or title."},{"name":"calendar_location","description":"Calendar event location."},{"name":"calendar_description","description":"Calendar event description."},{"name":"calendar_status","description":"Calendar event status such as cancelled."},{"name":"calendar_is_recurring","description":"True when row came from an RRULE-expanded event."},{"name":"calendar_recurrence_rule","description":"Raw iCalendar RRULE for recurring events."},{"name":"calendar_occurrence_sequence","description":"Sequence number of the expanded calendar occurrence for its UID."},{"name":"calendar_duration_min","description":"Calendar event duration in minutes."},{"name":"calendar_is_all_day","description":"True for all-day calendar events."},{"name":"provider_name","description":"Clinician provider name from GP visit notes."},{"name":"visit_type","description":"Visit type from GP visit notes."},{"name":"department","description":"Clinical department from GP visit notes."},{"name":"chief_complaint","description":"Chief complaint text from GP visit notes."},{"name":"clinical_note_text","description":"Full parsed GP visit note text."},{"name":"assessment_text","description":"Assessment section text from GP visit notes."},{"name":"plan_text","description":"Plan section text from GP visit notes."},{"name":"phq9_score","description":"PHQ-9 depression screening total score."},{"name":"gad7_score","description":"GAD-7 anxiety screening total score."},{"name":"bp_systolic","description":"Systolic blood pressure in mmHg."},{"name":"bp_diastolic","description":"Diastolic blood pressure in mmHg."},{"name":"heart_rate_bpm","description":"Clinical visit heart rate in beats per minute."},{"name":"weight_lb","description":"Clinical visit weight in pounds."},{"name":"bmi","description":"Clinical visit body mass index."},{"name":"temperature_f","description":"Clinical visit temperature in degrees Fahrenheit."},{"name":"medication_action","description":"Medication action from GP plan such as initiate increase or continue."},{"name":"journal_location","description":"Location metadata from journal entry when present."},{"name":"journal_text","description":"Full journal entry body text."},{"name":"journal_word_count","description":"Word count of the journal entry body."},{"name":"imessage_thread","description":"iMessage thread name."},{"name":"imessage_total_messages","description":"Total messages in the exported thread summary."},{"name":"imessage_sent_messages","description":"Sent message count in the exported thread summary."},{"name":"imessage_received_messages","description":"Received message count in the exported thread summary."},{"name":"imessage_volume_profile","description":"Narrative volume profile for the iMessage thread."},{"name":"imessage_note_text","description":"Thread note call note or non-message annotation from iMessage export."},{"name":"imessage_sender","description":"Sender shown for an individual iMessage row."},{"name":"imessage_direction","description":"Sent or received direction for an individual iMessage row."},{"name":"imessage_text","description":"Text content of an individual iMessage row."},{"name":"imessage_message_length","description":"Character length of the iMessage text."},{"name":"imessage_call_duration_min","description":"Duration in minutes for parsed call annotations."}],"llm_trace_ref":"file:DEMO/run/temporal-llm/seq-000001/raw-data/trace.json"}
+{
+  "column_descriptions": [
+    {
+      "name": "timestamp",
+      "description": "UTC-normalized datetime for the observation or event start time."
+    },
+    {
+      "name": "local_date",
+      "description": "Date of the observation in the source-local America/New_York calendar."
+    },
+    {
+      "name": "timestamp_inferred",
+      "description": "True when the source lacked an exact clock time and a midnight or nearby inferred time was used."
+    },
+    {
+      "name": "source_file",
+      "description": "Original staged file that supplied the row."
+    },
+    {
+      "name": "source",
+      "description": "Normalized source system or export name."
+    },
+    {
+      "name": "record_type",
+      "description": "Specific parsed row type within the source."
+    },
+    {
+      "name": "observation_id",
+      "description": "Stable identifier created from source identifiers or row sequence."
+    },
+    {
+      "name": "interval_start",
+      "description": "UTC-normalized start datetime for interval-based observations."
+    },
+    {
+      "name": "interval_end",
+      "description": "UTC-normalized end datetime for interval-based observations."
+    },
+    {
+      "name": "genetic_rsid",
+      "description": "23andMe SNP rsid or variant identifier."
+    },
+    {
+      "name": "genetic_chromosome",
+      "description": "Chromosome for the genotype variant."
+    },
+    {
+      "name": "genetic_position",
+      "description": "Genome build 37 position for the genotype variant."
+    },
+    {
+      "name": "genotype",
+      "description": "23andMe genotype call."
+    },
+    {
+      "name": "apple_record_type",
+      "description": "Cleaned Apple Health quantity record type."
+    },
+    {
+      "name": "apple_value",
+      "description": "Numeric value from an Apple Health quantity record."
+    },
+    {
+      "name": "apple_unit",
+      "description": "Unit reported for the Apple Health value."
+    },
+    {
+      "name": "apple_source_name",
+      "description": "Apple Health source device or app name."
+    },
+    {
+      "name": "apple_source_version",
+      "description": "Apple Health source app or device software version."
+    },
+    {
+      "name": "apple_creation_date",
+      "description": "UTC-normalized Apple Health creation date for the record."
+    },
+    {
+      "name": "apple_metadata_json",
+      "description": "JSON string of Apple Health metadata entries attached to the record."
+    },
+    {
+      "name": "step_count_count",
+      "description": "Apple Health step count for the interval."
+    },
+    {
+      "name": "active_energy_burned_kcal",
+      "description": "Apple Health active energy burned in kilocalories."
+    },
+    {
+      "name": "apple_exercise_time_min",
+      "description": "Apple Health exercise time in minutes."
+    },
+    {
+      "name": "walking_speed_m_s",
+      "description": "Apple Health walking speed in meters per second."
+    },
+    {
+      "name": "apple_workout_activity_type",
+      "description": "Cleaned Apple Health workout activity type."
+    },
+    {
+      "name": "workout_duration_min",
+      "description": "Apple workout duration in minutes."
+    },
+    {
+      "name": "workout_total_energy_kcal",
+      "description": "Apple workout total energy burned in kilocalories."
+    },
+    {
+      "name": "activity_active_energy_burned_kcal",
+      "description": "Apple daily Activity Summary active energy burned in kilocalories."
+    },
+    {
+      "name": "activity_active_energy_goal_kcal",
+      "description": "Apple daily Activity Summary active energy goal in kilocalories."
+    },
+    {
+      "name": "activity_exercise_time_min",
+      "description": "Apple daily Activity Summary exercise minutes."
+    },
+    {
+      "name": "activity_exercise_time_goal_min",
+      "description": "Apple daily Activity Summary exercise minute goal."
+    },
+    {
+      "name": "activity_stand_hours",
+      "description": "Apple daily Activity Summary stand hours."
+    },
+    {
+      "name": "activity_stand_hours_goal",
+      "description": "Apple daily Activity Summary stand hours goal."
+    },
+    {
+      "name": "mood_kind",
+      "description": "Apple State of Mind entry kind."
+    },
+    {
+      "name": "mood_valence",
+      "description": "Apple State of Mind valence score."
+    },
+    {
+      "name": "mood_labels",
+      "description": "Apple State of Mind labels."
+    },
+    {
+      "name": "mood_associations",
+      "description": "Apple State of Mind associations."
+    },
+    {
+      "name": "oura_sleep_id",
+      "description": "Oura sleep period identifier."
+    },
+    {
+      "name": "oura_day",
+      "description": "Oura sleep day date."
+    },
+    {
+      "name": "oura_sleep_type",
+      "description": "Oura sleep period type."
+    },
+    {
+      "name": "average_breath_per_min",
+      "description": "Oura nightly average breathing rate per minute."
+    },
+    {
+      "name": "average_heart_rate_bpm",
+      "description": "Oura nightly average heart rate in beats per minute."
+    },
+    {
+      "name": "average_hrv_ms",
+      "description": "Oura nightly average HRV RMSSD in milliseconds."
+    },
+    {
+      "name": "awake_time_sec",
+      "description": "Oura awake time during sleep period in seconds."
+    },
+    {
+      "name": "deep_sleep_duration_sec",
+      "description": "Oura deep sleep duration in seconds."
+    },
+    {
+      "name": "light_sleep_duration_sec",
+      "description": "Oura light sleep duration in seconds."
+    },
+    {
+      "name": "rem_sleep_duration_sec",
+      "description": "Oura REM sleep duration in seconds."
+    },
+    {
+      "name": "total_sleep_duration_sec",
+      "description": "Oura total sleep duration in seconds."
+    },
+    {
+      "name": "time_in_bed_sec",
+      "description": "Oura time in bed in seconds."
+    },
+    {
+      "name": "sleep_efficiency_pct",
+      "description": "Oura sleep efficiency percentage."
+    },
+    {
+      "name": "sleep_latency_sec",
+      "description": "Oura sleep latency in seconds."
+    },
+    {
+      "name": "lowest_heart_rate_bpm",
+      "description": "Oura lowest nightly heart rate in beats per minute."
+    },
+    {
+      "name": "restless_periods",
+      "description": "Oura count of restless periods during the sleep period."
+    },
+    {
+      "name": "sleep_phase_5_min",
+      "description": "Oura 5-minute sleep phase hypnogram string."
+    },
+    {
+      "name": "readiness_score",
+      "description": "Oura readiness score."
+    },
+    {
+      "name": "readiness_score_delta",
+      "description": "Oura readiness score delta."
+    },
+    {
+      "name": "sleep_score_delta",
+      "description": "Oura sleep score delta."
+    },
+    {
+      "name": "readiness_activity_balance",
+      "description": "Oura readiness contributor score for activity balance."
+    },
+    {
+      "name": "readiness_body_temperature",
+      "description": "Oura readiness contributor score for body temperature."
+    },
+    {
+      "name": "readiness_hrv_balance",
+      "description": "Oura readiness contributor score for HRV balance."
+    },
+    {
+      "name": "readiness_previous_day_activity",
+      "description": "Oura readiness contributor score for previous day activity."
+    },
+    {
+      "name": "readiness_previous_night",
+      "description": "Oura readiness contributor score for previous night."
+    },
+    {
+      "name": "readiness_recovery_index",
+      "description": "Oura readiness contributor score for recovery index."
+    },
+    {
+      "name": "readiness_resting_heart_rate",
+      "description": "Oura readiness contributor score for resting heart rate."
+    },
+    {
+      "name": "readiness_sleep_balance",
+      "description": "Oura readiness contributor score for sleep balance."
+    },
+    {
+      "name": "oura_low_battery_alert",
+      "description": "Whether Oura reported a low battery alert for the sleep period."
+    },
+    {
+      "name": "oura_sample_heart_rate_bpm",
+      "description": "Oura sleep sample heart rate in beats per minute."
+    },
+    {
+      "name": "oura_sample_hrv_ms",
+      "description": "Oura sleep sample HRV RMSSD in milliseconds."
+    },
+    {
+      "name": "oura_sample_interval_sec",
+      "description": "Sampling interval for Oura sleep time-series points in seconds."
+    },
+    {
+      "name": "rx_number",
+      "description": "Pharmacy prescription number."
+    },
+    {
+      "name": "drug_name",
+      "description": "Dispensed drug name from pharmacy fill record."
+    },
+    {
+      "name": "ndc",
+      "description": "National Drug Code from pharmacy fill record."
+    },
+    {
+      "name": "strength",
+      "description": "Medication strength from pharmacy fill record."
+    },
+    {
+      "name": "medication_name",
+      "description": "Medication name normalized from clinical or pharmacy source."
+    },
+    {
+      "name": "medication_dose_mg",
+      "description": "Medication dose in milligrams when available."
+    },
+    {
+      "name": "form",
+      "description": "Medication dosage form."
+    },
+    {
+      "name": "quantity",
+      "description": "Dispensed medication quantity."
+    },
+    {
+      "name": "days_supply",
+      "description": "Days of supply dispensed."
+    },
+    {
+      "name": "refill_number",
+      "description": "Refill number for the pharmacy fill."
+    },
+    {
+      "name": "refills_remaining",
+      "description": "Remaining refills after the pharmacy fill."
+    },
+    {
+      "name": "prescriber_name",
+      "description": "Prescriber name for pharmacy or clinical medication context."
+    },
+    {
+      "name": "prescriber_npi",
+      "description": "Prescriber NPI for pharmacy fills."
+    },
+    {
+      "name": "pharmacy_name",
+      "description": "Dispensing pharmacy name."
+    },
+    {
+      "name": "pharmacy_address",
+      "description": "Dispensing pharmacy address."
+    },
+    {
+      "name": "pharmacy_phone",
+      "description": "Dispensing pharmacy phone number."
+    },
+    {
+      "name": "transaction_id",
+      "description": "Plaid transaction identifier."
+    },
+    {
+      "name": "account_id",
+      "description": "Plaid account identifier."
+    },
+    {
+      "name": "account_name",
+      "description": "Plaid account display name."
+    },
+    {
+      "name": "account_official_name",
+      "description": "Plaid official account name."
+    },
+    {
+      "name": "account_type",
+      "description": "Plaid account type."
+    },
+    {
+      "name": "account_subtype",
+      "description": "Plaid account subtype."
+    },
+    {
+      "name": "account_mask",
+      "description": "Plaid account mask."
+    },
+    {
+      "name": "amount_usd",
+      "description": "Transaction amount in USD."
+    },
+    {
+      "name": "iso_currency_code",
+      "description": "ISO currency code for the transaction."
+    },
+    {
+      "name": "transaction_name",
+      "description": "Raw Plaid transaction name."
+    },
+    {
+      "name": "merchant_name",
+      "description": "Plaid merchant name."
+    },
+    {
+      "name": "finance_category_primary",
+      "description": "Plaid primary personal finance category."
+    },
+    {
+      "name": "finance_category_detailed",
+      "description": "Plaid detailed personal finance category."
+    },
+    {
+      "name": "payment_channel",
+      "description": "Plaid payment channel."
+    },
+    {
+      "name": "transaction_pending",
+      "description": "Whether the Plaid transaction was pending."
+    },
+    {
+      "name": "calendar_uid",
+      "description": "Calendar VEVENT UID."
+    },
+    {
+      "name": "calendar_summary",
+      "description": "Calendar event summary or title."
+    },
+    {
+      "name": "calendar_location",
+      "description": "Calendar event location."
+    },
+    {
+      "name": "calendar_description",
+      "description": "Calendar event description."
+    },
+    {
+      "name": "calendar_status",
+      "description": "Calendar event status such as cancelled."
+    },
+    {
+      "name": "calendar_is_recurring",
+      "description": "True when row came from an RRULE-expanded event."
+    },
+    {
+      "name": "calendar_recurrence_rule",
+      "description": "Raw iCalendar RRULE for recurring events."
+    },
+    {
+      "name": "calendar_occurrence_sequence",
+      "description": "Sequence number of the expanded calendar occurrence for its UID."
+    },
+    {
+      "name": "calendar_duration_min",
+      "description": "Calendar event duration in minutes."
+    },
+    {
+      "name": "calendar_is_all_day",
+      "description": "True for all-day calendar events."
+    },
+    {
+      "name": "provider_name",
+      "description": "Clinician provider name from GP visit notes."
+    },
+    {
+      "name": "visit_type",
+      "description": "Visit type from GP visit notes."
+    },
+    {
+      "name": "department",
+      "description": "Clinical department from GP visit notes."
+    },
+    {
+      "name": "chief_complaint",
+      "description": "Chief complaint text from GP visit notes."
+    },
+    {
+      "name": "clinical_note_text",
+      "description": "Full parsed GP visit note text."
+    },
+    {
+      "name": "assessment_text",
+      "description": "Assessment section text from GP visit notes."
+    },
+    {
+      "name": "plan_text",
+      "description": "Plan section text from GP visit notes."
+    },
+    {
+      "name": "phq9_score",
+      "description": "PHQ-9 depression screening total score."
+    },
+    {
+      "name": "gad7_score",
+      "description": "GAD-7 anxiety screening total score."
+    },
+    {
+      "name": "bp_systolic",
+      "description": "Systolic blood pressure in mmHg."
+    },
+    {
+      "name": "bp_diastolic",
+      "description": "Diastolic blood pressure in mmHg."
+    },
+    {
+      "name": "heart_rate_bpm",
+      "description": "Clinical visit heart rate in beats per minute."
+    },
+    {
+      "name": "weight_lb",
+      "description": "Clinical visit weight in pounds."
+    },
+    {
+      "name": "bmi",
+      "description": "Clinical visit body mass index."
+    },
+    {
+      "name": "temperature_f",
+      "description": "Clinical visit temperature in degrees Fahrenheit."
+    },
+    {
+      "name": "medication_action",
+      "description": "Medication action from GP plan such as initiate increase or continue."
+    },
+    {
+      "name": "journal_location",
+      "description": "Location metadata from journal entry when present."
+    },
+    {
+      "name": "journal_text",
+      "description": "Full journal entry body text."
+    },
+    {
+      "name": "journal_word_count",
+      "description": "Word count of the journal entry body."
+    },
+    {
+      "name": "imessage_thread",
+      "description": "iMessage thread name."
+    },
+    {
+      "name": "imessage_total_messages",
+      "description": "Total messages in the exported thread summary."
+    },
+    {
+      "name": "imessage_sent_messages",
+      "description": "Sent message count in the exported thread summary."
+    },
+    {
+      "name": "imessage_received_messages",
+      "description": "Received message count in the exported thread summary."
+    },
+    {
+      "name": "imessage_volume_profile",
+      "description": "Narrative volume profile for the iMessage thread."
+    },
+    {
+      "name": "imessage_note_text",
+      "description": "Thread note call note or non-message annotation from iMessage export."
+    },
+    {
+      "name": "imessage_sender",
+      "description": "Sender shown for an individual iMessage row."
+    },
+    {
+      "name": "imessage_direction",
+      "description": "Sent or received direction for an individual iMessage row."
+    },
+    {
+      "name": "imessage_text",
+      "description": "Text content of an individual iMessage row."
+    },
+    {
+      "name": "imessage_message_length",
+      "description": "Character length of the iMessage text."
+    },
+    {
+      "name": "imessage_call_duration_min",
+      "description": "Duration in minutes for parsed call annotations."
+    }
+  ]
+}

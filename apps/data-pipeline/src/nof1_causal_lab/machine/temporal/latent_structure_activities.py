@@ -14,13 +14,13 @@ from nof1_causal_lab.machine.errors import TransitionExecutionError
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
     LLMBackendConfig,
     SingleLLMTransitionFinalizeInput,
     SingleLLMTransitionPlan,
     SingleLLMTransitionWorkflowInput,
 )
-from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 
@@ -133,10 +133,7 @@ async def plan_latent_structure_activity(
         json_filename("question", "question"),
     )["text"]
     context_ref = storage.join(
-        data_module.runs_dir(input.workspace_id),
-        "temporal-llm",
-        run_id,
-        "latent-structure",
+        subroutine_root(input.workspace_id, run_id, "latent-structure"),
         "context.json",
     )
     _write_latent_json(
@@ -174,7 +171,6 @@ async def finalize_latent_structure_activity(
         if input.result_ref is None:
             raise RuntimeError("latent-structure subroutine completed without a result ref")
         payload = _read_latent_json(input.result_ref)
-        payload["llm_trace_ref"] = input.trace_ref
         fields = set(LatentStructureContract.model_fields.keys())
         payload = {key: value for key, value in payload.items() if key in fields}
 

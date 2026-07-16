@@ -13,9 +13,9 @@ vi.mock("@/lib/model-spec-derived-data", () => ({
   deriveStatisticalModelSpecData: vi.fn(() => ({ marker: "statistical_model_spec-derived" })),
 }));
 
-import { deriveRawDataData } from "@/lib/raw-data";
 import { deriveMeasurementsData } from "@/lib/measurements-data";
 import { deriveStatisticalModelSpecData } from "@/lib/model-spec-derived-data";
+import { deriveRawDataData } from "@/lib/raw-data";
 import { GET } from "./route";
 
 function artifactResponse(
@@ -210,7 +210,6 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
   it("unwraps the causal design artifact for the measurement-structure view", async () => {
     const measurementStructure = {
       measurement_structure: { model_clock: "1d", indicators: [] },
-      llm_trace_ref: null,
     };
     const causalDesign = {
       latent: { constructs: [], edges: [] },

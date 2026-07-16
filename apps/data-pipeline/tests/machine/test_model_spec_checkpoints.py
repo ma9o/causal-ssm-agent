@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.machine.moves import RunArtifact
-from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
+from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     AcceptedConstructCheckpoint,
     ModelSpecAdmissionEvaluation,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 def _workspace(monkeypatch, tmp_path) -> str:
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     return "checkpoint-test"
 
 
@@ -195,7 +195,12 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
             ts="2026-07-11T00:00:00+00:00",
             move=RunArtifact(artifact_id="statistical_model_spec"),
             status="raised",
-            diagnostics={"checkpoint_ref": "model-spec-checkpoint:checkpoint-test/run/old.json"},
+            trace_ids=[],
+            resume=ResumeRef(
+                kind="model_spec",
+                run_id="seq-000001",
+                checkpoint_id="old.json",
+            ),
         )
     )
     journal.append(
@@ -204,6 +209,8 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
             ts="2026-07-11T00:01:00+00:00",
             move=RunArtifact(artifact_id="posterior"),
             status="raised",
+            trace_ids=[],
+            resume=None,
         )
     )
     journal.append(
@@ -212,13 +219,18 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
             ts="2026-07-11T00:02:00+00:00",
             move=RunArtifact(artifact_id="statistical_model_spec"),
             status="raised",
-            diagnostics={"checkpoint_ref": "model-spec-checkpoint:checkpoint-test/run/new.json"},
+            trace_ids=[],
+            resume=ResumeRef(
+                kind="model_spec",
+                run_id="seq-000003",
+                checkpoint_id="new.json",
+            ),
         )
     )
 
     assert (
         latest_failed_model_spec_checkpoint_ref(workspace_id)
-        == "model-spec-checkpoint:checkpoint-test/run/new.json"
+        == "model-spec-checkpoint:seq-000003/new.json"
     )
 
     journal.append(
@@ -227,6 +239,8 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
             ts="2026-07-11T00:03:00+00:00",
             move=RunArtifact(artifact_id="statistical_model_spec"),
             status="applied",
+            trace_ids=[],
+            resume=None,
         )
     )
     assert latest_failed_model_spec_checkpoint_ref(workspace_id) is None

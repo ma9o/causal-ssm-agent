@@ -11,7 +11,7 @@ from nof1_causal_lab.machine.store import ArtifactStore
 def integration_workspace(monkeypatch, tmp_path) -> str:
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     return "fixture_workspace"
 
 

@@ -2,26 +2,44 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import timedelta
+from typing import assert_never
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.machine.moves import TransitionEffects
+    # Temporal resolves workflow result annotations when registering the class.
+    from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
+    from nof1_causal_lab.machine.temporal.baseline_report_activities import (
+        finalize_baseline_report_activity,
+        plan_baseline_report_activity,
+    )
+    from nof1_causal_lab.machine.temporal.latent_structure_activities import (
+        finalize_latent_structure_activity,
+        plan_latent_structure_activity,
+    )
     from nof1_causal_lab.machine.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
+    from nof1_causal_lab.machine.temporal.measurement_activities import (
+        emit_transition_runtime_event_activity,
+    )
+    from nof1_causal_lab.machine.temporal.measurement_structure_activities import (
+        finalize_measurement_structure_activity,
+        plan_measurement_structure_activity,
+    )
     from nof1_causal_lab.machine.temporal.messages import (
         LLMSubroutineContextKind,
         LLMSubroutineInput,
-        LLMSubroutineResult,
         SingleLLMTransitionFinalizeInput,
-        SingleLLMTransitionId,
-        SingleLLMTransitionPlan,
         SingleLLMTransitionWorkflowInput,
         TransitionRuntimeError,
         TransitionRuntimeEventInput,
         TransitionRuntimeStatus,
+    )
+    from nof1_causal_lab.machine.temporal.raw_data_activities import (
+        finalize_raw_data_activity,
+        plan_raw_data_activity,
     )
 
 _EVENT_TIMEOUT = timedelta(seconds=30)
@@ -36,57 +54,6 @@ _ACTIVITY_RETRY = RetryPolicy(
 )
 
 
-@dataclass(frozen=True)
-class SingleLLMTransitionSpec:
-    plan_activity: str
-    finalize_activity: str
-    context_kind: LLMSubroutineContextKind
-    subroutine_id: str
-    require_result: bool
-    plan_timeout: timedelta
-    summary: str
-
-
-_SINGLE_LLM_TRANSITION_SPECS: dict[SingleLLMTransitionId, SingleLLMTransitionSpec] = {
-    "raw_data": SingleLLMTransitionSpec(
-        plan_activity="plan_raw_data_activity",
-        finalize_activity="finalize_raw_data_activity",
-        context_kind="raw_data_ingestion",
-        subroutine_id="raw-data",
-        require_result=True,
-        plan_timeout=timedelta(minutes=30),
-        summary="raw-data ingestion",
-    ),
-    "latent_structure": SingleLLMTransitionSpec(
-        plan_activity="plan_latent_structure_activity",
-        finalize_activity="finalize_latent_structure_activity",
-        context_kind="latent_structure",
-        subroutine_id="latent-structure",
-        require_result=True,
-        plan_timeout=timedelta(minutes=5),
-        summary="latent structure",
-    ),
-    "measurement_structure": SingleLLMTransitionSpec(
-        plan_activity="plan_measurement_structure_activity",
-        finalize_activity="finalize_measurement_structure_activity",
-        context_kind="measurement_structure",
-        subroutine_id="measurement-structure",
-        require_result=True,
-        plan_timeout=timedelta(minutes=5),
-        summary="measurement structure",
-    ),
-    "baseline_report": SingleLLMTransitionSpec(
-        plan_activity="plan_baseline_report_activity",
-        finalize_activity="finalize_baseline_report_activity",
-        context_kind="analysis_commentary",
-        subroutine_id="baseline-report",
-        require_result=False,
-        plan_timeout=timedelta(minutes=30),
-        summary="baseline report",
-    ),
-}
-
-
 async def _emit_single_llm_transition_event(
     workspace_id: str,
     transition_id: str,
@@ -94,7 +61,7 @@ async def _emit_single_llm_transition_event(
     error: TransitionRuntimeError | None = None,
 ) -> None:
     await workflow.execute_activity(
-        "emit_transition_runtime_event_activity",
+        emit_transition_runtime_event_activity,
         TransitionRuntimeEventInput(
             workspace_id=workspace_id,
             transition_id=transition_id,
@@ -106,93 +73,170 @@ async def _emit_single_llm_transition_event(
     )
 
 
-def _single_llm_failure_message(exc: BaseException) -> str:
-    cause = getattr(exc, "cause", None)
-    if cause is not None:
-        return str(cause)
-    return str(exc)
+def _single_llm_failure_details(exc: BaseException) -> tuple[str, str, dict]:
+    cause = exc
+    while not isinstance(cause, ApplicationError):
+        next_cause = getattr(cause, "cause", None)
+        if not isinstance(next_cause, BaseException):
+            break
+        cause = next_cause
+    if isinstance(cause, ApplicationError):
+        diagnostics = (
+            cause.details[0] if cause.details and isinstance(cause.details[0], dict) else {}
+        )
+        return cause.type or "ApplicationError", cause.message, dict(diagnostics)
+    return type(cause).__name__, str(cause), {}
+
+
+async def _run_single_llm_transition(
+    input: SingleLLMTransitionWorkflowInput,
+) -> TransitionEffects:
+    await _emit_single_llm_transition_event(input.workspace_id, input.transition_id, "running")
+    try:
+        context_kind: LLMSubroutineContextKind
+        match input.transition_id:
+            case "raw_data":
+                context_kind = "raw_data_ingestion"
+                subroutine_id = "raw-data"
+                require_result = True
+                summary = "raw-data ingestion"
+                plan = await workflow.execute_activity(
+                    plan_raw_data_activity,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=30),
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Plan raw-data ingestion",
+                )
+            case "latent_structure":
+                context_kind = "latent_structure"
+                subroutine_id = "latent-structure"
+                require_result = True
+                summary = "latent structure"
+                plan = await workflow.execute_activity(
+                    plan_latent_structure_activity,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Plan latent structure",
+                )
+            case "measurement_structure":
+                context_kind = "measurement_structure"
+                subroutine_id = "measurement-structure"
+                require_result = True
+                summary = "measurement structure"
+                plan = await workflow.execute_activity(
+                    plan_measurement_structure_activity,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Plan measurement structure",
+                )
+            case "baseline_report":
+                context_kind = "analysis_commentary"
+                subroutine_id = "baseline-report"
+                require_result = False
+                summary = "baseline report"
+                plan = await workflow.execute_activity(
+                    plan_baseline_report_activity,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=30),
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Plan baseline report",
+                )
+            case unsupported:
+                assert_never(unsupported)
+
+        subroutine = await workflow.execute_child_workflow(
+            LLMSubroutineWorkflow.run,
+            LLMSubroutineInput(
+                workspace_id=input.workspace_id,
+                run_id=plan.run_id,
+                subroutine_id=subroutine_id,
+                context_kind=context_kind,
+                context_ref=plan.context_ref,
+                llm=plan.llm,
+                max_tool_turns=plan.max_tool_turns,
+                require_result=require_result,
+            ),
+            id=(
+                f"llm-{input.transition_id.replace('_', '-')}-{input.workspace_id}-{input.seq:06d}"
+            ),
+            task_queue=workflow.info().task_queue,
+            static_summary=f"LLM {summary} subroutine",
+            static_details=(
+                f"workspace={input.workspace_id}; transition={input.transition_id}; "
+                f"subroutine={subroutine_id}; context={context_kind}"
+            ),
+            memo={
+                "workspace_id": input.workspace_id,
+                "transition_id": input.transition_id,
+                "subroutine_id": subroutine_id,
+                "context_kind": context_kind,
+                "run_id": plan.run_id,
+            },
+        )
+        if require_result and subroutine.result_ref is None:
+            raise RuntimeError(f"{summary} subroutine completed without a result ref")
+        finalize_input = SingleLLMTransitionFinalizeInput(
+            workspace_id=input.workspace_id,
+            transition_id=input.transition_id,
+            state=input.state,
+            pins=plan.pins,
+            context_ref=plan.context_ref,
+            result_ref=subroutine.result_ref,
+            trace_ref=subroutine.trace_ref,
+        )
+        match input.transition_id:
+            case "raw_data":
+                effects = await workflow.execute_activity(
+                    finalize_raw_data_activity,
+                    finalize_input,
+                    start_to_close_timeout=_FINALIZE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Finalize raw-data ingestion",
+                )
+            case "latent_structure":
+                effects = await workflow.execute_activity(
+                    finalize_latent_structure_activity,
+                    finalize_input,
+                    start_to_close_timeout=_FINALIZE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Finalize latent structure",
+                )
+            case "measurement_structure":
+                effects = await workflow.execute_activity(
+                    finalize_measurement_structure_activity,
+                    finalize_input,
+                    start_to_close_timeout=_FINALIZE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Finalize measurement structure",
+                )
+            case "baseline_report":
+                effects = await workflow.execute_activity(
+                    finalize_baseline_report_activity,
+                    finalize_input,
+                    start_to_close_timeout=_FINALIZE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                    summary="Finalize baseline report",
+                )
+            case unsupported:
+                assert_never(unsupported)
+    except Exception as exc:
+        failure_type, failure_message, _ = _single_llm_failure_details(exc)
+        await _emit_single_llm_transition_event(
+            input.workspace_id,
+            input.transition_id,
+            "failed",
+            error=TransitionRuntimeError(type=failure_type, message=failure_message),
+        )
+        raise
+
+    await _emit_single_llm_transition_event(input.workspace_id, input.transition_id, "completed")
+    return effects
 
 
 @workflow.defn
 class SingleLLMTransitionWorkflow:
     @workflow.run
     async def run(self, input: SingleLLMTransitionWorkflowInput) -> TransitionEffects:
-        spec = _SINGLE_LLM_TRANSITION_SPECS[input.transition_id]
-        summary = spec.summary
-        await _emit_single_llm_transition_event(input.workspace_id, input.transition_id, "running")
-        try:
-            plan = await workflow.execute_activity(
-                spec.plan_activity,
-                input,
-                result_type=SingleLLMTransitionPlan,
-                start_to_close_timeout=spec.plan_timeout,
-                retry_policy=_ACTIVITY_RETRY,
-                summary=f"Plan {summary}",
-            )
-            subroutine = await workflow.execute_child_workflow(
-                LLMSubroutineWorkflow.run,
-                LLMSubroutineInput(
-                    workspace_id=input.workspace_id,
-                    run_id=plan.run_id,
-                    subroutine_id=spec.subroutine_id,
-                    context_kind=spec.context_kind,
-                    context_ref=plan.context_ref,
-                    llm=plan.llm,
-                    max_tool_turns=plan.max_tool_turns,
-                    require_result=spec.require_result,
-                ),
-                id=(
-                    f"llm-{input.transition_id.replace('_', '-')}-"
-                    f"{input.workspace_id}-{input.seq:06d}"
-                ),
-                task_queue=workflow.info().task_queue,
-                result_type=LLMSubroutineResult,
-                static_summary=f"LLM {summary} subroutine",
-                static_details=(
-                    f"workspace={input.workspace_id}; transition={input.transition_id}; "
-                    f"subroutine={spec.subroutine_id}; context={spec.context_kind}"
-                ),
-                memo={
-                    "workspace_id": input.workspace_id,
-                    "transition_id": input.transition_id,
-                    "subroutine_id": spec.subroutine_id,
-                    "context_kind": spec.context_kind,
-                    "run_id": plan.run_id,
-                },
-            )
-            if spec.require_result and subroutine.result_ref is None:
-                raise RuntimeError(f"{summary} subroutine completed without a result ref")
-            if subroutine.trace_ref is None:
-                raise RuntimeError(f"{summary} subroutine completed without a trace ref")
-
-            effects = await workflow.execute_activity(
-                spec.finalize_activity,
-                SingleLLMTransitionFinalizeInput(
-                    workspace_id=input.workspace_id,
-                    transition_id=input.transition_id,
-                    state=input.state,
-                    pins=plan.pins,
-                    context_ref=plan.context_ref,
-                    result_ref=subroutine.result_ref,
-                    trace_ref=subroutine.trace_ref,
-                ),
-                result_type=TransitionEffects,
-                start_to_close_timeout=_FINALIZE_TIMEOUT,
-                retry_policy=_ACTIVITY_RETRY,
-                summary=f"Finalize {summary}",
-            )
-        except Exception as exc:
-            await _emit_single_llm_transition_event(
-                input.workspace_id,
-                input.transition_id,
-                "failed",
-                error=TransitionRuntimeError(
-                    type=type(exc).__name__, message=_single_llm_failure_message(exc)
-                ),
-            )
-            raise
-
-        await _emit_single_llm_transition_event(
-            input.workspace_id, input.transition_id, "completed"
-        )
-        return effects
+        return await _run_single_llm_transition(input)

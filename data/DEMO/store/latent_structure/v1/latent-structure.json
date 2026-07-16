@@ -1,1 +1,1922 @@
-{"latent_structure":{"constructs":[{"name":"internalizing_symptom_burden","description":"Primary outcome: latent depressive and anxiety symptom burden over the next two months, including mood, anhedonia, worry, irritability, somatic anxiety, and distress.","role":"endogenous","is_outcome":true,"temporal_status":"time_varying"},{"name":"depressive_anxiety_disorder_activity","description":"Underlying active illness or relapse process for depressive and anxiety syndromes, separated from withdrawal and reporting effects.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"escitalopram_dose_taken","description":"Actual escitalopram amount ingested at each model tick after taper instructions and adherence are realized.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"taper_speed_dose_reduction","description":"Rate and size of escitalopram dose reductions, including abrupt, linear, hyperbolic, paused, or reversed taper patterns.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"adherence_to_regimen","description":"Consistency with intended dose or taper plan, including missed doses, extra doses, and reinstatement behavior.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"plasma_escitalopram_exposure","description":"Systemic escitalopram exposure determined by dose, adherence, metabolism, clearance, and drug interactions.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"serotonin_transporter_occupancy","description":"Degree of serotonin transporter blockade produced by escitalopram exposure, with nonlinear dose occupancy.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"antidepressant_maintenance_effect","description":"Ongoing pharmacodynamic protection against depressive or anxiety relapse attributable to escitalopram, conditional on responsiveness and exposure.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"neuroadaptation_dependence_state","description":"Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"serotonergic_change_disequilibrium","description":"Abruptness of change in serotonergic signaling and transporter occupancy relative to the person's adapted state.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"withdrawal_symptom_burden","description":"Discontinuation symptoms after dose reduction, including dizziness, insomnia, anxiety, irritability, flu-like symptoms, nausea, and disequilibrium.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"escitalopram_side_effect_burden","description":"Adverse effects while taking escitalopram or changing dose, such as fatigue, sleep disturbance, gastrointestinal symptoms, emotional blunting, sexual dysfunction, or activation.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"expectancy_nocebo_placebo","description":"Symptom change driven by expectations, attention to sensations, treatment meaning, nocebo concerns, and perceived medication protection.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"sleep_circadian_disruption","description":"Insomnia, hypersomnia, irregular sleep timing, circadian misalignment, and poor sleep quality.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"perceived_stress_burden","description":"Subjective stress load, threat appraisal, overload, uncontrollability, and daily hassles.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"external_stressful_events","description":"External shocks during follow-up such as loss, conflict, job strain, financial events, illness in others, or major schedule disruption.","role":"exogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"rumination_cognitive_reactivity","description":"Tendency for negative mood to trigger repetitive negative thinking, hopeless interpretations, worry, and cognitive reactivity.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"behavioral_activation_reward","description":"Engagement with rewarding, valued, social, mastery, and routine activities that provide positive reinforcement.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"physical_activity","description":"Amount and regularity of movement and exercise sufficient to affect sleep, reward, energy, and mood regulation.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"social_support_conflict","description":"Availability of supportive relationships, isolation, interpersonal conflict, reassurance, accountability, and belonging.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"psychotherapy_skills_use","description":"Use of cognitive, behavioral, mindfulness, exposure, problem solving, relapse prevention, or other psychological skills.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"substance_use_intoxication_withdrawal","description":"Alcohol, cannabis, stimulant, sedative, nicotine, or other substance exposure and rebound states affecting sleep, affect, anxiety, metabolism, and adherence.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"physical_illness_pain_inflammation","description":"Acute or chronic physical illness, pain, inflammation, fatigue, endocrine changes, and somatic symptom load during follow-up.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"hormonal_state_changes","description":"Short-run reproductive, menstrual, pregnancy, postpartum, perimenopausal, thyroid, or other hormonal variation relevant to mood and anxiety.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"role_functioning_demands","description":"Work, school, caregiving, household, and financial demands together with the person's capacity to meet them.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"acute_safety_risk","description":"Short-run suicidal ideation, self-harm risk, agitation, severe impairment, or crisis risk that changes clinical decisions and distress.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"clinical_monitoring_rescue_care","description":"Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"other_psychotropic_or_somatic_treatments","description":"Concurrent medication changes, supplements, sleep aids, anxiolytics, stimulants, hormonal treatments, or somatic treatments affecting symptoms or exposure.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"patient_taper_preference_beliefs","description":"Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"clinician_taper_guidance","description":"Prescriber recommendation, taper schedule, psychoeducation, risk stratification, and advice about pausing, reinstating, or continuing.","role":"endogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"counterfactual_taper_regime","description":"Exogenous intervention regime defining the causal contrast: taper off now versus stay on the current maintenance approach.","role":"exogenous","is_outcome":false,"temporal_status":"time_varying"},{"name":"baseline_depression_anxiety_severity_chronicity","description":"Pre-treatment severity, duration, impairment, chronicity, age at onset, and diagnostic burden of the condition that led to escitalopram.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"prior_episode_recurrence_history","description":"Number, spacing, and recency of prior depressive or anxiety episodes before the current taper decision.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"comorbid_psychiatric_vulnerability","description":"Stable vulnerability from comorbid anxiety, panic, OCD, PTSD, eating disorder, ADHD, substance-use liability, personality pathology, or bipolar-spectrum risk.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"relapse_vulnerability","description":"Stable propensity for depressive or anxiety recurrence if pharmacologic protection or current stabilizing conditions are removed.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"natural_recovery_propensity","description":"Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"pre_taper_remission_stability","description":"How long and consistently symptoms were low before the taper decision, including whether remission occurred under stable or changing life conditions.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"pre_taper_residual_symptom_burden","description":"Residual depressive, anxiety, sleep, irritability, or somatic symptoms present just before tapering is considered.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"past_escitalopram_response_tolerability","description":"Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"duration_current_escitalopram_use","description":"Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"baseline_maintenance_dose_level","description":"Escitalopram maintenance dose immediately before any new taper or continuation regime begins.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"stable_ssri_pharmacodynamic_responsiveness","description":"Person-specific biological and clinical sensitivity to SSRI therapeutic and adverse effects, beyond dose exposure alone.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"stable_withdrawal_susceptibility","description":"Stable person-specific susceptibility to SSRI discontinuation symptoms, distinct from the historical fact of prior withdrawal episodes.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"prior_discontinuation_withdrawal_history","description":"History of withdrawal-like symptoms, relapse, or difficulty during previous missed doses, dose reductions, or medication discontinuations.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"genetic_family_liability","description":"Inherited and familial liability to mood, anxiety, substance-use, bipolar-spectrum, treatment-response, and stress-sensitivity traits.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"early_life_adversity","description":"Developmental adversity, maltreatment, chronic childhood stress, attachment disruption, and early socioeconomic disadvantage.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"temperament_neuroticism_behavioral_inhibition","description":"Stable trait negative affectivity, neuroticism, harm avoidance, behavioral inhibition, and emotion-regulation style.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"cyp2c19_pharmacokinetic_capacity","description":"Stable pharmacogenomic and metabolic capacity affecting escitalopram clearance, especially CYP2C19 metabolizer status.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"age_life_stage","description":"Age and life-stage context affecting depression recurrence, pharmacokinetics, medical burden, and stress ecology over the modeled period.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"sex_reproductive_context","description":"Sex-linked biology and stable reproductive context shaping pharmacokinetics, hormonal variability, and relapse risk.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"stable_socioeconomic_resources","description":"Relatively stable income, housing, education, job security, neighborhood safety, time flexibility, and material resources.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"baseline_physical_health_burden","description":"Stable chronic illness, pain conditions, endocrine disease, inflammatory conditions, disability, and baseline somatic vulnerability.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"healthcare_access","description":"Stable access to prescribers, psychotherapy, insurance, medication supply, follow-up appointments, and urgent care.","role":"endogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"medication_formulation_constraints","description":"Availability of liquid escitalopram, scored tablets, compounding, small dose increments, pill-splitting feasibility, and pharmacy constraints.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"},{"name":"stable_medication_attitudes","description":"Stable prior beliefs about medication, dependence, personal control, medical trust, stigma, and sensitivity to medication narratives.","role":"exogenous","is_outcome":false,"temporal_status":"time_invariant"}],"edges":[{"cause":"genetic_family_liability","effect":"baseline_depression_anxiety_severity_chronicity","description":"Familial and genetic liability increases pre-treatment mood and anxiety disorder risk and severity.","lagged":false,"sources":[{"title":"Sullivan, Neale, and Kendler (2000). Genetic epidemiology of major depression: review and meta-analysis.","url":"https://doi.org/10.1176/appi.ajp.157.10.1552","snippet":"Twin and family evidence supports inherited liability for major depression."}]},{"cause":"early_life_adversity","effect":"baseline_depression_anxiety_severity_chronicity","description":"Early adversity can increase severity, chronicity, and treatment difficulty of later internalizing disorders.","lagged":false,"sources":[{"title":"Nanni, Uher, and Danese (2012). Childhood maltreatment predicts unfavorable course of illness and treatment outcome in depression: a meta-analysis.","url":"https://doi.org/10.1176/appi.ajp.2011.11020335","snippet":"Childhood maltreatment was associated with more persistent and less treatment-responsive depression."}]},{"cause":"temperament_neuroticism_behavioral_inhibition","effect":"baseline_depression_anxiety_severity_chronicity","description":"Stable negative affectivity and inhibition increase liability to severe or persistent internalizing symptoms.","lagged":false,"sources":[{"title":"Kotov, Gamez, Schmidt, and Watson (2010). Linking big personality traits to anxiety, depressive, and substance use disorders: a meta-analysis.","url":"https://doi.org/10.1037/a0020327","snippet":"Neuroticism showed strong associations with depressive and anxiety disorders."}]},{"cause":"genetic_family_liability","effect":"comorbid_psychiatric_vulnerability","description":"Familial liability contributes to comorbid anxiety, bipolar-spectrum, and substance-use vulnerabilities.","lagged":false,"sources":[]},{"cause":"early_life_adversity","effect":"comorbid_psychiatric_vulnerability","description":"Developmental adversity increases risk for multiple psychiatric vulnerabilities, not just the index episode.","lagged":false,"sources":[]},{"cause":"temperament_neuroticism_behavioral_inhibition","effect":"comorbid_psychiatric_vulnerability","description":"Trait neuroticism and inhibition are common vulnerability factors for anxiety, depression, and substance-use comorbidity.","lagged":false,"sources":[{"title":"Kotov, Gamez, Schmidt, and Watson (2010). Linking big personality traits to anxiety, depressive, and substance use disorders: a meta-analysis.","url":"https://doi.org/10.1037/a0020327","snippet":"Personality traits, especially neuroticism, cut across several psychiatric diagnoses."}]},{"cause":"baseline_physical_health_burden","effect":"baseline_depression_anxiety_severity_chronicity","description":"Chronic illness, pain, endocrine disease, and disability can worsen pre-treatment internalizing severity and chronicity.","lagged":false,"sources":[]},{"cause":"comorbid_psychiatric_vulnerability","effect":"baseline_depression_anxiety_severity_chronicity","description":"Psychiatric comorbidity tends to make the presenting condition more severe, impairing, recurrent, and harder to interpret.","lagged":false,"sources":[]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"prior_episode_recurrence_history","description":"Earlier onset, chronicity, and severe baseline illness tend to produce more recurrent episodes before tapering is considered.","lagged":false,"sources":[{"title":"Burcusa and Iacono (2007). Risk for recurrence in depression.","url":"https://doi.org/10.1016/j.cpr.2007.02.005","snippet":"Prior course characteristics are major predictors of recurrence."}]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"natural_recovery_propensity","description":"More chronic or severe illness lowers the chance that improvement would have occurred and persisted without medication.","lagged":false,"sources":[{"title":"Posternak and Miller (2001). Untreated short-term course of major depression: a meta-analysis of outcomes from wait-list control groups.","url":"https://doi.org/10.1016/S0165-0327(00)00304-9","snippet":"Some short-term spontaneous improvement occurs, but it is variable and incomplete."}]},{"cause":"stable_socioeconomic_resources","effect":"natural_recovery_propensity","description":"Material stability, time flexibility, and secure living conditions make nonpharmacologic recovery more plausible.","lagged":false,"sources":[]},{"cause":"prior_episode_recurrence_history","effect":"relapse_vulnerability","description":"A recurrent history implies higher stable risk of relapse when maintenance treatment is reduced or stopped.","lagged":false,"sources":[{"title":"Burcusa and Iacono (2007). Risk for recurrence in depression.","url":"https://doi.org/10.1016/j.cpr.2007.02.005","snippet":"The number of previous depressive episodes is a strong recurrence predictor."}]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"relapse_vulnerability","description":"Chronic, severe, or impairing pre-treatment illness increases vulnerability to future relapse.","lagged":false,"sources":[]},{"cause":"comorbid_psychiatric_vulnerability","effect":"relapse_vulnerability","description":"Comorbid anxiety, trauma, substance-use, and bipolar-spectrum vulnerabilities increase recurrence risk and complicate taper outcomes.","lagged":false,"sources":[]},{"cause":"natural_recovery_propensity","effect":"relapse_vulnerability","description":"A stronger self-limited or resilient course lowers latent relapse pressure after medication reduction.","lagged":false,"sources":[{"title":"Posternak and Miller (2001). Untreated short-term course of major depression.","url":"https://doi.org/10.1016/S0165-0327(00)00304-9","snippet":"Untreated improvement motivates separating natural recovery from treatment effect."}]},{"cause":"age_life_stage","effect":"baseline_physical_health_burden","description":"Age and life stage shape chronic disease, pain, and somatic vulnerability before the taper decision.","lagged":false,"sources":[]},{"cause":"sex_reproductive_context","effect":"baseline_physical_health_burden","description":"Sex-linked biology and reproductive context can influence endocrine, pain, inflammatory, and chronic health burden.","lagged":false,"sources":[]},{"cause":"early_life_adversity","effect":"baseline_physical_health_burden","description":"Early adversity can contribute to later chronic health burden through stress physiology and social pathways.","lagged":false,"sources":[]},{"cause":"stable_socioeconomic_resources","effect":"baseline_physical_health_burden","description":"Material resources affect chronic illness risk, treatment access, disability burden, and health maintenance.","lagged":false,"sources":[]},{"cause":"stable_socioeconomic_resources","effect":"healthcare_access","description":"Income, insurance, work flexibility, and transportation are major determinants of access to prescribers, therapy, and urgent care.","lagged":false,"sources":[]},{"cause":"genetic_family_liability","effect":"stable_ssri_pharmacodynamic_responsiveness","description":"Stable biological differences partly determine therapeutic and adverse SSRI sensitivity.","lagged":false,"sources":[]},{"cause":"comorbid_psychiatric_vulnerability","effect":"stable_ssri_pharmacodynamic_responsiveness","description":"Different diagnostic mixtures can alter whether escitalopram is likely to help or harm.","lagged":false,"sources":[]},{"cause":"cyp2c19_pharmacokinetic_capacity","effect":"past_escitalopram_response_tolerability","description":"Escitalopram metabolism affects historical exposure, side effects, and apparent effectiveness at a given dose.","lagged":false,"sources":[{"title":"Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.","url":"https://doi.org/10.1002/cpt.147","snippet":"CYP2C19 genotype is relevant to escitalopram dosing because it changes exposure."}]},{"cause":"stable_ssri_pharmacodynamic_responsiveness","effect":"past_escitalopram_response_tolerability","description":"Person-specific SSRI sensitivity contributes to historical improvement and side effect patterns.","lagged":false,"sources":[{"title":"Cipriani et al. (2018). Comparative efficacy and acceptability of 21 antidepressant drugs for acute treatment of adults with major depressive disorder.","url":"https://doi.org/10.1016/S0140-6736(17)32802-7","snippet":"Antidepressant efficacy is real on average but varies by drug and person."}]},{"cause":"natural_recovery_propensity","effect":"past_escitalopram_response_tolerability","description":"Natural improvement can be misattributed to escitalopram if medication began during spontaneous improvement.","lagged":false,"sources":[{"title":"Posternak and Miller (2001). Untreated short-term course of major depression.","url":"https://doi.org/10.1016/S0165-0327(00)00304-9","snippet":"Wait-list studies show measurable spontaneous improvement over weeks."}]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"past_escitalopram_response_tolerability","description":"Initial severity affects apparent antidepressant benefit, room for improvement, and tolerability decisions.","lagged":false,"sources":[{"title":"Fournier et al. (2010). Antidepressant drug effects and depression severity: a patient-level meta-analysis.","url":"https://doi.org/10.1001/jama.2009.1943","snippet":"Medication-placebo differences varied with baseline depression severity."}]},{"cause":"past_escitalopram_response_tolerability","effect":"pre_taper_remission_stability","description":"Historical response and tolerability help determine how stable remission is before tapering.","lagged":false,"sources":[{"title":"Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders: a systematic review.","url":"https://doi.org/10.1016/S0140-6736(03)12599-8","snippet":"Continuation antidepressant treatment reduced relapse risk among responders."}]},{"cause":"natural_recovery_propensity","effect":"pre_taper_remission_stability","description":"A naturally remitting course can produce stable wellness even if medication was not the active ingredient.","lagged":false,"sources":[]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"pre_taper_residual_symptom_burden","description":"More severe or chronic baseline illness makes residual symptoms more likely after apparent response.","lagged":false,"sources":[{"title":"Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.","url":"https://doi.org/10.1016/S0165-0327(98)00138-4","snippet":"Residual subthreshold symptoms predicted faster relapse."}]},{"cause":"past_escitalopram_response_tolerability","effect":"pre_taper_residual_symptom_burden","description":"Better historical response tends to leave fewer residual symptoms; poor tolerability can leave fatigue, sleep, or affective symptoms.","lagged":false,"sources":[]},{"cause":"pre_taper_residual_symptom_burden","effect":"relapse_vulnerability","description":"Residual symptoms indicate incomplete remission and can maintain vulnerability to future symptom return.","lagged":false,"sources":[{"title":"Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.","url":"https://doi.org/10.1016/S0165-0327(98)00138-4","snippet":"Residual symptoms predicted more rapid relapse."}]},{"cause":"pre_taper_remission_stability","effect":"relapse_vulnerability","description":"Longer and more stable remission lowers expected relapse risk compared with unstable or partial remission.","lagged":false,"sources":[]},{"cause":"prior_episode_recurrence_history","effect":"duration_current_escitalopram_use","description":"Recurrent history makes longer maintenance use more likely.","lagged":false,"sources":[{"title":"Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.","url":"https://doi.org/10.1016/S0140-6736(03)12599-8","snippet":"Continuation treatment is especially relevant when absolute relapse risk is high."}]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"duration_current_escitalopram_use","description":"More severe or chronic original illness increases the chance of long-term maintenance use.","lagged":false,"sources":[]},{"cause":"past_escitalopram_response_tolerability","effect":"duration_current_escitalopram_use","description":"Perceived benefit and acceptable tolerability make extended use more likely.","lagged":false,"sources":[]},{"cause":"baseline_depression_anxiety_severity_chronicity","effect":"baseline_maintenance_dose_level","description":"More severe illness and partial response can lead to higher maintenance dosing before tapering.","lagged":false,"sources":[]},{"cause":"past_escitalopram_response_tolerability","effect":"baseline_maintenance_dose_level","description":"Historical benefit and side effects influence what dose is maintained at the start of the contrast.","lagged":false,"sources":[]},{"cause":"cyp2c19_pharmacokinetic_capacity","effect":"stable_withdrawal_susceptibility","description":"Metabolic differences can alter exposure drops after missed doses or reductions, influencing withdrawal susceptibility.","lagged":false,"sources":[{"title":"Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.","url":"https://doi.org/10.1002/cpt.147","snippet":"CYP2C19 genotype changes escitalopram pharmacokinetics."}]},{"cause":"stable_ssri_pharmacodynamic_responsiveness","effect":"stable_withdrawal_susceptibility","description":"A person sensitive to SSRI pharmacodynamic changes may be more susceptible to discontinuation symptoms.","lagged":false,"sources":[]},{"cause":"baseline_physical_health_burden","effect":"stable_withdrawal_susceptibility","description":"Somatic vulnerability, vestibular problems, pain, and medical illness can amplify discontinuation symptom susceptibility.","lagged":false,"sources":[]},{"cause":"stable_withdrawal_susceptibility","effect":"prior_discontinuation_withdrawal_history","description":"Stable susceptibility helps explain why previous missed doses or reductions produced withdrawal-like reactions.","lagged":false,"sources":[{"title":"Davies and Read (2019). A systematic review into the incidence, severity and duration of antidepressant withdrawal effects.","url":"https://doi.org/10.1016/j.addbeh.2018.08.027","snippet":"Withdrawal effects vary substantially across people."}]},{"cause":"duration_current_escitalopram_use","effect":"neuroadaptation_dependence_state","description":"Longer continuous exposure allows more physiologic adaptation to SSRI blockade.","lagged":false,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"Withdrawal risk is framed in relation to adaptation and nonlinear dose occupancy."}]},{"cause":"baseline_maintenance_dose_level","effect":"neuroadaptation_dependence_state","description":"Higher sustained maintenance dosing produces more sustained transporter blockade and adaptation before tapering.","lagged":false,"sources":[{"title":"Meyer et al. (2004). Serotonin transporter occupancy of five selective serotonin reuptake inhibitors at different doses: an [11C]DASB PET study.","url":"https://doi.org/10.1176/appi.ajp.161.5.826","snippet":"SSRI dose relates nonlinearly to serotonin transporter occupancy."}]},{"cause":"stable_withdrawal_susceptibility","effect":"withdrawal_symptom_burden","description":"Underlying discontinuation susceptibility causally affects current withdrawal burden, while prior history is treated as a marker and belief-shaper.","lagged":false,"sources":[{"title":"Davies and Read (2019). A systematic review into antidepressant withdrawal effects.","url":"https://doi.org/10.1016/j.addbeh.2018.08.027","snippet":"Withdrawal reactions are variable in incidence, duration, and severity."}]},{"cause":"baseline_maintenance_dose_level","effect":"escitalopram_dose_taken","description":"The pre-taper maintenance dose sets the starting level under either continuation or taper regimes.","lagged":false,"sources":[]},{"cause":"counterfactual_taper_regime","effect":"taper_speed_dose_reduction","description":"The intervention contrast directly determines whether dose is held stable or reduced now, and how quickly reductions are attempted.","lagged":false,"sources":[]},{"cause":"counterfactual_taper_regime","effect":"escitalopram_dose_taken","description":"The assigned regime constrains the dose trajectory under taper-off-now versus stay-on-medication counterfactuals.","lagged":false,"sources":[]},{"cause":"medication_formulation_constraints","effect":"taper_speed_dose_reduction","description":"Lack of liquid, small tablets, or compounding can force larger dose steps and faster practical tapering.","lagged":false,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"Hyperbolic tapering can require progressively smaller dose reductions than standard tablet strengths allow."}]},{"cause":"healthcare_access","effect":"clinician_taper_guidance","description":"Access to prescribers and follow-up determines whether tapering is guided, monitored, and adjustable.","lagged":false,"sources":[]},{"cause":"healthcare_access","effect":"clinical_monitoring_rescue_care","description":"Access determines the availability of follow-up, crisis planning, medication review, and rapid rescue if symptoms worsen.","lagged":false,"sources":[]},{"cause":"healthcare_access","effect":"psychotherapy_skills_use","description":"Access, affordability, and availability determine whether psychotherapy or structured skills support is obtained.","lagged":false,"sources":[]},{"cause":"healthcare_access","effect":"other_psychotropic_or_somatic_treatments","description":"Health-system access affects whether adjunctive treatments are initiated, adjusted, or stopped.","lagged":false,"sources":[]},{"cause":"pre_taper_residual_symptom_burden","effect":"clinician_taper_guidance","description":"Residual symptoms should make clinicians more cautious about tapering and more likely to recommend monitoring or continuation.","lagged":false,"sources":[{"title":"Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.","url":"https://doi.org/10.1016/S0165-0327(98)00138-4","snippet":"Residual symptoms predict relapse, making them relevant to discontinuation decisions."}]},{"cause":"pre_taper_remission_stability","effect":"clinician_taper_guidance","description":"Long, stable remission makes a cautious taper more clinically plausible than unstable remission.","lagged":false,"sources":[]},{"cause":"relapse_vulnerability","effect":"clinician_taper_guidance","description":"Higher estimated relapse risk affects prescriber advice about whether and how quickly to taper.","lagged":false,"sources":[{"title":"Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.","url":"https://doi.org/10.1016/S0140-6736(03)12599-8","snippet":"Absolute benefit from continuation depends on baseline relapse risk."}]},{"cause":"stable_medication_attitudes","effect":"patient_taper_preference_beliefs","description":"Stable beliefs about medication, dependence, stigma, and autonomy shape current desire to taper or continue.","lagged":false,"sources":[]},{"cause":"past_escitalopram_response_tolerability","effect":"patient_taper_preference_beliefs","description":"Perceived past benefit discourages tapering, while side effects or lack of perceived benefit encourage it.","lagged":false,"sources":[]},{"cause":"prior_discontinuation_withdrawal_history","effect":"patient_taper_preference_beliefs","description":"Past difficulty stopping can increase fear of tapering or motivate a slower plan.","lagged":false,"sources":[]},{"cause":"pre_taper_residual_symptom_burden","effect":"patient_taper_preference_beliefs","description":"Current residual symptoms can make tapering seem riskier and continuation more attractive.","lagged":false,"sources":[]},{"cause":"pre_taper_remission_stability","effect":"patient_taper_preference_beliefs","description":"Stable remission can increase confidence that tapering is feasible.","lagged":false,"sources":[]},{"cause":"clinician_taper_guidance","effect":"taper_speed_dose_reduction","description":"Prescriber instructions and adjustment rules determine planned reduction speed and whether pauses or reinstatement are used.","lagged":true,"sources":[]},{"cause":"patient_taper_preference_beliefs","effect":"taper_speed_dose_reduction","description":"Motivation, fear of relapse, and coping confidence affect how quickly the person attempts to reduce dose.","lagged":true,"sources":[]},{"cause":"clinician_taper_guidance","effect":"adherence_to_regimen","description":"Clear guidance, follow-up, and contingency plans improve adherence to the intended taper or maintenance regimen.","lagged":true,"sources":[]},{"cause":"patient_taper_preference_beliefs","effect":"adherence_to_regimen","description":"Beliefs about benefit, harm, or dependence influence missed doses, self-directed dose changes, and reinstatement.","lagged":true,"sources":[]},{"cause":"taper_speed_dose_reduction","effect":"escitalopram_dose_taken","description":"Planned reductions mechanically lower the subsequent amount of escitalopram taken.","lagged":true,"sources":[]},{"cause":"adherence_to_regimen","effect":"escitalopram_dose_taken","description":"Missed doses, extra doses, and partial adherence change actual escitalopram dose relative to the plan.","lagged":true,"sources":[{"title":"DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.","url":"https://doi.org/10.1001/archinte.160.14.2101","snippet":"Depression is associated with poorer adherence to medical regimens."}]},{"cause":"internalizing_symptom_burden","effect":"adherence_to_regimen","description":"Worsening depression or anxiety can reduce organization and motivation for taking medication as intended, or prompt rescue dosing.","lagged":true,"sources":[{"title":"DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.","url":"https://doi.org/10.1001/archinte.160.14.2101","snippet":"Depressed patients were less likely to adhere to treatment recommendations."}]},{"cause":"escitalopram_side_effect_burden","effect":"adherence_to_regimen","description":"Side effects can cause skipped doses, dose reductions, or a stronger wish to discontinue.","lagged":true,"sources":[]},{"cause":"withdrawal_symptom_burden","effect":"escitalopram_dose_taken","description":"Withdrawal symptoms can lead to pausing the taper, reinstating, or taking rescue doses.","lagged":true,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"Withdrawal symptoms can motivate reinstatement and slower tapering."}]},{"cause":"acute_safety_risk","effect":"clinical_monitoring_rescue_care","description":"Suicidal ideation, self-harm risk, agitation, or crisis-level impairment prompts monitoring and rescue care.","lagged":true,"sources":[]},{"cause":"acute_safety_risk","effect":"clinician_taper_guidance","description":"Safety risk should lead clinicians to slow, pause, reverse, or avoid tapering and intensify follow-up.","lagged":true,"sources":[]},{"cause":"acute_safety_risk","effect":"taper_speed_dose_reduction","description":"Emergent safety risk can slow or stop dose reductions regardless of the original plan.","lagged":true,"sources":[]},{"cause":"internalizing_symptom_burden","effect":"patient_taper_preference_beliefs","description":"Worsening symptoms can increase fear of tapering; wellness can increase confidence to taper.","lagged":true,"sources":[]},{"cause":"escitalopram_side_effect_burden","effect":"patient_taper_preference_beliefs","description":"Side effects increase motivation to taper and reduce perceived net medication benefit.","lagged":true,"sources":[]},{"cause":"withdrawal_symptom_burden","effect":"patient_taper_preference_beliefs","description":"Discontinuation symptoms update beliefs about how risky or feasible tapering is.","lagged":true,"sources":[]},{"cause":"escitalopram_dose_taken","effect":"plasma_escitalopram_exposure","description":"Actual ingested dose is the proximal determinant of systemic escitalopram concentration.","lagged":true,"sources":[{"title":"Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.","url":"https://doi.org/10.1002/cpt.147","snippet":"SSRI dosing and metabolism jointly determine exposure."}]},{"cause":"cyp2c19_pharmacokinetic_capacity","effect":"plasma_escitalopram_exposure","description":"CYP2C19 metabolizer status changes escitalopram clearance and concentration at a given dose.","lagged":false,"sources":[{"title":"Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.","url":"https://doi.org/10.1002/cpt.147","snippet":"CYP2C19 genotype affects escitalopram exposure."}]},{"cause":"age_life_stage","effect":"plasma_escitalopram_exposure","description":"Age and life stage can affect drug distribution, clearance, concomitant medications, and exposure.","lagged":false,"sources":[]},{"cause":"baseline_physical_health_burden","effect":"plasma_escitalopram_exposure","description":"Stable hepatic, renal, inflammatory, or general medical burden can alter pharmacokinetics and tolerability.","lagged":false,"sources":[]},{"cause":"other_psychotropic_or_somatic_treatments","effect":"plasma_escitalopram_exposure","description":"Concomitant drugs and supplements can inhibit or induce metabolism, alter absorption, or add serotonergic effects.","lagged":true,"sources":[]},{"cause":"substance_use_intoxication_withdrawal","effect":"plasma_escitalopram_exposure","description":"Substances can affect adherence, metabolism, and physiologic response to a given dose.","lagged":true,"sources":[]},{"cause":"plasma_escitalopram_exposure","effect":"serotonin_transporter_occupancy","description":"Escitalopram exposure produces serotonin transporter blockade with occupancy rising nonlinearly with concentration.","lagged":true,"sources":[{"title":"Meyer et al. (2004). Serotonin transporter occupancy of five SSRIs at different doses.","url":"https://doi.org/10.1176/appi.ajp.161.5.826","snippet":"SERT occupancy increases with SSRI dose and plateaus at clinically used doses."}]},{"cause":"serotonin_transporter_occupancy","effect":"antidepressant_maintenance_effect","description":"Sustained transporter blockade is the proximal pharmacologic route through which escitalopram can prevent symptom return.","lagged":true,"sources":[{"title":"Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.","url":"https://doi.org/10.1016/S0140-6736(03)12599-8","snippet":"Continuation antidepressant treatment reduces relapse compared with discontinuation."}]},{"cause":"stable_ssri_pharmacodynamic_responsiveness","effect":"antidepressant_maintenance_effect","description":"The same level of transporter occupancy can yield different relapse-prevention benefit across people.","lagged":false,"sources":[{"title":"Cipriani et al. (2018). Comparative efficacy and acceptability of 21 antidepressant drugs.","url":"https://doi.org/10.1016/S0140-6736(17)32802-7","snippet":"Average efficacy exists but individual response heterogeneity is clinically important."}]},{"cause":"serotonin_transporter_occupancy","effect":"escitalopram_side_effect_burden","description":"Serotonergic pharmacology can cause dose-related adverse effects that affect quality of life and taper decisions.","lagged":true,"sources":[]},{"cause":"other_psychotropic_or_somatic_treatments","effect":"escitalopram_side_effect_burden","description":"Concurrent treatments can add adverse effects or interactions attributed to escitalopram or tapering.","lagged":true,"sources":[]},{"cause":"serotonin_transporter_occupancy","effect":"neuroadaptation_dependence_state","description":"Sustained SERT blockade creates an adapted physiologic state that can be disrupted by dose reduction.","lagged":true,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"SSRI withdrawal is framed as a response to reducing exposure after adaptation."}]},{"cause":"taper_speed_dose_reduction","effect":"serotonergic_change_disequilibrium","description":"Faster or larger dose reductions create larger changes in serotonergic signaling per unit time.","lagged":true,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"The hyperbolic dose-occupancy relation implies small low-dose changes can produce large biologic changes."}]},{"cause":"serotonin_transporter_occupancy","effect":"serotonergic_change_disequilibrium","description":"Current occupancy determines how much biologic change occurs for the next reduction and whether low-dose steps are disproportionately large.","lagged":true,"sources":[{"title":"Meyer et al. (2004). Serotonin transporter occupancy of five SSRIs at different doses.","url":"https://doi.org/10.1176/appi.ajp.161.5.826","snippet":"Dose to occupancy is nonlinear."}]},{"cause":"cyp2c19_pharmacokinetic_capacity","effect":"serotonergic_change_disequilibrium","description":"Clearance rate changes how abrupt the exposure drop is after a dose reduction or missed dose.","lagged":false,"sources":[]},{"cause":"neuroadaptation_dependence_state","effect":"withdrawal_symptom_burden","description":"Greater adaptation to chronic SSRI exposure increases susceptibility to symptoms when exposure falls.","lagged":true,"sources":[{"title":"Davies and Read (2019). A systematic review into antidepressant withdrawal effects.","url":"https://doi.org/10.1016/j.addbeh.2018.08.027","snippet":"Withdrawal reactions are reported by a substantial proportion of discontinuers."}]},{"cause":"serotonergic_change_disequilibrium","effect":"withdrawal_symptom_burden","description":"Abrupt serotonergic change after dose reduction can produce discontinuation symptoms independent of relapse.","lagged":true,"sources":[{"title":"Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.","url":"https://doi.org/10.1016/S2215-0366(19)30032-X","snippet":"Abrupt receptor occupancy changes are linked to withdrawal symptoms."}]},{"cause":"withdrawal_symptom_burden","effect":"internalizing_symptom_burden","description":"Withdrawal can directly raise anxiety, irritability, low mood, distress, and somatic symptoms.","lagged":true,"sources":[{"title":"Lewis et al. (2021). Maintenance or Discontinuation of Antidepressants in Primary Care.","url":"https://doi.org/10.1056/NEJMoa2106356","snippet":"Discontinuation increased relapse and withdrawal symptoms compared with maintenance."}]},{"cause":"withdrawal_symptom_burden","effect":"sleep_circadian_disruption","description":"Discontinuation symptoms often include insomnia or disturbed sleep, which can worsen mood and anxiety.","lagged":true,"sources":[{"title":"Davies and Read (2019). A systematic review into antidepressant withdrawal effects.","url":"https://doi.org/10.1016/j.addbeh.2018.08.027","snippet":"Insomnia and related symptoms are among reported withdrawal effects."}]},{"cause":"withdrawal_symptom_burden","effect":"perceived_stress_burden","description":"Unpleasant or frightening withdrawal sensations increase threat appraisal and stress.","lagged":true,"sources":[]},{"cause":"withdrawal_symptom_burden","effect":"clinical_monitoring_rescue_care","description":"Severe discontinuation symptoms prompt clinician contact and potential taper modification.","lagged":true,"sources":[]},{"cause":"antidepressant_maintenance_effect","effect":"depressive_anxiety_disorder_activity","description":"Ongoing medication benefit suppresses the underlying illness process and lowers relapse pressure; removing it can permit recurrence in susceptible people.","lagged":true,"sources":[{"title":"Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.","url":"https://doi.org/10.1016/S0140-6736(03)12599-8","snippet":"Continuing antidepressants reduced odds of depressive relapse."},{"title":"Lewis et al. (2021). Maintenance or Discontinuation of Antidepressants in Primary Care.","url":"https://doi.org/10.1056/NEJMoa2106356","snippet":"Relapse over 52 weeks was higher after discontinuation than maintenance."}]},{"cause":"relapse_vulnerability","effect":"depressive_anxiety_disorder_activity","description":"Stable vulnerability raises the probability that underlying disorder activity will return during follow-up.","lagged":false,"sources":[{"title":"Burcusa and Iacono (2007). Risk for recurrence in depression.","url":"https://doi.org/10.1016/j.cpr.2007.02.005","snippet":"Prior course and vulnerability features predict recurrence risk."}]},{"cause":"natural_recovery_propensity","effect":"depressive_anxiety_disorder_activity","description":"Natural remission and resilience can keep disorder activity low even if medication is tapered.","lagged":false,"sources":[]},{"cause":"pre_taper_remission_stability","effect":"depressive_anxiety_disorder_activity","description":"Stable remission before tapering implies lower near-term underlying disorder activity at the start of the contrast.","lagged":false,"sources":[]},{"cause":"pre_taper_residual_symptom_burden","effect":"internalizing_symptom_burden","description":"Residual baseline symptoms anchor the early trajectory during either taper or continuation.","lagged":false,"sources":[{"title":"Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.","url":"https://doi.org/10.1016/S0165-0327(98)00138-4","snippet":"Subthreshold residual symptoms were prognostically important after remission."}]},{"cause":"depressive_anxiety_disorder_activity","effect":"internalizing_symptom_burden","description":"Underlying illness activity manifests as experienced depressive and anxiety symptom burden.","lagged":true,"sources":[]},{"cause":"sleep_circadian_disruption","effect":"internalizing_symptom_burden","description":"Poor sleep and circadian disruption worsen next-period mood, anxiety, irritability, energy, and concentration.","lagged":true,"sources":[{"title":"Baglioni et al. (2011). Insomnia as a predictor of depression: a meta-analytic evaluation of longitudinal epidemiological studies.","url":"https://doi.org/10.1016/j.jad.2011.01.011","snippet":"Insomnia prospectively predicted depression."}]},{"cause":"sleep_circadian_disruption","effect":"depressive_anxiety_disorder_activity","description":"Sleep disruption can push the underlying illness process toward recurrence.","lagged":true,"sources":[{"title":"Baglioni et al. (2011). Insomnia as a predictor of depression.","url":"https://doi.org/10.1016/j.jad.2011.01.011","snippet":"Longitudinal evidence supports insomnia as a risk factor for depression."}]},{"cause":"internalizing_symptom_burden","effect":"sleep_circadian_disruption","description":"Depression and anxiety can disturb sleep through worry, arousal, hypersomnia, irregular routines, and low activity.","lagged":true,"sources":[]},{"cause":"escitalopram_side_effect_burden","effect":"sleep_circadian_disruption","description":"Escitalopram adverse effects can include insomnia, somnolence, activation, or fatigue that disrupt sleep.","lagged":true,"sources":[]},{"cause":"escitalopram_side_effect_burden","effect":"internalizing_symptom_burden","description":"Side effects such as fatigue, sleep disruption, emotional blunting, or activation can increase experienced symptom burden.","lagged":true,"sources":[]},{"cause":"external_stressful_events","effect":"perceived_stress_burden","description":"External life events and demands increase perceived stress depending on appraisal and resources.","lagged":false,"sources":[{"title":"Hammen (2005). Stress and depression.","url":"https://doi.org/10.1146/annurev.clinpsy.1.102803.143938","snippet":"Stressful experiences are central precipitants and maintainers of depression."}]},{"cause":"perceived_stress_burden","effect":"depressive_anxiety_disorder_activity","description":"Sustained stress can reactivate depressive or anxiety disorder processes, especially in vulnerable people.","lagged":true,"sources":[{"title":"Hammen (2005). Stress and depression.","url":"https://doi.org/10.1146/annurev.clinpsy.1.102803.143938","snippet":"Life stress has a robust relation with onset and recurrence of depression."}]},{"cause":"perceived_stress_burden","effect":"internalizing_symptom_burden","description":"Perceived overload and threat directly increase anxiety, dysphoria, irritability, and bodily arousal.","lagged":true,"sources":[]},{"cause":"perceived_stress_burden","effect":"sleep_circadian_disruption","description":"Stress and arousal impair sleep onset, continuity, and circadian regularity.","lagged":true,"sources":[]},{"cause":"role_functioning_demands","effect":"perceived_stress_burden","description":"Work, caregiving, school, and financial demands raise subjective stress when demands exceed coping capacity.","lagged":true,"sources":[]},{"cause":"internalizing_symptom_burden","effect":"role_functioning_demands","description":"Symptoms impair work, caregiving, and routine functioning, creating secondary demand and stress.","lagged":true,"sources":[]},{"cause":"stable_socioeconomic_resources","effect":"role_functioning_demands","description":"Stable resources shape job flexibility, financial pressure, housing demands, and practical role strain.","lagged":false,"sources":[]},{"cause":"temperament_neuroticism_behavioral_inhibition","effect":"rumination_cognitive_reactivity","description":"Trait negative affectivity increases repetitive negative thinking and emotional reactivity under stress or low mood.","lagged":false,"sources":[{"title":"Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.","url":"https://doi.org/10.1111/j.1745-6924.2008.00088.x","snippet":"Rumination is linked to depression vulnerability and persistence."}]},{"cause":"perceived_stress_burden","effect":"rumination_cognitive_reactivity","description":"Stress increases worry, threat monitoring, and repetitive negative thinking.","lagged":true,"sources":[]},{"cause":"internalizing_symptom_burden","effect":"rumination_cognitive_reactivity","description":"Low mood and anxiety trigger worry, self-monitoring, and negative interpretation loops.","lagged":true,"sources":[{"title":"Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.","url":"https://doi.org/10.1111/j.1745-6924.2008.00088.x","snippet":"Rumination and depressive affect reinforce each other over time."}]},{"cause":"rumination_cognitive_reactivity","effect":"internalizing_symptom_burden","description":"Rumination and worry maintain and amplify depressive and anxiety symptoms.","lagged":true,"sources":[{"title":"Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.","url":"https://doi.org/10.1111/j.1745-6924.2008.00088.x","snippet":"Rumination predicts longer and more severe depressive symptoms."}]},{"cause":"rumination_cognitive_reactivity","effect":"depressive_anxiety_disorder_activity","description":"Cognitive reactivity can convert transient low mood into a more persistent depressive or anxiety episode.","lagged":true,"sources":[{"title":"Aldao, Nolen-Hoeksema, and Schweizer (2010). Emotion-regulation strategies across psychopathology: a meta-analytic review.","url":"https://doi.org/10.1016/j.cpr.2009.11.004","snippet":"Maladaptive regulation strategies including rumination are associated with psychopathology."}]},{"cause":"psychotherapy_skills_use","effect":"rumination_cognitive_reactivity","description":"Cognitive, mindfulness, exposure, and relapse-prevention skills can reduce rumination and cognitive reactivity.","lagged":true,"sources":[{"title":"Biesheuvel-Leliefeld et al. (2015). Effectiveness of psychological interventions in preventing recurrence of depressive disorder.","url":"https://doi.org/10.1016/j.jad.2014.12.016","snippet":"Preventive psychological interventions reduced relapse and recurrence risk."}]},{"cause":"psychotherapy_skills_use","effect":"behavioral_activation_reward","description":"Behavioral activation and relapse-prevention work increase engagement with rewarding activities and routines.","lagged":true,"sources":[{"title":"Cuijpers, van Straten, and Warmerdam (2007). Behavioral activation treatments of depression: a meta-analysis.","url":"https://doi.org/10.1016/j.cpr.2006.11.001","snippet":"Behavioral activation is an effective depression intervention."}]},{"cause":"psychotherapy_skills_use","effect":"depressive_anxiety_disorder_activity","description":"Relapse-prevention and coping skills can reduce recurrence pressure during or after tapering.","lagged":true,"sources":[{"title":"Biesheuvel-Leliefeld et al. (2015). Effectiveness of psychological interventions in preventing recurrence of depressive disorder.","url":"https://doi.org/10.1016/j.jad.2014.12.016","snippet":"Psychological relapse-prevention interventions lowered relapse or recurrence risk."}]},{"cause":"behavioral_activation_reward","effect":"internalizing_symptom_burden","description":"Rewarding activity and routine reduce anhedonia, low mood, avoidance, and anxious preoccupation.","lagged":true,"sources":[{"title":"Cuijpers, van Straten, and Warmerdam (2007). Behavioral activation treatments of depression: a meta-analysis.","url":"https://doi.org/10.1016/j.cpr.2006.11.001","snippet":"Increasing activation and reinforcement is an effective pathway for depressive symptoms."}]},{"cause":"internalizing_symptom_burden","effect":"behavioral_activation_reward","description":"Depression and anxiety reduce activity, avoidance tolerance, social engagement, and experienced reward.","lagged":true,"sources":[]},{"cause":"physical_activity","effect":"sleep_circadian_disruption","description":"Regular physical activity improves sleep pressure, circadian stability, and sleep quality.","lagged":true,"sources":[]},{"cause":"physical_activity","effect":"behavioral_activation_reward","description":"Movement and exercise provide mastery, reward, routine, and social exposure that increase activation.","lagged":true,"sources":[{"title":"Schuch et al. (2016). Exercise as a treatment for depression: a meta-analysis adjusting for publication bias.","url":"https://doi.org/10.1016/j.jpsychires.2016.02.023","snippet":"Exercise showed antidepressant effects across trials."}]},{"cause":"physical_activity","effect":"internalizing_symptom_burden","description":"Exercise can directly improve mood, anxiety, energy, and self-efficacy.","lagged":true,"sources":[{"title":"Schuch et al. (2016). Exercise as a treatment for depression.","url":"https://doi.org/10.1016/j.jpsychires.2016.02.023","snippet":"Physical exercise was associated with reduced depressive symptoms."}]},{"cause":"internalizing_symptom_burden","effect":"physical_activity","description":"Symptoms reduce energy, motivation, confidence, and routine, lowering subsequent physical activity.","lagged":true,"sources":[]},{"cause":"social_support_conflict","effect":"perceived_stress_burden","description":"Support buffers stress whereas conflict and isolation increase perceived burden.","lagged":true,"sources":[{"title":"Cohen and Wills (1985). Stress, social support, and the buffering hypothesis.","url":"https://doi.org/10.1037/0033-2909.98.2.310","snippet":"Social support can buffer the effects of stress on health and distress."}]},{"cause":"social_support_conflict","effect":"internalizing_symptom_burden","description":"Belonging and support reduce distress, while isolation and conflict increase depressive and anxiety symptoms.","lagged":true,"sources":[{"title":"Cohen and Wills (1985). Stress, social support, and the buffering hypothesis.","url":"https://doi.org/10.1037/0033-2909.98.2.310","snippet":"Support affects distress directly and by buffering stress."}]},{"cause":"internalizing_symptom_burden","effect":"social_support_conflict","description":"Symptoms can cause withdrawal, reassurance seeking, irritability, and conflict, changing later social support.","lagged":true,"sources":[{"title":"Hammen (2005). Stress and depression.","url":"https://doi.org/10.1146/annurev.clinpsy.1.102803.143938","snippet":"Depression can generate interpersonal stress that feeds back into symptoms."}]},{"cause":"stable_socioeconomic_resources","effect":"social_support_conflict","description":"Stable resources shape opportunities for support, time flexibility, living conditions, and interpersonal strain.","lagged":false,"sources":[]},{"cause":"temperament_neuroticism_behavioral_inhibition","effect":"social_support_conflict","description":"Stable interpersonal style and negative affectivity can influence conflict, isolation, and support mobilization.","lagged":false,"sources":[]},{"cause":"social_support_conflict","effect":"behavioral_activation_reward","description":"Supportive relationships increase social and rewarding activities, while conflict and isolation reduce them.","lagged":true,"sources":[]},{"cause":"role_functioning_demands","effect":"behavioral_activation_reward","description":"High demands and impairment can crowd out rewarding activities or reduce perceived mastery.","lagged":true,"sources":[]},{"cause":"baseline_physical_health_burden","effect":"physical_illness_pain_inflammation","description":"Chronic medical conditions and pain vulnerability set somatic burden during follow-up.","lagged":false,"sources":[]},{"cause":"physical_illness_pain_inflammation","effect":"sleep_circadian_disruption","description":"Pain, inflammation, and illness disturb sleep and circadian regularity.","lagged":true,"sources":[]},{"cause":"physical_illness_pain_inflammation","effect":"internalizing_symptom_burden","description":"Pain, inflammation, fatigue, and medical symptoms can worsen mood and anxiety and be confused with medication or withdrawal effects.","lagged":true,"sources":[{"title":"Bair, Robinson, Katon, and Kroenke (2003). Depression and pain comorbidity: a literature review.","url":"https://doi.org/10.1001/archinte.163.20.2433","snippet":"Pain and depression commonly co-occur and worsen one another."}]},{"cause":"sleep_circadian_disruption","effect":"physical_illness_pain_inflammation","description":"Poor sleep can increase pain sensitivity, inflammation, fatigue, and somatic vulnerability.","lagged":true,"sources":[]},{"cause":"perceived_stress_burden","effect":"substance_use_intoxication_withdrawal","description":"Stress can increase coping-motivated alcohol, cannabis, nicotine, sedative, or stimulant use.","lagged":true,"sources":[]},{"cause":"internalizing_symptom_burden","effect":"substance_use_intoxication_withdrawal","description":"Distress can increase substance use as self-medication, changing later sleep and mood.","lagged":true,"sources":[{"title":"Boden and Fergusson (2011). Alcohol and depression.","url":"https://doi.org/10.1111/j.1360-0443.2010.03351.x","snippet":"Alcohol problems and depression have reciprocal and causal interpretations in longitudinal evidence."}]},{"cause":"substance_use_intoxication_withdrawal","effect":"sleep_circadian_disruption","description":"Substances and rebound states can disrupt sleep architecture, timing, and next-day arousal.","lagged":true,"sources":[]},{"cause":"substance_use_intoxication_withdrawal","effect":"internalizing_symptom_burden","description":"Intoxication, withdrawal, rebound anxiety, and sleep effects can worsen depressive and anxiety symptoms.","lagged":true,"sources":[{"title":"Boden and Fergusson (2011). Alcohol and depression.","url":"https://doi.org/10.1111/j.1360-0443.2010.03351.x","snippet":"Alcohol use and depressive symptoms can influence each other over time."}]},{"cause":"comorbid_psychiatric_vulnerability","effect":"substance_use_intoxication_withdrawal","description":"Substance-use liability and externalizing or anxiety comorbidity increase likelihood of substance-related mood effects.","lagged":false,"sources":[]},{"cause":"sex_reproductive_context","effect":"hormonal_state_changes","description":"Stable reproductive context determines which hormonal fluctuations are plausible during the two-month window.","lagged":false,"sources":[]},{"cause":"hormonal_state_changes","effect":"sleep_circadian_disruption","description":"Hormonal shifts can disturb sleep through thermoregulation, arousal, pain, or circadian changes.","lagged":true,"sources":[]},{"cause":"hormonal_state_changes","effect":"internalizing_symptom_burden","description":"Reproductive, thyroid, or other hormonal shifts can alter mood, anxiety, and irritability during follow-up.","lagged":true,"sources":[]},{"cause":"other_psychotropic_or_somatic_treatments","effect":"internalizing_symptom_burden","description":"Other medication or somatic treatment changes can improve or worsen mood and anxiety independently of escitalopram tapering.","lagged":true,"sources":[]},{"cause":"clinical_monitoring_rescue_care","effect":"clinician_taper_guidance","description":"Monitoring data and follow-up update clinician recommendations about continuing, slowing, pausing, or reinstating.","lagged":true,"sources":[]},{"cause":"clinical_monitoring_rescue_care","effect":"other_psychotropic_or_somatic_treatments","description":"Clinical contact can initiate or change adjunctive treatments for sleep, anxiety, mood, or medical contributors.","lagged":true,"sources":[]},{"cause":"clinical_monitoring_rescue_care","effect":"psychotherapy_skills_use","description":"Monitoring can route the person into therapy, structured relapse-prevention work, or more active coping-skills use.","lagged":true,"sources":[]},{"cause":"patient_taper_preference_beliefs","effect":"expectancy_nocebo_placebo","description":"Beliefs that tapering is dangerous, liberating, protective, or harmful can create nocebo or placebo pathways.","lagged":true,"sources":[{"title":"Colloca and Miller (2011). Role of expectations in health.","url":"https://doi.org/10.1098/rstb.2010.0394","snippet":"Expectations are central mechanisms in placebo and nocebo effects."}]},{"cause":"clinician_taper_guidance","effect":"expectancy_nocebo_placebo","description":"Clinician framing can reduce catastrophic interpretation or increase confidence, changing expectancy-mediated symptoms.","lagged":true,"sources":[{"title":"Colloca and Miller (2011). Role of expectations in health.","url":"https://doi.org/10.1098/rstb.2010.0394","snippet":"Clinical communication and expectations influence placebo and nocebo responses."}]},{"cause":"stable_medication_attitudes","effect":"expectancy_nocebo_placebo","description":"Stable medication beliefs and trust shape how sensations during tapering are interpreted.","lagged":false,"sources":[]},{"cause":"expectancy_nocebo_placebo","effect":"internalizing_symptom_burden","description":"Expectancy can change experienced anxiety, mood, somatic distress, and symptom vigilance.","lagged":true,"sources":[{"title":"Colloca and Miller (2011). Role of expectations in health.","url":"https://doi.org/10.1098/rstb.2010.0394","snippet":"Expectations can generate beneficial or adverse health experiences."}]},{"cause":"internalizing_symptom_burden","effect":"clinical_monitoring_rescue_care","description":"Worsening symptoms prompt more clinical contact, safety monitoring, and treatment adjustment.","lagged":true,"sources":[]},{"cause":"internalizing_symptom_burden","effect":"acute_safety_risk","description":"Severe depression or anxiety can increase suicidal ideation, self-harm risk, agitation, or crisis-level impairment.","lagged":true,"sources":[]},{"cause":"substance_use_intoxication_withdrawal","effect":"acute_safety_risk","description":"Intoxication and withdrawal states can increase impulsivity, agitation, and safety risk.","lagged":true,"sources":[]},{"cause":"sleep_circadian_disruption","effect":"acute_safety_risk","description":"Severe sleep disruption can worsen agitation, impulsivity, and crisis risk.","lagged":true,"sources":[]},{"cause":"acute_safety_risk","effect":"internalizing_symptom_burden","description":"Safety crises, agitation, and fear of losing control can worsen next-period distress and symptom burden.","lagged":true,"sources":[]},{"cause":"escitalopram_side_effect_burden","effect":"behavioral_activation_reward","description":"Fatigue, emotional blunting, sexual dysfunction, or activation can reduce rewarding engagement and routine.","lagged":true,"sources":[]},{"cause":"withdrawal_symptom_burden","effect":"behavioral_activation_reward","description":"Dizziness, insomnia, nausea, anxiety, and other withdrawal symptoms can reduce activity and reward exposure.","lagged":true,"sources":[]}]},"llm_trace_ref":"file:DEMO/run/temporal-llm/seq-000003/latent-structure/trace.json"}
+{
+  "latent_structure": {
+    "constructs": [
+      {
+        "name": "internalizing_symptom_burden",
+        "description": "Primary outcome: latent depressive and anxiety symptom burden over the next two months, including mood, anhedonia, worry, irritability, somatic anxiety, and distress.",
+        "role": "endogenous",
+        "is_outcome": true,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "depressive_anxiety_disorder_activity",
+        "description": "Underlying active illness or relapse process for depressive and anxiety syndromes, separated from withdrawal and reporting effects.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "escitalopram_dose_taken",
+        "description": "Actual escitalopram amount ingested at each model tick after taper instructions and adherence are realized.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "taper_speed_dose_reduction",
+        "description": "Rate and size of escitalopram dose reductions, including abrupt, linear, hyperbolic, paused, or reversed taper patterns.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "adherence_to_regimen",
+        "description": "Consistency with intended dose or taper plan, including missed doses, extra doses, and reinstatement behavior.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "plasma_escitalopram_exposure",
+        "description": "Systemic escitalopram exposure determined by dose, adherence, metabolism, clearance, and drug interactions.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "serotonin_transporter_occupancy",
+        "description": "Degree of serotonin transporter blockade produced by escitalopram exposure, with nonlinear dose occupancy.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "antidepressant_maintenance_effect",
+        "description": "Ongoing pharmacodynamic protection against depressive or anxiety relapse attributable to escitalopram, conditional on responsiveness and exposure.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "neuroadaptation_dependence_state",
+        "description": "Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "serotonergic_change_disequilibrium",
+        "description": "Abruptness of change in serotonergic signaling and transporter occupancy relative to the person's adapted state.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "withdrawal_symptom_burden",
+        "description": "Discontinuation symptoms after dose reduction, including dizziness, insomnia, anxiety, irritability, flu-like symptoms, nausea, and disequilibrium.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "escitalopram_side_effect_burden",
+        "description": "Adverse effects while taking escitalopram or changing dose, such as fatigue, sleep disturbance, gastrointestinal symptoms, emotional blunting, sexual dysfunction, or activation.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "expectancy_nocebo_placebo",
+        "description": "Symptom change driven by expectations, attention to sensations, treatment meaning, nocebo concerns, and perceived medication protection.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "sleep_circadian_disruption",
+        "description": "Insomnia, hypersomnia, irregular sleep timing, circadian misalignment, and poor sleep quality.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "perceived_stress_burden",
+        "description": "Subjective stress load, threat appraisal, overload, uncontrollability, and daily hassles.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "external_stressful_events",
+        "description": "External shocks during follow-up such as loss, conflict, job strain, financial events, illness in others, or major schedule disruption.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "rumination_cognitive_reactivity",
+        "description": "Tendency for negative mood to trigger repetitive negative thinking, hopeless interpretations, worry, and cognitive reactivity.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "behavioral_activation_reward",
+        "description": "Engagement with rewarding, valued, social, mastery, and routine activities that provide positive reinforcement.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "physical_activity",
+        "description": "Amount and regularity of movement and exercise sufficient to affect sleep, reward, energy, and mood regulation.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "social_support_conflict",
+        "description": "Availability of supportive relationships, isolation, interpersonal conflict, reassurance, accountability, and belonging.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "psychotherapy_skills_use",
+        "description": "Use of cognitive, behavioral, mindfulness, exposure, problem solving, relapse prevention, or other psychological skills.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "substance_use_intoxication_withdrawal",
+        "description": "Alcohol, cannabis, stimulant, sedative, nicotine, or other substance exposure and rebound states affecting sleep, affect, anxiety, metabolism, and adherence.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "physical_illness_pain_inflammation",
+        "description": "Acute or chronic physical illness, pain, inflammation, fatigue, endocrine changes, and somatic symptom load during follow-up.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "hormonal_state_changes",
+        "description": "Short-run reproductive, menstrual, pregnancy, postpartum, perimenopausal, thyroid, or other hormonal variation relevant to mood and anxiety.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "role_functioning_demands",
+        "description": "Work, school, caregiving, household, and financial demands together with the person's capacity to meet them.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "acute_safety_risk",
+        "description": "Short-run suicidal ideation, self-harm risk, agitation, severe impairment, or crisis risk that changes clinical decisions and distress.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "clinical_monitoring_rescue_care",
+        "description": "Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "other_psychotropic_or_somatic_treatments",
+        "description": "Concurrent medication changes, supplements, sleep aids, anxiolytics, stimulants, hormonal treatments, or somatic treatments affecting symptoms or exposure.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "patient_taper_preference_beliefs",
+        "description": "Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "clinician_taper_guidance",
+        "description": "Prescriber recommendation, taper schedule, psychoeducation, risk stratification, and advice about pausing, reinstating, or continuing.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "counterfactual_taper_regime",
+        "description": "Exogenous intervention regime defining the causal contrast: taper off now versus stay on the current maintenance approach.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Pre-treatment severity, duration, impairment, chronicity, age at onset, and diagnostic burden of the condition that led to escitalopram.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "prior_episode_recurrence_history",
+        "description": "Number, spacing, and recency of prior depressive or anxiety episodes before the current taper decision.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "comorbid_psychiatric_vulnerability",
+        "description": "Stable vulnerability from comorbid anxiety, panic, OCD, PTSD, eating disorder, ADHD, substance-use liability, personality pathology, or bipolar-spectrum risk.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "relapse_vulnerability",
+        "description": "Stable propensity for depressive or anxiety recurrence if pharmacologic protection or current stabilizing conditions are removed.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "natural_recovery_propensity",
+        "description": "Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "pre_taper_remission_stability",
+        "description": "How long and consistently symptoms were low before the taper decision, including whether remission occurred under stable or changing life conditions.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "pre_taper_residual_symptom_burden",
+        "description": "Residual depressive, anxiety, sleep, irritability, or somatic symptoms present just before tapering is considered.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "past_escitalopram_response_tolerability",
+        "description": "Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "duration_current_escitalopram_use",
+        "description": "Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "baseline_maintenance_dose_level",
+        "description": "Escitalopram maintenance dose immediately before any new taper or continuation regime begins.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "stable_ssri_pharmacodynamic_responsiveness",
+        "description": "Person-specific biological and clinical sensitivity to SSRI therapeutic and adverse effects, beyond dose exposure alone.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "stable_withdrawal_susceptibility",
+        "description": "Stable person-specific susceptibility to SSRI discontinuation symptoms, distinct from the historical fact of prior withdrawal episodes.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "prior_discontinuation_withdrawal_history",
+        "description": "History of withdrawal-like symptoms, relapse, or difficulty during previous missed doses, dose reductions, or medication discontinuations.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "genetic_family_liability",
+        "description": "Inherited and familial liability to mood, anxiety, substance-use, bipolar-spectrum, treatment-response, and stress-sensitivity traits.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "early_life_adversity",
+        "description": "Developmental adversity, maltreatment, chronic childhood stress, attachment disruption, and early socioeconomic disadvantage.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "temperament_neuroticism_behavioral_inhibition",
+        "description": "Stable trait negative affectivity, neuroticism, harm avoidance, behavioral inhibition, and emotion-regulation style.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "cyp2c19_pharmacokinetic_capacity",
+        "description": "Stable pharmacogenomic and metabolic capacity affecting escitalopram clearance, especially CYP2C19 metabolizer status.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "age_life_stage",
+        "description": "Age and life-stage context affecting depression recurrence, pharmacokinetics, medical burden, and stress ecology over the modeled period.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "sex_reproductive_context",
+        "description": "Sex-linked biology and stable reproductive context shaping pharmacokinetics, hormonal variability, and relapse risk.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "stable_socioeconomic_resources",
+        "description": "Relatively stable income, housing, education, job security, neighborhood safety, time flexibility, and material resources.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "baseline_physical_health_burden",
+        "description": "Stable chronic illness, pain conditions, endocrine disease, inflammatory conditions, disability, and baseline somatic vulnerability.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "healthcare_access",
+        "description": "Stable access to prescribers, psychotherapy, insurance, medication supply, follow-up appointments, and urgent care.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "medication_formulation_constraints",
+        "description": "Availability of liquid escitalopram, scored tablets, compounding, small dose increments, pill-splitting feasibility, and pharmacy constraints.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "stable_medication_attitudes",
+        "description": "Stable prior beliefs about medication, dependence, personal control, medical trust, stigma, and sensitivity to medication narratives.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      }
+    ],
+    "edges": [
+      {
+        "cause": "genetic_family_liability",
+        "effect": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Familial and genetic liability increases pre-treatment mood and anxiety disorder risk and severity.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Sullivan, Neale, and Kendler (2000). Genetic epidemiology of major depression: review and meta-analysis.",
+            "url": "https://doi.org/10.1176/appi.ajp.157.10.1552",
+            "snippet": "Twin and family evidence supports inherited liability for major depression."
+          }
+        ]
+      },
+      {
+        "cause": "early_life_adversity",
+        "effect": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Early adversity can increase severity, chronicity, and treatment difficulty of later internalizing disorders.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Nanni, Uher, and Danese (2012). Childhood maltreatment predicts unfavorable course of illness and treatment outcome in depression: a meta-analysis.",
+            "url": "https://doi.org/10.1176/appi.ajp.2011.11020335",
+            "snippet": "Childhood maltreatment was associated with more persistent and less treatment-responsive depression."
+          }
+        ]
+      },
+      {
+        "cause": "temperament_neuroticism_behavioral_inhibition",
+        "effect": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Stable negative affectivity and inhibition increase liability to severe or persistent internalizing symptoms.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Kotov, Gamez, Schmidt, and Watson (2010). Linking big personality traits to anxiety, depressive, and substance use disorders: a meta-analysis.",
+            "url": "https://doi.org/10.1037/a0020327",
+            "snippet": "Neuroticism showed strong associations with depressive and anxiety disorders."
+          }
+        ]
+      },
+      {
+        "cause": "genetic_family_liability",
+        "effect": "comorbid_psychiatric_vulnerability",
+        "description": "Familial liability contributes to comorbid anxiety, bipolar-spectrum, and substance-use vulnerabilities.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "early_life_adversity",
+        "effect": "comorbid_psychiatric_vulnerability",
+        "description": "Developmental adversity increases risk for multiple psychiatric vulnerabilities, not just the index episode.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "temperament_neuroticism_behavioral_inhibition",
+        "effect": "comorbid_psychiatric_vulnerability",
+        "description": "Trait neuroticism and inhibition are common vulnerability factors for anxiety, depression, and substance-use comorbidity.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Kotov, Gamez, Schmidt, and Watson (2010). Linking big personality traits to anxiety, depressive, and substance use disorders: a meta-analysis.",
+            "url": "https://doi.org/10.1037/a0020327",
+            "snippet": "Personality traits, especially neuroticism, cut across several psychiatric diagnoses."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_physical_health_burden",
+        "effect": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Chronic illness, pain, endocrine disease, and disability can worsen pre-treatment internalizing severity and chronicity.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "comorbid_psychiatric_vulnerability",
+        "effect": "baseline_depression_anxiety_severity_chronicity",
+        "description": "Psychiatric comorbidity tends to make the presenting condition more severe, impairing, recurrent, and harder to interpret.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "prior_episode_recurrence_history",
+        "description": "Earlier onset, chronicity, and severe baseline illness tend to produce more recurrent episodes before tapering is considered.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Burcusa and Iacono (2007). Risk for recurrence in depression.",
+            "url": "https://doi.org/10.1016/j.cpr.2007.02.005",
+            "snippet": "Prior course characteristics are major predictors of recurrence."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "natural_recovery_propensity",
+        "description": "More chronic or severe illness lowers the chance that improvement would have occurred and persisted without medication.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Posternak and Miller (2001). Untreated short-term course of major depression: a meta-analysis of outcomes from wait-list control groups.",
+            "url": "https://doi.org/10.1016/S0165-0327(00)00304-9",
+            "snippet": "Some short-term spontaneous improvement occurs, but it is variable and incomplete."
+          }
+        ]
+      },
+      {
+        "cause": "stable_socioeconomic_resources",
+        "effect": "natural_recovery_propensity",
+        "description": "Material stability, time flexibility, and secure living conditions make nonpharmacologic recovery more plausible.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "prior_episode_recurrence_history",
+        "effect": "relapse_vulnerability",
+        "description": "A recurrent history implies higher stable risk of relapse when maintenance treatment is reduced or stopped.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Burcusa and Iacono (2007). Risk for recurrence in depression.",
+            "url": "https://doi.org/10.1016/j.cpr.2007.02.005",
+            "snippet": "The number of previous depressive episodes is a strong recurrence predictor."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "relapse_vulnerability",
+        "description": "Chronic, severe, or impairing pre-treatment illness increases vulnerability to future relapse.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "comorbid_psychiatric_vulnerability",
+        "effect": "relapse_vulnerability",
+        "description": "Comorbid anxiety, trauma, substance-use, and bipolar-spectrum vulnerabilities increase recurrence risk and complicate taper outcomes.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "relapse_vulnerability",
+        "description": "A stronger self-limited or resilient course lowers latent relapse pressure after medication reduction.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Posternak and Miller (2001). Untreated short-term course of major depression.",
+            "url": "https://doi.org/10.1016/S0165-0327(00)00304-9",
+            "snippet": "Untreated improvement motivates separating natural recovery from treatment effect."
+          }
+        ]
+      },
+      {
+        "cause": "age_life_stage",
+        "effect": "baseline_physical_health_burden",
+        "description": "Age and life stage shape chronic disease, pain, and somatic vulnerability before the taper decision.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "sex_reproductive_context",
+        "effect": "baseline_physical_health_burden",
+        "description": "Sex-linked biology and reproductive context can influence endocrine, pain, inflammatory, and chronic health burden.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "early_life_adversity",
+        "effect": "baseline_physical_health_burden",
+        "description": "Early adversity can contribute to later chronic health burden through stress physiology and social pathways.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "stable_socioeconomic_resources",
+        "effect": "baseline_physical_health_burden",
+        "description": "Material resources affect chronic illness risk, treatment access, disability burden, and health maintenance.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "stable_socioeconomic_resources",
+        "effect": "healthcare_access",
+        "description": "Income, insurance, work flexibility, and transportation are major determinants of access to prescribers, therapy, and urgent care.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "genetic_family_liability",
+        "effect": "stable_ssri_pharmacodynamic_responsiveness",
+        "description": "Stable biological differences partly determine therapeutic and adverse SSRI sensitivity.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "comorbid_psychiatric_vulnerability",
+        "effect": "stable_ssri_pharmacodynamic_responsiveness",
+        "description": "Different diagnostic mixtures can alter whether escitalopram is likely to help or harm.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "cyp2c19_pharmacokinetic_capacity",
+        "effect": "past_escitalopram_response_tolerability",
+        "description": "Escitalopram metabolism affects historical exposure, side effects, and apparent effectiveness at a given dose.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.",
+            "url": "https://doi.org/10.1002/cpt.147",
+            "snippet": "CYP2C19 genotype is relevant to escitalopram dosing because it changes exposure."
+          }
+        ]
+      },
+      {
+        "cause": "stable_ssri_pharmacodynamic_responsiveness",
+        "effect": "past_escitalopram_response_tolerability",
+        "description": "Person-specific SSRI sensitivity contributes to historical improvement and side effect patterns.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Cipriani et al. (2018). Comparative efficacy and acceptability of 21 antidepressant drugs for acute treatment of adults with major depressive disorder.",
+            "url": "https://doi.org/10.1016/S0140-6736(17)32802-7",
+            "snippet": "Antidepressant efficacy is real on average but varies by drug and person."
+          }
+        ]
+      },
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "past_escitalopram_response_tolerability",
+        "description": "Natural improvement can be misattributed to escitalopram if medication began during spontaneous improvement.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Posternak and Miller (2001). Untreated short-term course of major depression.",
+            "url": "https://doi.org/10.1016/S0165-0327(00)00304-9",
+            "snippet": "Wait-list studies show measurable spontaneous improvement over weeks."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "past_escitalopram_response_tolerability",
+        "description": "Initial severity affects apparent antidepressant benefit, room for improvement, and tolerability decisions.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Fournier et al. (2010). Antidepressant drug effects and depression severity: a patient-level meta-analysis.",
+            "url": "https://doi.org/10.1001/jama.2009.1943",
+            "snippet": "Medication-placebo differences varied with baseline depression severity."
+          }
+        ]
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "pre_taper_remission_stability",
+        "description": "Historical response and tolerability help determine how stable remission is before tapering.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders: a systematic review.",
+            "url": "https://doi.org/10.1016/S0140-6736(03)12599-8",
+            "snippet": "Continuation antidepressant treatment reduced relapse risk among responders."
+          }
+        ]
+      },
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "pre_taper_remission_stability",
+        "description": "A naturally remitting course can produce stable wellness even if medication was not the active ingredient.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "pre_taper_residual_symptom_burden",
+        "description": "More severe or chronic baseline illness makes residual symptoms more likely after apparent response.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.",
+            "url": "https://doi.org/10.1016/S0165-0327(98)00138-4",
+            "snippet": "Residual subthreshold symptoms predicted faster relapse."
+          }
+        ]
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "pre_taper_residual_symptom_burden",
+        "description": "Better historical response tends to leave fewer residual symptoms; poor tolerability can leave fatigue, sleep, or affective symptoms.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_residual_symptom_burden",
+        "effect": "relapse_vulnerability",
+        "description": "Residual symptoms indicate incomplete remission and can maintain vulnerability to future symptom return.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.",
+            "url": "https://doi.org/10.1016/S0165-0327(98)00138-4",
+            "snippet": "Residual symptoms predicted more rapid relapse."
+          }
+        ]
+      },
+      {
+        "cause": "pre_taper_remission_stability",
+        "effect": "relapse_vulnerability",
+        "description": "Longer and more stable remission lowers expected relapse risk compared with unstable or partial remission.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "prior_episode_recurrence_history",
+        "effect": "duration_current_escitalopram_use",
+        "description": "Recurrent history makes longer maintenance use more likely.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.",
+            "url": "https://doi.org/10.1016/S0140-6736(03)12599-8",
+            "snippet": "Continuation treatment is especially relevant when absolute relapse risk is high."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "duration_current_escitalopram_use",
+        "description": "More severe or chronic original illness increases the chance of long-term maintenance use.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "duration_current_escitalopram_use",
+        "description": "Perceived benefit and acceptable tolerability make extended use more likely.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "baseline_depression_anxiety_severity_chronicity",
+        "effect": "baseline_maintenance_dose_level",
+        "description": "More severe illness and partial response can lead to higher maintenance dosing before tapering.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "baseline_maintenance_dose_level",
+        "description": "Historical benefit and side effects influence what dose is maintained at the start of the contrast.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "cyp2c19_pharmacokinetic_capacity",
+        "effect": "stable_withdrawal_susceptibility",
+        "description": "Metabolic differences can alter exposure drops after missed doses or reductions, influencing withdrawal susceptibility.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.",
+            "url": "https://doi.org/10.1002/cpt.147",
+            "snippet": "CYP2C19 genotype changes escitalopram pharmacokinetics."
+          }
+        ]
+      },
+      {
+        "cause": "stable_ssri_pharmacodynamic_responsiveness",
+        "effect": "stable_withdrawal_susceptibility",
+        "description": "A person sensitive to SSRI pharmacodynamic changes may be more susceptible to discontinuation symptoms.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "baseline_physical_health_burden",
+        "effect": "stable_withdrawal_susceptibility",
+        "description": "Somatic vulnerability, vestibular problems, pain, and medical illness can amplify discontinuation symptom susceptibility.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "stable_withdrawal_susceptibility",
+        "effect": "prior_discontinuation_withdrawal_history",
+        "description": "Stable susceptibility helps explain why previous missed doses or reductions produced withdrawal-like reactions.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into the incidence, severity and duration of antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Withdrawal effects vary substantially across people."
+          }
+        ]
+      },
+      {
+        "cause": "duration_current_escitalopram_use",
+        "effect": "neuroadaptation_dependence_state",
+        "description": "Longer continuous exposure allows more physiologic adaptation to SSRI blockade.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Withdrawal risk is framed in relation to adaptation and nonlinear dose occupancy."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_maintenance_dose_level",
+        "effect": "neuroadaptation_dependence_state",
+        "description": "Higher sustained maintenance dosing produces more sustained transporter blockade and adaptation before tapering.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Meyer et al. (2004). Serotonin transporter occupancy of five selective serotonin reuptake inhibitors at different doses: an [11C]DASB PET study.",
+            "url": "https://doi.org/10.1176/appi.ajp.161.5.826",
+            "snippet": "SSRI dose relates nonlinearly to serotonin transporter occupancy."
+          }
+        ]
+      },
+      {
+        "cause": "stable_withdrawal_susceptibility",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Underlying discontinuation susceptibility causally affects current withdrawal burden, while prior history is treated as a marker and belief-shaper.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Withdrawal reactions are variable in incidence, duration, and severity."
+          }
+        ]
+      },
+      {
+        "cause": "baseline_maintenance_dose_level",
+        "effect": "escitalopram_dose_taken",
+        "description": "The pre-taper maintenance dose sets the starting level under either continuation or taper regimes.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "counterfactual_taper_regime",
+        "effect": "taper_speed_dose_reduction",
+        "description": "The intervention contrast directly determines whether dose is held stable or reduced now, and how quickly reductions are attempted.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "counterfactual_taper_regime",
+        "effect": "escitalopram_dose_taken",
+        "description": "The assigned regime constrains the dose trajectory under taper-off-now versus stay-on-medication counterfactuals.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "medication_formulation_constraints",
+        "effect": "taper_speed_dose_reduction",
+        "description": "Lack of liquid, small tablets, or compounding can force larger dose steps and faster practical tapering.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Hyperbolic tapering can require progressively smaller dose reductions than standard tablet strengths allow."
+          }
+        ]
+      },
+      {
+        "cause": "healthcare_access",
+        "effect": "clinician_taper_guidance",
+        "description": "Access to prescribers and follow-up determines whether tapering is guided, monitored, and adjustable.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "healthcare_access",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Access determines the availability of follow-up, crisis planning, medication review, and rapid rescue if symptoms worsen.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "healthcare_access",
+        "effect": "psychotherapy_skills_use",
+        "description": "Access, affordability, and availability determine whether psychotherapy or structured skills support is obtained.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "healthcare_access",
+        "effect": "other_psychotropic_or_somatic_treatments",
+        "description": "Health-system access affects whether adjunctive treatments are initiated, adjusted, or stopped.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_residual_symptom_burden",
+        "effect": "clinician_taper_guidance",
+        "description": "Residual symptoms should make clinicians more cautious about tapering and more likely to recommend monitoring or continuation.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.",
+            "url": "https://doi.org/10.1016/S0165-0327(98)00138-4",
+            "snippet": "Residual symptoms predict relapse, making them relevant to discontinuation decisions."
+          }
+        ]
+      },
+      {
+        "cause": "pre_taper_remission_stability",
+        "effect": "clinician_taper_guidance",
+        "description": "Long, stable remission makes a cautious taper more clinically plausible than unstable remission.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "relapse_vulnerability",
+        "effect": "clinician_taper_guidance",
+        "description": "Higher estimated relapse risk affects prescriber advice about whether and how quickly to taper.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.",
+            "url": "https://doi.org/10.1016/S0140-6736(03)12599-8",
+            "snippet": "Absolute benefit from continuation depends on baseline relapse risk."
+          }
+        ]
+      },
+      {
+        "cause": "stable_medication_attitudes",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Stable beliefs about medication, dependence, stigma, and autonomy shape current desire to taper or continue.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Perceived past benefit discourages tapering, while side effects or lack of perceived benefit encourage it.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "prior_discontinuation_withdrawal_history",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Past difficulty stopping can increase fear of tapering or motivate a slower plan.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_residual_symptom_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Current residual symptoms can make tapering seem riskier and continuation more attractive.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_remission_stability",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Stable remission can increase confidence that tapering is feasible.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "clinician_taper_guidance",
+        "effect": "taper_speed_dose_reduction",
+        "description": "Prescriber instructions and adjustment rules determine planned reduction speed and whether pauses or reinstatement are used.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "patient_taper_preference_beliefs",
+        "effect": "taper_speed_dose_reduction",
+        "description": "Motivation, fear of relapse, and coping confidence affect how quickly the person attempts to reduce dose.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "clinician_taper_guidance",
+        "effect": "adherence_to_regimen",
+        "description": "Clear guidance, follow-up, and contingency plans improve adherence to the intended taper or maintenance regimen.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "patient_taper_preference_beliefs",
+        "effect": "adherence_to_regimen",
+        "description": "Beliefs about benefit, harm, or dependence influence missed doses, self-directed dose changes, and reinstatement.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "taper_speed_dose_reduction",
+        "effect": "escitalopram_dose_taken",
+        "description": "Planned reductions mechanically lower the subsequent amount of escitalopram taken.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "adherence_to_regimen",
+        "effect": "escitalopram_dose_taken",
+        "description": "Missed doses, extra doses, and partial adherence change actual escitalopram dose relative to the plan.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.",
+            "url": "https://doi.org/10.1001/archinte.160.14.2101",
+            "snippet": "Depression is associated with poorer adherence to medical regimens."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "adherence_to_regimen",
+        "description": "Worsening depression or anxiety can reduce organization and motivation for taking medication as intended, or prompt rescue dosing.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.",
+            "url": "https://doi.org/10.1001/archinte.160.14.2101",
+            "snippet": "Depressed patients were less likely to adhere to treatment recommendations."
+          }
+        ]
+      },
+      {
+        "cause": "escitalopram_side_effect_burden",
+        "effect": "adherence_to_regimen",
+        "description": "Side effects can cause skipped doses, dose reductions, or a stronger wish to discontinue.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "escitalopram_dose_taken",
+        "description": "Withdrawal symptoms can lead to pausing the taper, reinstating, or taking rescue doses.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Withdrawal symptoms can motivate reinstatement and slower tapering."
+          }
+        ]
+      },
+      {
+        "cause": "acute_safety_risk",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Suicidal ideation, self-harm risk, agitation, or crisis-level impairment prompts monitoring and rescue care.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "acute_safety_risk",
+        "effect": "clinician_taper_guidance",
+        "description": "Safety risk should lead clinicians to slow, pause, reverse, or avoid tapering and intensify follow-up.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "acute_safety_risk",
+        "effect": "taper_speed_dose_reduction",
+        "description": "Emergent safety risk can slow or stop dose reductions regardless of the original plan.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Worsening symptoms can increase fear of tapering; wellness can increase confidence to taper.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "escitalopram_side_effect_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Side effects increase motivation to taper and reduce perceived net medication benefit.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Discontinuation symptoms update beliefs about how risky or feasible tapering is.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "escitalopram_dose_taken",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "Actual ingested dose is the proximal determinant of systemic escitalopram concentration.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.",
+            "url": "https://doi.org/10.1002/cpt.147",
+            "snippet": "SSRI dosing and metabolism jointly determine exposure."
+          }
+        ]
+      },
+      {
+        "cause": "cyp2c19_pharmacokinetic_capacity",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "CYP2C19 metabolizer status changes escitalopram clearance and concentration at a given dose.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hicks et al. (2015). CPIC guideline for CYP2D6 and CYP2C19 genotypes and dosing of SSRIs.",
+            "url": "https://doi.org/10.1002/cpt.147",
+            "snippet": "CYP2C19 genotype affects escitalopram exposure."
+          }
+        ]
+      },
+      {
+        "cause": "age_life_stage",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "Age and life stage can affect drug distribution, clearance, concomitant medications, and exposure.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "baseline_physical_health_burden",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "Stable hepatic, renal, inflammatory, or general medical burden can alter pharmacokinetics and tolerability.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "other_psychotropic_or_somatic_treatments",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "Concomitant drugs and supplements can inhibit or induce metabolism, alter absorption, or add serotonergic effects.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "substance_use_intoxication_withdrawal",
+        "effect": "plasma_escitalopram_exposure",
+        "description": "Substances can affect adherence, metabolism, and physiologic response to a given dose.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "plasma_escitalopram_exposure",
+        "effect": "serotonin_transporter_occupancy",
+        "description": "Escitalopram exposure produces serotonin transporter blockade with occupancy rising nonlinearly with concentration.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Meyer et al. (2004). Serotonin transporter occupancy of five SSRIs at different doses.",
+            "url": "https://doi.org/10.1176/appi.ajp.161.5.826",
+            "snippet": "SERT occupancy increases with SSRI dose and plateaus at clinically used doses."
+          }
+        ]
+      },
+      {
+        "cause": "serotonin_transporter_occupancy",
+        "effect": "antidepressant_maintenance_effect",
+        "description": "Sustained transporter blockade is the proximal pharmacologic route through which escitalopram can prevent symptom return.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.",
+            "url": "https://doi.org/10.1016/S0140-6736(03)12599-8",
+            "snippet": "Continuation antidepressant treatment reduces relapse compared with discontinuation."
+          }
+        ]
+      },
+      {
+        "cause": "stable_ssri_pharmacodynamic_responsiveness",
+        "effect": "antidepressant_maintenance_effect",
+        "description": "The same level of transporter occupancy can yield different relapse-prevention benefit across people.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Cipriani et al. (2018). Comparative efficacy and acceptability of 21 antidepressant drugs.",
+            "url": "https://doi.org/10.1016/S0140-6736(17)32802-7",
+            "snippet": "Average efficacy exists but individual response heterogeneity is clinically important."
+          }
+        ]
+      },
+      {
+        "cause": "serotonin_transporter_occupancy",
+        "effect": "escitalopram_side_effect_burden",
+        "description": "Serotonergic pharmacology can cause dose-related adverse effects that affect quality of life and taper decisions.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "other_psychotropic_or_somatic_treatments",
+        "effect": "escitalopram_side_effect_burden",
+        "description": "Concurrent treatments can add adverse effects or interactions attributed to escitalopram or tapering.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "serotonin_transporter_occupancy",
+        "effect": "neuroadaptation_dependence_state",
+        "description": "Sustained SERT blockade creates an adapted physiologic state that can be disrupted by dose reduction.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "SSRI withdrawal is framed as a response to reducing exposure after adaptation."
+          }
+        ]
+      },
+      {
+        "cause": "taper_speed_dose_reduction",
+        "effect": "serotonergic_change_disequilibrium",
+        "description": "Faster or larger dose reductions create larger changes in serotonergic signaling per unit time.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "The hyperbolic dose-occupancy relation implies small low-dose changes can produce large biologic changes."
+          }
+        ]
+      },
+      {
+        "cause": "serotonin_transporter_occupancy",
+        "effect": "serotonergic_change_disequilibrium",
+        "description": "Current occupancy determines how much biologic change occurs for the next reduction and whether low-dose steps are disproportionately large.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Meyer et al. (2004). Serotonin transporter occupancy of five SSRIs at different doses.",
+            "url": "https://doi.org/10.1176/appi.ajp.161.5.826",
+            "snippet": "Dose to occupancy is nonlinear."
+          }
+        ]
+      },
+      {
+        "cause": "cyp2c19_pharmacokinetic_capacity",
+        "effect": "serotonergic_change_disequilibrium",
+        "description": "Clearance rate changes how abrupt the exposure drop is after a dose reduction or missed dose.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "neuroadaptation_dependence_state",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Greater adaptation to chronic SSRI exposure increases susceptibility to symptoms when exposure falls.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Withdrawal reactions are reported by a substantial proportion of discontinuers."
+          }
+        ]
+      },
+      {
+        "cause": "serotonergic_change_disequilibrium",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Abrupt serotonergic change after dose reduction can produce discontinuation symptoms independent of relapse.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Abrupt receptor occupancy changes are linked to withdrawal symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Withdrawal can directly raise anxiety, irritability, low mood, distress, and somatic symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Lewis et al. (2021). Maintenance or Discontinuation of Antidepressants in Primary Care.",
+            "url": "https://doi.org/10.1056/NEJMoa2106356",
+            "snippet": "Discontinuation increased relapse and withdrawal symptoms compared with maintenance."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Discontinuation symptoms often include insomnia or disturbed sleep, which can worsen mood and anxiety.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Insomnia and related symptoms are among reported withdrawal effects."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "perceived_stress_burden",
+        "description": "Unpleasant or frightening withdrawal sensations increase threat appraisal and stress.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Severe discontinuation symptoms prompt clinician contact and potential taper modification.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "antidepressant_maintenance_effect",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Ongoing medication benefit suppresses the underlying illness process and lowers relapse pressure; removing it can permit recurrence in susceptible people.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Geddes et al. (2003). Relapse prevention with antidepressant drug treatment in depressive disorders.",
+            "url": "https://doi.org/10.1016/S0140-6736(03)12599-8",
+            "snippet": "Continuing antidepressants reduced odds of depressive relapse."
+          },
+          {
+            "title": "Lewis et al. (2021). Maintenance or Discontinuation of Antidepressants in Primary Care.",
+            "url": "https://doi.org/10.1056/NEJMoa2106356",
+            "snippet": "Relapse over 52 weeks was higher after discontinuation than maintenance."
+          }
+        ]
+      },
+      {
+        "cause": "relapse_vulnerability",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Stable vulnerability raises the probability that underlying disorder activity will return during follow-up.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Burcusa and Iacono (2007). Risk for recurrence in depression.",
+            "url": "https://doi.org/10.1016/j.cpr.2007.02.005",
+            "snippet": "Prior course and vulnerability features predict recurrence risk."
+          }
+        ]
+      },
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Natural remission and resilience can keep disorder activity low even if medication is tapered.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_remission_stability",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Stable remission before tapering implies lower near-term underlying disorder activity at the start of the contrast.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "pre_taper_residual_symptom_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Residual baseline symptoms anchor the early trajectory during either taper or continuation.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Judd et al. (1998). Major depressive disorder: residual subthreshold depressive symptoms as predictor of rapid relapse.",
+            "url": "https://doi.org/10.1016/S0165-0327(98)00138-4",
+            "snippet": "Subthreshold residual symptoms were prognostically important after remission."
+          }
+        ]
+      },
+      {
+        "cause": "depressive_anxiety_disorder_activity",
+        "effect": "internalizing_symptom_burden",
+        "description": "Underlying illness activity manifests as experienced depressive and anxiety symptom burden.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "sleep_circadian_disruption",
+        "effect": "internalizing_symptom_burden",
+        "description": "Poor sleep and circadian disruption worsen next-period mood, anxiety, irritability, energy, and concentration.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Baglioni et al. (2011). Insomnia as a predictor of depression: a meta-analytic evaluation of longitudinal epidemiological studies.",
+            "url": "https://doi.org/10.1016/j.jad.2011.01.011",
+            "snippet": "Insomnia prospectively predicted depression."
+          }
+        ]
+      },
+      {
+        "cause": "sleep_circadian_disruption",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Sleep disruption can push the underlying illness process toward recurrence.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Baglioni et al. (2011). Insomnia as a predictor of depression.",
+            "url": "https://doi.org/10.1016/j.jad.2011.01.011",
+            "snippet": "Longitudinal evidence supports insomnia as a risk factor for depression."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Depression and anxiety can disturb sleep through worry, arousal, hypersomnia, irregular routines, and low activity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "escitalopram_side_effect_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Escitalopram adverse effects can include insomnia, somnolence, activation, or fatigue that disrupt sleep.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "escitalopram_side_effect_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Side effects such as fatigue, sleep disruption, emotional blunting, or activation can increase experienced symptom burden.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "external_stressful_events",
+        "effect": "perceived_stress_burden",
+        "description": "External life events and demands increase perceived stress depending on appraisal and resources.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hammen (2005). Stress and depression.",
+            "url": "https://doi.org/10.1146/annurev.clinpsy.1.102803.143938",
+            "snippet": "Stressful experiences are central precipitants and maintainers of depression."
+          }
+        ]
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Sustained stress can reactivate depressive or anxiety disorder processes, especially in vulnerable people.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Hammen (2005). Stress and depression.",
+            "url": "https://doi.org/10.1146/annurev.clinpsy.1.102803.143938",
+            "snippet": "Life stress has a robust relation with onset and recurrence of depression."
+          }
+        ]
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Perceived overload and threat directly increase anxiety, dysphoria, irritability, and bodily arousal.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Stress and arousal impair sleep onset, continuity, and circadian regularity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "role_functioning_demands",
+        "effect": "perceived_stress_burden",
+        "description": "Work, caregiving, school, and financial demands raise subjective stress when demands exceed coping capacity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "role_functioning_demands",
+        "description": "Symptoms impair work, caregiving, and routine functioning, creating secondary demand and stress.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "stable_socioeconomic_resources",
+        "effect": "role_functioning_demands",
+        "description": "Stable resources shape job flexibility, financial pressure, housing demands, and practical role strain.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "temperament_neuroticism_behavioral_inhibition",
+        "effect": "rumination_cognitive_reactivity",
+        "description": "Trait negative affectivity increases repetitive negative thinking and emotional reactivity under stress or low mood.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.",
+            "url": "https://doi.org/10.1111/j.1745-6924.2008.00088.x",
+            "snippet": "Rumination is linked to depression vulnerability and persistence."
+          }
+        ]
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "rumination_cognitive_reactivity",
+        "description": "Stress increases worry, threat monitoring, and repetitive negative thinking.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "rumination_cognitive_reactivity",
+        "description": "Low mood and anxiety trigger worry, self-monitoring, and negative interpretation loops.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.",
+            "url": "https://doi.org/10.1111/j.1745-6924.2008.00088.x",
+            "snippet": "Rumination and depressive affect reinforce each other over time."
+          }
+        ]
+      },
+      {
+        "cause": "rumination_cognitive_reactivity",
+        "effect": "internalizing_symptom_burden",
+        "description": "Rumination and worry maintain and amplify depressive and anxiety symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Nolen-Hoeksema, Wisco, and Lyubomirsky (2008). Rethinking rumination.",
+            "url": "https://doi.org/10.1111/j.1745-6924.2008.00088.x",
+            "snippet": "Rumination predicts longer and more severe depressive symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "rumination_cognitive_reactivity",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Cognitive reactivity can convert transient low mood into a more persistent depressive or anxiety episode.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Aldao, Nolen-Hoeksema, and Schweizer (2010). Emotion-regulation strategies across psychopathology: a meta-analytic review.",
+            "url": "https://doi.org/10.1016/j.cpr.2009.11.004",
+            "snippet": "Maladaptive regulation strategies including rumination are associated with psychopathology."
+          }
+        ]
+      },
+      {
+        "cause": "psychotherapy_skills_use",
+        "effect": "rumination_cognitive_reactivity",
+        "description": "Cognitive, mindfulness, exposure, and relapse-prevention skills can reduce rumination and cognitive reactivity.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Biesheuvel-Leliefeld et al. (2015). Effectiveness of psychological interventions in preventing recurrence of depressive disorder.",
+            "url": "https://doi.org/10.1016/j.jad.2014.12.016",
+            "snippet": "Preventive psychological interventions reduced relapse and recurrence risk."
+          }
+        ]
+      },
+      {
+        "cause": "psychotherapy_skills_use",
+        "effect": "behavioral_activation_reward",
+        "description": "Behavioral activation and relapse-prevention work increase engagement with rewarding activities and routines.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cuijpers, van Straten, and Warmerdam (2007). Behavioral activation treatments of depression: a meta-analysis.",
+            "url": "https://doi.org/10.1016/j.cpr.2006.11.001",
+            "snippet": "Behavioral activation is an effective depression intervention."
+          }
+        ]
+      },
+      {
+        "cause": "psychotherapy_skills_use",
+        "effect": "depressive_anxiety_disorder_activity",
+        "description": "Relapse-prevention and coping skills can reduce recurrence pressure during or after tapering.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Biesheuvel-Leliefeld et al. (2015). Effectiveness of psychological interventions in preventing recurrence of depressive disorder.",
+            "url": "https://doi.org/10.1016/j.jad.2014.12.016",
+            "snippet": "Psychological relapse-prevention interventions lowered relapse or recurrence risk."
+          }
+        ]
+      },
+      {
+        "cause": "behavioral_activation_reward",
+        "effect": "internalizing_symptom_burden",
+        "description": "Rewarding activity and routine reduce anhedonia, low mood, avoidance, and anxious preoccupation.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cuijpers, van Straten, and Warmerdam (2007). Behavioral activation treatments of depression: a meta-analysis.",
+            "url": "https://doi.org/10.1016/j.cpr.2006.11.001",
+            "snippet": "Increasing activation and reinforcement is an effective pathway for depressive symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "behavioral_activation_reward",
+        "description": "Depression and anxiety reduce activity, avoidance tolerance, social engagement, and experienced reward.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "physical_activity",
+        "effect": "sleep_circadian_disruption",
+        "description": "Regular physical activity improves sleep pressure, circadian stability, and sleep quality.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "physical_activity",
+        "effect": "behavioral_activation_reward",
+        "description": "Movement and exercise provide mastery, reward, routine, and social exposure that increase activation.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Schuch et al. (2016). Exercise as a treatment for depression: a meta-analysis adjusting for publication bias.",
+            "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
+            "snippet": "Exercise showed antidepressant effects across trials."
+          }
+        ]
+      },
+      {
+        "cause": "physical_activity",
+        "effect": "internalizing_symptom_burden",
+        "description": "Exercise can directly improve mood, anxiety, energy, and self-efficacy.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Schuch et al. (2016). Exercise as a treatment for depression.",
+            "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
+            "snippet": "Physical exercise was associated with reduced depressive symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "physical_activity",
+        "description": "Symptoms reduce energy, motivation, confidence, and routine, lowering subsequent physical activity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "social_support_conflict",
+        "effect": "perceived_stress_burden",
+        "description": "Support buffers stress whereas conflict and isolation increase perceived burden.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cohen and Wills (1985). Stress, social support, and the buffering hypothesis.",
+            "url": "https://doi.org/10.1037/0033-2909.98.2.310",
+            "snippet": "Social support can buffer the effects of stress on health and distress."
+          }
+        ]
+      },
+      {
+        "cause": "social_support_conflict",
+        "effect": "internalizing_symptom_burden",
+        "description": "Belonging and support reduce distress, while isolation and conflict increase depressive and anxiety symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cohen and Wills (1985). Stress, social support, and the buffering hypothesis.",
+            "url": "https://doi.org/10.1037/0033-2909.98.2.310",
+            "snippet": "Support affects distress directly and by buffering stress."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "social_support_conflict",
+        "description": "Symptoms can cause withdrawal, reassurance seeking, irritability, and conflict, changing later social support.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Hammen (2005). Stress and depression.",
+            "url": "https://doi.org/10.1146/annurev.clinpsy.1.102803.143938",
+            "snippet": "Depression can generate interpersonal stress that feeds back into symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "stable_socioeconomic_resources",
+        "effect": "social_support_conflict",
+        "description": "Stable resources shape opportunities for support, time flexibility, living conditions, and interpersonal strain.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "temperament_neuroticism_behavioral_inhibition",
+        "effect": "social_support_conflict",
+        "description": "Stable interpersonal style and negative affectivity can influence conflict, isolation, and support mobilization.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "social_support_conflict",
+        "effect": "behavioral_activation_reward",
+        "description": "Supportive relationships increase social and rewarding activities, while conflict and isolation reduce them.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "role_functioning_demands",
+        "effect": "behavioral_activation_reward",
+        "description": "High demands and impairment can crowd out rewarding activities or reduce perceived mastery.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "baseline_physical_health_burden",
+        "effect": "physical_illness_pain_inflammation",
+        "description": "Chronic medical conditions and pain vulnerability set somatic burden during follow-up.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "physical_illness_pain_inflammation",
+        "effect": "sleep_circadian_disruption",
+        "description": "Pain, inflammation, and illness disturb sleep and circadian regularity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "physical_illness_pain_inflammation",
+        "effect": "internalizing_symptom_burden",
+        "description": "Pain, inflammation, fatigue, and medical symptoms can worsen mood and anxiety and be confused with medication or withdrawal effects.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Bair, Robinson, Katon, and Kroenke (2003). Depression and pain comorbidity: a literature review.",
+            "url": "https://doi.org/10.1001/archinte.163.20.2433",
+            "snippet": "Pain and depression commonly co-occur and worsen one another."
+          }
+        ]
+      },
+      {
+        "cause": "sleep_circadian_disruption",
+        "effect": "physical_illness_pain_inflammation",
+        "description": "Poor sleep can increase pain sensitivity, inflammation, fatigue, and somatic vulnerability.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "substance_use_intoxication_withdrawal",
+        "description": "Stress can increase coping-motivated alcohol, cannabis, nicotine, sedative, or stimulant use.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "substance_use_intoxication_withdrawal",
+        "description": "Distress can increase substance use as self-medication, changing later sleep and mood.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Boden and Fergusson (2011). Alcohol and depression.",
+            "url": "https://doi.org/10.1111/j.1360-0443.2010.03351.x",
+            "snippet": "Alcohol problems and depression have reciprocal and causal interpretations in longitudinal evidence."
+          }
+        ]
+      },
+      {
+        "cause": "substance_use_intoxication_withdrawal",
+        "effect": "sleep_circadian_disruption",
+        "description": "Substances and rebound states can disrupt sleep architecture, timing, and next-day arousal.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "substance_use_intoxication_withdrawal",
+        "effect": "internalizing_symptom_burden",
+        "description": "Intoxication, withdrawal, rebound anxiety, and sleep effects can worsen depressive and anxiety symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Boden and Fergusson (2011). Alcohol and depression.",
+            "url": "https://doi.org/10.1111/j.1360-0443.2010.03351.x",
+            "snippet": "Alcohol use and depressive symptoms can influence each other over time."
+          }
+        ]
+      },
+      {
+        "cause": "comorbid_psychiatric_vulnerability",
+        "effect": "substance_use_intoxication_withdrawal",
+        "description": "Substance-use liability and externalizing or anxiety comorbidity increase likelihood of substance-related mood effects.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "sex_reproductive_context",
+        "effect": "hormonal_state_changes",
+        "description": "Stable reproductive context determines which hormonal fluctuations are plausible during the two-month window.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "hormonal_state_changes",
+        "effect": "sleep_circadian_disruption",
+        "description": "Hormonal shifts can disturb sleep through thermoregulation, arousal, pain, or circadian changes.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "hormonal_state_changes",
+        "effect": "internalizing_symptom_burden",
+        "description": "Reproductive, thyroid, or other hormonal shifts can alter mood, anxiety, and irritability during follow-up.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "other_psychotropic_or_somatic_treatments",
+        "effect": "internalizing_symptom_burden",
+        "description": "Other medication or somatic treatment changes can improve or worsen mood and anxiety independently of escitalopram tapering.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "clinical_monitoring_rescue_care",
+        "effect": "clinician_taper_guidance",
+        "description": "Monitoring data and follow-up update clinician recommendations about continuing, slowing, pausing, or reinstating.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "clinical_monitoring_rescue_care",
+        "effect": "other_psychotropic_or_somatic_treatments",
+        "description": "Clinical contact can initiate or change adjunctive treatments for sleep, anxiety, mood, or medical contributors.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "clinical_monitoring_rescue_care",
+        "effect": "psychotherapy_skills_use",
+        "description": "Monitoring can route the person into therapy, structured relapse-prevention work, or more active coping-skills use.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "patient_taper_preference_beliefs",
+        "effect": "expectancy_nocebo_placebo",
+        "description": "Beliefs that tapering is dangerous, liberating, protective, or harmful can create nocebo or placebo pathways.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Colloca and Miller (2011). Role of expectations in health.",
+            "url": "https://doi.org/10.1098/rstb.2010.0394",
+            "snippet": "Expectations are central mechanisms in placebo and nocebo effects."
+          }
+        ]
+      },
+      {
+        "cause": "clinician_taper_guidance",
+        "effect": "expectancy_nocebo_placebo",
+        "description": "Clinician framing can reduce catastrophic interpretation or increase confidence, changing expectancy-mediated symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Colloca and Miller (2011). Role of expectations in health.",
+            "url": "https://doi.org/10.1098/rstb.2010.0394",
+            "snippet": "Clinical communication and expectations influence placebo and nocebo responses."
+          }
+        ]
+      },
+      {
+        "cause": "stable_medication_attitudes",
+        "effect": "expectancy_nocebo_placebo",
+        "description": "Stable medication beliefs and trust shape how sensations during tapering are interpreted.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "expectancy_nocebo_placebo",
+        "effect": "internalizing_symptom_burden",
+        "description": "Expectancy can change experienced anxiety, mood, somatic distress, and symptom vigilance.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Colloca and Miller (2011). Role of expectations in health.",
+            "url": "https://doi.org/10.1098/rstb.2010.0394",
+            "snippet": "Expectations can generate beneficial or adverse health experiences."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Worsening symptoms prompt more clinical contact, safety monitoring, and treatment adjustment.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "acute_safety_risk",
+        "description": "Severe depression or anxiety can increase suicidal ideation, self-harm risk, agitation, or crisis-level impairment.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "substance_use_intoxication_withdrawal",
+        "effect": "acute_safety_risk",
+        "description": "Intoxication and withdrawal states can increase impulsivity, agitation, and safety risk.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "sleep_circadian_disruption",
+        "effect": "acute_safety_risk",
+        "description": "Severe sleep disruption can worsen agitation, impulsivity, and crisis risk.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "acute_safety_risk",
+        "effect": "internalizing_symptom_burden",
+        "description": "Safety crises, agitation, and fear of losing control can worsen next-period distress and symptom burden.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "escitalopram_side_effect_burden",
+        "effect": "behavioral_activation_reward",
+        "description": "Fatigue, emotional blunting, sexual dysfunction, or activation can reduce rewarding engagement and routine.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "behavioral_activation_reward",
+        "description": "Dizziness, insomnia, nausea, anxiety, and other withdrawal symptoms can reduce activity and reward exposure.",
+        "lagged": true,
+        "sources": []
+      }
+    ]
+  }
+}

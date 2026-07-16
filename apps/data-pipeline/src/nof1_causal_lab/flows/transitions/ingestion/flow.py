@@ -17,7 +17,6 @@ class IngestionResult:
 
     dataframe: pl.DataFrame
     column_descriptions: dict[str, str] = field(default_factory=dict)
-    llm_trace_ref: str | None = None
 
 
 # ---------------------------------------------------------------------------

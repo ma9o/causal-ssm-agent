@@ -167,7 +167,6 @@ export interface CausalSSMContracts {
  * via the `definition` "RawDataContract".
  */
 export interface RawDataContract {
-  llm_trace_ref?: string | null;
   column_descriptions: RawDataColumnDescriptionContract[];
 }
 /**
@@ -183,7 +182,6 @@ export interface RawDataColumnDescriptionContract {
  * via the `definition` "LatentStructureContract".
  */
 export interface LatentStructureContract {
-  llm_trace_ref?: string | null;
   latent_structure: LatentStructure;
 }
 /**
@@ -277,8 +275,11 @@ export interface EdgeSource {
  * via the `definition` "MeasurementStructureContract".
  */
 export interface MeasurementStructureContract {
-  llm_trace_ref?: string | null;
   measurement_structure: MeasurementStructure;
+  /**
+   * Authored declarations of observed construct trajectories compiled as transition inputs rather than latent states
+   */
+  known_inputs: KnownInput[];
 }
 /**
  * Operationalization of constructs into observed indicators.
@@ -385,11 +386,34 @@ export interface ComputedRule {
   window_expr: string;
 }
 /**
+ * Observed input trajectory used as a deterministic transition driver.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "KnownInput".
+ */
+export interface KnownInput {
+  /**
+   * Construct removed from the latent state vector
+   */
+  construct: string;
+  /**
+   * Measurement indicator column supplying u(t)
+   */
+  source_indicator: string;
+  /**
+   * Positive divisor applied to the source indicator before inference
+   */
+  scale: number;
+  /**
+   * How to fill missing input values on the model time grid
+   */
+  missing_policy: "zero" | "forward_fill";
+}
+/**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "MeasurementsContract".
  */
 export interface MeasurementsContract {
-  llm_trace_ref?: string | null;
   workers: WorkerStatusContract[];
 }
 /**
@@ -474,7 +498,6 @@ export interface ValidationIssueContract {
  * via the `definition` "StatisticalModelSpecContract".
  */
 export interface StatisticalModelSpecContract {
-  llm_trace_ref?: string | null;
   statistical_model_spec: StatisticalModelSpec;
   authored_priors: {
     [k: string]: PriorProposal | undefined;
@@ -980,7 +1003,6 @@ export interface PosteriorPair {
  * via the `definition` "BaselineReportContract".
  */
 export interface BaselineReportContract {
-  llm_trace_ref?: string | null;
   intervention_results: TreatmentEffectContract[];
   saved_scenarios?: SavedScenarioContract[] | null;
   final_summary?: string | null;

@@ -41,6 +41,7 @@ dependencies = [
 
 [project.scripts]
 nof1-publish = "nof1_causal_lab.publish:main"
+nof1-sweep = "nof1_causal_lab.machine.sweep:sweep_cli"
 
 [build-system]
 requires = ["uv_build>=0.8.24,<0.11.0"]

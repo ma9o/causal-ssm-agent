@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure  # noqa: TC001
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
 
 
 class ValidateLatentStructureInput(BaseModel):
@@ -25,5 +25,5 @@ LATENT_STRUCTURE_TOOL_CONTRACTS: list[ToolContract] = [
 ]
 
 
-class LatentStructureContract(LLMArtifactContract):
+class LatentStructureContract(BaseArtifactContract):
     latent_structure: LatentStructure

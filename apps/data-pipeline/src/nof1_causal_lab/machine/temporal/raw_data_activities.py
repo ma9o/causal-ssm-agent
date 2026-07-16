@@ -26,7 +26,7 @@ from nof1_causal_lab.utils import storage
 
 
 def _raw_data_root(workspace_id: str, run_id: str) -> str:
-    return storage.join(data_module.runs_dir(workspace_id), "temporal-raw-data", run_id)
+    return storage.join(data_module.scratch_run_dir(workspace_id, run_id), "ingestion")
 
 
 def _write_raw_data_json(path: str, value: Any) -> None:
@@ -119,7 +119,6 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
         ingestion_result = IngestionResult(
             dataframe=dataframe,
             column_descriptions=dict(result["column_descriptions"]),
-            llm_trace_ref=input.trace_ref,
         )
         payload = build_raw_data_payload(ingestion_result)
 

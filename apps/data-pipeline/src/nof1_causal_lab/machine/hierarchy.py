@@ -99,7 +99,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         parent_id="episode-machine",
         owns=("latent_structure",),
         allowed_tools=("validate_latent_structure",),
-        runtime_state=("question", "latent_structure_draft", "llm_trace_ref"),
+        runtime_state=("question", "latent_structure_draft"),
     ),
     ContextSpec(
         context_id="measurement-structure",
@@ -151,7 +151,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         parent_id="episode-machine",
         owns=("baseline_report",),
         allowed_tools=("get_model_info", "simulate"),
-        runtime_state=("identified_treatments", "effect_summaries", "llm_trace_ref"),
+        runtime_state=("identified_treatments", "effect_summaries"),
     ),
 )
 

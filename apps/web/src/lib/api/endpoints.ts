@@ -20,7 +20,7 @@ export async function getArtifactView<T>(
   return apiFetch<T>(`/api/artifacts/${workspaceId}/${artifactId}/view`);
 }
 
-export async function getLLMTrace(workspaceId: string, ref: string): Promise<LLMTrace> {
-  const search = new URLSearchParams({ ref }).toString();
+export async function getLLMTrace(workspaceId: string, artifactId: string): Promise<LLMTrace> {
+  const search = new URLSearchParams({ artifact: artifactId }).toString();
   return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }

@@ -240,7 +240,6 @@ def materialize_model_spec_result(
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]] | None,
     causal_design: dict | None,
-    llm_trace_ref: str | None = None,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
     skip_ppc: bool = True,
@@ -297,6 +296,4 @@ def materialize_model_spec_result(
     }
     if compiled_ssm is not None:
         result["_compiled_ssm"] = compiled_ssm
-    if llm_trace_ref is not None:
-        result["llm_trace_ref"] = llm_trace_ref
     return result

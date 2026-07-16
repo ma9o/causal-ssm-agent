@@ -11,5 +11,7 @@
   "error_message": "statistical_model_spec construct `early_life_adversity` was not admitted after 4 attempts (last outcome: ADMITTED with accepted consequences).",
   "diagnostics": {},
   "produced": [],
-  "retracted": []
+  "retracted": [],
+  "trace_ids": ["statistical_model_spec"],
+  "resume": null
 }

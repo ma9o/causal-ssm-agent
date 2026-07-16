@@ -225,6 +225,7 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
     source_indicators = list(spec.input_source_indicators or [])
     scales = [float(scale) for scale in (spec.input_scales or [])]
     policies = list(spec.input_missing_policies or [])
+    lagged_flags = list(spec.input_lagged)
     missing_sources = [name for name in source_indicators if name not in wide_data.columns]
     if missing_sources:
         raise ValueError(
@@ -232,10 +233,11 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
         )
 
     columns: list[jnp.ndarray] = []
-    for source_indicator, scale, policy in zip(
+    for source_indicator, scale, policy, lagged in zip(
         source_indicators,
         scales,
         policies,
+        lagged_flags,
         strict=True,
     ):
         expr = pl.col(source_indicator).cast(pl.Float64, strict=False)
@@ -247,12 +249,12 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
             )
         else:
             raise ValueError(f"Unsupported known-input missing policy: {policy!r}")
-        columns.append(jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float32) / scale)
+        values = jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float32) / scale
+        if lagged and values.shape[0] > 1:
+            values = jnp.concatenate([values[:1], values[:-1]], axis=0)
+        columns.append(values)
 
-    raw_inputs = jnp.stack(columns, axis=1)
-    if raw_inputs.shape[0] <= 1:
-        return raw_inputs
-    return jnp.concatenate([raw_inputs[:1], raw_inputs[:-1]], axis=0)
+    return jnp.stack(columns, axis=1)
 
 
 def prepare_wide_model_runtime(

@@ -521,7 +521,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     from nof1_causal_lab.machine.temporal.worker import build_openrouter_worker, build_worker
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     output_json = json.dumps(
         {
             "extractions": [
@@ -622,11 +622,16 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     assert result.n_extractions == 1
     assert result.n_llm_calls == 1
     assert result.result_ref is not None
-    assert result.trace_ref is not None
     assert storage.read_json(result.result_ref)["dataframe"][0]["value"] == "1000"
-    from nof1_causal_lab.machine.trace_store import read_trace
+    from nof1_causal_lab.utils.llm import LLMTrace
 
-    trace = read_trace(workspace_id, result.trace_ref)
+    trace_path = storage.join(
+        data_module.scratch_run_dir(workspace_id, "seq-000001"),
+        "llm",
+        "measurement-chunk-000000-attempt-001",
+        "trace.json",
+    )
+    trace = LLMTrace.model_validate(storage.read_json(trace_path))
     assert trace.model == "openrouter/mock-extraction"
     assert trace.usage.input_tokens == 3
 
@@ -639,7 +644,7 @@ def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_p
     from nof1_causal_lab.machine.temporal.worker import build_openrouter_worker, build_worker
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
 
     async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
         del messages, config, log_label
@@ -702,9 +707,9 @@ def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_p
     assert result.result_ref is None
     assert result.n_llm_calls == 1
     assert result.trace_ref is not None
-    from nof1_causal_lab.machine.trace_store import read_trace
+    from nof1_causal_lab.utils.llm import LLMTrace
 
-    trace = read_trace(workspace_id, result.trace_ref)
+    trace = LLMTrace.model_validate(storage.read_json(result.trace_ref))
     assert trace.model == "openrouter/mock-analysis"
     assert trace.messages[-1].content == "Summary text."
 
@@ -738,7 +743,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
     from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     valid_structure = {
         "constructs": [
             {
@@ -941,9 +946,8 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     assert "execute_harness_tool_request_activity" in activity_names
     assert storage.read_json(result.result_ref)["latent_structure"] == valid_structure
     tool_root = storage.join(
-        data_module.runs_dir(workspace_id),
-        "temporal-llm",
-        "seq-000001",
+        data_module.scratch_run_dir(workspace_id, "seq-000001"),
+        "llm",
         "latent-structure",
         "harness-tools",
         "user-001",

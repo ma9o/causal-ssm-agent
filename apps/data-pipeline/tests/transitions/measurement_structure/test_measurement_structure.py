@@ -140,6 +140,7 @@ class TestStage1bGrounding:
                 },
                 "non_identifiable_treatments": {},
             },
+            known_inputs=[],
         )
 
         validated = CausalDesign.model_validate(spec)
@@ -148,6 +149,96 @@ class TestStage1bGrounding:
         assert validated.estimation is not None
         assert set(validated.estimation.state_order) == {"Treatment", "Outcome"}
         assert get_outcome_name(spec["latent"]) == "Outcome"
+
+    def test_valid_known_input_is_authored_into_estimation_projection(
+        self,
+        stage1b_simple_latent,
+        stage1b_measurement_all_observed,
+    ):
+        """A valid declaration survives grounding and drives the projection."""
+        from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
+            measurement_structure_grounding,
+        )
+
+        proposal = {
+            **stage1b_measurement_all_observed,
+            "known_inputs": [
+                {
+                    "construct": "Treatment",
+                    "source_indicator": "treatment_dose",
+                }
+            ],
+        }
+
+        output, feedback = measurement_structure_grounding(proposal, stage1b_simple_latent)
+
+        assert feedback == "VALID"
+        assert output is not None
+        assert output["known_inputs"] == [
+            {
+                "construct": "Treatment",
+                "source_indicator": "treatment_dose",
+                "scale": 1.0,
+                "missing_policy": "zero",
+            }
+        ]
+
+        causal_design = build_causal_design(
+            stage1b_simple_latent,
+            output["measurement_structure"],
+            known_inputs=output["known_inputs"],
+        )
+        assert causal_design["estimation"]["state_order"] == ["Outcome"]
+        assert causal_design["estimation"]["known_inputs"] == output["known_inputs"]
+        assert [
+            (edge["cause"], edge["effect"]) for edge in causal_design["estimation"]["edges"]
+        ] == [("Treatment", "Outcome")]
+
+    def test_known_input_source_must_measure_declared_construct(
+        self,
+        stage1b_simple_latent,
+        stage1b_measurement_all_observed,
+    ):
+        """Grounding rejects a source indicator attached to another construct."""
+        from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
+            measurement_structure_grounding,
+        )
+
+        proposal = {
+            **stage1b_measurement_all_observed,
+            "known_inputs": [
+                {
+                    "construct": "Treatment",
+                    "source_indicator": "outcome_score",
+                }
+            ],
+        }
+
+        output, feedback = measurement_structure_grounding(proposal, stage1b_simple_latent)
+
+        assert output is None
+        assert "source_indicator must measure the same construct" in feedback
+
+    def test_grounding_requires_explicit_known_inputs(
+        self,
+        stage1b_simple_latent,
+        stage1b_measurement_all_observed,
+    ):
+        """Omitting the authored decision is rejected rather than defaulted."""
+        from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
+            measurement_structure_grounding,
+        )
+
+        proposal = {
+            key: value
+            for key, value in stage1b_measurement_all_observed.items()
+            if key != "known_inputs"
+        }
+
+        output, feedback = measurement_structure_grounding(proposal, stage1b_simple_latent)
+
+        assert output is None
+        assert "'known_inputs' must be a list" in feedback
 
     def test_valid_identifiable(self, stage1b_simple_latent, stage1b_measurement_all_observed):
         """Valid measurement structure returns VALID feedback and context_output."""
@@ -339,6 +430,7 @@ class TestStage1bGrounding:
                 "identifiable_treatments": {},
                 "non_identifiable_treatments": {},
             },
+            known_inputs=[],
         )
 
         assert causal_design["estimation"]["state_order"] == ["Treatment", "Outcome"]

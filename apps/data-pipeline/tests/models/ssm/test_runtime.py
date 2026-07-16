@@ -917,6 +917,7 @@ class TestPrepareFitInputs:
             input_source_indicators=["dose_mg"],
             input_scales=[10.0],
             input_missing_policies=["forward_fill"],
+            input_lagged=[True],
         )
         wide = pl.DataFrame(
             {
@@ -932,6 +933,45 @@ class TestPrepareFitInputs:
         np.testing.assert_allclose(
             np.asarray(transition_inputs),
             np.array([[0.0], [0.0], [2.0], [2.0]], dtype=np.float32),
+        )
+
+    def test_contemporaneous_transition_inputs_are_not_shifted(self):
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=1,
+            input_effect_block=SparseMatrixBlockSpec(
+                n_rows=1,
+                n_cols=1,
+                free_support=np.array([[True]]),
+                template=jnp.zeros((1, 1)),
+                free_site_name="input_effect_free",
+                det_site_name="input_effect",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.INPUT_EFFECT,
+                assembly_group="input_effect",
+                fixed_spec_field="input_effect",
+                priors_field="input_effect",
+            ),
+            input_names=["dose"],
+            input_source_indicators=["dose_mg"],
+            input_scales=[10.0],
+            input_missing_policies=["forward_fill"],
+            input_lagged=[False],
+        )
+        wide = pl.DataFrame(
+            {
+                "time": [0.0, 1.0, 2.0, 3.0],
+                "dose_mg": [0.0, 20.0, None, 30.0],
+                "mood_rating": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+
+        transition_inputs = prepare_transition_inputs(spec, wide)
+
+        assert transition_inputs is not None
+        np.testing.assert_allclose(
+            np.asarray(transition_inputs),
+            np.array([[0.0], [2.0], [2.0], [3.0]], dtype=np.float32),
         )
 
 

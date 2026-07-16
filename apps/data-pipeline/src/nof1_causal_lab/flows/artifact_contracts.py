@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
-from nof1_causal_lab.flows.contracts_base import (
-    LLMArtifactContract,
-    ToolContract,
-)
+from nof1_causal_lab.flows.contracts_base import ToolContract
 from nof1_causal_lab.flows.transitions.analysis.contracts import (
     BaselineReportContract,
     BaselineReportVisualizationContract,
@@ -50,7 +47,6 @@ __all__ = [
     "IndicatorEmpiricalProfileContract",
     "IndicatorValidationContract",
     "InferenceMetadataContract",
-    "LLMArtifactContract",
     "PPCResultContract",
     "SavedScenarioContract",
     "ScenarioStartResultContract",

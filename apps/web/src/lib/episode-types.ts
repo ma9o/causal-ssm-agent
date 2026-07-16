@@ -21,6 +21,12 @@ export interface RetractedArtifact {
   reason_ref: string;
 }
 
+export interface ResumeRef {
+  kind: "model_spec";
+  run_id: string;
+  checkpoint_id: string;
+}
+
 export interface TransitionRecord {
   seq: number;
   ts: string;
@@ -32,6 +38,8 @@ export interface TransitionRecord {
   diagnostics: JsonObject;
   produced: ArtifactVersionInfo[];
   retracted: RetractedArtifact[];
+  trace_ids: string[];
+  resume: ResumeRef | null;
 }
 
 export type EpisodeTransitionRecord = Pick<
@@ -39,7 +47,8 @@ export type EpisodeTransitionRecord = Pick<
   "seq" | "ts" | "move" | "status" | "reason" | "error_type" | "error_message"
 >;
 
-export interface MoveOutcome extends Omit<TransitionRecord, "ts" | "move"> {
+export interface MoveOutcome
+  extends Omit<TransitionRecord, "ts" | "move" | "trace_ids" | "resume"> {
   state: EpisodeState;
 }
 

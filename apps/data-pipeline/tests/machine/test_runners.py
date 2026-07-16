@@ -22,7 +22,7 @@ from tests.helpers import run_async
 def test_temporal_only_transitions_reject_local_execution(monkeypatch, tmp_path, artifact_id):
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     with pytest.raises(RuntimeError, match="Temporal child workflow"):
         run_async(
             execute_transition_locally(

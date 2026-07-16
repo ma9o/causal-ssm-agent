@@ -12,7 +12,7 @@ from nof1_causal_lab.flows.runtime_events import (
 def test_runtime_events_roundtrip_as_discriminated_models(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     workspace_id = "runtime-event-contracts"
 
     emit_transition_event(

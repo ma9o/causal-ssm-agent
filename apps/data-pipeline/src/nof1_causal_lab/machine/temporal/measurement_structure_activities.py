@@ -8,7 +8,6 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import TransitionExecutionError
@@ -18,12 +17,12 @@ from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.latent_structure_activities import (
     _llm_backend_config,
 )
+from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
     SingleLLMTransitionFinalizeInput,
     SingleLLMTransitionPlan,
     SingleLLMTransitionWorkflowInput,
 )
-from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 
@@ -89,10 +88,7 @@ async def plan_measurement_structure_activity(
     dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
     dataset_summary = f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns"
     context_ref = storage.join(
-        data_module.runs_dir(input.workspace_id),
-        "temporal-llm",
-        run_id,
-        "measurement-structure",
+        subroutine_root(input.workspace_id, run_id, "measurement-structure"),
         "context.json",
     )
     _write_measurement_structure_json(
@@ -136,15 +132,7 @@ async def finalize_measurement_structure_activity(
         if input.result_ref is None:
             raise RuntimeError("measurement-structure subroutine completed without a result ref")
         payload = _read_measurement_structure_json(input.result_ref)
-        measurement_structure = MeasurementStructure.model_validate(
-            payload["measurement_structure"]
-        ).model_dump(mode="json")
-        report = {
-            "measurement_structure": measurement_structure,
-            "llm_trace_ref": input.trace_ref,
-        }
-        fields = set(MeasurementStructureContract.model_fields.keys())
-        report = {key: value for key, value in report.items() if key in fields}
+        report = MeasurementStructureContract.model_validate(payload).model_dump(mode="json")
 
         store = ArtifactStore(input.workspace_id)
         produced = [

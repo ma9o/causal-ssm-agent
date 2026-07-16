@@ -18,7 +18,13 @@ from nof1_causal_lab.machine.errors import ArtifactWriteRejected, TransitionExec
 # hints at registration time to drive payload conversion.
 from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
 from nof1_causal_lab.machine.runners import execute_transition
-from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, utc_now_iso
+from nof1_causal_lab.machine.store import (
+    EpisodeJournal,
+    TransitionRecord,
+    promote_run_traces,
+    utc_now_iso,
+)
+from nof1_causal_lab.machine.sweep import collect_completed_runs
 from nof1_causal_lab.machine.temporal.baseline_report_activities import BASELINE_REPORT_ACTIVITIES
 from nof1_causal_lab.machine.temporal.latent_structure_activities import LATENT_STRUCTURE_ACTIVITIES
 from nof1_causal_lab.machine.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
@@ -76,10 +82,21 @@ async def write_artifact_activity(input: WriteArtifactInput) -> TransitionEffect
 
 @activity.defn
 async def journal_activity(input: JournalInput) -> None:
-    EpisodeJournal(input.workspace_id).append(
+    # Discover finalized traces from the sequence-owned run and copy them into
+    # the ledger before the record file exists. Existing records already own
+    # their promoted trace IDs, so a later idempotent call no longer needs the
+    # scratch run to exist.
+    journal = EpisodeJournal(input.workspace_id)
+    existing = journal.read(input.seq)
+    trace_ids = (
+        existing.trace_ids
+        if existing is not None
+        else promote_run_traces(input.workspace_id, input.seq)
+    )
+    journal.append(
         TransitionRecord(
             seq=input.seq,
-            ts=utc_now_iso(),
+            ts=existing.ts if existing is not None else utc_now_iso(),
             move=input.move,
             status=input.status,
             reason=input.reason,
@@ -88,14 +105,22 @@ async def journal_activity(input: JournalInput) -> None:
             diagnostics=input.diagnostics,
             produced=input.produced,
             retracted=input.retracted,
+            trace_ids=trace_ids,
+            resume=input.resume,
         )
     )
+
+
+@activity.defn
+async def collect_completed_runs_activity(workspace_id: str) -> None:
+    collect_completed_runs(workspace_id)
 
 
 ALL_ACTIVITIES = [
     run_transition_activity,
     write_artifact_activity,
     journal_activity,
+    collect_completed_runs_activity,
     *RAW_DATA_ACTIVITIES,
     *MEASUREMENT_ACTIVITIES,
     *LLM_SUBROUTINE_ACTIVITIES,

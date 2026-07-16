@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
 from nof1_causal_lab.models.ssm.inference.schemas import TemporalEffect  # noqa: TC001
 
 ModelInfoSection = Literal[
@@ -298,7 +298,7 @@ class SavedScenarioContract(BaseModel):
     summary: str | None = None
 
 
-class BaselineReportContract(LLMArtifactContract):
+class BaselineReportContract(BaseArtifactContract):
     intervention_results: list[TreatmentEffectContract]
     saved_scenarios: list[SavedScenarioContract] | None = None
     final_summary: str | None = None

@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | [`CausalDesign`](#causaldesign), [`IdentificationReport`](#identificationreport) when positive |
+| Semantic | Yes | [`MeasurementStructure`](#measurementstructure), authored [`KnownInput`](#knowninput) declarations; derives [`CausalDesign`](#causaldesign) and [`IdentificationReport`](#identificationreport) when positive |
 
 Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
 
@@ -18,16 +18,18 @@ Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) ag
 
 ## Process
 
-`measurement_structure` transition runs one LLM conversation that bridges theory and data. The LLM sees the latent structure, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial measurement-structure proposal checked by a validation tool that enforces both measurement and identifiability constraints, followed by a self-review pass using the same validator.
+`measurement_structure` transition runs one LLM conversation that bridges theory and data. The LLM sees the latent structure, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial measurement-structure and known-input proposal checked by a validation tool, followed by a self-review pass using the same validator.
 
 ```mermaid
 flowchart LR
     P[Propose] --> V1{Validator} -- errors --> P
     V1 -- VALID --> R[Review] --> V2{Validator} -- errors --> R
-    V2 -- VALID --> F([CausalDesign])
+    V2 -- VALID --> M([MeasurementStructure + KnownInputs])
+    M -->|derive| C([CausalDesign])
+    C -->|derive when positive| I([IdentificationReport])
 ```
 
-**Propose:** For each construct in the latent structure, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined.
+**Propose:** For each construct in the latent structure, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined. When a directly observed construct trajectory should condition the dynamics rather than remain a latent state, the proposal also identifies its source indicator as a known input.
 
 **Validator:** The LLM submits its proposal via a `validate_measurement_structure` tool call. The tool checks schema and compiler constraints:
 
@@ -36,22 +38,25 @@ flowchart LR
 - *Valid construct references:* indicator references point to constructs in the latent structure
 - *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
 - *Computed-rule validity:* computed indicators have valid rule expressions
+- *Known-input integrity:* declarations reference an existing construct and an indicator that measures that same construct
+- *Estimation projection:* removing known inputs from the state vector still satisfies compiler-owned state coverage and loading-rank constraints
 
-It then checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
+After the authored artifact validates, the machine derives the complete causal design and checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair.
 
-**Review:** A follow-up prompt asks the LLM to review its validated measurement structure for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure), and absence of cumulative or running metrics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
+**Review:** A follow-up prompt asks the LLM to review its validated measurement structure for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure), absence of cumulative or running metrics, and whether every known-input declaration is justified by direct observation and explicit missing-value semantics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
 ### Example
 
-For a study of developer workload and code quality where `latent_structure` transition posited an unobserved confounder `Organizational Pressure`, `measurement_structure` transition might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), map `Review Thoroughness` to "average review comment count per PR" (computed, mean), and add a proxy indicator "manager-reported deadline pressure" (semantic, ordinal) to restore identifiability of the `Organizational Pressure` confounder path.
+For a study of developer workload and code quality, `measurement_structure` transition might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), and map `Review Thoroughness` to "average review comment count per PR" (computed, mean). If an assigned on-call shift is represented as a construct with a directly recorded schedule indicator, it can be declared as a known input so its realized trajectory drives the retained latent states without becoming one itself.
 
 ## Outputs
 
 | Output | Type | Description |
 |---|---|---|
-| `causal_design` | [`CausalDesign`](#causaldesign) | Combined latent structure, measurement structure, and identifiability status |
-| `identification_report` | [`IdentificationReport`](#identificationreport) | Positive identification gate produced only when at least one treatment effect is explicitly identifiable |
-| `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
+| `measurement_structure` | [`MeasurementStructure`](#measurementstructure) | Authored indicator mapping and model clock |
+| `known_inputs` | `list[KnownInput]` | Authored declarations of observed trajectories compiled as transition inputs |
+| `causal_design` | [`CausalDesign`](#causaldesign) | Machine-derived composition, identification status, and estimation projection |
+| `identification_report` | [`IdentificationReport`](#identificationreport) | Machine-derived positive identification gate, present only when at least one treatment effect is explicitly identifiable |
 
 ### `MeasurementStructure`
 
@@ -75,6 +80,15 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `ordinal_levels` | `list[str]` \| `null` | Ordered labels when `measurement_dtype="ordinal"` |
 | `source_columns` | `list[str]` | Raw columns needed to compute or interpret the indicator |
 | `extraction_mode` | `str` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
+
+### `KnownInput`
+
+| Field | Type | Description |
+|---|---|---|
+| `construct` | `str` | Construct removed from the latent state vector and treated as an observed transition driver |
+| `source_indicator` | `str` | Indicator for the same construct that supplies the input trajectory |
+| `scale` | `float` | Positive divisor applied to the source values before inference |
+| `missing_policy` | `str` | Whether missing grid values become zero or carry the last observed value forward |
 
 ### `observation_window` and `model_clock`
 
@@ -105,13 +119,23 @@ The `MeasurementStructure` does not store row timestamps itself, but it fully de
 
 ### `CausalDesign`
 
-`CausalDesign` is the combined input to downstream transitions that includes the `latent_structure` transition latent structure, the `measurement_structure` transition measurement structure, and the derived identifiability status:
+`CausalDesign` is the machine-derived combined input to downstream transitions:
 
 | Field | Type | Description |
 |---|---|---|
 | `latent` | [`LatentStructure`](latent-structure.md#latent-structure) | The validated `latent_structure` transition construct-level graph |
 | `measurement` | [`MeasurementStructure`](#measurementstructure) | The indicator mapping and model clock introduced here |
 | `identifiability` | [`IdentifiabilityStatus`](#identifiabilitystatus) \| `null` | Treatment-level identifiability results from the `measurement_structure` transition checker |
+| `estimation` | [`EstimationSpec`](#estimationspec) \| `null` | Executable state-space projection derived from the authored structures and known inputs |
+
+### `EstimationSpec`
+
+| Field | Type | Description |
+|---|---|---|
+| `state_order` | `list[str]` | Retained latent states in canonical compiler order |
+| `edges` | `list[CausalEdge]` | Directed transition edges into retained states, including edges from known inputs |
+| `induced_dependencies` | `list[InducedDependency]` | Covariance dependencies induced by marginalized latent root confounders |
+| `known_inputs` | `list[KnownInput]` | Validated authored input declarations copied into the executable projection |
 
 ### `IdentifiabilityStatus`
 

@@ -135,6 +135,14 @@ def rm_tree(path: str) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def rm_file(path: str) -> None:
+    """Remove one file or object when it exists."""
+    if is_remote():
+        get_fs().rm(path)
+        return
+    Path(path).unlink(missing_ok=True)
+
+
 def listdir(path: str) -> list[str]:
     """List entries in *path*. Returns full paths/URIs."""
     if is_remote():
@@ -147,6 +155,19 @@ def listdir(path: str) -> list[str]:
     if not p.is_dir():
         return []
     return [str(child) for child in p.iterdir()]
+
+
+def walk_files(path: str) -> list[str]:
+    """List every file below a directory or object prefix."""
+    if is_remote():
+        if not get_fs().exists(path):
+            return []
+        entries = get_fs().find(path, detail=False)
+        return [f"s3://{entry}" if not entry.startswith("s3://") else entry for entry in entries]
+    root = Path(path)
+    if not root.is_dir():
+        return []
+    return [str(entry) for entry in root.rglob("*") if entry.is_file()]
 
 
 def file_info(path: str) -> dict[str, Any]:
@@ -195,3 +216,18 @@ def write_text(path: str, content: str) -> None:
 
 def read_json(path: str) -> Any:
     return json.loads(read_text(path))
+
+
+def read_parquet(path: str) -> Any:
+    """Read a Polars DataFrame from a parquet path."""
+    import polars as pl
+
+    return pl.read_parquet(path, storage_options=polars_storage_options())
+
+
+def read_pickle(path: str) -> Any:
+    """Unpickle a value from storage."""
+    import cloudpickle
+
+    with open_file(path, "rb") as f:
+        return cloudpickle.load(f)

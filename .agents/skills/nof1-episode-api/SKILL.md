@@ -143,6 +143,23 @@ filenames so callers cannot browse arbitrary workspace paths.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/artifacts/ARTIFACT_ID/files/FILENAME"
 ```
 
+### GET `/api/episodes/{workspace_id}/artifacts/{artifact_id}/traces`
+
+Traces of the applied transition that produced an artifact version.
+
+Defaults to the episode's current version. The join runs over the
+transition journal, so it works against a published read-only store.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `artifact_id` (path, required)
+- `version` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/artifacts/ARTIFACT_ID/traces"
+```
+
 ### POST `/api/episodes/{workspace_id}/auto`
 
 Start the default navigation policy in the background.
@@ -226,17 +243,18 @@ move again.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/timeline"
 ```
 
-### GET `/api/episodes/{workspace_id}/traces`
+### GET `/api/episodes/{workspace_id}/traces/{seq}/{subroutine_id}`
 
-Resolve an artifact ``llm_trace_ref`` through the configured trace store.
+One promoted LLM trace from ``episode/traces/{seq:06d}/{subroutine_id}.json``.
 
 **Parameters**
 
 - `workspace_id` (path, required)
-- `ref` (query, required)
+- `seq` (path, required)
+- `subroutine_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/traces"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/traces/SEQ/SUBROUTINE_ID"
 ```
 
 ### GET `/api/machine`

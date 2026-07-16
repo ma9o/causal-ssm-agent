@@ -51,6 +51,23 @@ Each indicator needs:
 | **computed_rule** | Optional deterministic support-window expression used only when `extraction_mode="computed"` and direct single-column aggregation is not enough. |
 | **extraction_mode** | `"computed"` or `"semantic"` (default). See extraction_mode guidelines below. |
 
+## Known Transition Inputs
+
+Some measured constructs should enter the state dynamics as observed trajectories rather than as latent states. Declare these in `known_inputs`.
+
+Use a known input only when one indicator supplies the realized construct trajectory that should be conditioned on directly. Declaring a known input removes that construct from the latent state vector, removes its source indicator from the measurement likelihood, and compiles its outgoing edges as transition-input effects.
+
+Each known input needs:
+
+| Field | Description |
+|-------|-------------|
+| **construct** | Construct whose observed trajectory is treated as given. Must match a latent-structure construct. |
+| **source_indicator** | Indicator supplying the trajectory. It must measure the same construct. |
+| **scale** | Positive divisor applied before inference. Use `1.0` unless a deliberate unit conversion is required. |
+| **missing_policy** | `"zero"` when missing means no input during that window, or `"forward_fill"` when the last observed value remains in force. |
+
+Do not declare a construct as a known input when its measurement uncertainty should be modeled as a latent state. Every submission must include `known_inputs`; use an empty list when no construct qualifies.
+
 ### measurement_dtype
 
 | Type | Description | Example |
@@ -183,7 +200,8 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 1. Every **time-varying** construct MUST have at least one indicator-constructs without indicators are unobserved, and causal effects through them may not be identifiable
 2. Indicators can only reference constructs from the latent structure
 3. You CANNOT add new causal edges-only operationalize existing constructs
-5. No direct causal edges between indicators (pure indicators assumption)
+4. No direct causal edges between indicators (pure indicators assumption)
+5. Every known input must reference an indicator for the same construct
 
 ## Refinement Rule
 
@@ -225,6 +243,14 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       },
       "extraction_mode": "computed" | "semantic"
     }
+  ],
+  "known_inputs": [
+    {
+      "construct": "observed_input_construct",
+      "source_indicator": "indicator_name",
+      "scale": 1.0,
+      "missing_policy": "zero" | "forward_fill"
+    }
   ]
 }
 ```
@@ -233,6 +259,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 You have access to `validate_measurement_structure` tool. It checks:
 1. Schema and compiler-level measurement constraints
+2. Known-input references and the resulting estimation projection
 
 Keep validating until you get "VALID".
 
@@ -273,6 +300,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 - If cleanup leaves a construct with zero viable indicators, remove the construct instead of keeping an unmeasured latent
+- Include `known_inputs` explicitly, using `[]` when every measured construct should remain latent
 
 Think very hard.
 """
@@ -300,6 +328,7 @@ Review your proposed measurement structure for operationalization coherence.
 10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
 11. **Parsimony/stability**: Did you introduce a broader semantic proxy, a gratuitously renamed indicator, or a wider support window where a narrower deterministic operationalization would suffice?
 12. **Dead measurement cleanup**: Does any construct survive only via indicators that are unsupported, constant, or unusable? If so, remove those indicators; if nothing viable remains, remove the construct and its edges.
+13. **Known inputs**: Does every declaration have a direct source indicator for the same construct, with missingness semantics that justify `zero` or `forward_fill`? Should any declared input instead remain latent because its measurement uncertainty matters?
 
 ## Red Flags
 

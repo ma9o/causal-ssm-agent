@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ChildWorkflowError
+from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
@@ -76,11 +76,19 @@ async def _emit_extraction_event(input: ExtractionProgressEventInput) -> None:
     )
 
 
-def _failure_message(exc: BaseException) -> str:
-    cause = getattr(exc, "cause", None)
-    if cause is not None:
-        return str(cause)
-    return str(exc)
+def _failure_details(exc: BaseException) -> tuple[str, str, dict]:
+    cause = exc
+    while not isinstance(cause, ApplicationError):
+        next_cause = getattr(cause, "cause", None)
+        if not isinstance(next_cause, BaseException):
+            break
+        cause = next_cause
+    if isinstance(cause, ApplicationError):
+        diagnostics = (
+            cause.details[0] if cause.details and isinstance(cause.details[0], dict) else {}
+        )
+        return cause.type or "ApplicationError", cause.message, dict(diagnostics)
+    return type(cause).__name__, str(cause), {}
 
 
 @workflow.defn
@@ -88,12 +96,13 @@ class ExtractionChunkWorkflow:
     @workflow.run
     async def run(self, input: ExtractionChunkWorkflowInput) -> ExtractionChunkResult:
         attempt = workflow.info().attempt
+        subroutine_id = f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
         subroutine = await workflow.execute_child_workflow(
             LLMSubroutineWorkflow.run,
             LLMSubroutineInput(
                 workspace_id=input.workspace_id,
                 run_id=input.run_id,
-                subroutine_id=(f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"),
+                subroutine_id=subroutine_id,
                 context_kind="measurement_extraction",
                 context_ref=input.spec_ref,
                 llm=input.llm,
@@ -118,18 +127,11 @@ class ExtractionChunkWorkflow:
                 "worker_id": input.worker_id,
                 "attempt": attempt,
                 "context_kind": "measurement_extraction",
-                "subroutine_id": (f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"),
+                "subroutine_id": subroutine_id,
             },
         )
         if subroutine.result_ref is None:
             raise RuntimeError("measurement extraction subroutine completed without a result ref")
-        if subroutine.conversation_ref is None:
-            raise RuntimeError(
-                "measurement extraction subroutine completed without a conversation ref"
-            )
-        if subroutine.trace_ref is None:
-            raise RuntimeError("measurement extraction subroutine completed without a trace ref")
-
         return await workflow.execute_activity(
             "finalize_extraction_chunk_activity",
             ExtractionChunkFinalizeInput(
@@ -140,7 +142,6 @@ class ExtractionChunkWorkflow:
                 n_windows=input.n_windows,
                 result_ref=subroutine.result_ref,
                 conversation_ref=subroutine.conversation_ref,
-                trace_ref=subroutine.trace_ref,
                 n_llm_calls=subroutine.n_llm_calls,
             ),
             result_type=ExtractionChunkResult,
@@ -154,6 +155,7 @@ class ExtractionChunkWorkflow:
 class MeasurementsWorkflow:
     @workflow.run
     async def run(self, input: MeasurementsWorkflowInput) -> TransitionEffects:
+        chunk_results: list[ExtractionChunkResult] = []
         await _emit_transition_event(input.workspace_id, "measurements", "running")
         try:
             plan = await workflow.execute_activity(
@@ -254,12 +256,13 @@ class MeasurementsWorkflow:
                             },
                         )
                     except ChildWorkflowError as exc:
+                        _, failure_message, _ = _failure_details(exc)
                         result = ExtractionChunkResult(
                             worker_id=chunk.worker_id,
                             status="failed",
                             n_extractions=0,
                             n_windows=chunk.n_windows,
-                            error=_failure_message(exc),
+                            error=failure_message,
                         )
 
                     running_workers -= 1
@@ -306,12 +309,11 @@ class MeasurementsWorkflow:
             await _emit_transition_event(input.workspace_id, "measurements", "completed")
             return effects
         except Exception as exc:
+            failure_type, failure_message, _ = _failure_details(exc)
             await _emit_transition_event(
                 input.workspace_id,
                 "measurements",
                 "failed",
-                error=TransitionRuntimeError(
-                    type=type(exc).__name__, message=_failure_message(exc)
-                ),
+                error=TransitionRuntimeError(type=failure_type, message=failure_message),
             )
             raise

@@ -56,8 +56,8 @@ export const CONTEXT_TOOLS: Record<string, ToolDefinition[]> = {
   "measurement-structure": [
     {
       name: "validate_measurement_structure",
-      description: "Validate measurement structure JSON and compiler constraints.",
-      parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement structure to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementStructureInput","type":"object"},
+      description: "Validate measurement structure, known-input declarations, and compiler constraints.",
+      parameters: {"additionalProperties":false,"properties":{"measurement_json":{"description":"The JSON string containing the measurement structure and known-input declarations to validate.","title":"Measurement Json","type":"string"}},"required":["measurement_json"],"title":"ValidateMeasurementStructureInput","type":"object"},
       result: null,
     },
   ],

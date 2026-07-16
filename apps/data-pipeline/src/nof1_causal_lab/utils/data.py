@@ -43,8 +43,10 @@ OBSERVATION_ROW_SCHEMA = {
     "support_end": pl.Utf8,
 }
 
-# Remote-aware base URI (``/abs/path/to/data`` locally, ``s3://bucket/prefix`` on R2)
-DATA_URI = get_base_uri()
+# Remote-aware base URI (``/abs/path/to/data`` locally, ``s3://bucket/prefix`` on R2).
+# Consumers choose a lifecycle through the builders below rather than joining
+# paths against this root directly.
+_DATA_URI = get_base_uri()
 
 # ---------------------------------------------------------------------------
 # Workspace storage tiers
@@ -56,55 +58,59 @@ DATA_URI = get_base_uri()
 #   ledger  (input/ + episode/ + store/)  durable and committable; must be
 #           referentially closed — ledger content never points outside the
 #           ledger (sole sanctioned exception: TransitionRecord.resume, a
-#           best-effort pointer into scratch)
+#           typed retention pointer into scratch)
 #   cache/  content-addressed or regenerable sidecars — safe to evict anytime
 #   scratch/  run-scoped Temporal execution state and UI telemetry — collected
 #           by machine.sweep once the run is off the resume path
 # ---------------------------------------------------------------------------
 
 
+def data_root() -> str:
+    return _DATA_URI
+
+
 def workspace_dir(workspace_id: str) -> str:
-    return join(DATA_URI, workspace_id)
+    return join(_DATA_URI, workspace_id)
 
 
 def input_dir(workspace_id: str) -> str:
     """Ledger tier: user-provided input bundle at ``data/{workspace_id}/input/``."""
-    return join(DATA_URI, workspace_id, "input")
+    return join(_DATA_URI, workspace_id, "input")
 
 
 def store_dir(workspace_id: str) -> str:
     """Ledger tier: versioned artifact store at ``data/{workspace_id}/store/``."""
-    return join(DATA_URI, workspace_id, "store")
+    return join(_DATA_URI, workspace_id, "store")
 
 
 def episode_dir(workspace_id: str) -> str:
     """Ledger tier: transition journal + promoted traces at ``data/{workspace_id}/episode/``."""
-    return join(DATA_URI, workspace_id, "episode")
+    return join(_DATA_URI, workspace_id, "episode")
 
 
 def episode_traces_dir(workspace_id: str) -> str:
     """Ledger tier: per-transition LLM traces promoted at journal-append time."""
-    return join(DATA_URI, workspace_id, "episode", "traces")
+    return join(_DATA_URI, workspace_id, "episode", "traces")
 
 
 def cache_dir(workspace_id: str) -> str:
     """Cache tier: evictable regenerable sidecars at ``data/{workspace_id}/cache/``."""
-    return join(DATA_URI, workspace_id, "cache")
+    return join(_DATA_URI, workspace_id, "cache")
 
 
 def scratch_dir(workspace_id: str) -> str:
     """Scratch tier root at ``data/{workspace_id}/scratch/``."""
-    return join(DATA_URI, workspace_id, "scratch")
+    return join(_DATA_URI, workspace_id, "scratch")
 
 
 def scratch_events_dir(workspace_id: str) -> str:
     """Scratch tier: UI telemetry event stream (one JSON file per event)."""
-    return join(DATA_URI, workspace_id, "scratch", "events")
+    return join(_DATA_URI, workspace_id, "scratch", "events")
 
 
 def scratch_runs_dir(workspace_id: str) -> str:
     """Scratch tier: parent of all per-run execution state."""
-    return join(DATA_URI, workspace_id, "scratch", "runs")
+    return join(_DATA_URI, workspace_id, "scratch", "runs")
 
 
 def scratch_run_dir(workspace_id: str, run_id: str) -> str:
@@ -113,7 +119,7 @@ def scratch_run_dir(workspace_id: str, run_id: str) -> str:
     One run is one GC unit: machine.sweep deletes the whole directory once the
     run's seq is journaled and off the model-spec resume path.
     """
-    return join(DATA_URI, workspace_id, "scratch", "runs", run_id)
+    return join(_DATA_URI, workspace_id, "scratch", "runs", run_id)
 
 
 def ensure_datetime_column(df: pl.DataFrame, time_col: str) -> pl.DataFrame:

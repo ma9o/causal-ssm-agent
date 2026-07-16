@@ -8,8 +8,8 @@ personal data: exclude it unless the workspace is synthetic/demo.
 The store is append-only with immutable versions and transition-log entries, so
 publishing is an idempotent file copy: keys that already exist are skipped.
 Re-running publish while a local episode executes gives the hosted viewer a
-live tail through its normal polling. Internal ``run/`` sidecars are not
-published.
+live tail through its normal polling. The ``scratch/`` and ``cache/`` tiers are
+not published.
 
 Usage (needs the ``cloud`` dependency group and the production R2 env:
 ``R2_ENDPOINT_URL``, ``R2_ACCESS_KEY_ID``, ``R2_SECRET_ACCESS_KEY``,
@@ -36,8 +36,9 @@ def _dest_fs():
     )
 
 
-def _is_internal(rel: str) -> bool:
-    return rel.startswith("run/")
+def _is_publishable(rel: str) -> bool:
+    """Only explicit durable tiers cross the publication boundary."""
+    return rel.startswith(("input/", "store/", "episode/"))
 
 
 def _is_excluded(rel: str, excludes: list[str]) -> bool:
@@ -54,7 +55,7 @@ def publish_workspace(workspace_id: str, excludes: list[str]) -> dict[str, int]:
 
     if storage.is_remote():
         raise RuntimeError("publish copies FROM the local store; unset DEPLOYMENT_ENV=production")
-    src_root = Path(data_module.DATA_URI) / workspace_id
+    src_root = Path(data_module.workspace_dir(workspace_id))
     if not src_root.is_dir():
         raise FileNotFoundError(f"No local workspace at {src_root}")
 
@@ -69,7 +70,7 @@ def publish_workspace(workspace_id: str, excludes: list[str]) -> dict[str, int]:
         if not path.is_file():
             continue
         rel = path.relative_to(src_root).as_posix()
-        if _is_internal(rel) or _is_excluded(rel, excludes):
+        if not _is_publishable(rel) or _is_excluded(rel, excludes):
             counts["excluded"] += 1
             continue
         dest = f"{dest_root}/{rel}"

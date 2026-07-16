@@ -45,8 +45,9 @@ persists its event history to `.local/agentic-integration-stack/temporal.db`
 process — to serve the UI, pick up a change, or recover from a crash —
 **resumes** in-flight episode workflows exactly where they left off
 rather than orphaning them. To start genuinely fresh, delete that
-`temporal.db` before boot (and wipe the workspace's `store/` + `episode/`
-dirs). The Web UI is served at `http://localhost:8233`.
+`temporal.db` before boot and wipe that workspace's `store/`, `episode/`,
+`scratch/`, and `cache/` directories. The Web UI is served at
+`http://localhost:8233`.
 
 ## Workspace Layout
 
@@ -55,8 +56,9 @@ data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Raw uploaded files for the raw_data transition
 │   ├── store/             # Versioned artifact store ({artifact}/v{N}/)
-│   ├── episode/           # Transition journal and telemetry events
-│   └── run/               # Internal sidecars: LLM traces and immutable model-spec checkpoints
+│   ├── episode/           # Durable transition journal and promoted LLM traces
+│   ├── cache/             # Evictable admission and compilation reuse
+│   └── scratch/           # UI telemetry and run-scoped execution/checkpoints
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
@@ -115,7 +117,7 @@ state is unchanged, and the typed error plus diagnostics ride on the record:
 
 ```bash
 curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \
-  | jq '.transitions[] | select(.status=="raised") | {seq, move, error_type, error_message}'
+  | jq '.transitions[] | select(.status=="raised") | {seq, move, error_type, error_message, resume}'
 ```
 
 Re-running is just proposing the move again (the machine validates
@@ -149,7 +151,10 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -H 'Content-Type: application/json' \
   -d '{
     "move": {"kind": "write", "artifact_id": "measurement_structure", "provenance": "human"},
-    "payload": {"measurement_structure": {"model_clock": "1d", "indicators": [...]}}
+    "payload": {
+      "measurement_structure": {"model_clock": "1d", "indicators": [...]},
+      "known_inputs": []
+    }
   }'
 
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \

@@ -13,7 +13,8 @@ def build_causal_design(
     latent_structure: dict,
     measurement_structure: dict,
     identifiability_status: dict | None = None,
-    known_inputs: list[dict] | None = None,
+    *,
+    known_inputs: list[dict],
 ) -> dict:
     """Combine latent and measurement structures into a full CausalDesign with identifiability."""
     from nof1_causal_lab.utils.estimation_projection import build_estimation_projection

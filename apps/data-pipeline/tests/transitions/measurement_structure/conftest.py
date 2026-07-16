@@ -82,6 +82,7 @@ def stage1b_measurement_all_observed():
     """Measurement structure with indicators for Treatment and Outcome."""
     return {
         "model_clock": "1d",
+        "known_inputs": [],
         "indicators": [
             {
                 "name": "treatment_dose",

@@ -6,29 +6,41 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.causal_design import KnownInput  # noqa: TC001
 from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure  # noqa: TC001
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
 
 
 class ValidateMeasurementStructureInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     measurement_json: str = Field(
-        description="The JSON string containing the measurement structure to validate."
+        description=(
+            "The JSON string containing the measurement structure and known-input "
+            "declarations to validate."
+        )
     )
 
 
 MEASUREMENT_STRUCTURE_TOOL_CONTRACTS: list[ToolContract] = [
     ToolContract(
         name="validate_measurement_structure",
-        description=("Validate measurement structure JSON and compiler constraints."),
+        description=(
+            "Validate measurement structure, known-input declarations, and compiler constraints."
+        ),
         input_schema=ValidateMeasurementStructureInput,
     ),
 ]
 
 
-class MeasurementStructureContract(LLMArtifactContract):
+class MeasurementStructureContract(BaseArtifactContract):
     measurement_structure: MeasurementStructure
+    known_inputs: list[KnownInput] = Field(
+        description=(
+            "Authored declarations of observed construct trajectories compiled as "
+            "transition inputs rather than latent states"
+        )
+    )
 
 
 class IdentificationReportContract(BaseModel):

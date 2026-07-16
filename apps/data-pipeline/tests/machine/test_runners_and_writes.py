@@ -20,7 +20,7 @@ from nof1_causal_lab.machine.writes import execute_write
 def workspace(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     return "test_workspace"
 
 
@@ -165,7 +165,8 @@ class TestStage2Gate:
                     produced_by="run:measurement_structure",
                     json_files={
                         "measurement_structure.json": {
-                            "measurement_structure": _measurement_structure()
+                            "measurement_structure": _measurement_structure(),
+                            "known_inputs": [],
                         }
                     },
                 ),
@@ -176,9 +177,8 @@ class TestStage2Gate:
         pins = input_pins(state, spec)
         run_id = "run-1"
         plan_ref = storage.join(
-            data_module.runs_dir(workspace),
-            "temporal-measurements",
-            run_id,
+            data_module.scratch_run_dir(workspace, run_id),
+            "extraction",
             "plan.json",
         )
         storage.write_text(
@@ -238,7 +238,7 @@ class TestMeasurementStructureArtifactWrite:
         effects = execute_write(
             workspace,
             "measurement_structure",
-            {"measurement_structure": _measurement_structure()},
+            {"measurement_structure": _measurement_structure(), "known_inputs": []},
             "human",
             state,
         )
@@ -263,6 +263,150 @@ class TestMeasurementStructureArtifactWrite:
             "measurement_structure": measurement_version,
         }
         assert derived["identification_report"] == {"causal_design": 1}
+
+    def test_write_routes_known_input_into_derived_causal_design(self, workspace):
+        from nof1_causal_lab.models.ssm.compile.spec_translation import (
+            get_estimation_input_layout,
+        )
+
+        store = ArtifactStore(workspace)
+        state = self._state_with_latent(store)
+
+        effects = execute_write(
+            workspace,
+            "measurement_structure",
+            {
+                "measurement_structure": _measurement_structure(),
+                "known_inputs": [
+                    {
+                        "construct": "Stress",
+                        "source_indicator": "stress_score",
+                        "scale": 2.0,
+                        "missing_policy": "forward_fill",
+                    }
+                ],
+            },
+            "human",
+            state,
+        )
+
+        causal_design_info = next(
+            info for info in effects.produced if info.artifact_id == "causal_design"
+        )
+        causal_design = store.read_json_file(
+            "causal_design",
+            causal_design_info.version,
+            "causal_design.json",
+        )["causal_design"]
+        assert causal_design["estimation"]["state_order"] == ["Perf"]
+        assert causal_design["estimation"]["known_inputs"] == [
+            {
+                "construct": "Stress",
+                "source_indicator": "stress_score",
+                "scale": 2.0,
+                "missing_policy": "forward_fill",
+            }
+        ]
+        assert [
+            (edge["cause"], edge["effect"]) for edge in causal_design["estimation"]["edges"]
+        ] == [("Stress", "Perf")]
+        assert get_estimation_input_layout(causal_design) == (
+            ["Stress"],
+            ["stress_score"],
+            [2.0],
+            ["forward_fill"],
+            [True],
+        )
+
+    def test_embedded_authoring_finalizer_persists_known_inputs(self, workspace, tmp_path):
+        import asyncio
+
+        from nof1_causal_lab.machine.temporal.measurement_structure_activities import (
+            finalize_measurement_structure_activity,
+        )
+        from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
+        from nof1_causal_lab.utils import storage
+
+        store = ArtifactStore(workspace)
+        question = store.write_version(
+            "question",
+            provenance="human",
+            derived_from={},
+            produced_by=None,
+            json_files={"question.json": {"text": "does stress hurt performance?"}},
+        )
+        raw_data = store.write_version(
+            "raw_data",
+            provenance="computed",
+            derived_from={},
+            produced_by="run:raw_data",
+            json_files={"profile.json": {"column_descriptions": []}},
+        )
+        latent_structure = store.write_version(
+            "latent_structure",
+            provenance="computed",
+            derived_from={"question": question.version},
+            produced_by="run:latent_structure",
+            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
+        )
+        state = EpisodeState().with_versions([question, raw_data, latent_structure])
+        result_ref = str(tmp_path / "measurement-result.json")
+        storage.write_text(
+            result_ref,
+            json.dumps(
+                {
+                    "measurement_structure": _measurement_structure(),
+                    "known_inputs": [
+                        {
+                            "construct": "Stress",
+                            "source_indicator": "stress_score",
+                            "scale": 2.0,
+                            "missing_policy": "forward_fill",
+                        }
+                    ],
+                }
+            ),
+        )
+
+        effects = asyncio.run(
+            finalize_measurement_structure_activity(
+                SingleLLMTransitionFinalizeInput(
+                    workspace_id=workspace,
+                    transition_id="measurement_structure",
+                    state=state,
+                    pins={
+                        "question": question.version,
+                        "raw_data": raw_data.version,
+                        "latent_structure": latent_structure.version,
+                    },
+                    context_ref="unused-context.json",
+                    result_ref=result_ref,
+                    trace_ref="trace://measurement",
+                )
+            )
+        )
+
+        measurement_info = next(
+            info for info in effects.produced if info.artifact_id == "measurement_structure"
+        )
+        measurement_payload = store.read_json_file(
+            "measurement_structure",
+            measurement_info.version,
+            "measurement_structure.json",
+        )
+        assert measurement_payload["known_inputs"][0]["construct"] == "Stress"
+        assert "llm_trace_ref" not in measurement_payload
+
+        causal_design_info = next(
+            info for info in effects.produced if info.artifact_id == "causal_design"
+        )
+        causal_design = store.read_json_file(
+            "causal_design",
+            causal_design_info.version,
+            "causal_design.json",
+        )["causal_design"]
+        assert causal_design["estimation"]["state_order"] == ["Perf"]
+        assert causal_design["estimation"]["known_inputs"] == measurement_payload["known_inputs"]
 
     def test_write_retracts_derivations_with_stale_non_cascading_parents(self, workspace):
         store = ArtifactStore(workspace)
@@ -298,7 +442,10 @@ class TestMeasurementStructureArtifactWrite:
             },
             produced_by="run:measurement_structure",
             json_files={
-                "measurement_structure.json": {"measurement_structure": _measurement_structure()}
+                "measurement_structure.json": {
+                    "measurement_structure": _measurement_structure(),
+                    "known_inputs": [],
+                }
             },
         )
         old_causal_design = store.write_version(
@@ -404,7 +551,7 @@ class TestMeasurementStructureArtifactWrite:
         effects = execute_write(
             workspace,
             "measurement_structure",
-            {"measurement_structure": _measurement_structure()},
+            {"measurement_structure": _measurement_structure(), "known_inputs": []},
             "human",
             state,
         )
@@ -439,7 +586,7 @@ class TestMeasurementStructureArtifactWrite:
             execute_write(
                 workspace,
                 "measurement_structure",
-                {"measurement_structure": _measurement_structure()},
+                {"measurement_structure": _measurement_structure(), "known_inputs": []},
                 "human",
                 state,
             )
@@ -452,7 +599,7 @@ class TestMeasurementStructureArtifactWrite:
             execute_write(
                 workspace,
                 "measurement_structure",
-                {"measurement_structure": {"nope": True}},
+                {"measurement_structure": {"nope": True}, "known_inputs": []},
                 "human",
                 EpisodeState(),
             )

@@ -107,9 +107,8 @@ async def _run_construct(
     plan: StatisticalModelSpecPlan,
     checkpoint_ref: str,
     construct: str,
-) -> tuple[str | None, str, list[str]]:
+) -> tuple[str | None, str]:
     """Run one ready construct against an immutable frontier checkpoint."""
-    trace_refs: list[str] = []
     last_outcome = "no report"
     for attempt in range(1, plan.max_attempts_per_construct + 1):
         attempt_plan = await workflow.execute_activity(
@@ -127,7 +126,7 @@ async def _run_construct(
             retry_policy=_ACTIVITY_RETRY,
             summary=f"Plan model-spec {construct} attempt {attempt}",
         )
-        subroutine = await workflow.execute_child_workflow(
+        await workflow.execute_child_workflow(
             LLMSubroutineWorkflow.run,
             LLMSubroutineInput(
                 workspace_id=input.workspace_id,
@@ -161,8 +160,6 @@ async def _run_construct(
                 "subroutine_id": attempt_plan.subroutine_id,
             },
         )
-        if subroutine.trace_ref is not None:
-            trace_refs.append(subroutine.trace_ref)
         attempt_result = await workflow.execute_activity(
             "finalize_statistical_model_spec_attempt_activity",
             StatisticalModelSpecAttemptFinalizeInput(
@@ -181,8 +178,8 @@ async def _run_construct(
                 raise RuntimeError(
                     f"admitted model-spec construct `{construct}` produced no checkpoint"
                 )
-            return attempt_result.checkpoint_ref, last_outcome, trace_refs
-    return None, last_outcome, trace_refs
+            return attempt_result.checkpoint_ref, last_outcome
+    return None, last_outcome
 
 
 @workflow.defn
@@ -192,9 +189,9 @@ class StatisticalModelSpecWorkflow:
         await _emit_model_spec_transition_event(
             input.workspace_id, "statistical_model_spec", "running"
         )
-        trace_refs: list[str] = []
         current_construct: str | None = None
         checkpoint_ref: str | None = None
+        plan: StatisticalModelSpecPlan | None = None
         try:
             plan = await workflow.execute_activity(
                 "plan_statistical_model_spec_activity",
@@ -211,7 +208,7 @@ class StatisticalModelSpecWorkflow:
             order_index = {construct: index for index, construct in enumerate(construct_order)}
             barrier_repairs = 0
             while True:
-                tasks: dict[str, asyncio.Task[tuple[str | None, str, list[str]]]] = {}
+                tasks: dict[str, asyncio.Task[tuple[str | None, str]]] = {}
                 failures: list[tuple[str, str]] = []
                 while len(accepted_constructs) < len(construct_order):
                     if not failures:
@@ -246,8 +243,7 @@ class StatisticalModelSpecWorkflow:
                             failures.append((construct, str(task_error)))
                             continue
                         task_result = task.result()
-                        branch_ref, last_outcome, construct_traces = task_result
-                        trace_refs.extend(construct_traces)
+                        branch_ref, last_outcome = task_result
                         if branch_ref is None:
                             failures.append((construct, last_outcome))
                         else:
@@ -319,7 +315,6 @@ class StatisticalModelSpecWorkflow:
                     pins=plan.pins,
                     checkpoint_ref=checkpoint_ref,
                     context_ref=plan.context_ref,
-                    trace_refs=trace_refs,
                 ),
                 result_type=TransitionEffects,
                 start_to_close_timeout=_FINALIZE_TIMEOUT,
@@ -354,7 +349,13 @@ class StatisticalModelSpecWorkflow:
                 }
             )
             if checkpoint_ref is not None:
-                diagnostics["checkpoint_ref"] = checkpoint_ref
+                if plan is None:
+                    raise RuntimeError("model-spec checkpoint exists without a run plan") from exc
+                diagnostics["resume"] = {
+                    "kind": "model_spec",
+                    "run_id": plan.run_id,
+                    "checkpoint_id": checkpoint_ref.rsplit("/", 1)[-1],
+                }
             raise ApplicationError(
                 failure_message,
                 diagnostics,

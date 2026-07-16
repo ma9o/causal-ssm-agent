@@ -50,7 +50,6 @@ For a question about whether tutoring intensity improves exam performance throug
 | Output | Type | Description |
 |---|---|---|
 | `latent_structure` | `LatentStructure` | Theoretical causal topological structure over latent constructs |
-| `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
 
 ### `LatentStructure`
 

@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, LLMArtifactContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract
 from nof1_causal_lab.flows.transitions.analysis.contracts import BaselineReportContract
 from nof1_causal_lab.flows.transitions.extraction.contracts import MeasurementsContract
 from nof1_causal_lab.flows.transitions.inference.contracts import PosteriorContract
@@ -34,7 +34,7 @@ class RawDataColumnDescriptionContract(BaseModel):
     description: str
 
 
-class RawDataContract(LLMArtifactContract):
+class RawDataContract(BaseArtifactContract):
     column_descriptions: list[RawDataColumnDescriptionContract]
 
 

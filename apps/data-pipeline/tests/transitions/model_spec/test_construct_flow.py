@@ -7,6 +7,7 @@ out-of-order submission guard.
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
 import numpy as np
@@ -382,7 +383,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         construct="Y",
         question="Does X drive Y?",
         causal_design=spec,
-        indicator_audits={},
+        validation_report={"indicators": {}},
     )
     assert "continuous-time latent state-space model" in system
     assert "invoking the registered MCP tool `submit_construct`" in system
@@ -408,7 +409,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         construct="Y",
         question="Does X drive Y?",
         causal_design=spec,
-        indicator_audits={},
+        validation_report={"indicators": {}},
     )
     assert "Latest reachability feedback" in user2
     assert "C2 latent scale" in user2
@@ -423,6 +424,7 @@ def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observ
     )
     x1 = next(ind for ind in spec["measurement"]["indicators"] if ind["name"] == "x1")
     x1["measurement_dtype"] = "ordinal"
+    x1["aggregation"] = "last"
     x1["ordinal_levels"] = ["low", "medium", "high"]
 
     _system, user = build_construct_messages(
@@ -430,19 +432,199 @@ def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observ
         construct="X",
         question="Does X drive Y?",
         causal_design=spec,
-        indicator_audits={
-            "x1": {
-                "profile": {
-                    "n_obs": 1,
-                    "min": 0.0,
-                    "max": 0.0,
+        validation_report={
+            "indicators": {
+                "x1": {
+                    "profile": {
+                        "n_obs": 1,
+                        "min": 0.0,
+                        "max": 0.0,
+                    }
                 }
-            }
+            },
         },
     )
 
     assert "SPARSE LEVEL COVERAGE: only one level is observed" in user
     assert "declared ordinal levels define the likelihood support" in user
+
+
+def test_build_construct_messages_renders_concern_local_semantic_context():
+    spec = _make_causal_design_dict()
+    spec["measurement"]["model_clock"] = "6h"
+    y1 = next(ind for ind in spec["measurement"]["indicators"] if ind["name"] == "y1")
+    y1.update(
+        {
+            "measurement_dtype": "ordinal",
+            "aggregation": "last",
+            "observation_window": "12h",
+            "ordinal_levels": ["none", "mild", "severe"],
+        }
+    )
+    panel = pl.DataFrame(
+        {
+            "indicator": ["y1", "y1", "y1", "x1"],
+            "value": [0.0, 0.0, 0.0, 999.0],
+            "anchor_time": [
+                datetime(2025, 1, 1),
+                datetime(2025, 1, 2),
+                datetime(2025, 1, 10),
+                datetime(2025, 1, 1),
+            ],
+        }
+    )
+    state = ConstructBuildState(
+        causal_design=spec,
+        data_for_model=panel,
+        order=["X", "Y", "Z"],
+        admission=AdmissionState(names=("X",)),
+        cursor=1,
+    )
+    profile = {
+        "measurement_dtype": "ordinal",
+        "n_obs": 3,
+        "mean": 0.0,
+        "std": 0.0,
+        "variance": 0.0,
+        "min": 0.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 0.0,
+        "max": 0.0,
+        "zero_fraction": 1.0,
+        "variance_to_mean_ratio": None,
+        "is_nonnegative": True,
+        "is_unit_interval": True,
+        "looks_integer_valued": True,
+        "time_coverage_ratio": 0.6,
+        "max_gap_ratio": 1.4,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0,
+        "n_unparseable_timestamps": 0,
+        "arithmetic_sequence_detected": False,
+    }
+    validation_report = {
+        "is_valid": False,
+        "dataset_issues": [
+            {
+                "severity": "warning",
+                "issue_type": "short_panel",
+                "message": "Dataset-level sentinel",
+            }
+        ],
+        "indicators": {
+            "y1": {
+                "profile": profile,
+                "validation": {
+                    "issues": [
+                        {
+                            "severity": "error",
+                            "issue_type": "no_variance",
+                            "message": "Zero variance (constant value = 0.0)",
+                        }
+                    ],
+                    "checks": {"variance": "error"},
+                },
+            },
+            "x1": {
+                "profile": {"n_obs": 1, "mean": 999.0},
+                "validation": {
+                    "issues": [
+                        {
+                            "severity": "warning",
+                            "issue_type": "sibling",
+                            "message": "SIBLING_SENTINEL",
+                        }
+                    ],
+                    "checks": {},
+                },
+            },
+        },
+    }
+
+    _system, user = build_construct_messages(
+        state=state,
+        construct="Y",
+        question="Does X drive Y?",
+        causal_design=spec,
+        validation_report=validation_report,
+    )
+
+    assert "Validation report status: **INVALID**" in user
+    assert "[WARNING] short_panel: Dataset-level sentinel" in user
+    assert "Model clock / authored default effect interval: `6h`" in user
+    assert "Estimation role: **retained latent state**" in user
+    assert "Theoretical role: `endogenous`" in user
+    assert "Temporal status: `time_varying`" in user
+    assert "dtype=`ordinal`" in user
+    assert "aggregation=`last`" in user
+    assert "effective window=`12h`" in user
+    assert "0=none, 1=mild, 2=severe" in user
+    assert "n=3; mean=0; sd=0; variance=0" in user
+    assert "zero fraction=100.0%" in user
+    assert "arithmetic sequence detected=false" in user
+    assert "coverage/minimum-required-span=60.0%" in user
+    assert "largest-gap/allowed-threshold=1.4x" in user
+    assert "Observed ordinal occupancy: 0=none (3), 1=mild (0), 2=severe (0)" in user
+    assert "span=9 days; median gap=4.5 days; maximum gap=8 days" in user
+    assert "[ERROR] no_variance: Zero variance (constant value = 0.0)" in user
+    assert "SIBLING_SENTINEL" not in user
+    assert "mean=999" not in user
+
+
+def test_build_construct_messages_handles_null_empirical_profile():
+    spec = _make_causal_design_dict()
+    state = ConstructBuildState(
+        causal_design=spec,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
+
+    _system, user = build_construct_messages(
+        state=state,
+        construct="X",
+        question="Does X drive Y?",
+        causal_design=spec,
+        validation_report={
+            "indicators": {"x1": {"profile": None, "validation": {"issues": [], "checks": {}}}}
+        },
+    )
+
+    assert "Raw empirical profile: unavailable (no numeric observations)" in user
+
+
+def test_build_construct_messages_renders_incoming_known_input_without_hill_option():
+    spec = _make_causal_design_dict()
+    spec["estimation"]["state_order"] = ["Y", "Z"]
+    spec["estimation"]["known_inputs"] = [
+        {
+            "construct": "X",
+            "source_indicator": "x1",
+            "scale": 10.0,
+            "missing_policy": "forward_fill",
+        }
+    ]
+    state = ConstructBuildState(
+        causal_design=spec,
+        data_for_model=pl.DataFrame(),
+        order=["Y", "Z"],
+    )
+
+    _system, user = build_construct_messages(
+        state=state,
+        construct="Y",
+        question="Does X drive Y?",
+        causal_design=spec,
+        validation_report={"indicators": {}},
+    )
+
+    assert "`X` — **known transition input**, lagged" in user
+    assert "source indicator=`x1`" in user
+    assert "scale divisor=10" in user
+    assert "missing policy=`forward_fill`" in user
+    assert "`beta_X_Y`" in user
+    assert "Known-input effects are linear-only" in user
+    assert "hill_emax_X_Y" not in user
 
 
 def test_submit_construct_schema_is_well_formed():

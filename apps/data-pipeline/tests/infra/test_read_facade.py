@@ -7,7 +7,7 @@ from nof1_causal_lab.utils import data as data_module
 
 
 def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     client = TestClient(create_read_facade_app())
 
@@ -40,7 +40,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     from nof1_causal_lab.machine.moves import WriteArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     store = ArtifactStore("WS-ART")
     question = store.write_version(
@@ -69,6 +69,8 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
             move=WriteArtifact(artifact_id="question"),
             status="applied",
             produced=[question],
+            trace_ids=[],
+            resume=None,
         )
     )
     current = client.get("/api/episodes/WS-ART/artifacts/question")
@@ -78,11 +80,92 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     assert missing.status_code == 404
 
 
+def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tmp_path):
+    from nof1_causal_lab.machine.moves import RunArtifact
+    from nof1_causal_lab.machine.store import (
+        ArtifactStore,
+        EpisodeJournal,
+        TransitionRecord,
+        promote_run_traces,
+    )
+    from nof1_causal_lab.utils import storage
+    from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage
+
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    raw_data = ArtifactStore("WS-TRACE").write_version(
+        "raw_data",
+        provenance="llm",
+        derived_from={},
+        produced_by="run:raw_data",
+        json_files={"profile.json": {"column_descriptions": []}},
+    )
+    source = str(tmp_path / "data/WS-TRACE/scratch/runs/seq-000001/llm/raw-data/trace.json")
+    storage.write_text(
+        source,
+        LLMTrace(
+            messages=[TraceMessage(role="assistant", content="profiled")],
+            model="test-model",
+        ).model_dump_json(),
+    )
+    trace_ids = promote_run_traces("WS-TRACE", 1)
+    EpisodeJournal("WS-TRACE").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-07-09T00:00:00+00:00",
+            move=RunArtifact(artifact_id="raw_data"),
+            status="applied",
+            produced=[raw_data],
+            trace_ids=trace_ids,
+            resume=None,
+        )
+    )
+    client = TestClient(create_read_facade_app())
+
+    trace_list = client.get("/api/episodes/WS-TRACE/artifacts/raw_data/traces")
+    assert trace_list.status_code == 200
+    assert trace_list.json()["trace_ids"] == ["raw-data"]
+    trace = client.get("/api/episodes/WS-TRACE/traces/1/raw-data")
+    assert trace.status_code == 200
+    assert trace.json()["messages"][0]["content"] == "profiled"
+
+
+def test_timeline_exposes_typed_resume_reference(monkeypatch, tmp_path):
+    from nof1_causal_lab.machine.moves import RunArtifact
+    from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
+
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    EpisodeJournal("WS-RESUME").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-07-09T00:00:00+00:00",
+            move=RunArtifact(artifact_id="statistical_model_spec"),
+            status="raised",
+            trace_ids=[],
+            resume=ResumeRef(
+                kind="model_spec",
+                run_id="seq-000001",
+                checkpoint_id="accepted-a.json",
+            ),
+        )
+    )
+
+    response = TestClient(create_read_facade_app()).get("/api/episodes/WS-RESUME/timeline")
+
+    assert response.status_code == 200
+    assert response.json()["transitions"][0]["resume"] == {
+        "kind": "model_spec",
+        "run_id": "seq-000001",
+        "checkpoint_id": "accepted-a.json",
+    }
+
+
 def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
     from nof1_causal_lab.machine.moves import WriteArtifact
     from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
 
     store = ArtifactStore("WS-LIST")
@@ -100,6 +183,8 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
             move=WriteArtifact(artifact_id="question"),
             status="applied",
             produced=[question],
+            trace_ids=[],
+            resume=None,
         )
     )
 
@@ -121,7 +206,7 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
 def test_upload_endpoint_stages_input_file(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import storage
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.delenv("EPISODE_FACADE_READ_ONLY", raising=False)
     client = TestClient(create_read_facade_app())
 

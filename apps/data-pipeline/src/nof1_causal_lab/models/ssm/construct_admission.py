@@ -39,6 +39,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterSpec,
     StatisticalModelSpec,
 )
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_statistical_model_spec
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     HillEdgeSpec,
@@ -61,6 +62,7 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_resolvability,
     check_saturation,
     check_scale,
+    check_transmission,
     stage_outcome,
 )
 from nof1_causal_lab.utils.causal_design import (
@@ -190,26 +192,40 @@ def build_construct_units(causal_design: dict) -> list[ConstructAdmissionUnit]:
         if cause in order_index and effect in order_index:
             graph.add_edge(cause, effect)
     condensation = nx.condensation(graph)
-    scc_index = {
-        node: min(order_index[member] for member in data["members"])
+    component_members = {
+        node: tuple(
+            sorted(
+                (str(member) for member in data["members"]),
+                key=lambda member: order_index[member],
+            )
+        )
         for node, data in condensation.nodes(data=True)
     }
-    component_order = list(nx.lexicographical_topological_sort(condensation, key=scc_index.get))
+    scc_index = {node: order_index[members[0]] for node, members in component_members.items()}
+    component_order = list(
+        nx.lexicographical_topological_sort(
+            condensation,
+            key=lambda node: scc_index[node],
+        )
+    )
     unit_id_by_component = {
         node: (
-            str(min(condensation.nodes[node]["members"], key=order_index.get))
-            if len(condensation.nodes[node]["members"]) == 1
-            else f"feedback:{min(condensation.nodes[node]['members'], key=order_index.get)}"
+            component_members[node][0]
+            if len(component_members[node]) == 1
+            else f"feedback:{component_members[node][0]}"
         )
         for node in component_order
     }
     return [
         ConstructAdmissionUnit(
             unit_id=unit_id_by_component[node],
-            constructs=tuple(sorted(condensation.nodes[node]["members"], key=order_index.get)),
+            constructs=component_members[node],
             predecessors=tuple(
                 unit_id_by_component[parent]
-                for parent in sorted(condensation.predecessors(node), key=scc_index.get)
+                for parent in sorted(
+                    condensation.predecessors(node),
+                    key=lambda component: scc_index[component],
+                )
             ),
         )
         for node in component_order
@@ -227,31 +243,61 @@ def restrict_causal_design(causal_design: dict, keep: set[str]) -> dict:
     """Restrict a causal_design to the subset ``keep`` of constructs.
 
     Every construct-indexed surface is filtered consistently so the partial model
-    compiles: constructs, edges (both endpoints kept), indicators, and the
-    estimation layout (state_order, edges, induced_dependencies, known_inputs).
+    compiles. Known inputs feeding a retained state are dependencies of that state,
+    not admission units, so their declaration, theoretical construct, source
+    indicator, and incoming edge remain in the restricted design.
     """
     spec = copy.deepcopy(causal_design)
+    estimation = spec.get("estimation", {})
+    all_known_inputs = list(estimation.get("known_inputs", []))
+    known_input_names = {
+        str(item.get("construct") or item.get("construct_name"))
+        for item in all_known_inputs
+        if item.get("construct") or item.get("construct_name")
+    }
+    relevant_estimation_edges = [
+        edge
+        for edge in estimation.get("edges", [])
+        if edge.get("effect") in keep and edge.get("cause") in (keep | known_input_names)
+    ]
+    relevant_input_names = {
+        str(edge.get("cause"))
+        for edge in relevant_estimation_edges
+        if edge.get("cause") in known_input_names
+    }
+    relevant_known_inputs = [
+        item
+        for item in all_known_inputs
+        if (item.get("construct") or item.get("construct_name")) in relevant_input_names
+    ]
+    input_source_indicators = {
+        str(item["source_indicator"])
+        for item in relevant_known_inputs
+        if item.get("source_indicator")
+    }
+
     latent = spec.get("latent", {})
-    latent["constructs"] = [c for c in latent.get("constructs", []) if c["name"] in keep]
+    retained_construct_names = keep | relevant_input_names
+    latent["constructs"] = [
+        c for c in latent.get("constructs", []) if c["name"] in retained_construct_names
+    ]
     latent["edges"] = [
-        e for e in latent.get("edges", []) if e.get("cause") in keep and e.get("effect") in keep
+        e
+        for e in latent.get("edges", [])
+        if e.get("cause") in retained_construct_names and e.get("effect") in keep
     ]
     measurement = spec.get("measurement", {})
     measurement["indicators"] = [
-        i for i in measurement.get("indicators", []) if i.get("construct_name") in keep
+        i
+        for i in measurement.get("indicators", [])
+        if i.get("construct_name") in keep or i.get("name") in input_source_indicators
     ]
-    estimation = spec.get("estimation", {})
     estimation["state_order"] = [n for n in estimation.get("state_order", []) if n in keep]
-    estimation["edges"] = [
-        e for e in estimation.get("edges", []) if e.get("cause") in keep and e.get("effect") in keep
-    ]
+    estimation["edges"] = relevant_estimation_edges
     estimation["induced_dependencies"] = [
         d for d in estimation.get("induced_dependencies", []) if set(d.get("between", [])) <= keep
     ]
-    if "known_inputs" in estimation:
-        estimation["known_inputs"] = [
-            k for k in estimation.get("known_inputs", []) if k.get("construct") in keep
-        ]
+    estimation["known_inputs"] = relevant_known_inputs
     return spec
 
 
@@ -374,6 +420,57 @@ def _signal_from_linear_predictor(
     raise ValueError(f"unsupported link for signal extraction: {link}")
 
 
+def _draw_scalar_parameter(pred: Mapping[str, Any], name: str, n_draws: int) -> np.ndarray:
+    """Return one scalar likelihood hyperparameter per prior draw."""
+    values = np.asarray(pred[name], dtype=float)
+    if values.shape[0] != n_draws or values.size != n_draws:
+        raise ValueError(f"predictive parameter {name!r} must be scalar per draw")
+    return values.reshape(n_draws, 1)
+
+
+def _conditional_variance_for_signal(
+    distribution: DistributionFamily,
+    signal: np.ndarray,
+    pred: Mapping[str, Any],
+    manifest_index: int,
+) -> np.ndarray:
+    """Exact family variance around a scalar prior-predictive emission mean."""
+    mean = np.asarray(signal, dtype=float)
+    if mean.ndim != 2:
+        raise ValueError("scalar conditional variance requires draws by observed-time means")
+    n_draws = mean.shape[0]
+
+    if distribution in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}:
+        manifest_cov = np.asarray(pred["manifest_cov"], dtype=float)
+        if manifest_cov.shape[0] != n_draws or manifest_cov.ndim != 3:
+            raise ValueError("manifest_cov must contain one covariance matrix per draw")
+        variance = manifest_cov[:, manifest_index, manifest_index][:, None]
+        if distribution == DistributionFamily.STUDENT_T:
+            df = _draw_scalar_parameter(pred, "obs_df", n_draws)
+            factor = np.full_like(df, np.inf)
+            np.divide(df, df - 2.0, out=factor, where=df > 2.0)
+            variance = variance * factor
+        return np.broadcast_to(variance, mean.shape)
+
+    if distribution == DistributionFamily.POISSON:
+        return np.maximum(mean, 1e-8)
+    if distribution == DistributionFamily.GAMMA:
+        shape = _draw_scalar_parameter(pred, "obs_shape", n_draws)
+        return np.maximum(mean, 1e-8) ** 2 / (shape + 1e-8)
+    if distribution == DistributionFamily.BERNOULLI:
+        probability = np.clip(mean, 1e-7, 1.0 - 1e-7)
+        return probability * (1.0 - probability)
+    if distribution == DistributionFamily.NEGATIVE_BINOMIAL:
+        dispersion = _draw_scalar_parameter(pred, "obs_r", n_draws)
+        count_mean = np.maximum(mean, 1e-8)
+        return count_mean + count_mean**2 / (dispersion + 1e-8)
+    if distribution == DistributionFamily.BETA:
+        concentration = _draw_scalar_parameter(pred, "obs_concentration", n_draws)
+        probability = np.clip(mean, 1e-7, 1.0 - 1e-7)
+        return probability * (1.0 - probability) / (concentration + 1.0)
+    raise ValueError(f"{distribution.value} uses probability-vector transmission")
+
+
 # --------------------------------------------------------------------------- #
 # Admission
 # --------------------------------------------------------------------------- #
@@ -434,6 +531,14 @@ class DesignInfo:
         if not indices:
             return np.asarray([], dtype=int)
         return np.unique(np.concatenate(indices))
+
+
+@dataclass(frozen=True)
+class _EdgeOffTarget:
+    """One compiled edge coordinate to disable under the same predictive draws."""
+
+    vector_field_sites: tuple[str, ...] = ()
+    input_effect_cells: tuple[tuple[int, int], ...] = ()
 
 
 def trial_admission_state(
@@ -601,11 +706,11 @@ def _run_battery(
     # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
     for parent in target.edge_parents:
         started = perf_counter_ns()
-        edge_sites = _incoming_edge_sites(
+        edge_target = _incoming_edge_off_target(
             spec, replace(target, edge_parents=(parent,)), latent_names, d
         )
         x_off = _resimulate_edge_off(
-            spec, pred, design.t_grid, edge_sites, design.seed, design.transition_inputs
+            spec, pred, design.t_grid, edge_target, design.seed, design.transition_inputs
         )[:, :, d]
         edge_label = f"{parent}->{target.name}"
         phase_results = list(
@@ -649,7 +754,12 @@ def _run_battery(
                 )
             )
 
-    # C5a/C5b/C5c coverage per indicator of this construct (per-indicator obs grid).
+    time_invariant_mask = spec.diffusion_block.time_invariant_mask
+    target_is_time_invariant = bool(
+        time_invariant_mask is not None and np.asarray(time_invariant_mask, dtype=bool)[d]
+    )
+
+    # C5a/C5b coverage for every indicator; C5c transmission only for dynamic constructs.
     for lik in target.likelihoods:
         started = perf_counter_ns()
         var = lik.variable
@@ -687,12 +797,23 @@ def _run_battery(
             check_coverage(
                 var,
                 pp_y,
-                signal,
                 observed,
                 distribution=lik.distribution.value,
                 level_count=level_count,
             )
         )
+        if not target_is_time_invariant:
+            conditional_variance = (
+                None
+                if signal.ndim == 3
+                else _conditional_variance_for_signal(
+                    lik.distribution,
+                    signal,
+                    pred,
+                    m,
+                )
+            )
+            phase_results.append(check_transmission(var, signal, conditional_variance))
         results.extend(phase_results)
         timings.append(
             AdmissionTiming(
@@ -790,28 +911,38 @@ def validate_full_admission_state(
     return FullAdmissionValidation(reports=tuple(reports), timings=tuple(timings))
 
 
-def _incoming_edge_sites(
+def _incoming_edge_off_target(
     spec: SSMSpec,
     contribution: ConstructContribution,
     latent_names: list[str],
     target: int,
-) -> list[str]:
-    """Sample-site names of this construct's incoming edge strengths (to zero)."""
+) -> _EdgeOffTarget:
+    """Compiled vector-field sites or input-effect cells for incoming edges."""
     sites: list[str] = []
+    input_cells: list[tuple[int, int]] = []
+    input_names = list(spec.input_names or [])
     for parent in contribution.edge_parents:
-        p_idx = latent_names.index(parent)
-        found = _edge_component_index(spec, p_idx, target)
-        if found is not None:
-            comp_idx, suffix = found
-            sites.append(f"vf_{comp_idx}_{suffix}")
-    return sites
+        if parent in latent_names:
+            p_idx = latent_names.index(parent)
+            found = _edge_component_index(spec, p_idx, target)
+            if found is not None:
+                comp_idx, suffix = found
+                sites.append(f"vf_{comp_idx}_{suffix}")
+        elif parent in input_names:
+            input_cells.append((target, input_names.index(parent)))
+    if contribution.edge_parents and not sites and not input_cells:
+        raise ValueError(
+            "Could not resolve an edge-off coordinate for incoming parents "
+            f"{list(contribution.edge_parents)!r}"
+        )
+    return _EdgeOffTarget(tuple(sites), tuple(input_cells))
 
 
 def _resimulate_edge_off(
     spec: SSMSpec,
     pred: dict,
     t_grid: jnp.ndarray,
-    edge_sites: list[str],
+    edge_target: _EdgeOffTarget,
     seed: int,
     transition_inputs: Any = None,
 ) -> jnp.ndarray:
@@ -827,9 +958,16 @@ def _resimulate_edge_off(
     )
 
     samples = dict(pred)
-    for site in edge_sites:
+    for site in edge_target.vector_field_sites:
         if site in samples:
             samples[site] = jnp.zeros_like(jnp.asarray(samples[site]))
+    if edge_target.input_effect_cells:
+        input_effect = jnp.asarray(samples["input_effect"])
+        if input_effect.ndim != 3:
+            raise ValueError("predictive input_effect must have shape draws x states x inputs")
+        for target_idx, input_idx in edge_target.input_effect_cells:
+            input_effect = input_effect.at[:, target_idx, input_idx].set(0.0)
+        samples["input_effect"] = input_effect
     latents, _linear_predictors = _simulate_vector_field_predictive_latents(
         spec,
         samples,

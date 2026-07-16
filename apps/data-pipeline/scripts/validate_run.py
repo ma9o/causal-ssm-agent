@@ -27,7 +27,7 @@ import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from artifact_contract_catalog import ARTIFACT_CONTRACTS
+from scripts.artifact_contract_catalog import ARTIFACT_CONTRACTS
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
@@ -35,10 +35,10 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.machine.artifacts import ArtifactId
 
-from nof1_causal_lab.flows.run_store import load_parquet
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
-from nof1_causal_lab.machine.store import ArtifactStore, current_artifact_file, derive_current_state
+from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
+from nof1_causal_lab.utils import storage
 
 Severity = Literal["error", "warning"]
 
@@ -75,6 +75,21 @@ RESULT_ARTIFACTS: dict[ArtifactId, str] = {
     "posterior": "diagnostics",
     "baseline_report": "baseline_report",
 }
+
+
+def load_parquet(path: str) -> Any:
+    """Read a parquet frame from local or remote workspace storage."""
+    import polars as pl
+
+    return pl.read_parquet(path, storage_options=storage.polars_storage_options())
+
+
+def current_artifact_file(workspace_id: str, artifact_id: ArtifactId, filename: str) -> str:
+    """Resolve a file in the current journal-derived artifact version."""
+    info = derive_current_state(workspace_id).get(artifact_id)
+    if info is None:
+        raise FileNotFoundError(f"No current '{artifact_id}' artifact for workspace {workspace_id}")
+    return ArtifactStore(workspace_id).file_path(artifact_id, info.version, filename)
 
 
 def _result_artifact_order() -> tuple[ArtifactId, ...]:

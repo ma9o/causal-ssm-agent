@@ -154,27 +154,18 @@ async def extract_window_chunk(
         )
         if workspace_id is None or root_run_id is None:
             raise ValueError("workspace_id and root_run_id are required to persist LLM traces")
-        from nof1_causal_lab.machine.trace_store import TraceMetadata, write_trace
         from nof1_causal_lab.utils import data as data_module
         from nof1_causal_lab.utils import storage
 
         subroutine_id = f"extraction-worker-{chunk_idx:06d}"
-        result_dict["llm_trace_ref"] = write_trace(
-            factory.accumulated_trace,
-            TraceMetadata(
-                workspace_id=workspace_id,
-                run_id=root_run_id,
-                subroutine_id=subroutine_id,
-                context_kind="measurement_extraction",
-            ),
-            target_path=storage.join(
-                data_module.runs_dir(workspace_id),
-                "asyncio-extraction",
-                root_run_id,
-                subroutine_id,
-                "trace.json",
-            ),
+        trace_ref = storage.join(
+            data_module.scratch_run_dir(workspace_id, root_run_id),
+            "llm",
+            subroutine_id,
+            "trace.json",
         )
+        storage.write_text(trace_ref, factory.accumulated_trace.model_dump_json())
+        result_dict["trace_ref"] = trace_ref
     return result_dict
 
 
@@ -309,7 +300,7 @@ async def run_extraction_core(
 
     semantic_dicts: list[dict] = []
     worker_statuses: list[dict] = []
-    sampled_llm_trace_ref: str | None = None
+    sampled_trace_ref: str | None = None
     n_semantic_total = 0
 
     if semantic_inds:
@@ -329,7 +320,7 @@ async def run_extraction_core(
                 semantic_dicts,
                 worker_statuses,
                 n_semantic_total,
-                sampled_llm_trace_ref,
+                sampled_trace_ref,
             ) = await semantic_chunk_runner(
                 chunk_texts=chunk_texts,
                 chunk_window_starts=chunk_window_starts,
@@ -361,8 +352,8 @@ async def run_extraction_core(
         "worker_statuses": worker_statuses,
         "n_total_extractions": n_total,
     }
-    if sampled_llm_trace_ref is not None:
-        result["llm_trace_ref"] = sampled_llm_trace_ref
+    if sampled_trace_ref is not None:
+        result["trace_ref"] = sampled_trace_ref
     return result
 
 

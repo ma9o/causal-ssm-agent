@@ -136,6 +136,28 @@ def _viz_coverage(ev):
     return fig
 
 
+def _viz_transmission(ev):
+    fig, ax = plt.subplots(figsize=(8.5, 2.8))
+    ax.hist(
+        ev["signal_fraction"],
+        bins=np.linspace(0.0, 1.0, 51).tolist(),
+        color="#4a9d5b",
+        alpha=0.75,
+        label="prior-draw signal share",
+    )
+    minimum = ev["min_signal_fraction"]
+    ax.axvline(minimum, color="#c0504d", ls="--", label=f"minimum {minimum:.0%}")
+    ax.set(
+        xlabel="temporal signal variance / total predictive variance",
+        ylabel="prior draws",
+        title="latent signal share of predictive variation",
+    )
+    ax.legend(frameon=False, fontsize=8)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    return fig
+
+
 CHECK_VIZ = {
     "C1a finiteness": _viz_confinement,
     "C1b confinement": _viz_confinement,
@@ -145,16 +167,16 @@ CHECK_VIZ = {
     "C4c saturation": _viz_saturation,
     "C5a location reach": _viz_coverage,
     "C5b width": _viz_coverage,
-    "C5c transmission": _viz_coverage,
+    "C5c transmission": _viz_transmission,
 }
 
 _PATTERN_HINTS = (
     (
         {"C2 latent scale", "C5c transmission"},
-        "shared input — both depend on where the latent's mass lands on the link: C2's "
-        "band comes from the indicator's inverse-link spread, and C5c's transmitted signal "
-        "scales with the same geometry. Their joint failure places the inconsistency on the "
-        "emission side.",
+        "shared input — both depend on the latent scale and where its mass lands on the link. "
+        "C5c additionally depends on conditional observation variance, so their joint failure "
+        "calls for inspecting the scale anchor, loading/link geometry, and noise prior rather "
+        "than diagnosing saturation alone.",
     ),
 )
 

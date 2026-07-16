@@ -374,6 +374,7 @@ def _execute_model_spec_submit_construct(
         model_spec_admission_evaluation_path,
         read_model_spec_checkpoint,
         write_accepted_model_spec_checkpoint,
+        write_model_spec_admission_evaluation,
     )
 
     context = read_subroutine_json(context_ref)
@@ -506,7 +507,7 @@ def _execute_model_spec_submit_construct(
             feedback=str(exc),
             error=str(exc),
         )
-        write_subroutine_json(evaluation_path, evaluation.model_dump(mode="json"))
+        write_model_spec_admission_evaluation(evaluation_path, evaluation)
         logger.info(
             "Model-spec admission evaluation failed construct=%s key=%s duration_ms=%.1f",
             construct,
@@ -541,7 +542,7 @@ def _execute_model_spec_submit_construct(
         annotations=annotations,
         results=results,
     )
-    write_subroutine_json(evaluation_path, evaluation.model_dump(mode="json"))
+    write_model_spec_admission_evaluation(evaluation_path, evaluation)
     logger.info(
         "Model-spec admission evaluation finished construct=%s key=%s duration_ms=%.1f",
         construct,

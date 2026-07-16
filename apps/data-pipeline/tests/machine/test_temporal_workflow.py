@@ -24,6 +24,10 @@ from nof1_causal_lab.machine.temporal import (
     measurement_structure_activities,
 )
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
+from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
+    latest_failed_model_spec_checkpoint_ref,
+    read_model_spec_checkpoint,
+)
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
 pytestmark = pytest.mark.timeout(240)
@@ -62,6 +66,7 @@ def _valid_latent_structure() -> dict:
 def _valid_measurement_structure() -> dict:
     return {
         "model_clock": "1d",
+        "known_inputs": [],
         "indicators": [
             {
                 "name": "sleep_steps_proxy",
@@ -85,7 +90,7 @@ def machine_env(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
     from nof1_causal_lab.utils.config import LLMProfileConfig
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
     input_root = Path(data_module.input_dir(workspace_id))
     input_root.mkdir(parents=True, exist_ok=True)
@@ -380,7 +385,6 @@ def test_episode_workflow_journey(machine_env):
                 assert raised.status == "raised"
                 assert raised.error_type == "ModelCompileError"
                 assert "report" in raised.diagnostics
-                assert raised.diagnostics["checkpoint_ref"].startswith("model-spec-checkpoint:")
                 after = (await handle.query(EpisodeWorkflow.get_state)).current
                 assert after == before
 
@@ -414,9 +418,11 @@ def test_episode_workflow_journey(machine_env):
                 ]
                 assert records[-2].error_type == "ModelCompileError"
                 assert "report" in records[-2].diagnostics
-                assert (
-                    records[-2].diagnostics["checkpoint_ref"].startswith("model-spec-checkpoint:")
-                )
+                assert records[-2].resume is not None
+                assert records[-2].resume.kind == "model_spec"
+                checkpoint_ref = latest_failed_model_spec_checkpoint_ref(workspace_id)
+                assert checkpoint_ref is not None
+                read_model_spec_checkpoint(workspace_id, checkpoint_ref)
 
                 # Store kept both question versions (append-only).
                 assert ArtifactStore(workspace_id).list_versions("question") == [1, 2]

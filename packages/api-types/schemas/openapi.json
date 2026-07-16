@@ -70,9 +70,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Timeline Api Episodes  Workspace Id  Timeline Get"
+                  "$ref": "#/components/schemas/TimelineResponse"
                 }
               }
             }
@@ -229,11 +227,11 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/traces": {
+    "/api/episodes/{workspace_id}/artifacts/{artifact_id}/traces": {
       "get": {
-        "summary": "Get Trace",
-        "description": "Resolve an artifact ``llm_trace_ref`` through the configured trace store.",
-        "operationId": "get_trace_api_episodes__workspace_id__traces_get",
+        "summary": "Get Artifact Traces",
+        "description": "Traces of the applied transition that produced an artifact version.\n\nDefaults to the episode's current version. The join runs over the\ntransition journal, so it works against a published read-only store.",
+        "operationId": "get_artifact_traces_api_episodes__workspace_id__artifacts__artifact_id__traces_get",
         "parameters": [
           {
             "name": "workspace_id",
@@ -245,12 +243,102 @@
             }
           },
           {
-            "name": "ref",
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "question",
+                "raw_data",
+                "latent_structure",
+                "measurement_structure",
+                "causal_design",
+                "identification_report",
+                "measurements",
+                "panel",
+                "validation_report",
+                "statistical_model_spec",
+                "compiled_ssm",
+                "posterior",
+                "baseline_report",
+                "saved_scenarios"
+              ],
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "version",
             "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransitionTraceIndex"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/traces/{seq}/{subroutine_id}": {
+      "get": {
+        "summary": "Get Trace",
+        "description": "One promoted LLM trace from ``episode/traces/{seq:06d}/{subroutine_id}.json``.",
+        "operationId": "get_trace_api_episodes__workspace_id__traces__seq___subroutine_id__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Ref"
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "seq",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Seq"
+            }
+          },
+          {
+            "name": "subroutine_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Subroutine Id"
             }
           }
         ],
@@ -1030,6 +1118,68 @@
         ],
         "title": "MoveBody"
       },
+      "ResumeRef": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "model_spec",
+            "title": "Kind"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "checkpoint_id": {
+            "type": "string",
+            "title": "Checkpoint Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "run_id",
+          "checkpoint_id"
+        ],
+        "title": "ResumeRef",
+        "description": "Stage-owned checkpoint selection retained by a raised transition."
+      },
+      "RetractedArtifact": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
+          },
+          "reason_ref": {
+            "type": "string",
+            "title": "Reason Ref"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "reason_ref"
+        ],
+        "title": "RetractedArtifact",
+        "description": "A current artifact removed by a move, with the finding that caused it."
+      },
       "RunArtifact": {
         "properties": {
           "kind": {
@@ -1090,6 +1240,29 @@
           "workspace_id"
         ],
         "title": "StartEpisodeBody"
+      },
+      "TimelineResponse": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionRecord"
+            },
+            "type": "array",
+            "title": "Transitions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "transitions"
+        ],
+        "title": "TimelineResponse",
+        "description": "Typed transition journal returned by the episode read plane."
       },
       "ToolCallRequest": {
         "properties": {
@@ -1220,6 +1393,180 @@
         "type": "object",
         "title": "TraceUsage",
         "description": "Token usage for an LLM trace."
+      },
+      "TransitionRecord": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "move": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RunArtifact"
+              },
+              {
+                "$ref": "#/components/schemas/WriteArtifact"
+              }
+            ],
+            "title": "Move",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "run": "#/components/schemas/RunArtifact",
+                "write": "#/components/schemas/WriteArtifact"
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "rejected",
+              "raised"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Type"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "diagnostics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Diagnostics"
+          },
+          "produced": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactVersionInfo"
+            },
+            "type": "array",
+            "title": "Produced"
+          },
+          "retracted": {
+            "items": {
+              "$ref": "#/components/schemas/RetractedArtifact"
+            },
+            "type": "array",
+            "title": "Retracted"
+          },
+          "trace_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trace Ids"
+          },
+          "resume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResumeRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "move",
+          "status",
+          "trace_ids",
+          "resume"
+        ],
+        "title": "TransitionRecord",
+        "description": "One journaled transition attempt \u2014 applied, rejected, or raised.\n\nRejections are recorded deliberately (a Temporal validator rejection\nleaves no trace in event history). Current state is reconstructed by\nreplaying applied effects, not serialized into transition records."
+      },
+      "TransitionTraceIndex": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "enum": [
+              "question",
+              "raw_data",
+              "latent_structure",
+              "measurement_structure",
+              "causal_design",
+              "identification_report",
+              "measurements",
+              "panel",
+              "validation_report",
+              "statistical_model_spec",
+              "compiled_ssm",
+              "posterior",
+              "baseline_report",
+              "saved_scenarios"
+            ],
+            "title": "Artifact Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "trace_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trace Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "artifact_id",
+          "version",
+          "seq",
+          "trace_ids"
+        ],
+        "title": "TransitionTraceIndex",
+        "description": "Promoted traces of the applied transition that produced an artifact version."
       },
       "UploadResponse": {
         "properties": {

@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
         legal_moves,
         validate_move,
     )
+    from nof1_causal_lab.machine.store import ResumeRef
     from nof1_causal_lab.machine.temporal.llm_transition_workflow import (
         SingleLLMTransitionWorkflow,
     )
@@ -65,6 +66,7 @@ with workflow.unsafe.imports_passed_through():
 _RUN_TRANSITION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _JOURNAL_TIMEOUT = timedelta(minutes=1)
+_RUN_COLLECTION_TIMEOUT = timedelta(minutes=10)
 _SINGLE_LLM_TRANSITIONS = frozenset(
     {
         "raw_data",
@@ -241,7 +243,7 @@ class EpisodeWorkflow:
                 produced = effects.produced
                 retracted = effects.retracted
             except (ActivityError, ChildWorkflowError) as exc:
-                error_type, error_message, diagnostics = _unwrap_temporal_failure(exc)
+                error_type, error_message, diagnostics, resume = _unwrap_temporal_failure(exc)
                 await self._journal(
                     seq,
                     move,
@@ -249,6 +251,7 @@ class EpisodeWorkflow:
                     error_type=error_type,
                     error_message=error_message,
                     diagnostics=diagnostics,
+                    resume=resume,
                 )
                 return self._outcome(
                     seq,
@@ -258,7 +261,13 @@ class EpisodeWorkflow:
                     diagnostics=diagnostics,
                 )
 
-            await self._journal(seq, move, status="applied", produced=produced, retracted=retracted)
+            await self._journal(
+                seq,
+                move,
+                status="applied",
+                produced=produced,
+                retracted=retracted,
+            )
             self._state = apply_transition(self._state, produced, retracted)
             return self._outcome(seq, status="applied", produced=produced, retracted=retracted)
 
@@ -299,6 +308,7 @@ class EpisodeWorkflow:
         diagnostics: dict[str, Any] | None = None,
         produced: list[ArtifactVersionInfo] | None = None,
         retracted: list[RetractedArtifact] | None = None,
+        resume: ResumeRef | None = None,
     ) -> None:
         await workflow.execute_activity(
             "journal_activity",
@@ -313,15 +323,26 @@ class EpisodeWorkflow:
                 diagnostics=diagnostics or {},
                 produced=produced or [],
                 retracted=retracted or [],
+                resume=resume,
             ),
             start_to_close_timeout=_JOURNAL_TIMEOUT,
             retry_policy=_JOURNAL_RETRY,
         )
+        # Run collection is lifecycle hygiene, never part of the move commit.
+        try:
+            await workflow.execute_activity(
+                "collect_completed_runs_activity",
+                self._workspace_id,
+                start_to_close_timeout=_RUN_COLLECTION_TIMEOUT,
+                retry_policy=_ACTIVITY_RETRY,
+            )
+        except ActivityError as exc:
+            workflow.logger.warning("run scratch collection failed after seq %d: %s", seq, exc)
 
 
 def _unwrap_temporal_failure(
     exc: ActivityError | ChildWorkflowError,
-) -> tuple[str, str, dict[str, Any]]:
+) -> tuple[str, str, dict[str, Any], ResumeRef | None]:
     cause = exc.cause
     while isinstance(cause, (ActivityError, ChildWorkflowError)):
         cause = cause.cause
@@ -330,6 +351,8 @@ def _unwrap_temporal_failure(
         if cause.details:
             first = cause.details[0]
             if isinstance(first, dict):
-                diagnostics = first
-        return cause.type or "ApplicationError", cause.message, diagnostics
-    return type(cause).__name__ if cause else "ActivityError", str(cause or exc), {}
+                diagnostics = dict(first)
+        resume_payload = diagnostics.pop("resume", None)
+        resume = ResumeRef.model_validate(resume_payload) if resume_payload is not None else None
+        return cause.type or "ApplicationError", cause.message, diagnostics, resume
+    return type(cause).__name__ if cause else "ActivityError", str(cause or exc), {}, None

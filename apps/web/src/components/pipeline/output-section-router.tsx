@@ -59,7 +59,6 @@ const SimulationViewer = lazy(() =>
 
 type ArtifactViewData = ArtifactViewPayload & {
   context?: string;
-  llm_trace_ref?: string | null;
 };
 
 type OutputSectionRouterProps = {
@@ -103,8 +102,7 @@ function OutputSectionRouterInner({
     output.id,
     isCompleted,
   );
-  const traceRef = artifactData?.llm_trace_ref ?? null;
-  const { data: llmTrace } = useLLMTrace(workspaceId, traceRef, isCompleted && !!traceRef);
+  const { data: llmTrace } = useLLMTrace(workspaceId, output.id, isCompleted);
 
   return (
     <OutputPresentationShell
@@ -227,11 +225,7 @@ function BaselineReportConnectedContent({
     true,
   );
   const { data: posterior } = useArtifactView<PosteriorData>(workspaceId, "posterior", true);
-  const { data: llmTrace } = useLLMTrace(
-    workspaceId,
-    data.llm_trace_ref ?? null,
-    !!data.llm_trace_ref,
-  );
+  const { data: llmTrace } = useLLMTrace(workspaceId, "baseline_report", true);
 
   const outcomeName = useMemo(
     () =>

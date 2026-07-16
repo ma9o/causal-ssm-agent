@@ -56,6 +56,7 @@ class SerializedSSMSpec(PersistedModel):
     input_source_indicators: list[str] | None = None
     input_scales: list[float] | None = None
     input_missing_policies: list[Literal["zero", "forward_fill"]] | None = None
+    input_lagged: list[bool]
     static_factor_names: list[str] | None = None
     initialization_policy: InitializationPolicy
     observation_intercept_policy: ObservationInterceptPolicy

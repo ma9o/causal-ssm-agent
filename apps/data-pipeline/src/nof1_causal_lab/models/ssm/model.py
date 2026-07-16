@@ -153,6 +153,7 @@ class SSMSpec:
     input_source_indicators: list[str] | None = None
     input_scales: list[float] | None = None
     input_missing_policies: list[str] | None = None
+    input_lagged: list[bool] = field(default_factory=list)
     static_factor_names: list[str] | None = None
     initialization_policy: str = "stationary"
     observation_intercept_policy: str = "free"
@@ -346,6 +347,11 @@ class SSMSpec:
         )
         if invalid_policies:
             raise ValueError(f"Unsupported input_missing_policies: {invalid_policies}")
+        if len(self.input_lagged) != n_input:
+            raise ValueError(
+                f"input_lagged length must match n_input: {len(self.input_lagged)} vs {n_input}"
+            )
+        self.input_lagged = [bool(lagged) for lagged in self.input_lagged]
 
         # Canonicalize per-channel family + link enums.
         if self.diffusion_dists:

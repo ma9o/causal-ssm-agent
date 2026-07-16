@@ -16,12 +16,12 @@ from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
+from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
     SingleLLMTransitionFinalizeInput,
     SingleLLMTransitionPlan,
     SingleLLMTransitionWorkflowInput,
 )
-from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,6 @@ def _first_baseline_assistant_summary(trace: dict[str, Any]) -> str | None:
 async def plan_baseline_report_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
-    from nof1_causal_lab.flows.run_store import load_pickle
     from nof1_causal_lab.flows.transitions.analysis.interventions import run_interventions
     from nof1_causal_lab.utils.causal_design import get_outcome_name
     from nof1_causal_lab.utils.config import get_config
@@ -92,7 +91,7 @@ async def plan_baseline_report_activity(
         pins["identification_report"],
         json_filename("identification_report", "identification_report"),
     )
-    fitted_artifact = load_pickle(
+    fitted_artifact = storage.read_pickle(
         store.file_path("posterior", pins["posterior"], pickle_filename("posterior", "fitted"))
     )
     treatments = identification_report["estimable_treatments"]
@@ -157,10 +156,7 @@ async def plan_baseline_report_activity(
         f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
     )
     context_ref = storage.join(
-        data_module.runs_dir(input.workspace_id),
-        "temporal-llm",
-        run_id,
-        "baseline-report",
+        subroutine_root(input.workspace_id, run_id, "baseline-report"),
         "context.json",
     )
     _write_baseline_json(
@@ -188,14 +184,12 @@ async def finalize_baseline_report_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
     from nof1_causal_lab.flows.transitions.analysis.contracts import BaselineReportContract
-    from nof1_causal_lab.machine.trace_store import read_trace
 
     try:
         context = _read_baseline_json(input.context_ref)
-        trace = read_trace(input.workspace_id, input.trace_ref).model_dump(mode="json")
+        trace = storage.read_json(input.trace_ref)
         payload: dict[str, Any] = {
             "intervention_results": context["intervention_results"],
-            "llm_trace_ref": input.trace_ref,
         }
         final_summary = _first_baseline_assistant_summary(trace)
         if final_summary:

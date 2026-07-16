@@ -63,9 +63,15 @@ def subroutine_context_messages(
             [
                 LLMToolSpec(
                     name="validate_measurement_structure",
-                    description="Validate measurement structure JSON and compiler constraints.",
+                    description=(
+                        "Validate measurement structure, known-input declarations, "
+                        "and compiler constraints."
+                    ),
                     param_name="measurement_json",
-                    param_description="The JSON string containing the measurement structure.",
+                    param_description=(
+                        "The JSON string containing the measurement structure and "
+                        "known-input declarations."
+                    ),
                 )
             ],
         )

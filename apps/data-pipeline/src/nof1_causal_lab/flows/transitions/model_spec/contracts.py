@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec  # noqa: TC001
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract
 from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
     build_model_spec_public_tool_contracts,
 )
@@ -29,7 +29,7 @@ class PriorPredictiveDiagnostic(BaseModel):
     mode: str
 
 
-class StatisticalModelSpecContract(LLMArtifactContract):
+class StatisticalModelSpecContract(BaseArtifactContract):
     statistical_model_spec: StatisticalModelSpec
     authored_priors: dict[str, PriorProposal]
     resolved_priors: list[PriorProposal]

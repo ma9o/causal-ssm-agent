@@ -146,7 +146,7 @@ def test_full_barrier_shares_one_exact_simulation(monkeypatch):
 def test_frontier_merge_is_single_writer_and_deterministic(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     workspace_id = "parallel-checkpoint"
     initial_ref = write_initial_model_spec_checkpoint(
         workspace_id=workspace_id,

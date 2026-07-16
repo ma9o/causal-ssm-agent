@@ -16,6 +16,7 @@ from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
+from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
     StatisticalModelSpecAdmissionUnit,
     StatisticalModelSpecAttemptFinalizeInput,
@@ -46,7 +47,7 @@ from nof1_causal_lab.utils import storage
 
 
 def _model_spec_root(workspace_id: str, run_id: str) -> str:
-    return storage.join(data_module.runs_dir(workspace_id), "temporal-model-spec", run_id)
+    return data_module.scratch_run_dir(workspace_id, run_id)
 
 
 def _write_model_spec_json(path: str, value: Any) -> None:
@@ -283,7 +284,7 @@ async def plan_statistical_model_spec_attempt_activity(
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-    _question, causal_design, data_for_model, _validation_report = _load_model_spec_inputs(
+    _question, causal_design, data_for_model, validation_report = _load_model_spec_inputs(
         input.workspace_id,
         checkpoint.input_pins,
     )
@@ -314,17 +315,11 @@ async def plan_statistical_model_spec_attempt_activity(
         construct=construct,
         question=metadata["question"],
         causal_design=metadata["causal_design"],
-        indicator_audits=metadata["indicator_audits"],
+        validation_report=validation_report,
     )
     subroutine_id = f"model-spec-{_slug(construct)}-attempt-{input.attempt:03d}"
-    attempt_context_ref = storage.join(
-        data_module.runs_dir(input.workspace_id),
-        "temporal-llm",
-        input.run_id,
-        subroutine_id,
-        "context.json",
-    )
-    attempt_root = attempt_context_ref.rsplit("/", 1)[0]
+    attempt_root = subroutine_root(input.workspace_id, input.run_id, subroutine_id)
+    attempt_context_ref = storage.join(attempt_root, "context.json")
     result_ref = storage.join(attempt_root, "attempt-result.json")
     search_state_ref = storage.join(attempt_root, "search-state.json")
     _write_model_spec_json(
@@ -640,8 +635,6 @@ async def finalize_statistical_model_spec_activity(
     from nof1_causal_lab.flows.transitions.model_spec.assembly import (
         materialize_model_spec_result,
     )
-    from nof1_causal_lab.machine.trace_store import TraceMetadata, read_trace, write_trace
-    from nof1_causal_lab.utils.llm import LLMTrace, _merge_trace
 
     try:
         checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
@@ -667,10 +660,6 @@ async def finalize_statistical_model_spec_activity(
             raise ValueError("model-spec full-model barrier has not passed")
         emit_model_spec_admission_event(input.workspace_id, "done", {})
 
-        trace = LLMTrace()
-        for trace_ref in input.trace_refs:
-            trace = _merge_trace(trace, read_trace(input.workspace_id, trace_ref))
-
         metadata = _read_model_spec_json(input.context_ref)
         statistical_model_spec = state.admission.statistical_model_spec().model_dump(mode="json")
         materialized = materialize_model_spec_result(
@@ -688,20 +677,6 @@ async def finalize_statistical_model_spec_activity(
             for accepted_construct in checkpoint.accepted_constructs
             for result in accepted_construct.results
         ]
-        if trace.messages or trace.usage.input_tokens or trace.usage.output_tokens:
-            materialized["llm_trace_ref"] = write_trace(
-                trace,
-                TraceMetadata(
-                    workspace_id=input.workspace_id,
-                    run_id=input.run_id,
-                    subroutine_id="statistical_model_spec",
-                    context_kind="statistical_model_spec",
-                ),
-                target_path=storage.join(
-                    _model_spec_root(input.workspace_id, input.run_id),
-                    "trace.json",
-                ),
-            )
 
         compiled_ssm = materialized.pop("_compiled_ssm", None)
         report = _filter_model_spec_contract(StatisticalModelSpecContract, materialized)

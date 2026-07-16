@@ -147,16 +147,35 @@ def get_estimation_input_layout(
     list[str],
     list[float],
     list[str],
+    list[bool],
 ]:
     """Build canonical known-input ordering and source metadata."""
     if causal_design is None:
-        return [], [], [], []
+        return [], [], [], [], []
     known_inputs = get_known_inputs(causal_design)
+    estimation_edges = get_estimation_edges(causal_design)
+    input_lagged: list[bool] = []
+    for item in known_inputs:
+        name = str(item["construct"])
+        edge_lags = {bool(edge["lagged"]) for edge in estimation_edges if edge.get("cause") == name}
+        if not edge_lags:
+            raise SpecTranslationError(
+                [f"Known input {name!r} has no outgoing edge into a retained state"]
+            )
+        if len(edge_lags) > 1:
+            raise SpecTranslationError(
+                [
+                    f"Known input {name!r} has mixed contemporaneous and lagged outgoing "
+                    "edges; one input trajectory must use a consistent alignment"
+                ]
+            )
+        input_lagged.append(edge_lags.pop())
     return (
         [str(item["construct"]) for item in known_inputs],
         [str(item["source_indicator"]) for item in known_inputs],
         [float(item.get("scale", 1.0)) for item in known_inputs],
         [str(item.get("missing_policy", "zero")) for item in known_inputs],
+        input_lagged,
     )
 
 
@@ -244,8 +263,8 @@ def build_structural_support_from_causal_design(
         )
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
-    input_names, _input_sources, _input_scales, _input_policies = get_estimation_input_layout(
-        causal_design
+    input_names, _input_sources, _input_scales, _input_policies, _input_lagged = (
+        get_estimation_input_layout(causal_design)
     )
     input_idx = {name: idx for idx, name in enumerate(input_names)}
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
@@ -800,8 +819,8 @@ def translate_spec(
             causal_design=causal_design,
         )
     )
-    input_names, input_sources, input_scales, input_policies = get_estimation_input_layout(
-        causal_design
+    input_names, input_sources, input_scales, input_policies, input_lagged = (
+        get_estimation_input_layout(causal_design)
     )
     manifest_standardized = _build_manifest_standardized_flags(
         statistical_model_spec,
@@ -953,6 +972,7 @@ def translate_spec(
         input_source_indicators=input_sources,
         input_scales=input_scales,
         input_missing_policies=input_policies,
+        input_lagged=input_lagged,
         static_factor_names=static_factor_names,
         initialization_policy=initialization_policy.value,
         observation_intercept_policy=observation_intercept_policy.value,

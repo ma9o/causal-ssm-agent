@@ -15,7 +15,9 @@ def _seed_workspace(root):
         "store/question/v1/question.json": {"text": "does X cause Y?"},
         "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "version": 1},
         "episode/journal/000001.json": {"seq": 1},
-        "run/model-spec-jax-cache-metadata.json": {"schema_version": 1},
+        "cache/model-spec-jax-cache-metadata.json": {"schema_version": 1},
+        "scratch/events/00000000000000000001-event.json": {"status": "running"},
+        "sources/unpacked-private.csv": {"value": "personal"},
         "input/MyActivity.json": {"secret": "personal"},
     }
     for rel, payload in files.items():
@@ -36,24 +38,25 @@ def memory_dest(monkeypatch):
 
 
 def test_publish_excludes_and_is_idempotent(monkeypatch, tmp_path, memory_dest):
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     ws_root = tmp_path / "data" / "WS-PUB"
     _seed_workspace(ws_root)
 
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 3, "skipped": 0, "excluded": 3}
+    assert counts == {"uploaded": 3, "skipped": 0, "excluded": 5}
     assert memory_dest.exists("pub/data/WS-PUB/store/question/v1/question.json")
     assert not memory_dest.exists("pub/data/WS-PUB/store/raw_data/v1/meta.json")
     assert not memory_dest.exists("pub/data/WS-PUB/input/MyActivity.json")
+    assert not memory_dest.exists("pub/data/WS-PUB/sources/unpacked-private.csv")
 
     # Second run: immutable keys skip.
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 0, "skipped": 3, "excluded": 3}
+    assert counts == {"uploaded": 0, "skipped": 3, "excluded": 5}
 
     # A new journal entry (live tail) uploads without touching existing keys.
     (ws_root / "episode/journal/000002.json").write_text(json.dumps({"seq": 2}))
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
-    assert counts == {"uploaded": 1, "skipped": 3, "excluded": 3}
+    assert counts == {"uploaded": 1, "skipped": 3, "excluded": 5}
 
 
 def test_publish_refuses_remote_source(monkeypatch, memory_dest):

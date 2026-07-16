@@ -124,6 +124,7 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
         input_source_indicators=[f"input_{i}" for i in range(n_input)],
         input_scales=[1.0] * n_input,
         input_missing_policies=["zero"] * n_input,
+        input_lagged=[True] * n_input,
         static_factor_names=[f"factor_{i}" for i in range(n_static)],
     )
 

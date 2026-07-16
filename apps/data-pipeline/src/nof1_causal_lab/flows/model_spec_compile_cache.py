@@ -12,18 +12,11 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import TypeIs
 
+from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
-
-from .run_store import (
-    MODEL_SPEC_JAX_CACHE_FILENAMES,
-    MODEL_SPEC_JAX_CACHE_METADATA_FILENAMES,
-    ensure_run_dir,
-    find_run_artifact,
-    load_json,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +25,19 @@ _MODEL_SPEC_COMPILE_CACHE_WAIT_TIMEOUT_SECONDS = 3600
 
 
 def _archive_path(workspace_id: str) -> str:
-    return storage.join(ensure_run_dir(workspace_id), MODEL_SPEC_JAX_CACHE_FILENAMES[0])
+    return storage.join(data_module.cache_dir(workspace_id), "model-spec-jax-cache.tar.gz")
+
+
+def _metadata_path(workspace_id: str) -> str:
+    return storage.join(data_module.cache_dir(workspace_id), "model-spec-jax-cache-metadata.json")
 
 
 def load_model_spec_compile_cache_metadata(workspace_id: str) -> dict[str, Any] | None:
     """Load model-spec compile-cache metadata, if present."""
-    try:
-        path = find_run_artifact(workspace_id, MODEL_SPEC_JAX_CACHE_METADATA_FILENAMES)
-    except FileNotFoundError:
+    path = _metadata_path(workspace_id)
+    if not storage.exists(path):
         return None
-    payload = load_json(path)
+    payload = storage.read_json(path)
     return payload if isinstance(payload, dict) else None
 
 

@@ -21,9 +21,8 @@ build/
 # Data (monorepo root) — runtime session dirs and outputs are gitignored
 data/*/
 !data/DEMO/
-# episode telemetry event stream (one file per event) is runtime churn — never
-# track it; the durable read model (episode/journal + episode/state.json) stays.
-data/DEMO/episode/events/
+data/DEMO/scratch/
+data/DEMO/cache/
 data/processed/**
 .prefect-cache/
 

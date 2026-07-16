@@ -138,13 +138,15 @@ def _read_latent_structure(store: ArtifactStore, version: int) -> dict[str, Any]
     return payload["latent_structure"]
 
 
-def _read_measurement_structure(store: ArtifactStore, version: int) -> dict[str, Any]:
-    payload = store.read_json_file(
+def _read_measurement_structure_contract(
+    store: ArtifactStore,
+    version: int,
+) -> dict[str, Any]:
+    return store.read_json_file(
         "measurement_structure",
         version,
         json_filename("measurement_structure", "measurement_structure"),
     )
-    return payload["measurement_structure"]
 
 
 def _read_causal_design(store: ArtifactStore, version: int) -> dict[str, Any]:
@@ -171,13 +173,23 @@ def _derive_causal_design(
     from nof1_causal_lab.utils.identifiability import check_identifiability
 
     latent_structure = _read_latent_structure(store, pins["latent_structure"])
-    measurement_structure = _read_measurement_structure(store, pins["measurement_structure"])
+    measurement_contract = _read_measurement_structure_contract(
+        store,
+        pins["measurement_structure"],
+    )
+    measurement_structure = measurement_contract["measurement_structure"]
+    known_inputs = measurement_contract["known_inputs"]
     id_result = check_identifiability(latent_structure, measurement_structure)
     id_status = {
         "identifiable_treatments": id_result.get("identifiable_treatments", {}),
         "non_identifiable_treatments": id_result.get("non_identifiable_treatments", {}),
     }
-    causal_design = build_causal_design(latent_structure, measurement_structure, id_status)
+    causal_design = build_causal_design(
+        latent_structure,
+        measurement_structure,
+        id_status,
+        known_inputs=known_inputs,
+    )
     estimation_errors = collect_estimation_projection_compile_errors(causal_design)
     if estimation_errors:
         raise ValueError(

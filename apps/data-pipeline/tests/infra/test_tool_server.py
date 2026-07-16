@@ -66,7 +66,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     from nof1_causal_lab.utils import data as data_module
     from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
 
     spec = block_ssm_spec(
         n_latent=2,
@@ -163,6 +163,8 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
                 move=move,
                 status="applied",
                 produced=produced,
+                trace_ids=[],
+                resume=None,
             )
         )
 

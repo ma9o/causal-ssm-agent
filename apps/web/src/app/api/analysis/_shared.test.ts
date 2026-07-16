@@ -12,12 +12,12 @@ vi.mock("@/lib/server/artifacts", () => ({
   readArtifactJson: vi.fn(),
 }));
 
+import { readArtifactJson } from "@/lib/server/artifacts";
 import {
   getEpisodeStatus,
   getEpisodeTimeline,
   getMachineDescription,
 } from "@/lib/server/episode-runs";
-import { readArtifactJson } from "@/lib/server/artifacts";
 import { buildAnalysisManifest } from "./_shared";
 
 function emptyStatus(workspaceId: string): EpisodeStatus {
@@ -59,6 +59,8 @@ function transition(
     diagnostics: {},
     produced: [],
     retracted: [],
+    trace_ids: [],
+    resume: null,
     ...overrides,
   };
 }

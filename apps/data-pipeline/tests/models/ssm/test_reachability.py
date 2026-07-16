@@ -14,6 +14,7 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_resolvability,
     check_saturation,
     check_scale,
+    check_transmission,
     stage_outcome,
 )
 
@@ -109,6 +110,7 @@ class TestEdgeShare:
         off = np.full((200, 30), 1.0)
         result = _by_id(check_edge_share("P->C", on, off))["C4b edge overwhelm"]
         assert result.passed
+        assert result.evidence is not None
         assert np.median(result.evidence["level_shift"]) == 1.0
 
 
@@ -142,35 +144,44 @@ class TestCoverage:
         y_obs = self._obs(rng)
         signal = rng.normal(10.0, 2.0, (200, 100))  # signal matches data spread
         pp = signal + rng.normal(0, 0.8, (200, 100))  # + modest noise
-        res = _by_id(check_coverage("y", pp, signal, y_obs, distribution="gaussian"))
+        res = _by_id(
+            [
+                *check_coverage("y", pp, y_obs, distribution="gaussian"),
+                check_transmission("y", signal, np.full_like(signal, 0.8**2)),
+            ]
+        )
         assert res["C5a location reach"].passed
         assert res["C5b width"].passed
         assert res["C5c transmission"].passed
 
-    def test_saturated_link_fails_c5c_only(self):
+    def test_noise_dominated_flat_signal_fails_c5c_only(self):
         rng = np.random.default_rng(10)
         y_obs = self._obs(rng)
         signal = np.full((200, 100), 10.0) + rng.normal(0, 0.05, (200, 100))  # nearly flat signal
         pp = signal + rng.normal(0, 2.0, (200, 100))  # noise alone covers the data spread
-        res = _by_id(check_coverage("y", pp, signal, y_obs, distribution="gaussian"))
+        res = _by_id(
+            [
+                *check_coverage("y", pp, y_obs, distribution="gaussian"),
+                check_transmission("y", signal, np.full_like(signal, 2.0**2)),
+            ]
+        )
         assert res["C5a location reach"].passed
         assert res["C5b width"].passed  # noise widens the band
-        assert not res["C5c transmission"].passed  # but the signal transmits ~nothing
+        assert not res["C5c transmission"].passed  # but the signal explains almost nothing
 
     def test_location_miss_fails_c5a(self):
         rng = np.random.default_rng(11)
         y_obs = self._obs(rng)
         signal = rng.normal(50.0, 2.0, (200, 100))  # centered far from the data
         pp = signal + rng.normal(0, 0.8, (200, 100))
-        res = _by_id(check_coverage("y", pp, signal, y_obs, distribution="gaussian"))
+        res = _by_id(check_coverage("y", pp, y_obs, distribution="gaussian"))
         assert not res["C5a location reach"].passed
 
     def test_zero_iqr_count_data_uses_family_statistics(self):
         rng = np.random.default_rng(12)
         y_obs = np.zeros(100)
-        signal = np.full((200, 100), 0.1)
         pp = rng.poisson(0.1, (200, 100))
-        results = _by_id(check_coverage("events", pp, signal, y_obs, distribution="poisson"))
+        results = _by_id(check_coverage("events", pp, y_obs, distribution="poisson"))
         assert "1000000000" not in results["C5b width"].value
         assert "zero fraction" in results["C5b width"].value
 
@@ -180,26 +191,30 @@ class TestCoverage:
         predictive = rng.integers(0, 3, (200, 120))
         probabilities = rng.dirichlet(np.ones(3), size=(200, 120))
         original = _by_id(
-            check_coverage(
-                "category",
-                predictive,
-                probabilities,
-                observed,
-                distribution="categorical",
-                level_count=3,
-            )
+            [
+                *check_coverage(
+                    "category",
+                    predictive,
+                    observed,
+                    distribution="categorical",
+                    level_count=3,
+                ),
+                check_transmission("category", probabilities),
+            ]
         )
         permutation = np.array([2, 0, 1])
         inverse = np.argsort(permutation)
         relabeled = _by_id(
-            check_coverage(
-                "category",
-                permutation[predictive],
-                probabilities[..., inverse],
-                permutation[observed],
-                distribution="categorical",
-                level_count=3,
-            )
+            [
+                *check_coverage(
+                    "category",
+                    permutation[predictive],
+                    permutation[observed],
+                    distribution="categorical",
+                    level_count=3,
+                ),
+                check_transmission("category", probabilities[..., inverse]),
+            ]
         )
         for check in original:
             assert original[check].passed == relabeled[check].passed
@@ -214,6 +229,35 @@ class TestCoverage:
         )
         assert outcome == "ADMITTED with accepted consequences"
         assert "prior-driven" in annotations[0]
+
+
+class TestTransmission:
+    def test_sparse_poisson_rate_movement_does_not_collapse_with_zero_iqr(self):
+        signal = np.tile(np.r_[np.full(50, 0.01), np.full(50, 0.5)], (200, 1))
+        predictive = np.random.default_rng(14).poisson(signal)
+        predictive_iqr = np.subtract(*np.percentile(predictive, [75, 25], axis=1))
+        assert np.median(predictive_iqr) == 0.0
+        result = check_transmission("events", signal, signal)
+        assert result.passed
+        assert result.evidence is not None
+        assert np.median(result.evidence["signal_fraction"]) > 0.04
+
+    def test_sparse_bernoulli_probability_movement_does_not_collapse_with_zero_iqr(self):
+        probability = np.tile(np.r_[np.full(50, 0.01), np.full(50, 0.4)], (200, 1))
+        predictive = np.random.default_rng(15).binomial(1, probability)
+        predictive_iqr = np.subtract(*np.percentile(predictive, [75, 25], axis=1))
+        assert np.median(predictive_iqr) == 0.0
+        conditional_variance = probability * (1.0 - probability)
+        result = check_transmission("event", probability, conditional_variance)
+        assert result.passed
+        assert result.evidence is not None
+        assert np.median(result.evidence["signal_fraction"]) > 0.04
+
+    def test_flat_sparse_signal_fails(self):
+        signal = np.full((200, 100), 0.1)
+        result = check_transmission("events", signal, signal)
+        assert not result.passed
+        assert "conditional observation variance" in " ".join(result.diagnosis)
 
 
 class TestStageOutcome:

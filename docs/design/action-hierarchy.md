@@ -173,7 +173,7 @@ As a node table:
 | `question` | root | — | — | ✅ | pins nothing |
 | `raw_data` | produced | ∅ | batch_llm | ❌ | ingestion context; deliberately consumes nothing, so question edits never stale it |
 | `latent_structure` | produced | question | judgment | ✅ | theoretical constructs and causal edges |
-| `measurement_structure` | produced | question, raw_data, latent_structure | judgment | ✅ | **promoted out of `causal_design`**; indicators, operationalization, model clock |
+| `measurement_structure` | produced | question, raw_data, latent_structure | judgment | ✅ | **promoted out of `causal_design`**; indicators, operationalization, model clock, and known-input declarations |
 | `causal_design` | derived | latent_structure, measurement_structure | — | ❌ | composition + identification result + estimation projection; pure and total — the composing move is rejected if composition fails to validate |
 | `identification_report` | derived · optional | causal_design | — | ❌ | present iff ≥ 1 treatment identifies — the epistemic gate |
 | `measurements` | produced | question, raw_data, measurement_structure | batch_llm | ❌ | extraction report + per-indicator audit (**one domain object**) |
@@ -338,7 +338,7 @@ a hard flag when the provenance chain is stale.
 |---|---|---|---|---|
 | `episode.ingest_data` | `run` → `raw_data` | Prepared input directory, sandbox, latest `result_df`, column descriptions | `list_files`, `read_file_sample`, `execute_python`, `submit_table` | `submit_table` validates a single timestamped Polars table, producing `raw_data` |
 | `specify.latent_structure` | `run` → `latent_structure` or `write(latent_structure)` | Question-focused latent-structure proposal context | propose constructs, revise descriptions, submit construct set | `latent_structure` exists; `causal_design` re-derives in the same move |
-| `specify.measurement` | `run` → `measurement_structure` or `write(measurement_structure)` | Indicator design against raw data columns and constructs | inspect columns, propose indicators, set aggregation and clock, submit | `measurement_structure` exists; `causal_design` + `identification_report` re-derive in the same move |
+| `specify.measurement` | `run` → `measurement_structure` or `write(measurement_structure)` | Indicator and known-input design against raw data columns and constructs | inspect columns, propose indicators, declare observed transition inputs, set aggregation and clock, submit | `measurement_structure` exists; `causal_design` + `identification_report` re-derive in the same move |
 | `measure.extract` | `run` → `measurements` | Indicator extraction plan and worker fan-out | define extraction, run computed extraction, run semantic extraction, submit values | `measurements` exists; `panel` co-produced only if measurement yielded usable data; `validation_report` derives from the panel |
 | `fit.specify` | `run` → `statistical_model_spec` or `write(statistical_model_spec)` | Reducer skeleton, immutable plan, runtime cursor, accepted state, repair campaign | block submissions, model lock, prior authoring, deterministic repair routing, barrier validation | `statistical_model_spec` exists; `compiled_ssm` derives in the same move (compile-must-succeed is the derivation's totality) |
 | `fit.infer` | `run` → `posterior` | Long-running inference job | fit exact nonlinear SSM engines, emit progress | `posterior` exists |

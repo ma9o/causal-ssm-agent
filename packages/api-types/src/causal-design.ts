@@ -1,4 +1,9 @@
-import type { CausalEdge, LatentStructure, MeasurementStructure } from "./generated/models";
+import type {
+  CausalEdge,
+  KnownInput,
+  LatentStructure,
+  MeasurementStructure,
+} from "./generated/models";
 
 export interface IdentifiedTreatmentStatus {
   method: string;
@@ -21,13 +26,6 @@ export interface InducedDependency {
   between: [string, string];
   kind: "innovation_correlation" | "initial_state_correlation";
   source_confounders: string[];
-}
-
-export interface KnownInput {
-  construct: string;
-  source_indicator: string;
-  scale: number;
-  missing_policy: "zero" | "forward_fill";
 }
 
 export interface EstimationSpec {

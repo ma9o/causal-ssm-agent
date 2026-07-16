@@ -73,7 +73,7 @@ Only deterministic numerical failures are hard gates. Monte Carlo discrepancies 
 
 Checkpoints are immutable execution sidecars, not incomplete public artifacts. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The public `statistical_model_spec` artifact is written only after every construct is admitted and the barrier passes.
 
-Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries the latest `checkpoint_ref`. The outer orchestrator may then modify an upstream artifact through the normal machine moves and run `statistical_model_spec` again.
+Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries a typed run/checkpoint selection. The checkpoint layer resolves that selection when the outer orchestrator modifies an upstream artifact through normal machine moves and runs `statistical_model_spec` again.
 
 On the next run:
 

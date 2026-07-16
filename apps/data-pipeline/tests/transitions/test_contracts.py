@@ -64,6 +64,7 @@ def valid_artifact_payloads() -> dict[str, dict]:
                     }
                 ],
             },
+            "known_inputs": [],
         },
         "measurements": {
             "workers": [
@@ -257,6 +258,16 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
     bad.pop("workers")
     with pytest.raises(ValidationError):
         validate_artifact_payload("measurements", bad)
+
+
+def test_measurement_structure_requires_known_input_decision(
+    valid_artifact_payloads: dict[str, dict],
+):
+    """The authored projection decision cannot disappear through a silent default."""
+    bad = deepcopy(valid_artifact_payloads["measurement_structure"])
+    bad.pop("known_inputs")
+    with pytest.raises(ValidationError):
+        validate_artifact_payload("measurement_structure", bad)
 
 
 def test_baseline_report_rejects_extra_fields(valid_artifact_payloads: dict[str, dict]):

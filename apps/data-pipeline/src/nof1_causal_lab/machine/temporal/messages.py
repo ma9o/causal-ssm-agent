@@ -24,6 +24,7 @@ from nof1_causal_lab.machine.moves import (
     Move,
     RetractedArtifact,
 )
+from nof1_causal_lab.machine.store import ResumeRef  # noqa: TC001
 
 LLMSubroutineContextKind = Literal[
     "measurement_extraction",
@@ -329,8 +330,8 @@ class LLMSubroutineResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     result_ref: str | None = None
-    conversation_ref: str | None = None
-    trace_ref: str | None = None
+    conversation_ref: str
+    trace_ref: str
     n_llm_calls: int = 0
     n_harness_turns: int = 0
 
@@ -341,7 +342,6 @@ class LLMSubroutineTraceInput(BaseModel):
     workspace_id: str
     run_id: str
     subroutine_id: str
-    context_kind: str
     conversation_ref: str
     call_ref_base: str
     harness_trace_refs: list[str] = Field(default_factory=list)
@@ -383,6 +383,9 @@ class SingleLLMTransitionFinalizeInput(BaseModel):
     pins: dict[ArtifactId, int]
     context_ref: str
     result_ref: str | None = None
+    # Finalized scratch trace path; consumed only by finalizers that read the
+    # conversation content (baseline report summary). Promotion to the ledger
+    # happens at journal time, not here.
     trace_ref: str
 
 
@@ -500,7 +503,6 @@ class StatisticalModelSpecFinalizeInput(BaseModel):
     pins: dict[ArtifactId, int]
     checkpoint_ref: str
     context_ref: str
-    trace_refs: list[str] = Field(default_factory=list)
 
 
 class StatisticalModelSpecFailedEventInput(BaseModel):
@@ -634,7 +636,6 @@ class ExtractionChunkFinalizeInput(BaseModel):
     n_windows: int
     result_ref: str
     conversation_ref: str
-    trace_ref: str
     n_llm_calls: int
 
 
@@ -647,7 +648,6 @@ class ExtractionChunkResult(BaseModel):
     n_windows: int
     n_llm_calls: int = 0
     result_ref: str | None = None
-    trace_ref: str | None = None
     error: str | None = None
 
 
@@ -685,3 +685,4 @@ class JournalInput(BaseModel):
     diagnostics: JsonObject = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
+    resume: ResumeRef | None

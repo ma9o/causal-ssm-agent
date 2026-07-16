@@ -77,7 +77,7 @@ Every admitted construct creates an immutable branch checkpoint. As completions 
 
 Dataframes, compiler objects, and executable model objects are not serialized into checkpoints. They are reconstructed from pinned artifacts.
 
-Checkpoints live under `data/{workspace_id}/run/model-spec-checkpoints/{run_id}/`. They are internal execution sidecars, like LLM traces, and do not enter the public artifact graph. Consequently, an incomplete model can never trigger the [`compiled_ssm` derivation](../../pipeline/statistical-model-spec.md#outputs).
+Checkpoints live under `data/{workspace_id}/scratch/runs/{run_id}/checkpoints/`. They are internal execution sidecars and do not enter the public artifact graph. Finalized LLM traces are instead promoted into the durable episode ledger at commit time. Consequently, an incomplete model can never trigger the [`compiled_ssm` derivation](../../pipeline/statistical-model-spec.md#outputs).
 
 The submission identifier determines each branch checkpoint path. If Temporal retries a tool activity after the checkpoint was written, the activity returns the existing checkpoint instead of applying the construct twice. The master checkpoint has a single writer, so parallel branches never race to overwrite accepted state.
 
@@ -90,7 +90,7 @@ When Stage 4 cannot continue, it terminates the move and records a `raised` epis
 - the typed failure;
 - the blocked construct;
 - structured diagnostics; and
-- the latest `checkpoint_ref`.
+- a typed resume selection containing the run id and latest checkpoint id.
 
 The outer orchestrator can then use ordinary machine moves to revise an upstream judgment artifact or recompute stale descendants. A subsequent `run(statistical_model_spec)` starts a new Temporal child workflow and uses the checkpoint referenced by the latest raised Stage 4 move.
 

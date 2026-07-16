@@ -17,7 +17,8 @@ def build_estimation_projection(
     latent_structure: dict,
     measurement_structure: dict,
     identifiability_result: dict | None,
-    known_inputs: list[dict] | None = None,
+    *,
+    known_inputs: list[dict],
 ) -> dict[str, Any]:
     """Project the user-facing DAG into the retained estimation-time state graph.
 
@@ -53,7 +54,7 @@ def build_estimation_projection(
             children_by_construct[cause].add(effect)
 
     observed_constructs = get_observed_constructs(measurement_structure)
-    known_input_payloads = [dict(item) for item in (known_inputs or [])]
+    known_input_payloads = [dict(item) for item in known_inputs]
     known_input_names = {
         item["construct"] for item in known_input_payloads if isinstance(item.get("construct"), str)
     }

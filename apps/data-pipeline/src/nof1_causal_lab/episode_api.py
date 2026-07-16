@@ -44,7 +44,12 @@ from nof1_causal_lab.machine.moves import (
     legal_moves,
     validate_move,
 )
-from nof1_causal_lab.machine.store import EpisodeJournal, derive_current_state
+from nof1_causal_lab.machine.store import (
+    EpisodeJournal,
+    TransitionRecord,
+    derive_current_state,
+    read_episode_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +155,7 @@ def list_workspaces() -> WorkspaceList:
     from nof1_causal_lab.utils import storage
 
     workspaces: list[WorkspaceEntry] = []
-    for entry in sorted(storage.listdir(data_module.DATA_URI)):
+    for entry in sorted(storage.listdir(data_module.data_root())):
         workspace_id = entry.rstrip("/").rsplit("/", 1)[-1]
         if not workspace_id or workspace_id.startswith("."):
             continue
@@ -179,7 +184,7 @@ async def upload_file(
     if not filename:
         raise HTTPException(400, "Invalid file name")
 
-    upload_dir = storage.join(data_module.DATA_URI, safe_workspace_id, "input")
+    upload_dir = data_module.input_dir(safe_workspace_id)
     storage.makedirs(upload_dir)
     path = storage.join(upload_dir, filename)
     with storage.open_file(path, "wb") as handle:
@@ -374,8 +379,17 @@ def get_episode(workspace_id: str) -> dict[str, Any]:
     return _episode_status(workspace_id)
 
 
-@router.get("/{workspace_id}/timeline")
-def get_timeline(workspace_id: str) -> dict[str, Any]:
+class TimelineResponse(BaseModel):
+    """Typed transition journal returned by the episode read plane."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    transitions: list[TransitionRecord]
+
+
+@router.get("/{workspace_id}/timeline", response_model=TimelineResponse)
+def get_timeline(workspace_id: str) -> TimelineResponse:
     """The transition journal: every move attempt in order.
 
     Each record is `applied` (state advanced), `rejected` (illegal move, state
@@ -384,10 +398,7 @@ def get_timeline(workspace_id: str) -> dict[str, Any]:
     move again.
     """
     records = EpisodeJournal(workspace_id).read_all()
-    return {
-        "workspace_id": workspace_id,
-        "transitions": [record.model_dump(mode="json") for record in records],
-    }
+    return TimelineResponse(workspace_id=workspace_id, transitions=records)
 
 
 @router.get("/{workspace_id}/events")
@@ -451,17 +462,59 @@ def get_artifact(
     )
 
 
-@router.get("/{workspace_id}/traces", response_model=LLMTrace)
-def get_trace(workspace_id: str, ref: str) -> LLMTrace:
-    """Resolve an artifact ``llm_trace_ref`` through the configured trace store."""
-    from nof1_causal_lab.machine.trace_store import read_trace
+class TransitionTraceIndex(BaseModel):
+    """Promoted traces of the applied transition that produced an artifact version."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    artifact_id: ArtifactId
+    version: int
+    seq: int
+    trace_ids: list[str]
+
+
+@router.get("/{workspace_id}/artifacts/{artifact_id}/traces", response_model=TransitionTraceIndex)
+def get_artifact_traces(
+    workspace_id: str, artifact_id: ArtifactId, version: int | None = None
+) -> TransitionTraceIndex:
+    """Traces of the applied transition that produced an artifact version.
+
+    Defaults to the episode's current version. The join runs over the
+    transition journal, so it works against a published read-only store.
+    """
+    if version is None:
+        info = derive_current_state(workspace_id).get(artifact_id)
+        if info is None:
+            raise HTTPException(
+                404, f"No current '{artifact_id}' artifact for workspace {workspace_id}"
+            )
+        version = info.version
+    for record in reversed(EpisodeJournal(workspace_id).read_all()):
+        if record.status != "applied":
+            continue
+        if any(
+            item.artifact_id == artifact_id and item.version == version for item in record.produced
+        ):
+            return TransitionTraceIndex(
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+                version=version,
+                seq=record.seq,
+                trace_ids=record.trace_ids,
+            )
+    raise HTTPException(404, f"No applied transition produced {artifact_id} v{version}")
+
+
+@router.get("/{workspace_id}/traces/{seq}/{subroutine_id}", response_model=LLMTrace)
+def get_trace(workspace_id: str, seq: int, subroutine_id: str) -> LLMTrace:
+    """One promoted LLM trace from ``episode/traces/{seq:06d}/{subroutine_id}.json``."""
+    if "/" in subroutine_id or ".." in subroutine_id:
+        raise HTTPException(400, f"Invalid subroutine id {subroutine_id!r}")
     try:
-        return read_trace(workspace_id, ref)
+        return LLMTrace.model_validate(read_episode_trace(workspace_id, seq, subroutine_id))
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/{workspace_id}/artifacts/{artifact_id}/files/{filename}")

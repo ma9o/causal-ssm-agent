@@ -120,9 +120,9 @@ async def collect_worker_results(
             n_ext = result.get("n_extractions", 0)
             output_rows = result.get("dataframe", [])
             status = result.get("status", "completed")
-            llm_trace_ref = result.get("llm_trace_ref")
-            if sampled_trace_ref is None and isinstance(llm_trace_ref, str):
-                sampled_trace_ref = llm_trace_ref
+            trace_ref = result.get("trace_ref")
+            if sampled_trace_ref is None and isinstance(trace_ref, str):
+                sampled_trace_ref = trace_ref
 
             worker_llm_calls = int(result.get("n_llm_calls") or 0)
             n_total += n_ext

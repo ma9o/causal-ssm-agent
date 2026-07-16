@@ -40,9 +40,9 @@ Checks, by family:
   range, so the saturation is actually exercised (not a dead linear arm or a
   flat saturated response)?
 - ``C5a``/``C5b`` — location reach and width of the prior predictive vs the data.
-- ``C5c`` — transmission: can the link, driven by the latent's prior mass,
-  produce a signal comparable to the observed variation, or is it saturated /
-  flat (the structural kernel salvaged from the retired C6, noise-free).
+- ``C5c`` — transmission: what fraction of prior-predictive variation is carried
+  by temporal movement in the emission mean rather than conditional observation
+  variance? This check applies only to time-varying constructs.
 """
 
 from __future__ import annotations
@@ -83,6 +83,12 @@ def _robust_scale(values: np.ndarray, *, axis: int | tuple[int, ...] | None = No
 # near-exponential within-window growth trips the defaults.
 C1B_GROWTH_RATIO = 5.0
 C1B_MAX_EXPLOSIVE_FRAC = 0.01
+
+# For additive, approximately Gaussian emissions, signal share is the square of
+# the retired signal/predictive scale ratio. Four percent therefore preserves
+# the former 20% scale threshold while making the statistic valid for sparse
+# discrete channels.
+C5C_MIN_SIGNAL_FRACTION = 0.04
 
 
 def check_confinement(
@@ -374,13 +380,12 @@ def check_saturation(
 def check_coverage(
     indicator: str,
     pp_y: np.ndarray,
-    signal_y: np.ndarray,
     y_obs: np.ndarray,
     *,
     distribution: str,
     level_count: int | None = None,
 ) -> list[CheckResult]:
-    """C5 replicated-data location, dispersion, and structural transmission."""
+    """C5a/C5b replicated-data location and family-aware dispersion."""
     _pp_matrix = np.asarray(pp_y, dtype=float)
     _obs = np.asarray(y_obs, dtype=float).reshape(-1)
     if _pp_matrix.ndim != 2 or _pp_matrix.shape[1] != _obs.size:
@@ -458,28 +463,6 @@ def check_coverage(
         _width_value = f"robust scale {_obs_width:.2f}"
         _width_band_text = f"[{_width_band[0]:.2f}, {_width_band[1]:.2f}] replicate envelope"
 
-    _sig = np.asarray(signal_y, dtype=float)
-    if _sig.ndim == 3:
-        _center = np.mean(_sig, axis=1, keepdims=True)
-        _per_draw = np.mean(0.5 * np.sum(np.abs(_sig - _center), axis=2), axis=1)
-        _transmit = float(np.median(_per_draw))
-        _trans_ok = bool(_transmit >= 0.05)
-        _transmit_value = f"median probability-vector movement {_transmit:.1%}"
-        _transmit_band = ">= 5% mean total-variation movement"
-    else:
-        _signal_scale = _robust_scale(_sig, axis=1)
-        _predictive_scale = _robust_scale(_pp_matrix, axis=1)
-        _reliability = np.divide(
-            _signal_scale,
-            _predictive_scale,
-            out=np.zeros_like(_signal_scale),
-            where=_predictive_scale > 0,
-        )
-        _transmit = float(np.median(_reliability))
-        _trans_ok = bool(_transmit >= 0.2)
-        _transmit_value = f"median signal/predictive scale {_transmit:.0%}"
-        _transmit_band = ">= 20%"
-
     _pp = _pp_matrix.ravel()
     _ev = {
         "pp": _pp[:: max(1, _pp.size // 20000)],
@@ -500,17 +483,6 @@ def check_coverage(
             f"the observed dispersion statistic ({_width_value}) lies outside the "
             f"prior replicate envelope {_width_band_text}",
             "the family-specific statistic avoids ratios against a zero empirical IQR",
-        )
-    _diag_c: tuple[str, ...] = ()
-    if not _trans_ok:
-        _diag_c = (
-            f"the noise-free response transmits too little latent movement ({_transmit_value})",
-            "geometry: the latent moves but the emission mean does not, i.e. the link is "
-            "operating in a flat / saturated region over the prior mass (sigmoid tail, "
-            "near-zero exp rate, or a near-zero loading)",
-            "dependence: transmitted signal scales with the loading prior and where the "
-            "latent mass lands on the link (C2); it is independent of the noise prior — "
-            "C5b can pass here because noise alone widens the predictive band",
         )
     return [
         CheckResult(
@@ -533,18 +505,87 @@ def check_coverage(
             _diag_b,
             _ev,
         ),
-        CheckResult(
-            "C5c transmission",
-            indicator,
-            _transmit_value,
-            _transmit_band,
-            _trans_ok,
-            f"the link for {indicator} transmits little of the latent's variation: the "
-            "observed spread would be explained almost entirely by measurement noise.",
-            _diag_c,
-            _ev,
-        ),
     ]
+
+
+def check_transmission(
+    indicator: str,
+    signal_y: np.ndarray,
+    conditional_variance_y: np.ndarray | None = None,
+    *,
+    min_signal_fraction: float = C5C_MIN_SIGNAL_FRACTION,
+) -> CheckResult:
+    """C5c — fraction of predictive variation attributable to temporal signal movement.
+
+    Scalar emissions use the law-of-total-variance decomposition within each
+    prior draw. Categorical emissions use its label-invariant one-hot analogue:
+    probability-vector resolution divided by resolution plus conditional Gini
+    uncertainty. The caller omits this check for time-invariant constructs.
+    """
+    _sig = np.asarray(signal_y, dtype=float)
+    if _sig.ndim not in {2, 3}:
+        raise ValueError("transmission signal requires draws by observed-time values")
+    if not 0.0 <= min_signal_fraction <= 1.0:
+        raise ValueError("min_signal_fraction must lie in [0, 1]")
+    if np.any(~np.isfinite(_sig)):
+        raise ValueError("transmission signal must be finite")
+
+    if _sig.ndim == 3:
+        if _sig.shape[2] < 2:
+            raise ValueError("categorical transmission requires at least two levels")
+        if np.any(_sig < 0.0) or not np.allclose(np.sum(_sig, axis=2), 1.0, atol=1e-6):
+            raise ValueError("categorical transmission requires probability vectors")
+        _center = np.mean(_sig, axis=1, keepdims=True)
+        _signal_variance = np.mean(np.sum((_sig - _center) ** 2, axis=2), axis=1)
+        _conditional_variance = np.mean(1.0 - np.sum(_sig**2, axis=2), axis=1)
+    else:
+        if conditional_variance_y is None:
+            raise ValueError("scalar transmission requires conditional observation variance")
+        _conditional = np.asarray(conditional_variance_y, dtype=float)
+        if _conditional.shape != _sig.shape:
+            raise ValueError("conditional variance must match the scalar signal shape")
+        if np.any(np.isnan(_conditional)) or np.any(_conditional < 0.0):
+            raise ValueError("conditional observation variance must be non-negative")
+        _signal_variance = np.var(_sig, axis=1)
+        _conditional_variance = np.mean(_conditional, axis=1)
+
+    _total_variance = _signal_variance + _conditional_variance
+    _signal_fraction = np.divide(
+        _signal_variance,
+        _total_variance,
+        out=np.zeros_like(_signal_variance),
+        where=np.isfinite(_total_variance) & (_total_variance > 0.0),
+    )
+    _transmit = float(np.median(_signal_fraction))
+    _trans_ok = bool(_transmit >= min_signal_fraction)
+    _transmit_value = f"median temporal signal share {_transmit:.1%}"
+    _transmit_band = f">= {min_signal_fraction:.0%} of predictive variation"
+    _diag: tuple[str, ...] = ()
+    if not _trans_ok:
+        _diag = (
+            f"too little predictive variation comes from temporal movement in the conditional "
+            f"emission mean ({_transmit_value})",
+            "possible causes include a weak loading, a link operating in a flat or saturated "
+            "region, or broad conditional observation variance",
+            "dependence: C2 constrains the latent scale and C5b checks total predictive width; "
+            "C5c decomposes that width into temporal signal and conditional observation variance",
+        )
+    return CheckResult(
+        "C5c transmission",
+        indicator,
+        _transmit_value,
+        _transmit_band,
+        _trans_ok,
+        f"the emission for {indicator} carries little temporal latent information relative "
+        "to its conditional observation variance.",
+        _diag,
+        {
+            "signal_fraction": _signal_fraction,
+            "signal_variance": _signal_variance,
+            "conditional_variance": _conditional_variance,
+            "min_signal_fraction": min_signal_fraction,
+        },
+    )
 
 
 def check_data_availability(indicator: str) -> CheckResult:
@@ -599,9 +640,9 @@ CHECK_CONSEQUENCES = {
     "location; posterior adaptation may be prior-sensitive",
     "C5b width": "{target}: prior-predictive width imbalance accepted; expect weak "
     "regularization or slow warmup",
-    "C5c transmission": "{target}: the link passes little of the latent's variation to the "
-    "indicator; the observed spread is largely measurement noise, so this construct's "
-    "trajectory is weakly grounded in the data",
+    "C5c transmission": "{target}: little prior-predictive variation comes from temporal "
+    "movement in the emission mean; conditional observation variance dominates, so this "
+    "construct's trajectory is weakly grounded in the data",
     "C5d data availability": "{target}: no observed values anchor this emission in the current "
     "panel; its contribution is prior-driven and must not be presented as empirically learned",
 }

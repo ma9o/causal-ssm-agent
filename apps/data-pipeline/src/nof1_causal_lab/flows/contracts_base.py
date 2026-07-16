@@ -62,9 +62,3 @@ class BaseArtifactContract(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-
-
-class LLMArtifactContract(BaseArtifactContract):
-    """Base contract for artifacts that surface an LLM trace reference."""
-
-    llm_trace_ref: str | None = None

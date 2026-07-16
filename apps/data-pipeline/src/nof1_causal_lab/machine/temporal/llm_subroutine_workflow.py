@@ -7,7 +7,7 @@ from typing import NotRequired, TypedDict
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.temporal.client import (
@@ -403,7 +403,6 @@ class LLMSubroutineWorkflow:
                 workspace_id=input.workspace_id,
                 run_id=input.run_id,
                 subroutine_id=input.subroutine_id,
-                context_kind=input.context_kind,
                 conversation_ref=conversation_ref,
                 call_ref_base=start.call_ref_base,
                 harness_trace_refs=harness_trace_refs,
@@ -415,9 +414,17 @@ class LLMSubroutineWorkflow:
         )
 
         if terminal_error is not None:
-            raise RuntimeError(terminal_error)
+            raise ApplicationError(
+                terminal_error,
+                type="LLMSubroutineError",
+                non_retryable=True,
+            )
         if input.require_result and last_result_ref is None:
-            raise RuntimeError(f"LLM subroutine {input.subroutine_id} produced no valid result")
+            raise ApplicationError(
+                f"LLM subroutine {input.subroutine_id} produced no valid result",
+                type="LLMSubroutineError",
+                non_retryable=True,
+            )
 
         return LLMSubroutineResult(
             result_ref=last_result_ref,

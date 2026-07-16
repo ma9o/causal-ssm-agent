@@ -60,7 +60,7 @@ def resume_env(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
     from nof1_causal_lab.utils.config import LLMProfileConfig
 
-    monkeypatch.setattr(data_module, "DATA_URI", str(tmp_path / "data"))
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
     input_root = Path(data_module.input_dir(workspace_id))
     input_root.mkdir(parents=True, exist_ok=True)
@@ -204,6 +204,8 @@ def test_latest_seq_reads_max_journal_entry(resume_env):
                 ts="2026-01-01T00:00:00Z",
                 move=WriteArtifact(artifact_id="question"),
                 status="applied",
+                trace_ids=[],
+                resume=None,
             )
         )
     assert journal.latest_seq() == 3

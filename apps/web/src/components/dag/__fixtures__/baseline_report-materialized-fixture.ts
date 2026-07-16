@@ -12,7 +12,6 @@ export const demoBaselineTrace: LLMTrace = demoTraces.baseline_report;
 
 /** The complete materialized analysis artifact (baselines + sims + summary). */
 export const materializedBaselineReportData: BaselineReportData = {
-  llm_trace_ref: demo.llm_trace_ref ?? null,
   intervention_results: demo.intervention_results,
   saved_scenarios: demo.saved_scenarios ?? null,
   final_summary: demo.final_summary ?? null,

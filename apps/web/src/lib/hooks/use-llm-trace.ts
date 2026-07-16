@@ -3,17 +3,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { getLLMTrace } from "../api/endpoints";
 
-const LLM_TRACE_QUERY_VERSION = 1;
+const LLM_TRACE_QUERY_VERSION = 2;
 
-export function getLLMTraceQueryKey(workspaceId: string | null, ref: string | null) {
-  return ["pipeline", workspaceId, "llm-trace", ref, `v${LLM_TRACE_QUERY_VERSION}`] as const;
+export function getLLMTraceQueryKey(workspaceId: string | null, artifactId: string | null) {
+  return ["pipeline", workspaceId, "llm-trace", artifactId, `v${LLM_TRACE_QUERY_VERSION}`] as const;
 }
 
-export function useLLMTrace(workspaceId: string | null, ref: string | null, enabled: boolean) {
+/** Merged LLM trace of the applied transition that produced an artifact's current version. */
+export function useLLMTrace(
+  workspaceId: string | null,
+  artifactId: string | null,
+  enabled: boolean,
+) {
   return useQuery({
-    queryKey: getLLMTraceQueryKey(workspaceId, ref),
-    queryFn: () => getLLMTrace(workspaceId as string, ref as string),
-    enabled: !!workspaceId && !!ref && enabled,
+    queryKey: getLLMTraceQueryKey(workspaceId, artifactId),
+    queryFn: () => getLLMTrace(workspaceId as string, artifactId as string),
+    enabled: !!workspaceId && !!artifactId && enabled,
     staleTime: Number.POSITIVE_INFINITY,
+    // A 404 means the producing transition promoted no traces — not transient.
+    retry: false,
   });
 }

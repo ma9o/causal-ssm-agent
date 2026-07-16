@@ -42,7 +42,11 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     trial_admission_state,
 )
 from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
-from nof1_causal_lab.utils.causal_design import get_estimation_edges
+from nof1_causal_lab.utils.causal_design import (
+    get_estimation_edges,
+    get_estimation_state_order,
+    get_known_input_source_indicators,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -243,10 +247,13 @@ def _closed_loop_target(
     """
     name = member.name
     parents = construct_parents(causal_design, name)
+    latent_parents = set(get_estimation_state_order(causal_design))
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
-    hill_parents = tuple(p for p in parents if f"hill_emax_{p}_{name}" in priors)
+    hill_parents = tuple(
+        p for p in parents if p in latent_parents and f"hill_emax_{p}_{name}" in priors
+    )
     return replace(member, edge_parents=edge_parents, hill_parents=hill_parents)
 
 
@@ -297,10 +304,13 @@ def contribution_from_payload(
         for pn in priors
     )
     parents = construct_parents(causal_design, name)
+    latent_parents = set(get_estimation_state_order(causal_design))
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
-    hill_parents = tuple(p for p in parents if f"hill_emax_{p}_{name}" in priors)
+    hill_parents = tuple(
+        p for p in parents if p in latent_parents and f"hill_emax_{p}_{name}" in priors
+    )
     return ConstructContribution(
         name=name,
         likelihoods=likelihoods,
@@ -363,6 +373,7 @@ def _design_for_state(
     )
 
     indicator_names = [lik.variable for lik in model_state.likelihoods]
+    indicator_names.extend(sorted(get_known_input_source_indicators(restricted)))
     trial_data = data_for_model.filter(pl.col("indicator").is_in(indicator_names))
     runtime = prepare_model_runtime(trial_data, compiled_ssm=compiled)
 
@@ -564,10 +575,11 @@ class ConstructBuildState:
             )
         assert self.catalog is not None  # set in __post_init__
         parents = construct_parents(self.causal_design, construct)
+        saturating_parents = [parent for parent in parents if parent in self.admission.names]
         closing = deferred_closing_edge_params(
             self.causal_design, construct, set(self.admission.names)
         )
-        allowed = self.catalog.allowed_for(construct, parents) | closing
+        allowed = self.catalog.allowed_for(construct, saturating_parents) | closing
         unknown = [name for name in priors if name not in allowed]
         if unknown:
             return (

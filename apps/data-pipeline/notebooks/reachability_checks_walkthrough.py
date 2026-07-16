@@ -27,6 +27,7 @@ def imports():
         check_resolvability,
         check_saturation,
         check_scale,
+        check_transmission,
         stage_outcome,
     )
 
@@ -40,6 +41,7 @@ def imports():
         check_resolvability,
         check_saturation,
         check_scale,
+        check_transmission,
         np,
         nx,
         plt,
@@ -342,6 +344,7 @@ def evaluate_healthy_model(
     check_resolvability,
     check_saturation,
     check_scale,
+    check_transmission,
     ec50_draws,
     hill_n_draws,
     stress_observed,
@@ -372,9 +375,13 @@ def evaluate_healthy_model(
         *check_coverage(
             "StressSlider",
             stress_pp,
-            stress_signal,
             stress_observed,
             distribution="beta",
+        ),
+        check_transmission(
+            "StressSlider",
+            stress_signal,
+            stress_signal * (1.0 - stress_signal) / 9.0,
         ),
     ]
     healthy_results = {_result.check: _result for _result in _results}
@@ -938,19 +945,25 @@ def measurement_section(mo):
 
 
 @app.cell
-def make_c5a_case(check_coverage, np, sigmoid, stress_observed, stress_paths):
+def make_c5a_case(check_coverage, check_transmission, np, sigmoid, stress_observed, stress_paths):
     _rng = np.random.default_rng(501)
     _wrong_signal = sigmoid(0.60 + 0.85 * stress_paths)
     _wrong_pp = _rng.beta(_wrong_signal * 8.0, (1.0 - _wrong_signal) * 8.0)
     _results = {
         r.check: r
-        for r in check_coverage(
-            "StressSlider",
-            _wrong_pp,
-            _wrong_signal,
-            stress_observed,
-            distribution="beta",
-        )
+        for r in [
+            *check_coverage(
+                "StressSlider",
+                _wrong_pp,
+                stress_observed,
+                distribution="beta",
+            ),
+            check_transmission(
+                "StressSlider",
+                _wrong_signal,
+                _wrong_signal * (1.0 - _wrong_signal) / 9.0,
+            ),
+        ]
     }
     assert not _results["C5a location reach"].passed
     assert _results["C5b width"].passed
@@ -1006,18 +1019,24 @@ def show_c5a(c5a_case, mo, np, plt, result_panel, stress_observed, style_axes, t
 
 
 @app.cell
-def make_c5b_case(check_coverage, np, stress_observed, stress_signal):
+def make_c5b_case(check_coverage, check_transmission, np, stress_observed, stress_signal):
     _rng = np.random.default_rng(502)
     _wide_pp = _rng.beta(stress_signal * 2.0, (1.0 - stress_signal) * 2.0)
     _results = {
         r.check: r
-        for r in check_coverage(
-            "StressSlider",
-            _wide_pp,
-            stress_signal,
-            stress_observed,
-            distribution="beta",
-        )
+        for r in [
+            *check_coverage(
+                "StressSlider",
+                _wide_pp,
+                stress_observed,
+                distribution="beta",
+            ),
+            check_transmission(
+                "StressSlider",
+                stress_signal,
+                stress_signal * (1.0 - stress_signal) / 3.0,
+            ),
+        ]
     }
     assert _results["C5a location reach"].passed
     assert not _results["C5b width"].passed
@@ -1089,19 +1108,25 @@ def show_c5b(
 
 
 @app.cell
-def make_c5c_case(check_coverage, np, sigmoid, stress_observed, stress_paths):
+def make_c5c_case(check_coverage, check_transmission, np, sigmoid, stress_observed, stress_paths):
     _rng = np.random.default_rng(503)
     _flat_signal = sigmoid(-0.45 + 0.025 * stress_paths)
     _noise_dominated_pp = _rng.beta(_flat_signal * 8.0, (1.0 - _flat_signal) * 8.0)
     _results = {
         r.check: r
-        for r in check_coverage(
-            "StressSlider",
-            _noise_dominated_pp,
-            _flat_signal,
-            stress_observed,
-            distribution="beta",
-        )
+        for r in [
+            *check_coverage(
+                "StressSlider",
+                _noise_dominated_pp,
+                stress_observed,
+                distribution="beta",
+            ),
+            check_transmission(
+                "StressSlider",
+                _flat_signal,
+                _flat_signal * (1.0 - _flat_signal) / 9.0,
+            ),
+        ]
     }
     assert _results["C5a location reach"].passed
     assert _results["C5b width"].passed
@@ -1115,7 +1140,7 @@ def make_c5c_case(check_coverage, np, sigmoid, stress_observed, stress_paths):
 
 
 @app.cell(hide_code=True)
-def show_c5c(c5c_case, mo, np, plt, result_panel, robust_scale, stress_observed, style_axes, times):
+def show_c5c(c5c_case, mo, np, plt, result_panel, stress_observed, style_axes, times):
     _fig, _axes = plt.subplots(1, 2, figsize=(10.8, 3.5))
     _draw_index = 37
     _axes[0].plot(
@@ -1143,18 +1168,12 @@ def show_c5c(c5c_case, mo, np, plt, result_panel, robust_scale, stress_observed,
     )
     _axes[0].legend(frameon=False, fontsize=7)
 
-    _signal_scale = robust_scale(c5c_case["signal"], axis=1)
-    _predictive_scale = robust_scale(c5c_case["pp"], axis=1)
-    _reliability = np.divide(
-        _signal_scale,
-        _predictive_scale,
-        out=np.zeros_like(_signal_scale),
-        where=_predictive_scale > 0,
-    )
-    _axes[1].hist(_reliability, bins=np.linspace(0, 0.30, 45), color="#c0504d", alpha=0.70)
-    _axes[1].axvline(0.20, color="#333333", linestyle="--", label="minimum 20%")
+    _signal_fraction = c5c_case["result"].evidence["signal_fraction"]
+    _axes[1].hist(_signal_fraction, bins=np.linspace(0, 0.12, 45), color="#c0504d", alpha=0.70)
+    _minimum = c5c_case["result"].evidence["min_signal_fraction"]
+    _axes[1].axvline(_minimum, color="#333333", linestyle="--", label=f"minimum {_minimum:.0%}")
     _axes[1].set(
-        xlabel="noise-free signal scale / predictive scale",
+        xlabel="temporal signal variance / total predictive variance",
         ylabel="draws",
         title="C5b passes, but data barely ground the latent",
     )

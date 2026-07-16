@@ -62,7 +62,6 @@ For a study of classroom interventions and student learning where `measurement_s
 | Output | Type | Description |
 |---|---|---|
 | `data_for_model` | [`ObservationRecord`](#observationrecord) | Numerically encoded `ObservationRecord`s persisted for downstream fitting |
-| `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
 
 ### `ObservationRecord`
 

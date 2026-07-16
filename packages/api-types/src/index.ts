@@ -181,7 +181,6 @@ export interface RawDataColumnDescription {
 }
 
 export interface RawDataData {
-  llm_trace_ref?: string | null;
   n_records: number;
   n_columns: number;
   date_range: RawDataDateRange;
@@ -204,7 +203,6 @@ export interface ObservationRecord {
 }
 
 export interface MeasurementsData {
-  llm_trace_ref?: string | null;
   workers: import("./generated/models").WorkerStatusContract[];
   per_indicator_counts: {
     [k: string]: number | undefined;

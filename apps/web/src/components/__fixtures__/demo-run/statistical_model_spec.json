@@ -1,5 +1,4 @@
 {
-  "llm_trace_ref": "file:DEMO/run/temporal-llm/seq-000006/statistical_model_spec/trace.json",
   "outcome": "warn",
   "fail_reason": null,
   "statistical_model_spec": {
@@ -25,7 +24,7 @@
         "distribution": "gaussian",
         "link": "identity",
         "standardized": false,
-        "reasoning": "Within-person nightly TST is approximately symmetric around 7 h with SD \u2248 0.7 h. Standard sleep-research treatment is gaussian/identity.",
+        "reasoning": "Within-person nightly TST is approximately symmetric around 7 h with SD ≈ 0.7 h. Standard sleep-research treatment is gaussian/identity.",
         "sources": []
       },
       {
@@ -57,7 +56,7 @@
         "distribution": "negative_binomial",
         "link": "log",
         "standardized": false,
-        "reasoning": "Daily step count has mean \u2248 7000 and SD \u2248 2500-3000 \u2014 heavily overdispersed for poisson. Negative_binomial is the standard choice for activity-data of this scale.",
+        "reasoning": "Daily step count has mean ≈ 7000 and SD ≈ 2500-3000 — heavily overdispersed for poisson. Negative_binomial is the standard choice for activity-data of this scale.",
         "sources": []
       },
       {
@@ -446,7 +445,7 @@
         "sigma": 0.5
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.78, so manifest intercept centered at log(mean) = -0.249. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 0.78, so manifest intercept centered at log(mean) = -0.249. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
     },
     "manifest_mean_sleep_onset_latency_min": {
       "parameter": "manifest_mean_sleep_onset_latency_min",
@@ -456,7 +455,7 @@
         "sigma": 0.8137518565339088
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 15.1, so manifest intercept centered at log(mean) = 2.713. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 15.1, so manifest intercept centered at log(mean) = 2.713. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
     },
     "manifest_mean_daily_step_count": {
       "parameter": "manifest_mean_daily_step_count",
@@ -466,7 +465,7 @@
         "sigma": 2.69827187358528
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
     },
     "obs_r": {
       "parameter": "obs_r",
@@ -494,14 +493,14 @@
       },
       "sources": [
         {
-          "title": "Bringmann et al. (2013) \u2014 Depressive symptom dynamics",
+          "title": "Bringmann et al. (2013) — Depressive symptom dynamics",
           "url": "https://doi.org/10.1037/a0034058",
           "snippet": "Daily mood time-series show ar(1) coefficients in the 0.6-0.85 range across depressed-population samples.",
-          "effect_size": "ar(1) \u2248 0.7 daily",
+          "effect_size": "ar(1) ≈ 0.7 daily",
           "study_interval_days": 1.0
         }
       ],
-      "reasoning": "Daily-scale mood persistence has well-documented ar(1) \u2248 0.7. Beta(6, 2) puts \u2248 75% of mass in [0.6, 0.9] which centers on the literature mean while leaving room for the patient's documented fast-shift episodes (the Dec 2023 'Q-train moment').",
+      "reasoning": "Daily-scale mood persistence has well-documented ar(1) ≈ 0.7. Beta(6, 2) puts ≈ 75% of mass in [0.6, 0.9] which centers on the literature mean while leaving room for the patient's documented fast-shift episodes (the Dec 2023 'Q-train moment').",
       "parameter": "rho_affective_state"
     },
     "rho_sleep_quality": {
@@ -512,7 +511,7 @@
         "beta": 1.5
       },
       "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
+      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean ≈ 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
     },
     "rho_physical_activity": {
       "parameter": "rho_physical_activity",
@@ -522,7 +521,7 @@
         "beta": 1.5
       },
       "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
+      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean ≈ 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
     },
     "beta_serotonergic_exposure_affective_state": {
       "distribution": "Normal",
@@ -533,21 +532,21 @@
       "reference_interval_days": 1.0,
       "sources": [
         {
-          "title": "Cipriani et al. (2018) \u2014 Comparative efficacy of 21 antidepressants",
+          "title": "Cipriani et al. (2018) — Comparative efficacy of 21 antidepressants",
           "url": "https://doi.org/10.1016/S0140-6736(17)32802-7",
-          "snippet": "Network meta-analysis: escitalopram SMD \u2248 0.32 vs placebo on 8-week endpoint depression severity (HAM-D / MADRS).",
-          "effect_size": "SMD \u2248 0.32 over 56 d",
+          "snippet": "Network meta-analysis: escitalopram SMD ≈ 0.32 vs placebo on 8-week endpoint depression severity (HAM-D / MADRS).",
+          "effect_size": "SMD ≈ 0.32 over 56 d",
           "study_interval_days": 49.0
         },
         {
-          "title": "Hieronymus et al. (2016) \u2014 Patient-level efficacy of SSRIs",
+          "title": "Hieronymus et al. (2016) — Patient-level efficacy of SSRIs",
           "url": "https://doi.org/10.1038/mp.2015.53",
           "snippet": "Item-level analyses: ~30-35% of remitters show >1 SD mood improvement at 6-8 weeks of titrated escitalopram.",
-          "effect_size": "SMD \u2248 0.3 over 42-56 d",
+          "effect_size": "SMD ≈ 0.3 over 42-56 d",
           "study_interval_days": 49.0
         }
       ],
-      "reasoning": "Cipriani 2018 SMD \u2248 0.32 over 56 days. The matrix-log CT compiler is poorly conditioned for long-interval rescaling at this latent state count, so we author directly on the 1-day model interval: mu \u2248 0.32 / 6 \u2248 0.05 captures the per-day linear contribution to the integrated drift; sigma=0.03 keeps the prior tight enough that matrix-log CT/DT conversion stays in the linear regime where the approximation holds.",
+      "reasoning": "Cipriani 2018 SMD ≈ 0.32 over 56 days. The matrix-log CT compiler is poorly conditioned for long-interval rescaling at this latent state count, so we author directly on the 1-day model interval: mu ≈ 0.32 / 6 ≈ 0.05 captures the per-day linear contribution to the integrated drift; sigma=0.03 keeps the prior tight enough that matrix-log CT/DT conversion stays in the linear regime where the approximation holds.",
       "parameter": "beta_serotonergic_exposure_affective_state"
     },
     "beta_serotonergic_exposure_physical_activity": {
@@ -559,7 +558,7 @@
       },
       "reference_interval_days": 1.0,
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6)."
     },
     "beta_serotonergic_exposure_sleep_quality": {
       "parameter": "beta_serotonergic_exposure_sleep_quality",
@@ -570,7 +569,7 @@
       },
       "reference_interval_days": 1.0,
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6)."
     },
     "beta_physical_activity_affective_state": {
       "distribution": "Normal",
@@ -581,14 +580,14 @@
       "reference_interval_days": 1.0,
       "sources": [
         {
-          "title": "Schuch et al. (2018) \u2014 Exercise as treatment for depression",
+          "title": "Schuch et al. (2018) — Exercise as treatment for depression",
           "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
-          "snippet": "Aerobic exercise produces \u2248 0.5-0.7 SD improvement in mood over 8-12 week trials.",
-          "effect_size": "SMD \u2248 0.6 over 56-84 d",
+          "snippet": "Aerobic exercise produces ≈ 0.5-0.7 SD improvement in mood over 8-12 week trials.",
+          "effect_size": "SMD ≈ 0.6 over 56-84 d",
           "study_interval_days": 70.0
         }
       ],
-      "reasoning": "Schuch 2018 reports SMD \u2248 0.6 over 56-84 day exercise trials. We author directly on the 1-day model interval: mu \u2248 0.6/15 \u2248 0.04 captures the per-day behavioral activation contribution (integrated over a typical 8-12 week training response); sigma=0.03 covers individual variation in exercise responsiveness.",
+      "reasoning": "Schuch 2018 reports SMD ≈ 0.6 over 56-84 day exercise trials. We author directly on the 1-day model interval: mu ≈ 0.6/15 ≈ 0.04 captures the per-day behavioral activation contribution (integrated over a typical 8-12 week training response); sigma=0.03 covers individual variation in exercise responsiveness.",
       "parameter": "beta_physical_activity_affective_state"
     },
     "beta_sleep_quality_affective_state": {
@@ -600,14 +599,14 @@
       "reference_interval_days": 1.0,
       "sources": [
         {
-          "title": "Baglioni et al. (2011) \u2014 Insomnia and depression meta-analysis",
+          "title": "Baglioni et al. (2011) — Insomnia and depression meta-analysis",
           "url": "https://doi.org/10.1016/j.jad.2011.01.011",
-          "snippet": "Poor sleep quality precedes \u2248 0.4-0.6 SD depressive symptom increase at 1-week lag.",
-          "effect_size": "\u0394 mood \u2248 0.5 SD per SD sleep quality at 1w lag",
+          "snippet": "Poor sleep quality precedes ≈ 0.4-0.6 SD depressive symptom increase at 1-week lag.",
+          "effect_size": "Δ mood ≈ 0.5 SD per SD sleep quality at 1w lag",
           "study_interval_days": 7.0
         }
       ],
-      "reasoning": "Baglioni 2011 reports \u2248 0.5 SD sleep-to-mood coupling at 1-week lag. We author directly on the 1-day model interval: mu \u2248 0.5/7 \u2248 0.07 captures the per-day linear contribution; sigma=0.04 to acknowledge within-person reverse causation (depressed mood worsens sleep, captured by the affective_state -> sleep_quality lagged feedback edge in the DAG).",
+      "reasoning": "Baglioni 2011 reports ≈ 0.5 SD sleep-to-mood coupling at 1-week lag. We author directly on the 1-day model interval: mu ≈ 0.5/7 ≈ 0.07 captures the per-day linear contribution; sigma=0.04 to acknowledge within-person reverse causation (depressed mood worsens sleep, captured by the affective_state -> sleep_quality lagged feedback edge in the DAG).",
       "parameter": "beta_sleep_quality_affective_state"
     },
     "beta_social_engagement_affective_state": {
@@ -619,7 +618,7 @@
       },
       "reference_interval_days": 1.0,
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6)."
     },
     "beta_affective_state_physical_activity": {
       "parameter": "beta_affective_state_physical_activity",
@@ -630,7 +629,7 @@
       },
       "reference_interval_days": 1.0,
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6)."
     },
     "beta_affective_state_sleep_quality": {
       "parameter": "beta_affective_state_sleep_quality",
@@ -641,7 +640,7 @@
       },
       "reference_interval_days": 1.0,
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6)."
     },
     "beta_seasonal_load_affective_state": {
       "distribution": "Normal",
@@ -652,14 +651,14 @@
       "reference_interval_days": 1.0,
       "sources": [
         {
-          "title": "Magnusson & Boivin (2003) \u2014 SAD prevalence and severity",
+          "title": "Magnusson & Boivin (2003) — SAD prevalence and severity",
           "url": "https://doi.org/10.1093/oxfordjournals.epirev.a018023",
-          "snippet": "Subclinical-SAD spectrum at 40\u00b0N latitude shows \u2248 0.3-0.5 SD downward shift in mood at winter trough vs summer peak.",
-          "effect_size": "\u0394 mood \u2248 -0.4 SD across seasonal range",
+          "snippet": "Subclinical-SAD spectrum at 40°N latitude shows ≈ 0.3-0.5 SD downward shift in mood at winter trough vs summer peak.",
+          "effect_size": "Δ mood ≈ -0.4 SD across seasonal range",
           "study_interval_days": 180.0
         }
       ],
-      "reasoning": "Photoperiod-driven seasonal mood swing of -0.4 SD across a 180-day half-cycle. We author directly on the 1-day model interval: mu \u2248 -0.02 captures the per-day linear contribution; sigma=0.02 keeps the prior tight to stay in the linear matrix-log regime. Long-interval reference_interval_days rescaling was rejected because the CT/DT compiler is poorly conditioned for 180d rescaling at this latent state count.",
+      "reasoning": "Photoperiod-driven seasonal mood swing of -0.4 SD across a 180-day half-cycle. We author directly on the 1-day model interval: mu ≈ -0.02 captures the per-day linear contribution; sigma=0.02 keeps the prior tight to stay in the linear matrix-log regime. Long-interval reference_interval_days rescaling was rejected because the CT/DT compiler is poorly conditioned for 180d rescaling at this latent state count.",
       "parameter": "beta_seasonal_load_affective_state"
     },
     "beta_life_events_load_affective_state": {
@@ -671,14 +670,14 @@
       "reference_interval_days": 1.0,
       "sources": [
         {
-          "title": "Kessler (1997) \u2014 Life events and depression",
+          "title": "Kessler (1997) — Life events and depression",
           "url": null,
-          "snippet": "Major external stressors (bereavement, divorce, family illness) produce \u2248 1 SD short-term negative mood shifts in vulnerable individuals, decaying over 6-12 months.",
-          "effect_size": "\u2248 +1 SD acute mood drop per major event",
+          "snippet": "Major external stressors (bereavement, divorce, family illness) produce ≈ 1 SD short-term negative mood shifts in vulnerable individuals, decaying over 6-12 months.",
+          "effect_size": "≈ +1 SD acute mood drop per major event",
           "study_interval_days": 30.0
         }
       ],
-      "reasoning": "Major external stressors produce \u2248 +1 SD acute mood drops over \u2248 30 days. We author directly on the 1-day model interval: mu \u2248 0.08 per day captures the integrated daily contribution during a stressor episode (which is short-lived for this patient given the resilience demonstrated around mom's diagnosis); sigma=0.05 reflects within-person variability in stressor sensitivity.",
+      "reasoning": "Major external stressors produce ≈ +1 SD acute mood drops over ≈ 30 days. We author directly on the 1-day model interval: mu ≈ 0.08 per day captures the integrated daily contribution during a stressor episode (which is short-lived for this patient given the resilience demonstrated around mom's diagnosis); sigma=0.05 reflects within-person variability in stressor sensitivity.",
       "parameter": "beta_life_events_load_affective_state"
     },
     "sigma_affective_state": {
@@ -714,7 +713,7 @@
         "mu": 0.5,
         "sigma": 0.1
       },
-      "reasoning": "Patient-specific prior centered on the genotype-derived enzyme-activity score: rs4244285 AG \u2192 *1/*2 \u2192 intermediate \u2192 0.5 on the [poor=0.0, intermediate=0.5, normal=1.0, rapid=1.5, ultrarapid=2.0] scale. Tight sigma=0.1 reflects the near-deterministic nature of genotype-phenotype mapping at this locus.",
+      "reasoning": "Patient-specific prior centered on the genotype-derived enzyme-activity score: rs4244285 AG → *1/*2 → intermediate → 0.5 on the [poor=0.0, intermediate=0.5, normal=1.0, rapid=1.5, ultrarapid=2.0] scale. Tight sigma=0.1 reflects the near-deterministic nature of genotype-phenotype mapping at this locus.",
       "sources": [
         {
           "title": "CPIC guideline for CYP2C19 and SSRIs (Hicks et al. 2015)",
@@ -743,7 +742,7 @@
         "sigma": 4.593146346417814
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(gp_clinical_severity)=2.81, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 9.19. Prior centered there with \u03c3=4.59 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(gp_clinical_severity)=2.81, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 9.19. Prior centered there with σ=4.59 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_journal_affect_severity_affective_state": {
       "parameter": "lambda_journal_affect_severity_affective_state",
@@ -753,7 +752,7 @@
         "sigma": 1.817712678974377
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_affect_severity)=1.11, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 3.64. Prior centered there with \u03c3=1.82 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_affect_severity)=1.11, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 3.64. Prior centered there with σ=1.82 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_journal_rumination_intensity_affective_state": {
       "parameter": "lambda_journal_rumination_intensity_affective_state",
@@ -763,7 +762,7 @@
         "sigma": 4.326407408273886
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 8.65. Prior centered there with \u03c3=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 8.65. Prior centered there with σ=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_late_night_message_count_affective_state": {
       "parameter": "lambda_late_night_message_count_affective_state",
@@ -783,7 +782,7 @@
         "sigma": 7.595486585976091
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(nightly_hrv_ms)=5.95, y_sd(total_sleep_hours, marker)=0.392, so MLE \u03bb \u2248 sign \u00d7 15.2. Prior centered there with \u03c3=7.6 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(nightly_hrv_ms)=5.95, y_sd(total_sleep_hours, marker)=0.392, so MLE λ ≈ sign × 15.2. Prior centered there with σ=7.6 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_sleep_efficiency_pct_sleep_quality": {
       "parameter": "lambda_sleep_efficiency_pct_sleep_quality",
@@ -793,7 +792,7 @@
         "sigma": 4.923942124852214
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(sleep_efficiency_pct)=3.86, y_sd(total_sleep_hours, marker)=0.392, so MLE \u03bb \u2248 sign \u00d7 9.85. Prior centered there with \u03c3=4.92 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(sleep_efficiency_pct)=3.86, y_sd(total_sleep_hours, marker)=0.392, so MLE λ ≈ sign × 9.85. Prior centered there with σ=4.92 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_sleep_onset_latency_min_sleep_quality": {
       "parameter": "lambda_sleep_onset_latency_min_sleep_quality",
@@ -813,7 +812,7 @@
         "sigma": 0.1
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(exercise_minutes)=7.68, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 0.00471. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(exercise_minutes)=7.68, y_sd(daily_step_count, marker)=1.63e+03, so MLE λ ≈ sign × 0.00471. Prior centered there with σ=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     }
   },
   "resolved_priors": [
@@ -824,7 +823,7 @@
         "sigma": 1.0
       },
       "sources": [],
-      "reasoning": "tighter for sparse indicator (n\u226421)"
+      "reasoning": "tighter for sparse indicator (n≤21)"
     },
     {
       "parameter": "obs_sd_journal_affect_severity",
@@ -833,7 +832,7 @@
         "sigma": 0.4
       },
       "sources": [],
-      "reasoning": "tighter for sparse indicator (n\u226421)"
+      "reasoning": "tighter for sparse indicator (n≤21)"
     },
     {
       "parameter": "obs_sd_journal_rumination_intensity",
@@ -842,7 +841,7 @@
         "sigma": 1.0
       },
       "sources": [],
-      "reasoning": "tighter for sparse indicator (n\u226421)"
+      "reasoning": "tighter for sparse indicator (n≤21)"
     },
     {
       "parameter": "obs_sd_state_of_mind_valence",
@@ -851,7 +850,7 @@
         "sigma": 0.2138370933454284
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(state_of_mind_valence)=0.305; HalfNormal scale = 0.7 \u00d7 y_sd = 0.214. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
+      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(state_of_mind_valence)=0.305; HalfNormal scale = 0.7 × y_sd = 0.214. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd≈1.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -862,7 +861,7 @@
         "sigma": 4.1666714373140765
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(nightly_hrv_ms)=5.95; HalfNormal scale = 0.7 \u00d7 y_sd = 4.17. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
+      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(nightly_hrv_ms)=5.95; HalfNormal scale = 0.7 × y_sd = 4.17. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd≈1.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -873,7 +872,7 @@
         "sigma": 2.701136889437709
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(sleep_efficiency_pct)=3.86; HalfNormal scale = 0.7 \u00d7 y_sd = 2.7. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
+      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(sleep_efficiency_pct)=3.86; HalfNormal scale = 0.7 × y_sd = 2.7. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd≈1.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -884,7 +883,7 @@
         "sigma": 0.2742860111824304
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(total_sleep_hours)=0.392; HalfNormal scale = 0.7 \u00d7 y_sd = 0.274. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
+      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(total_sleep_hours)=0.392; HalfNormal scale = 0.7 × y_sd = 0.274. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd≈1.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -895,7 +894,7 @@
         "sigma": 5.3793200717614535
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(exercise_minutes)=7.68; HalfNormal scale = 0.7 \u00d7 y_sd = 5.38. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
+      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(exercise_minutes)=7.68; HalfNormal scale = 0.7 × y_sd = 5.38. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd≈1.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -907,7 +906,7 @@
         "sigma": 0.5
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.78, so manifest intercept centered at log(mean) = -0.249. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 0.78, so manifest intercept centered at log(mean) = -0.249. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -919,7 +918,7 @@
         "sigma": 0.8137518565339088
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 15.1, so manifest intercept centered at log(mean) = 2.713. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 15.1, so manifest intercept centered at log(mean) = 2.713. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -931,7 +930,7 @@
         "sigma": 2.69827187358528
       },
       "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
+      "reasoning": "Empirically calibrated for log-link emission: data mean ≈ 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma ≈ 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -965,7 +964,7 @@
         "beta": 1.8800000000000017
       },
       "sources": [],
-      "reasoning": "informative \u03c1 centered at \u03c4\u224820.8d, conc 40"
+      "reasoning": "informative ρ centered at τ≈20.8d, conc 40"
     },
     {
       "parameter": "rho_sleep_quality",
@@ -975,7 +974,7 @@
         "beta": 3.799999999999999
       },
       "sources": [],
-      "reasoning": "informative \u03c1 centered at \u03c4\u224810.0d, conc 40"
+      "reasoning": "informative ρ centered at τ≈10.0d, conc 40"
     },
     {
       "parameter": "rho_physical_activity",
@@ -985,7 +984,7 @@
         "beta": 5.32
       },
       "sources": [],
-      "reasoning": "informative \u03c1 centered at \u03c4\u22487.0d, conc 40"
+      "reasoning": "informative ρ centered at τ≈7.0d, conc 40"
     },
     {
       "parameter": "beta_serotonergic_exposure_affective_state",
@@ -996,21 +995,21 @@
       },
       "sources": [
         {
-          "title": "Cipriani et al. (2018) \u2014 Comparative efficacy of 21 antidepressants",
+          "title": "Cipriani et al. (2018) — Comparative efficacy of 21 antidepressants",
           "url": "https://doi.org/10.1016/S0140-6736(17)32802-7",
-          "snippet": "Network meta-analysis: escitalopram SMD \u2248 0.32 vs placebo on 8-week endpoint depression severity (HAM-D / MADRS).",
-          "effect_size": "SMD \u2248 0.32 over 56 d",
+          "snippet": "Network meta-analysis: escitalopram SMD ≈ 0.32 vs placebo on 8-week endpoint depression severity (HAM-D / MADRS).",
+          "effect_size": "SMD ≈ 0.32 over 56 d",
           "study_interval_days": 49.0
         },
         {
-          "title": "Hieronymus et al. (2016) \u2014 Patient-level efficacy of SSRIs",
+          "title": "Hieronymus et al. (2016) — Patient-level efficacy of SSRIs",
           "url": "https://doi.org/10.1038/mp.2015.53",
           "snippet": "Item-level analyses: ~30-35% of remitters show >1 SD mood improvement at 6-8 weeks of titrated escitalopram.",
-          "effect_size": "SMD \u2248 0.3 over 42-56 d",
+          "effect_size": "SMD ≈ 0.3 over 42-56 d",
           "study_interval_days": 49.0
         }
       ],
-      "reasoning": "Cipriani 2018 SMD \u2248 0.32 over 56 days. The matrix-log CT compiler is poorly conditioned for long-interval rescaling at this latent state count, so we author directly on the 1-day model interval: mu \u2248 0.32 / 6 \u2248 0.05 captures the per-day linear contribution to the integrated drift; sigma=0.03 keeps the prior tight enough that matrix-log CT/DT conversion stays in the linear regime where the approximation holds.",
+      "reasoning": "Cipriani 2018 SMD ≈ 0.32 over 56 days. The matrix-log CT compiler is poorly conditioned for long-interval rescaling at this latent state count, so we author directly on the 1-day model interval: mu ≈ 0.32 / 6 ≈ 0.05 captures the per-day linear contribution to the integrated drift; sigma=0.03 keeps the prior tight enough that matrix-log CT/DT conversion stays in the linear regime where the approximation holds.",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1022,7 +1021,7 @@
         "sigma": 0.04
       },
       "sources": [],
-      "reasoning": "gain Normal(0, 0.3) \u00d7 (1-\u03c1_mode\u22480.133) \u2248 0.04"
+      "reasoning": "gain Normal(0, 0.3) × (1-ρ_mode≈0.133) ≈ 0.04"
     },
     {
       "parameter": "beta_serotonergic_exposure_sleep_quality",
@@ -1032,7 +1031,7 @@
         "sigma": 0.3
       },
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6).",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1045,14 +1044,14 @@
       },
       "sources": [
         {
-          "title": "Schuch et al. (2018) \u2014 Exercise as treatment for depression",
+          "title": "Schuch et al. (2018) — Exercise as treatment for depression",
           "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
-          "snippet": "Aerobic exercise produces \u2248 0.5-0.7 SD improvement in mood over 8-12 week trials.",
-          "effect_size": "SMD \u2248 0.6 over 56-84 d",
+          "snippet": "Aerobic exercise produces ≈ 0.5-0.7 SD improvement in mood over 8-12 week trials.",
+          "effect_size": "SMD ≈ 0.6 over 56-84 d",
           "study_interval_days": 70.0
         }
       ],
-      "reasoning": "Schuch 2018 reports SMD \u2248 0.6 over 56-84 day exercise trials. We author directly on the 1-day model interval: mu \u2248 0.6/15 \u2248 0.04 captures the per-day behavioral activation contribution (integrated over a typical 8-12 week training response); sigma=0.03 covers individual variation in exercise responsiveness.",
+      "reasoning": "Schuch 2018 reports SMD ≈ 0.6 over 56-84 day exercise trials. We author directly on the 1-day model interval: mu ≈ 0.6/15 ≈ 0.04 captures the per-day behavioral activation contribution (integrated over a typical 8-12 week training response); sigma=0.03 covers individual variation in exercise responsiveness.",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1065,14 +1064,14 @@
       },
       "sources": [
         {
-          "title": "Baglioni et al. (2011) \u2014 Insomnia and depression meta-analysis",
+          "title": "Baglioni et al. (2011) — Insomnia and depression meta-analysis",
           "url": "https://doi.org/10.1016/j.jad.2011.01.011",
-          "snippet": "Poor sleep quality precedes \u2248 0.4-0.6 SD depressive symptom increase at 1-week lag.",
-          "effect_size": "\u0394 mood \u2248 0.5 SD per SD sleep quality at 1w lag",
+          "snippet": "Poor sleep quality precedes ≈ 0.4-0.6 SD depressive symptom increase at 1-week lag.",
+          "effect_size": "Δ mood ≈ 0.5 SD per SD sleep quality at 1w lag",
           "study_interval_days": 7.0
         }
       ],
-      "reasoning": "Baglioni 2011 reports \u2248 0.5 SD sleep-to-mood coupling at 1-week lag. We author directly on the 1-day model interval: mu \u2248 0.5/7 \u2248 0.07 captures the per-day linear contribution; sigma=0.04 to acknowledge within-person reverse causation (depressed mood worsens sleep, captured by the affective_state -> sleep_quality lagged feedback edge in the DAG).",
+      "reasoning": "Baglioni 2011 reports ≈ 0.5 SD sleep-to-mood coupling at 1-week lag. We author directly on the 1-day model interval: mu ≈ 0.5/7 ≈ 0.07 captures the per-day linear contribution; sigma=0.04 to acknowledge within-person reverse causation (depressed mood worsens sleep, captured by the affective_state -> sleep_quality lagged feedback edge in the DAG).",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1084,7 +1083,7 @@
         "sigma": 0.3
       },
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6).",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1096,7 +1095,7 @@
         "sigma": 0.3
       },
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6).",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1108,7 +1107,7 @@
         "sigma": 0.3
       },
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
+      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in ≈ ±0.6).",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1121,14 +1120,14 @@
       },
       "sources": [
         {
-          "title": "Magnusson & Boivin (2003) \u2014 SAD prevalence and severity",
+          "title": "Magnusson & Boivin (2003) — SAD prevalence and severity",
           "url": "https://doi.org/10.1093/oxfordjournals.epirev.a018023",
-          "snippet": "Subclinical-SAD spectrum at 40\u00b0N latitude shows \u2248 0.3-0.5 SD downward shift in mood at winter trough vs summer peak.",
-          "effect_size": "\u0394 mood \u2248 -0.4 SD across seasonal range",
+          "snippet": "Subclinical-SAD spectrum at 40°N latitude shows ≈ 0.3-0.5 SD downward shift in mood at winter trough vs summer peak.",
+          "effect_size": "Δ mood ≈ -0.4 SD across seasonal range",
           "study_interval_days": 180.0
         }
       ],
-      "reasoning": "Photoperiod-driven seasonal mood swing of -0.4 SD across a 180-day half-cycle. We author directly on the 1-day model interval: mu \u2248 -0.02 captures the per-day linear contribution; sigma=0.02 keeps the prior tight to stay in the linear matrix-log regime. Long-interval reference_interval_days rescaling was rejected because the CT/DT compiler is poorly conditioned for 180d rescaling at this latent state count.",
+      "reasoning": "Photoperiod-driven seasonal mood swing of -0.4 SD across a 180-day half-cycle. We author directly on the 1-day model interval: mu ≈ -0.02 captures the per-day linear contribution; sigma=0.02 keeps the prior tight to stay in the linear matrix-log regime. Long-interval reference_interval_days rescaling was rejected because the CT/DT compiler is poorly conditioned for 180d rescaling at this latent state count.",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1141,14 +1140,14 @@
       },
       "sources": [
         {
-          "title": "Kessler (1997) \u2014 Life events and depression",
+          "title": "Kessler (1997) — Life events and depression",
           "url": null,
-          "snippet": "Major external stressors (bereavement, divorce, family illness) produce \u2248 1 SD short-term negative mood shifts in vulnerable individuals, decaying over 6-12 months.",
-          "effect_size": "\u2248 +1 SD acute mood drop per major event",
+          "snippet": "Major external stressors (bereavement, divorce, family illness) produce ≈ 1 SD short-term negative mood shifts in vulnerable individuals, decaying over 6-12 months.",
+          "effect_size": "≈ +1 SD acute mood drop per major event",
           "study_interval_days": 30.0
         }
       ],
-      "reasoning": "Major external stressors produce \u2248 +1 SD acute mood drops over \u2248 30 days. We author directly on the 1-day model interval: mu \u2248 0.08 per day captures the integrated daily contribution during a stressor episode (which is short-lived for this patient given the resilience demonstrated around mom's diagnosis); sigma=0.05 reflects within-person variability in stressor sensitivity.",
+      "reasoning": "Major external stressors produce ≈ +1 SD acute mood drops over ≈ 30 days. We author directly on the 1-day model interval: mu ≈ 0.08 per day captures the integrated daily contribution during a stressor episode (which is short-lived for this patient given the resilience demonstrated around mom's diagnosis); sigma=0.05 reflects within-person variability in stressor sensitivity.",
       "reference_interval_days": 1.0,
       "density_points": null
     },
@@ -1201,7 +1200,7 @@
           "study_interval_days": null
         }
       ],
-      "reasoning": "Patient-specific prior centered on the genotype-derived enzyme-activity score: rs4244285 AG \u2192 *1/*2 \u2192 intermediate \u2192 0.5 on the [poor=0.0, intermediate=0.5, normal=1.0, rapid=1.5, ultrarapid=2.0] scale. Tight sigma=0.1 reflects the near-deterministic nature of genotype-phenotype mapping at this locus.",
+      "reasoning": "Patient-specific prior centered on the genotype-derived enzyme-activity score: rs4244285 AG → *1/*2 → intermediate → 0.5 on the [poor=0.0, intermediate=0.5, normal=1.0, rapid=1.5, ultrarapid=2.0] scale. Tight sigma=0.1 reflects the near-deterministic nature of genotype-phenotype mapping at this locus.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1224,7 +1223,7 @@
         "sigma": 4.593146346417814
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(gp_clinical_severity)=2.81, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 9.19. Prior centered there with \u03c3=4.59 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(gp_clinical_severity)=2.81, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 9.19. Prior centered there with σ=4.59 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1236,7 +1235,7 @@
         "sigma": 1.817712678974377
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_affect_severity)=1.11, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 3.64. Prior centered there with \u03c3=1.82 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_affect_severity)=1.11, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 3.64. Prior centered there with σ=1.82 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1248,7 +1247,7 @@
         "sigma": 4.326407408273886
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 8.65. Prior centered there with \u03c3=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE λ ≈ sign × 8.65. Prior centered there with σ=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1272,7 +1271,7 @@
         "sigma": 7.595486585976091
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(nightly_hrv_ms)=5.95, y_sd(total_sleep_hours, marker)=0.392, so MLE \u03bb \u2248 sign \u00d7 15.2. Prior centered there with \u03c3=7.6 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(nightly_hrv_ms)=5.95, y_sd(total_sleep_hours, marker)=0.392, so MLE λ ≈ sign × 15.2. Prior centered there with σ=7.6 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1284,7 +1283,7 @@
         "sigma": 4.923942124852214
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(sleep_efficiency_pct)=3.86, y_sd(total_sleep_hours, marker)=0.392, so MLE \u03bb \u2248 sign \u00d7 9.85. Prior centered there with \u03c3=4.92 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(sleep_efficiency_pct)=3.86, y_sd(total_sleep_hours, marker)=0.392, so MLE λ ≈ sign × 9.85. Prior centered there with σ=4.92 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1308,7 +1307,7 @@
         "sigma": 0.1
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(exercise_minutes)=7.68, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 0.00471. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
+      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(exercise_minutes)=7.68, y_sd(daily_step_count, marker)=1.63e+03, so MLE λ ≈ sign × 0.00471. Prior centered there with σ=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data — see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },

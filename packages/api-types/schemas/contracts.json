@@ -190,18 +190,6 @@
     "BaselineReportContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "intervention_results": {
           "items": {
             "$ref": "#/$defs/TreatmentEffectContract"
@@ -1036,6 +1024,46 @@
       "title": "InitializationPolicy",
       "type": "string"
     },
+    "KnownInput": {
+      "description": "Observed input trajectory used as a deterministic transition driver.",
+      "properties": {
+        "construct": {
+          "description": "Construct removed from the latent state vector",
+          "title": "Construct",
+          "type": "string"
+        },
+        "source_indicator": {
+          "description": "Measurement indicator column supplying u(t)",
+          "title": "Source Indicator",
+          "type": "string"
+        },
+        "scale": {
+          "default": 1.0,
+          "description": "Positive divisor applied to the source indicator before inference",
+          "exclusiveMinimum": 0.0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "missing_policy": {
+          "default": "zero",
+          "description": "How to fill missing input values on the model time grid",
+          "enum": [
+            "zero",
+            "forward_fill"
+          ],
+          "title": "Missing Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "construct",
+        "missing_policy",
+        "scale",
+        "source_indicator"
+      ],
+      "title": "KnownInput",
+      "type": "object"
+    },
     "LLMTrace": {
       "description": "Full trace of an LLM conversation.",
       "properties": {
@@ -1176,18 +1204,6 @@
     "LatentStructureContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "latent_structure": {
           "$ref": "#/$defs/LatentStructure"
         }
@@ -1533,23 +1549,20 @@
     "MeasurementStructureContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "measurement_structure": {
           "$ref": "#/$defs/MeasurementStructure"
+        },
+        "known_inputs": {
+          "description": "Authored declarations of observed construct trajectories compiled as transition inputs rather than latent states",
+          "items": {
+            "$ref": "#/$defs/KnownInput"
+          },
+          "title": "Known Inputs",
+          "type": "array"
         }
       },
       "required": [
+        "known_inputs",
         "measurement_structure"
       ],
       "title": "MeasurementStructureContract",
@@ -1558,18 +1571,6 @@
     "MeasurementsContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "workers": {
           "items": {
             "$ref": "#/$defs/WorkerStatusContract"
@@ -2373,18 +2374,6 @@
     "RawDataContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "column_descriptions": {
           "items": {
             "$ref": "#/$defs/RawDataColumnDescriptionContract"
@@ -2547,18 +2536,6 @@
     "StatisticalModelSpecContract": {
       "additionalProperties": false,
       "properties": {
-        "llm_trace_ref": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Llm Trace Ref"
-        },
         "statistical_model_spec": {
           "$ref": "#/$defs/StatisticalModelSpec"
         },

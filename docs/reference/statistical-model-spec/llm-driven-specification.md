@@ -160,7 +160,7 @@ After all constructs are admitted, a deterministic barrier compiles the complete
 
 1. reconstructs the complete accepted state from the latest checkpoint;
 2. materializes `StatisticalModelSpec` and authored priors;
-3. merges per-attempt LLM traces;
+3. leaves finalized per-attempt LLM traces in the sequence-owned run for journal promotion;
 4. writes the versioned `statistical_model_spec` artifact with the run's input pins; and
 5. invokes the normal derivation cascade that produces `compiled_ssm`.
 

@@ -1,25 +1,25 @@
-import { getToolServerUrl } from "@/lib/runtime-urls";
 import type { CapabilitiesResponse, LLMTrace } from "@nof1-causal-lab/api-types";
 import type {
   EpisodeArtifactId,
   EpisodeEvent,
-  JsonObject,
   EpisodeMove,
   EpisodeStatus,
+  JsonObject,
   MachineDescription,
   MoveOutcome,
   TransitionRecord,
 } from "@/lib/episode-types";
+import { getToolServerUrl } from "@/lib/runtime-urls";
 
 export type {
   EpisodeArtifactId,
   EpisodeArtifactStatus,
   EpisodeEvent,
-  JsonObject,
   EpisodeMove,
   EpisodeProvenance,
   EpisodeState,
   EpisodeStatus,
+  JsonObject,
   MachineDescription,
   MoveOutcome,
   RetractedArtifact,
@@ -114,11 +114,40 @@ export async function getEpisodeEvents(
   return episodeFetch(`/${workspaceId}/events${search}`);
 }
 
-export async function getEpisodeTrace(workspaceId: string, ref: string): Promise<LLMTrace> {
-  const search = new URLSearchParams({ ref }).toString();
-  const response = await fetch(`${TOOL_SERVER}/api/episodes/${workspaceId}/traces?${search}`, {
-    cache: "no-store",
-  });
+export interface TransitionTraceIndex {
+  workspace_id: string;
+  artifact_id: string;
+  version: number;
+  seq: number;
+  trace_ids: string[];
+}
+
+export async function getArtifactTraceIndex(
+  workspaceId: string,
+  artifactId: string,
+): Promise<TransitionTraceIndex> {
+  const response = await fetch(
+    `${TOOL_SERVER}/api/episodes/${workspaceId}/artifacts/${artifactId}/traces`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new EpisodeRunError(
+      response.status === 404 ? 404 : 502,
+      `Trace API error ${response.status}: ${await response.text()}`,
+    );
+  }
+  return response.json() as Promise<TransitionTraceIndex>;
+}
+
+export async function getEpisodeTrace(
+  workspaceId: string,
+  seq: number,
+  subroutineId: string,
+): Promise<LLMTrace> {
+  const response = await fetch(
+    `${TOOL_SERVER}/api/episodes/${workspaceId}/traces/${seq}/${encodeURIComponent(subroutineId)}`,
+    { cache: "no-store" },
+  );
   if (!response.ok) {
     throw new EpisodeRunError(
       response.status === 404 ? 404 : 502,

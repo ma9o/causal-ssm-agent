@@ -155,8 +155,8 @@ def model_spec_admission_evaluation_key(
 
 def model_spec_admission_evaluation_path(workspace_id: str, evaluation_key: str) -> str:
     return storage.join(
-        data_module.runs_dir(workspace_id),
-        "model-spec-admission-evaluations",
+        data_module.cache_dir(workspace_id),
+        "admission-evaluations",
         f"v{ADMISSION_EVALUATION_SCHEMA_VERSION}",
         f"{evaluation_key}.json",
     )
@@ -181,29 +181,31 @@ def write_model_spec_admission_evaluation(
 
 def _checkpoint_dir(workspace_id: str, run_id: str) -> str:
     return storage.join(
-        data_module.runs_dir(workspace_id),
-        "model-spec-checkpoints",
-        run_id,
+        data_module.scratch_run_dir(workspace_id, run_id),
+        "checkpoints",
     )
 
 
-def _checkpoint_ref(path: str) -> str:
-    base = data_module.DATA_URI.rstrip("/")
-    prefix = f"{base}/"
-    if not path.startswith(prefix):
-        raise ValueError(f"Checkpoint path {path!r} is not under data root {base!r}")
-    return CHECKPOINT_REF_PREFIX + path[len(prefix) :]
+def _checkpoint_ref(run_id: str, checkpoint_id: str) -> str:
+    if "/" in run_id or not run_id:
+        raise ValueError(f"Invalid model-spec checkpoint run id: {run_id!r}")
+    if "/" in checkpoint_id or not checkpoint_id:
+        raise ValueError(f"Invalid model-spec checkpoint id: {checkpoint_id!r}")
+    return f"{CHECKPOINT_REF_PREFIX}{run_id}/{checkpoint_id}"
+
+
+def _parse_checkpoint_ref(ref: str) -> tuple[str, str]:
+    if not ref.startswith(CHECKPOINT_REF_PREFIX):
+        raise ValueError(f"Not a model-spec checkpoint ref: {ref!r}")
+    parts = ref[len(CHECKPOINT_REF_PREFIX) :].split("/")
+    if len(parts) != 2 or not all(parts) or any(part in {".", ".."} for part in parts):
+        raise ValueError(f"Invalid model-spec checkpoint ref: {ref!r}")
+    return parts[0], parts[1]
 
 
 def _checkpoint_path(workspace_id: str, ref: str) -> str:
-    if not ref.startswith(CHECKPOINT_REF_PREFIX):
-        raise ValueError(f"Not a model-spec checkpoint ref: {ref!r}")
-    relative = ref[len(CHECKPOINT_REF_PREFIX) :]
-    if relative.startswith("/") or ".." in relative.split("/"):
-        raise ValueError(f"Invalid model-spec checkpoint ref: {ref!r}")
-    if not relative.startswith(f"{workspace_id}/run/model-spec-checkpoints/"):
-        raise ValueError(f"Checkpoint ref {ref!r} does not belong to workspace {workspace_id!r}")
-    return storage.join(data_module.DATA_URI, relative)
+    run_id, checkpoint_id = _parse_checkpoint_ref(ref)
+    return storage.join(_checkpoint_dir(workspace_id, run_id), checkpoint_id)
 
 
 def read_model_spec_checkpoint(workspace_id: str, ref: str) -> ModelSpecCheckpoint:
@@ -213,14 +215,15 @@ def read_model_spec_checkpoint(workspace_id: str, ref: str) -> ModelSpecCheckpoi
 
 
 def _write_checkpoint(path: str, checkpoint: ModelSpecCheckpoint) -> str:
+    ref = _checkpoint_ref(checkpoint.run_id, path.rsplit("/", 1)[-1])
     if storage.exists(path):
         existing = ModelSpecCheckpoint.model_validate(storage.read_json(path))
         expected = checkpoint.model_copy(update={"created_at": existing.created_at})
         if existing != expected:
             raise ValueError(f"Checkpoint path collision at {path}")
-        return _checkpoint_ref(path)
+        return ref
     storage.write_text(path, checkpoint.model_dump_json())
-    return _checkpoint_ref(path)
+    return ref
 
 
 def write_initial_model_spec_checkpoint(
@@ -271,7 +274,11 @@ def existing_accepted_checkpoint_ref(
     submission_id: str,
 ) -> str | None:
     path = accepted_checkpoint_path(checkpoint, submission_id)
-    return _checkpoint_ref(path) if storage.exists(path) else None
+    return (
+        _checkpoint_ref(checkpoint.run_id, path.rsplit("/", 1)[-1])
+        if storage.exists(path)
+        else None
+    )
 
 
 def write_accepted_model_spec_checkpoint(
@@ -344,9 +351,8 @@ def latest_failed_model_spec_checkpoint_ref(workspace_id: str) -> str | None:
             continue
         if record.status == "applied":
             return None
-        if record.status == "raised":
-            ref = record.diagnostics.get("checkpoint_ref")
-            return ref if isinstance(ref, str) else None
+        if record.status == "raised" and record.resume is not None:
+            return _checkpoint_ref(record.resume.run_id, record.resume.checkpoint_id)
     return None
 
 

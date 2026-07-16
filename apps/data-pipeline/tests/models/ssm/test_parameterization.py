@@ -1188,6 +1188,7 @@ class TestCompiledArtifactIntegration:
         assert artifact.spec.manifest_names == ["mood_score"]
         assert artifact.spec.input_names == ["dose"]
         assert artifact.spec.input_source_indicators == ["dose_mg"]
+        assert artifact.spec.input_lagged == [True]
         assert artifact.spec.input_effect_block["free_support"] == [[True]]
         beta_binding = next(
             binding
@@ -1239,6 +1240,22 @@ class TestCompiledArtifactIntegration:
         del payload["compiled_prior_semantics"]
 
         with pytest.raises(ValidationError, match="compiled_prior_semantics"):
+            CompiledSSMArtifact.model_validate(payload)
+
+    def test_compiled_artifact_requires_input_alignment_metadata(
+        self, statistical_model_spec_and_priors
+    ):
+        from pydantic import ValidationError
+
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+
+        statistical_model_spec, priors = statistical_model_spec_and_priors
+        artifact = compile_ssm_artifact(statistical_model_spec, priors)
+        payload = artifact.model_dump(mode="json")
+        del payload["spec"]["input_lagged"]
+
+        with pytest.raises(ValidationError, match="input_lagged"):
             CompiledSSMArtifact.model_validate(payload)
 
     def test_end_to_end_compile_rebuild_sample(self, statistical_model_spec_and_priors):

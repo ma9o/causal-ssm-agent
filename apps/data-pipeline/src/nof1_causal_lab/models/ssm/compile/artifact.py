@@ -100,6 +100,7 @@ def serialize_ssm_spec(spec: SSMSpec) -> SerializedSSMSpec:
         "input_source_indicators": _to_jsonable(spec.input_source_indicators),
         "input_scales": _to_jsonable(spec.input_scales),
         "input_missing_policies": _to_jsonable(spec.input_missing_policies),
+        "input_lagged": _to_jsonable(spec.input_lagged),
         "static_factor_names": _to_jsonable(spec.static_factor_names),
         "initialization_policy": spec.initialization_policy,
         "observation_intercept_policy": spec.observation_intercept_policy,
@@ -223,6 +224,7 @@ def deserialize_ssm_spec(payload: SerializedSSMSpec) -> SSMSpec:
             if payload.input_missing_policies is not None
             else None
         ),
+        input_lagged=payload.input_lagged,
         static_factor_names=payload.static_factor_names,
         initialization_policy=payload.initialization_policy,
         observation_intercept_policy=payload.observation_intercept_policy,

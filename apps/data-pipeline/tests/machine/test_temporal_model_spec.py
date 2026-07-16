@@ -112,6 +112,11 @@ def test_submit_construct_adapter_persists_tool_feedback(
         "write_subroutine_json",
         lambda ref, value: saved.__setitem__(ref, value),
     )
+    monkeypatch.setattr(
+        checkpoints,
+        "write_model_spec_admission_evaluation",
+        lambda ref, evaluation: saved.__setitem__(ref, evaluation.model_dump(mode="json")),
+    )
     monkeypatch.setattr(llm_tool_adapters.storage, "exists", lambda _ref: False)
     monkeypatch.setattr(
         checkpoints,
@@ -283,6 +288,11 @@ def test_semantically_identical_submissions_reuse_admission_evaluation(monkeypat
         lambda ref, value: saved.__setitem__(ref, value),
     )
     monkeypatch.setattr(llm_tool_adapters.storage, "exists", lambda ref: ref in saved)
+    monkeypatch.setattr(
+        checkpoints,
+        "write_model_spec_admission_evaluation",
+        lambda ref, evaluation: saved.__setitem__(ref, evaluation.model_dump(mode="json")),
+    )
     monkeypatch.setattr(
         checkpoints,
         "load_checkpoint_construct_state",

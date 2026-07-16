@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.flows.contracts_base import LLMArtifactContract, ToolContract
+from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
 
 
 class ValidateExtractionsInput(BaseModel):
@@ -36,5 +36,5 @@ class WorkerStatusContract(BaseModel):
     error: str | None = None
 
 
-class MeasurementsContract(LLMArtifactContract):
+class MeasurementsContract(BaseArtifactContract):
     workers: list[WorkerStatusContract]

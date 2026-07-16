@@ -39,7 +39,7 @@ from nof1_causal_lab.utils import storage
 
 
 def _run_root(workspace_id: str, run_id: str) -> str:
-    return storage.join(data_module.runs_dir(workspace_id), "temporal-measurements", run_id)
+    return storage.join(data_module.scratch_run_dir(workspace_id, run_id), "extraction")
 
 
 def _write_json(path: str, value: Any) -> None:
@@ -336,7 +336,6 @@ async def finalize_extraction_chunk_activity(
             "dataframe": dataframe.to_dicts(),
             "n_extractions": len(output.extractions),
             "status": "completed",
-            "trace_ref": input.trace_ref,
         },
     )
     return ExtractionChunkResult(
@@ -346,7 +345,6 @@ async def finalize_extraction_chunk_activity(
         n_windows=input.n_windows,
         n_llm_calls=input.n_llm_calls,
         result_ref=result_ref,
-        trace_ref=input.trace_ref,
     )
 
 
@@ -369,7 +367,6 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
 
         semantic_dicts: list[dict[str, Any]] = []
         worker_statuses: list[dict[str, Any]] = []
-        sampled_llm_trace_ref: str | None = None
 
         for chunk_spec in chunk_specs:
             worker_id = int(chunk_spec["worker_id"])
@@ -387,8 +384,6 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
             if result.status == "completed" and result.result_ref is not None:
                 chunk_payload = _read_json(result.result_ref)
                 semantic_dicts.extend(chunk_payload.get("dataframe") or [])
-                if sampled_llm_trace_ref is None and result.trace_ref is not None:
-                    sampled_llm_trace_ref = result.trace_ref
 
         all_dicts = computed_dicts + semantic_dicts
         observation_rows = cast(
@@ -407,15 +402,9 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                 if result.status == "completed"
             ),
         }
-        if sampled_llm_trace_ref is not None:
-            extraction_result["llm_trace_ref"] = sampled_llm_trace_ref
-
         materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
         panel = materialized["data_for_model"]
         report: dict[str, Any] = {"workers": materialized["worker_statuses"]}
-        llm_trace_ref = materialized.get("llm_trace_ref")
-        if llm_trace_ref is not None:
-            report["llm_trace_ref"] = llm_trace_ref
         report = _filter_measurements_contract(MeasurementsContract, report)
 
         store = ArtifactStore(input.workspace_id)
