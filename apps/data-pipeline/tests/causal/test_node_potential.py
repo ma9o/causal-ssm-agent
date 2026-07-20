@@ -142,7 +142,7 @@ class TestNodePotentialSpec:
         tr = trace(seed(lambda: compiled.sample_params(prior_fn), 0)).get_trace()
         samples = {k: v["value"] for k, v in tr.items() if v["type"] == "sample"}
 
-        packed = pack_component_params_from_samples(spec, samples, {})
+        packed = pack_component_params_from_samples(spec, samples)
         assert len(packed) == 1
         assert set(packed[0]) == {"center", "stiffness", "quartic"}
         assert float(packed[0]["quartic"]) == 0.0  # fixed default flows through

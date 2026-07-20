@@ -119,6 +119,15 @@ def _model_spec(
     )
 
 
+def _manifest_mean(variable: str) -> ParameterSpec:
+    return ParameterSpec(
+        name=f"manifest_mean_{variable}",
+        role=ParameterRole.OBSERVATION_INTERCEPT,
+        constraint=ParameterConstraint.NONE,
+        description=f"Observation intercept for {variable}",
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Ordered-logistic: free threshold base, no centering
 # ═══════════════════════════════════════════════════════════════════════
@@ -156,6 +165,17 @@ class TestOrderedThresholds:
         assert float(spec.lambda_block.template[0, 0]) == 1.0
         assert not spec.lambda_block.free_support[0, 0]
 
+    def test_manifest_intercept_is_rejected_for_threshold_channel(self):
+        causal_design = _causal_design(["mood"], [_indicator("mood_level", "mood", "ordinal")])
+        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
+            translate_spec(
+                _model_spec(
+                    [_likelihood("mood_level", "ordinal")],
+                    [_manifest_mean("mood_level")],
+                ),
+                causal_design=causal_design,
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Location anchors: equilibrium center and static t0 mean
@@ -163,6 +183,28 @@ class TestOrderedThresholds:
 
 
 class TestLocationAnchors:
+    def test_manifest_intercept_is_rejected_for_standardized_channel(self):
+        causal_design = _causal_design(["mood"], [_indicator("mood_rating", "mood", "continuous")])
+        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
+            translate_spec(
+                _model_spec(
+                    [_likelihood("mood_rating", "continuous")],
+                    [_manifest_mean("mood_rating")],
+                ),
+                causal_design=causal_design,
+            )
+
+    def test_manifest_intercept_remains_free_for_binary_channel(self):
+        causal_design = _causal_design(["mood"], [_indicator("mood_flag", "mood", "binary")])
+        spec, _ = translate_spec(
+            _model_spec(
+                [_likelihood("mood_flag", "binary")],
+                [_manifest_mean("mood_flag")],
+            ),
+            causal_design=causal_design,
+        )
+        assert spec.manifest_means_block.free_support.tolist() == [True]
+
     def test_free_center_without_standardized_channel_fails(self):
         causal_design = _causal_design(["mood"], [_indicator("mood_flag", "mood", "binary")])
         spec = _model_spec(
@@ -296,22 +338,27 @@ class TestCategoricalAnchors:
             causal_design=causal_design,
         )
         assert spec.manifest_cat_anchor == [True]
+        assert spec.manifest_level_counts == [3]
 
         extra = assemble_sampled_extra_params(
-            block_ssm_spec(
-                n_latent=1,
-                n_manifest=1,
-                dynamics_spec=DynamicsSpec(n_latent=1, components=()),
-                manifest_dists=[DistributionFamily.CATEGORICAL],
-                manifest_level_counts=[3],
-                manifest_cat_anchor=[True],
-            ),
+            spec,
             {
                 "obs_cat_intercepts": jnp.array([[0.3, -0.4]]),
                 "obs_cat_slopes": jnp.array([[9.9, 2.0]]),
             },
         )
         np.testing.assert_allclose(np.asarray(extra["obs_cat_slopes"]), np.array([[1.0, 2.0]]))
+
+    def test_manifest_intercept_is_rejected_for_categorical_channel(self):
+        causal_design = _causal_design(["mood"], [_indicator("mood_kind", "mood", "categorical")])
+        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
+            translate_spec(
+                _model_spec(
+                    [_likelihood("mood_kind", "categorical")],
+                    [_manifest_mean("mood_kind")],
+                ),
+                causal_design=causal_design,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════

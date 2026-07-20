@@ -79,11 +79,35 @@ def _indicators_for(causal_design: dict, construct: str) -> list[dict]:
 def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> list[str]:
     """The compiler-authoritative free parameters this construct may author priors for."""
     assert state.catalog is not None  # set in ConstructBuildState.__post_init__
-    names = set(state.catalog.by_construct.get(construct, ()))
+    names = state.catalog.prior_names_for(
+        construct,
+        admitted_prior_names=state.admission.priors,
+    )
     names |= deferred_closing_edge_params(
         state.causal_design, construct, set(state.admission.names)
     )
     return sorted(names)
+
+
+def _parameter_activation_note(parameter: dict[str, Any]) -> str:
+    """Describe the submitted-likelihood condition for a conditional prior surface."""
+    if not parameter.get("conditional_prior_surface"):
+        return ""
+    role = str(parameter["role"])
+    if role == "observation_intercept":
+        return (
+            " — conditional: include only when the chosen channel needs an observation "
+            "intercept; omit for threshold/categorical and auto-standardized channels"
+        )
+    if role == "loading":
+        return " — conditional: omit when this indicator uses `categorical`"
+    if role == "initial_state_mean":
+        return " — conditional: include only when this time-invariant construct is standardized"
+    families = parameter.get("activation_distribution_families") or ()
+    if families:
+        rendered = ", ".join(f"`{family}`" for family in families)
+        return f" — conditional: include only when a relevant channel uses {rendered}"
+    return " — conditional on the locked model choices"
 
 
 def _format_number(value: Any) -> str:
@@ -481,12 +505,14 @@ def build_construct_messages(
     ]
     lines += [
         "",
-        "## Author priors for exactly these canonical parameters",
+        "## Canonical parameters available for this construct",
         "",
-        "Author a prior for each parameter below, plus any optional structural "
-        "declaration you choose to enable (listed next). Do NOT author a prior for "
-        "any name in neither list — it is not a free parameter of this construct "
-        "and is rejected. Each prior's support must lie within the stated domain. "
+        "Author a prior for each active parameter below, plus any optional structural "
+        "declaration you choose to enable (listed next). Parameters marked conditional "
+        "must be omitted when your submitted likelihood does not activate them; the tool "
+        "checks this against the locked family and link. Do NOT author a prior for any name "
+        "in neither list — it is not a free parameter of this construct and is rejected. "
+        "Each prior's support must lie within the stated domain. "
         "Use the exact value shape "
         '`{"distribution": "Normal", "params": {"mu": 0, "sigma": 1}, '
         '"reasoning": "..."}`. Do not use `dist` or place distribution parameters '
@@ -511,6 +537,7 @@ def build_construct_messages(
         lines.append(
             f"- `{n}` — {role.value.replace('_', ' ')} — support ⊆ "
             f"{constraint_domain(constraint.value)}{family_requirement}"
+            f"{_parameter_activation_note(dict(catalog.metadata_for(n)))}"
         )
     if "obs_cat_slopes" in param_names:
         lines.append(

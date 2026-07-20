@@ -866,7 +866,6 @@ def iter_dynamics_semantic_bindings(
 def pack_component_params_from_samples(
     spec: DynamicsSpec,
     samples: dict[str, Array],
-    deterministics: dict[str, Array],  # noqa: ARG001 - retained for call-site uniformity
     *,
     prefix: str = "vf",
 ) -> tuple[dict[str, Array], ...]:

@@ -10,6 +10,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     LinkFunction,
 )
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
+from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
 from nof1_causal_lab.utils.causal_design import (
     build_reference_indicator_lookup,
     get_constructs,
@@ -219,6 +220,7 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
                 "construct": construct_name,
                 "reference_indicator": reference_indicator,
                 "indicator_polarity": get_indicator_polarity(indicator),
+                "conditional_prior_surface": True,
             }
         )
 
@@ -331,6 +333,18 @@ def _compiler_authoritative_model_spec_inventory(
     provisional_likelihoods = [
         *resolved_likelihoods,
         *_provisional_likelihood_choices(ambiguous_indicators),
+    ]
+    provisional_likelihoods = [
+        {
+            **likelihood,
+            "standardized": should_auto_standardize_indicator(
+                likelihood["distribution"],
+                likelihood["link"],
+                likelihood.get("support_kind"),
+                likelihood.get("summary_operator"),
+            ),
+        }
+        for likelihood in provisional_likelihoods
     ]
     provisional_likelihood_by_variable = {
         str(likelihood["variable"]): dict(likelihood) for likelihood in provisional_likelihoods
@@ -974,7 +988,6 @@ def _provisional_likelihood_choices(
                 "link": link,
                 "support_kind": item.get("support_kind"),
                 "summary_operator": item.get("summary_operator"),
-                "standardized": False,
                 "reasoning": "Deterministic provisional choice for compiler-owned prior discovery.",
             }
         )

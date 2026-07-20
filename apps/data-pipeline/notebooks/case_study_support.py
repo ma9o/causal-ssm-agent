@@ -118,18 +118,8 @@ def _viz_saturation(ev):
 def _viz_coverage(ev):
     fig, ax = plt.subplots(figsize=(8.5, 2.8))
     ax.hist(ev["pp"], bins=60, density=True, color="#c5c5c5", label="prior predictive (pooled)")
-    ax.hist(
-        ev["signal"],
-        bins=60,
-        density=True,
-        color="#4a9d5b",
-        alpha=0.4,
-        label="signal only (noise-free)",
-    )
     ax.hist(ev["y_obs"], bins=20, density=True, color="#3b6ea5", alpha=0.6, label="observed")
-    ax.axvline(ev["lo"], color="#c0504d", ls="--", label="pp [1,99]% band")
-    ax.axvline(ev["hi"], color="#c0504d", ls="--")
-    ax.set_title("prior predictive vs observed — location, width, transmission", fontsize=9)
+    ax.set_title("prior predictive vs observed — location and width", fontsize=9)
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()

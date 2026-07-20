@@ -51,7 +51,7 @@ def component_param_samples_from_site_samples(
             for name, values in samples.items()
             if hasattr(values, "shape") and len(values.shape) > 0
         }
-        param_samples.append(pack_vector_field_params_from_samples(spec, draw, draw, prefix=prefix))
+        param_samples.append(pack_vector_field_params_from_samples(spec, draw, prefix=prefix))
     return param_samples
 
 

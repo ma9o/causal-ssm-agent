@@ -15,7 +15,10 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     StatisticalModelSpec,
 )
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+from nof1_causal_lab.models.model_semantics import (
+    indicator_requires_observation_intercept,
+    should_auto_standardize_indicator,
+)
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
     HillEdgeSpec,
@@ -476,22 +479,30 @@ def build_manifest_level_counts_from_causal_design(
     errors: list[str] = []
 
     for idx, (manifest_name, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
-        if dist != DistributionFamily.ORDERED_LOGISTIC:
+        if dist not in {
+            DistributionFamily.ORDERED_LOGISTIC,
+            DistributionFamily.CATEGORICAL,
+        }:
             continue
 
         indicator = indicator_lookup.get(manifest_name)
-        ordinal_levels = (
-            indicator.get("ordinal_levels")
-            if isinstance(indicator, dict)
-            else getattr(indicator, "ordinal_levels", None)
+        levels_field = (
+            "ordinal_levels"
+            if dist == DistributionFamily.ORDERED_LOGISTIC
+            else "categorical_levels"
         )
-        if not ordinal_levels or len(ordinal_levels) < 2:
+        levels = (
+            indicator.get(levels_field)
+            if isinstance(indicator, dict)
+            else getattr(indicator, levels_field, None)
+        )
+        if not levels or len(levels) < 2:
             errors.append(
-                f"Indicator '{manifest_name}' uses ordered_logistic but causal_design is missing "
-                "ordinal_levels with at least 2 levels"
+                f"Indicator '{manifest_name}' uses {dist.value} but causal_design is missing "
+                f"{levels_field} with at least 2 levels"
             )
             continue
-        level_counts[idx] = len(ordinal_levels)
+        level_counts[idx] = len(levels)
 
     if errors:
         raise SpecTranslationError(errors)
@@ -559,7 +570,8 @@ def _build_manifest_standardized_flags(
     indicator_lookup = {}
     if causal_design is not None:
         indicator_lookup = {
-            indicator["name"]: indicator for indicator in get_indicators(causal_design)
+            indicator["name"]: indicator
+            for indicator in (get_indicators(causal_design) if causal_design is not None else [])
         }
 
     standardized: list[bool] = []
@@ -588,6 +600,62 @@ def _build_manifest_standardized_flags(
 
         standardized.append(bool(likelihood.standardized))
     return standardized
+
+
+def _build_manifest_intercept_support(
+    statistical_model_spec: StatisticalModelSpec,
+    manifest_cols: list[str],
+    manifest_standardized: list[bool],
+    *,
+    causal_design: dict | None,
+) -> tuple[np.ndarray, list[str]]:
+    """Bind only observation intercepts active for the locked likelihood semantics."""
+    requested = _build_role_index_lookup(
+        statistical_model_spec,
+        role=ParameterRole.OBSERVATION_INTERCEPT,
+        prefix="manifest_mean_",
+        names=manifest_cols,
+    )
+    if statistical_model_spec.observation_intercept_policy == ObservationInterceptPolicy.FIXED:
+        eligible = np.zeros(len(manifest_cols), dtype=bool)
+    else:
+        indicator_lookup = {
+            indicator["name"]: indicator
+            for indicator in (get_indicators(causal_design) if causal_design is not None else [])
+        }
+        likelihood_lookup = {
+            likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
+        }
+        eligible = np.zeros(len(manifest_cols), dtype=bool)
+        for index, manifest_name in enumerate(manifest_cols):
+            indicator = indicator_lookup.get(manifest_name) or {}
+            support_kind = indicator.get("support_kind")
+            summary_operator = indicator.get("summary_operator")
+            if indicator and (
+                not isinstance(support_kind, str) or not isinstance(summary_operator, str)
+            ):
+                semantics = get_observation_semantics(indicator)
+                support_kind = semantics.support_kind.value
+                summary_operator = semantics.summary_operator.value
+            likelihood = likelihood_lookup[manifest_name]
+            eligible[index] = indicator_requires_observation_intercept(
+                likelihood.distribution,
+                likelihood.link,
+                support_kind if isinstance(support_kind, str) else None,
+                summary_operator if isinstance(summary_operator, str) else None,
+                standardized=manifest_standardized[index],
+            )
+
+    errors = [
+        (
+            f"Observation intercept 'manifest_mean_{manifest_cols[index]}' is inactive for "
+            f"the locked {statistical_model_spec.likelihoods[index].distribution.value}/"
+            f"{statistical_model_spec.likelihoods[index].link.value} likelihood semantics; "
+            "fix the channel location through its compiler-owned anchor instead."
+        )
+        for index in np.flatnonzero(requested & ~eligible)
+    ]
+    return requested & eligible, errors
 
 
 def _latent_standardized_anchor_mask(
@@ -955,18 +1023,21 @@ def translate_spec(
         t0_chol_diag_support = np.zeros(n_latent, dtype=bool)
         t0_chol_diag_support[~dynamic_mask] = True
 
+    manifest_standardized = _build_manifest_standardized_flags(
+        statistical_model_spec,
+        manifest_cols,
+        causal_design=causal_design,
+    )
     observation_intercept_policy = ObservationInterceptPolicy(
         statistical_model_spec.observation_intercept_policy
     )
-    if observation_intercept_policy == ObservationInterceptPolicy.FIXED:
-        manifest_means_support = _zero_vector_support(n_manifest)
-    else:
-        manifest_means_support = _build_role_index_lookup(
-            statistical_model_spec,
-            role=ParameterRole.OBSERVATION_INTERCEPT,
-            prefix="manifest_mean_",
-            names=manifest_cols,
-        )
+    manifest_means_support, manifest_intercept_errors = _build_manifest_intercept_support(
+        statistical_model_spec,
+        manifest_cols,
+        manifest_standardized,
+        causal_design=causal_design,
+    )
+    errors.extend(manifest_intercept_errors)
     if statistical_model_spec.equilibrium_forcing:
         state_intercept_support = _build_role_index_lookup(
             statistical_model_spec,
@@ -986,12 +1057,6 @@ def translate_spec(
     input_names, input_sources, input_scales, input_policies, input_lagged = (
         get_estimation_input_layout(causal_design)
     )
-    manifest_standardized = _build_manifest_standardized_flags(
-        statistical_model_spec,
-        manifest_cols,
-        causal_design=causal_design,
-    )
-
     # Time-invariant constructs have no dynamics anchor (no potential well),
     # so a free t0 mean rides an exact additive ridge with the channel-side
     # location parameters unless a standardized channel pins the construct's

@@ -31,6 +31,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, Par
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -46,8 +47,12 @@ from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, st
 from nof1_causal_lab.utils.causal_design import (
     get_estimation_edges,
     get_estimation_state_order,
+    get_indicators,
     get_known_input_source_indicators,
 )
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+
+from .parameter_surfaces import parameter_is_active_for_statistical_model_spec
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping, Sequence
@@ -96,6 +101,7 @@ class ParamCatalog:
     by_construct: Mapping[str, tuple[str, ...]]
     global_params: frozenset[str]
     site_names: Mapping[str, str]
+    metadata: Mapping[str, Mapping[str, Any]]
 
     @classmethod
     def from_causal_design(cls, causal_design: dict) -> ParamCatalog:
@@ -106,6 +112,7 @@ class ParamCatalog:
         by_construct: dict[str, list[str]] = {}
         global_params: set[str] = set()
         site_names: dict[str, str] = {}
+        metadata: dict[str, Mapping[str, Any]] = {}
         for param in (*skeleton.parameters, *skeleton.loading_params):
             role = ParameterRole(param["role"])
             # Initial-state means/SDs and the `cint_` well-centre are pinned by
@@ -121,9 +128,15 @@ class ParamCatalog:
             # unknown here — so they stay offered and the submit-time compile
             # validates them against the locked family.
             if role in _POLICY_PINNED_ROLES and "compiled_site_kind" not in param:
-                continue
+                is_conditional_static_mean = (
+                    role == ParameterRole.INITIAL_STATE_MEAN
+                    and param.get("temporal_status") == "time_invariant"
+                )
+                if not is_conditional_static_mean:
+                    continue
             name = param["name"]
             roles[name] = (role, ParameterConstraint(param["constraint"]))
+            metadata[name] = dict(param)
             if site_name := param.get("compiled_site_name"):
                 site_names[name] = str(site_name)
             owner = param.get("construct")
@@ -131,11 +144,15 @@ class ParamCatalog:
                 by_construct.setdefault(owner, []).append(name)
             else:
                 global_params.add(name)
+                site_names.setdefault(name, name)
+                for construct_name in param.get("construct_names") or ():
+                    by_construct.setdefault(str(construct_name), []).append(name)
         return cls(
             roles=roles,
             by_construct={c: tuple(v) for c, v in by_construct.items()},
             global_params=frozenset(global_params),
             site_names=site_names,
+            metadata=metadata,
         )
 
     def structural_names(self, construct: str, parents: Sequence[str]) -> set[str]:
@@ -150,18 +167,52 @@ class ParamCatalog:
             )
         return names
 
-    def allowed_for(self, construct: str, parents: Sequence[str]) -> set[str]:
-        return (
-            set(self.by_construct.get(construct, ()))
-            | self.structural_names(construct, parents)
-            | set(self.global_params)
+    def prior_names_for(
+        self,
+        construct: str,
+        *,
+        admitted_prior_names: Collection[str] = (),
+    ) -> set[str]:
+        names = set(self.by_construct.get(construct, ()))
+        names -= self.global_params & set(admitted_prior_names)
+        return names
+
+    def allowed_for(
+        self,
+        construct: str,
+        parents: Sequence[str],
+        *,
+        likelihood_by_variable: Mapping[str, Mapping[str, Any]] | None = None,
+        admitted_prior_names: Collection[str] = (),
+    ) -> set[str]:
+        structural = self.structural_names(construct, parents)
+        names = self.prior_names_for(
+            construct,
+            admitted_prior_names=admitted_prior_names,
         )
+        if likelihood_by_variable is None:
+            return names | structural
+        active = {
+            name
+            for name in names
+            if parameter_is_active_for_statistical_model_spec(
+                dict(self.metadata[name]),
+                {key: dict(value) for key, value in likelihood_by_variable.items()},
+                initialization_policy="stationary",
+                observation_intercept_policy="free",
+                equilibrium_forcing=False,
+            )
+        }
+        return active | structural
 
     def role_for(self, name: str) -> tuple[ParameterRole, ParameterConstraint]:
         return self.roles.get(name, _STRUCTURAL_ROLE)
 
     def site_for(self, name: str) -> str | None:
         return self.site_names.get(name)
+
+    def metadata_for(self, name: str) -> Mapping[str, Any]:
+        return self.metadata[name]
 
 
 def construct_parents(causal_design: dict, construct: str) -> list[str]:
@@ -173,6 +224,36 @@ def construct_parents(causal_design: dict, construct: str) -> list[str]:
         if effect == construct and cause is not None and str(cause) not in parents:
             parents.append(str(cause))
     return parents
+
+
+def _locked_likelihood_by_variable(
+    causal_design: dict,
+    indicators: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Resolve submitted emissions into the compiler's likelihood-activation surface."""
+    indicator_lookup = {indicator["name"]: indicator for indicator in get_indicators(causal_design)}
+    locked: dict[str, dict[str, Any]] = {}
+    for submitted in indicators:
+        variable = str(submitted["variable"])
+        indicator = indicator_lookup[variable]
+        distribution = DistributionFamily(submitted["family"])
+        link = LinkFunction(submitted["link"])
+        semantics = get_observation_semantics(indicator)
+        locked[variable] = {
+            "variable": variable,
+            "distribution": distribution.value,
+            "link": link.value,
+            "construct_name": indicator.get("construct_name"),
+            "support_kind": semantics.support_kind.value,
+            "summary_operator": semantics.summary_operator.value,
+            "standardized": should_auto_standardize_indicator(
+                distribution,
+                link,
+                semantics.support_kind.value,
+                semantics.summary_operator.value,
+            ),
+        }
+    return locked
 
 
 def _acceptance_map(
@@ -580,7 +661,16 @@ class ConstructBuildState:
         closing = deferred_closing_edge_params(
             self.causal_design, construct, set(self.admission.names)
         )
-        allowed = self.catalog.allowed_for(construct, saturating_parents) | closing
+        locked_likelihoods = _locked_likelihood_by_variable(self.causal_design, indicators)
+        allowed = (
+            self.catalog.allowed_for(
+                construct,
+                saturating_parents,
+                likelihood_by_variable=locked_likelihoods,
+                admitted_prior_names=self.admission.priors,
+            )
+            | closing
+        )
         unknown = [name for name in priors if name not in allowed]
         if unknown:
             return (
@@ -803,11 +893,10 @@ SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
         "priors": {
             "type": "object",
             "description": (
-                "Prior proposals keyed by canonical parameter name (rho_<c>, "
-                "sigma_<c>, self_limit_<c>, setpoint_<c>, beta_<p>_<c>, "
-                "hill_emax_<p>_<c>/hill_ec50_<p>_<c>/hill_n_<p>_<c>, "
-                "lambda_<ind>_<c>, obs_sd_<ind>). A Hill edge is declared by "
-                "authoring hill_* priors; a self-limiting well by self_limit_<c>. "
+                "Prior proposals keyed by a canonical parameter name listed in the active "
+                "construct prompt. A Hill edge is declared by authoring hill_* priors; a "
+                "self-limiting well by self_limit_<c>. Conditional likelihood parameters "
+                "must be omitted when the submitted family/link does not activate them. "
                 "Every value must use the canonical {distribution, params, reasoning} shape."
             ),
             "additionalProperties": {

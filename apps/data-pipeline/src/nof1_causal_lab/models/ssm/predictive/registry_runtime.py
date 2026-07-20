@@ -410,9 +410,7 @@ def _simulate_vector_field_predictive_latents(
     # Pack component parameters before entering the compiled simulation. Closing
     # over ``spec`` keeps its structural dataclasses out of JIT's static-argument
     # cache, while vmap broadcasts any component-fixed scalar across draws.
-    vf_params = jax.vmap(lambda draw: pack_vector_field_params_from_samples(spec, draw, draw))(
-        samples
-    )
+    vf_params = jax.vmap(lambda draw: pack_vector_field_params_from_samples(spec, draw))(samples)
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
     cache_key = _prior_predictive_latent_cache_key(
         spec,

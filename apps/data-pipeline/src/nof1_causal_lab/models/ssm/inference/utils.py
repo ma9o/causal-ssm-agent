@@ -328,7 +328,7 @@ def _deterministics_to_likelihood_inputs(
 ) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams]:
     """Convert one deterministic draw into backend parameter dataclasses."""
     diffusion_chol = det["diffusion"]
-    vf_runtime = build_vector_field_runtime_from_samples(spec, samples, det)
+    vf_runtime = build_vector_field_runtime_from_samples(spec, samples)
     return (
         RuntimeDynamics(
             vector_field=vf_runtime.vector_field,

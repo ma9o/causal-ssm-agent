@@ -14,11 +14,6 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
-from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
-    ArtifactId,
-    ArtifactVersionInfo,
-    EpisodeState,
-)
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import (
@@ -32,6 +27,8 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     import polars as pl
     from pydantic import BaseModel
+
+    from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
 
 
 def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:

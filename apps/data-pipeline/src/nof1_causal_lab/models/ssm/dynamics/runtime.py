@@ -48,17 +48,13 @@ def sample_vector_field_runtime(
 def pack_vector_field_params_from_samples(
     spec: SSMSpec,
     samples: Mapping[str, Array],
-    deterministics: Mapping[str, Array] | None = None,
     *,
     prefix: str = "vf",
 ) -> ComponentParams:
     """Pack flat runtime site values into component parameter slices."""
-    sample_dict = dict(samples)
-    deterministic_dict = sample_dict if deterministics is None else dict(deterministics)
     return pack_component_params_from_samples(
         spec.dynamics_spec,
-        sample_dict,
-        deterministic_dict,
+        dict(samples),
         prefix=prefix,
     )
 
@@ -66,7 +62,6 @@ def pack_vector_field_params_from_samples(
 def build_vector_field_runtime_from_samples(
     spec: SSMSpec,
     samples: Mapping[str, Array],
-    deterministics: Mapping[str, Array] | None = None,
     *,
     prefix: str = "vf",
 ) -> VectorFieldRuntime:
@@ -77,7 +72,6 @@ def build_vector_field_runtime_from_samples(
         vf_params=pack_vector_field_params_from_samples(
             spec,
             samples,
-            deterministics,
             prefix=prefix,
         ),
     )

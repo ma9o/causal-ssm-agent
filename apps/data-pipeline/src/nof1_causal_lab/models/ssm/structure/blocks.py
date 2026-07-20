@@ -128,7 +128,7 @@ class DiffusionBlockSpec:
             time_invariant_mask=self.time_invariant_mask,
         )
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
         diag_free = None
         if self.n_diffusion_diag > 0:
             diag_free = numpyro.sample("diffusion_diag_free", prior_fn("diffusion_diag_free"))
@@ -203,7 +203,7 @@ class SparseVectorBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
         free = None
         if self.n_free > 0:
             free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
@@ -273,7 +273,7 @@ class SparseMatrixBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
         free = None
         if self.n_free > 0:
             free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
@@ -335,7 +335,7 @@ class ManifestCholBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
         """Sample the diagonal free entries and assemble the Cholesky.
 
         Does NOT emit a ``manifest_cov`` deterministic — that's the
@@ -472,7 +472,7 @@ class T0CholBlockSpec:
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array | None]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array | None]:
         """Sample free diagonal SDs and free off-diagonal correlations.
 
         Returns a dict keyed by sample-site name; values may be ``None``

@@ -12,11 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.machine.artifact_files import json_filename
-from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
-    ArtifactId,
-    EpisodeState,
-    Provenance,
-)
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
 from nof1_causal_lab.machine.graph import ROOTS, transition_spec
@@ -26,7 +21,12 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo
+    from nof1_causal_lab.machine.artifacts import (
+        ArtifactId,
+        ArtifactVersionInfo,
+        EpisodeState,
+        Provenance,
+    )
 
 
 def _validated(artifact_id: ArtifactId, model_cls: type[BaseModel], payload: dict) -> dict:

@@ -6,7 +6,7 @@ import ast
 import logging
 import re
 from enum import StrEnum
-from typing import Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -29,7 +29,9 @@ from nof1_causal_lab.utils.observation_semantics import (
 )
 
 from .duration import parse_duration_to_hours
-from .latent_structure import LatentStructure  # noqa: TC001
+
+if TYPE_CHECKING:
+    from .latent_structure import LatentStructure
 
 logger = logging.getLogger(__name__)
 

@@ -82,6 +82,13 @@ def test_param_catalog_reflects_compiler_free_params():
     assert "t0_sd_X" not in catalog.by_construct["X"]
 
 
+def test_param_catalog_surfaces_static_mean_when_standardization_can_activate_it():
+    causal_design = _make_causal_design_dict()
+    causal_design["latent"]["constructs"][0]["temporal_status"] = "time_invariant"
+    catalog = ParamCatalog.from_causal_design(causal_design)
+    assert "t0_mean_X" in catalog.by_construct["X"]
+
+
 def test_submit_construct_rejects_non_free_parameter():
     state = ConstructBuildState(
         causal_design=_make_causal_design_dict(),
@@ -95,6 +102,36 @@ def test_submit_construct_rejects_non_free_parameter():
     )
     assert "not free" in feedback
     assert state.current_construct == "X"  # not admitted
+
+
+def test_submit_construct_rejects_intercept_inactive_for_locked_likelihood():
+    causal_design = _make_causal_design_dict()
+    x1 = next(
+        indicator
+        for indicator in causal_design["measurement"]["indicators"]
+        if indicator["name"] == "x1"
+    )
+    x1.update(
+        measurement_dtype="ordinal",
+        aggregation="last",
+        ordinal_levels=["low", "medium", "high"],
+    )
+    state = ConstructBuildState(
+        causal_design=causal_design,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
+    feedback = state.submit_construct(
+        construct="X",
+        indicators=[
+            {"variable": "x1", "family": "ordered_logistic", "link": "cumulative_logit"},
+            {"variable": "x2", "family": "gaussian", "link": "identity"},
+        ],
+        priors={"manifest_mean_x1": _normal(0.0, 1.0)},
+    )
+    assert "not free" in feedback
+    assert "manifest_mean_x1" in feedback
+    assert state.current_construct == "X"
 
 
 def test_construct_parents_reads_the_dag():
@@ -417,6 +454,44 @@ def test_build_construct_messages_surfaces_params_and_feedback():
     )
     assert "Latest reachability feedback" in user2
     assert "C2 latent scale" in user2
+
+
+def test_build_construct_messages_surfaces_conditional_likelihood_parameters():
+    spec = _make_causal_design_dict()
+    x1 = next(
+        indicator for indicator in spec["measurement"]["indicators"] if indicator["name"] == "x1"
+    )
+    x1.update(
+        measurement_dtype="ordinal",
+        aggregation="last",
+        ordinal_levels=["low", "medium", "high"],
+    )
+    state = ConstructBuildState(
+        causal_design=spec,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
+    _system, user = build_construct_messages(
+        state=state,
+        construct="X",
+        question="How does X behave?",
+        causal_design=spec,
+        validation_report={"indicators": {}},
+    )
+    assert "`obs_ordered_base`" in user
+    assert "`obs_ordered_gaps`" in user
+    assert "`manifest_mean_x1`" in user
+    assert "omit for threshold/categorical" in user
+
+    state.admission = AdmissionState(priors={"obs_ordered_base": _normal(0.0, 1.0)})
+    _system, user = build_construct_messages(
+        state=state,
+        construct="X",
+        question="How does X behave?",
+        causal_design=spec,
+        validation_report={"indicators": {}},
+    )
+    assert "`obs_ordered_base`" not in user
 
 
 def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observed_level():

@@ -146,6 +146,12 @@ def authoring_protocol(mo):
     - Accept a soft check only with its exact `(check, target)` pair and a substantive rationale.
       Hard checks are never overridden.
     - Do not author compiler defaults or parameters absent from the production prompt shown below.
+    - Parameters marked conditional in the production prompt are authorable surfaces, not mandatory
+      priors: include them only when the submitted family and link activate them.
+    - For a time-invariant construct without a standardized channel, omit `t0_mean_*`: the
+      compiler fixes the latent location at zero and leaves the channel-side location parameter
+      free. A free latent mean and a free channel location would violate the location-anchor
+      invariant.
     """)
     return
 
@@ -485,14 +491,6 @@ def authored_proposals():
                         "because only five family-history observations exist."
                     ),
                 },
-                "t0_mean_genetic_family_liability": {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.5},
-                    "reasoning": (
-                        "Centers the subject-specific liability on the standardized latent "
-                        "origin without claiming that the sparse count pins its level tightly."
-                    ),
-                },
                 "t0_sd_genetic_family_liability": {
                     "distribution": "LogNormal",
                     "params": {"mu": 0.0, "sigma": 0.3},
@@ -518,20 +516,20 @@ def authored_proposals():
                 }
             ],
             "priors": {
-                "manifest_mean_early_life_adversity_history": {
+                "obs_ordered_base": {
                     "distribution": "Normal",
                     "params": {"mu": 0.0, "sigma": 1.0},
                     "reasoning": (
-                        "Uses a weak ordinal-location prior because a single level-0 observation "
-                        "does not empirically identify the threshold location."
+                        "Weakly centers the pooled ordered-logistic threshold bases while the "
+                        "sparse ordinal channels contribute little empirical location information."
                     ),
                 },
-                "t0_mean_early_life_adversity": {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.5},
+                "obs_ordered_gaps": {
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 1.0},
                     "reasoning": (
-                        "Centers the static adversity state on the standardized latent origin "
-                        "without interpreting the lone observation as strong evidence."
+                        "Keeps adjacent pooled ordered-logistic thresholds separated without "
+                        "claiming precise category spacing from the sparse static histories."
                     ),
                 },
                 "t0_sd_early_life_adversity": {
@@ -560,22 +558,6 @@ def authored_proposals():
                 }
             ],
             "priors": {
-                "manifest_mean_trait_negative_affectivity_level": {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 1.0},
-                    "reasoning": (
-                        "Uses a weak threshold-location surface because only three stable-trait "
-                        "assessments are available."
-                    ),
-                },
-                "t0_mean_temperament_neuroticism_behavioral_inhibition": {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.5},
-                    "reasoning": (
-                        "Centers the time-invariant temperament state on the standardized "
-                        "latent origin while leaving room for this subject's trait level."
-                    ),
-                },
                 "t0_sd_temperament_neuroticism_behavioral_inhibition": {
                     "distribution": "LogNormal",
                     "params": {"mu": 0.0, "sigma": 0.3},
@@ -601,24 +583,6 @@ def authored_proposals():
                 }
             ],
             "priors": {
-                "manifest_mean_trait_negative_affectivity_level": {
-                    "distribution": "Normal",
-                    "params": {"mu": -0.2, "sigma": 0.4},
-                    "reasoning": (
-                        "Slightly lowers the ordinal location from the symmetric prior center "
-                        "toward the observed mean category 1.33 while avoiding a point estimate "
-                        "from only three observations."
-                    ),
-                },
-                "t0_mean_temperament_neuroticism_behavioral_inhibition": {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.3},
-                    "reasoning": (
-                        "Keeps the trait centered on the standardized origin while reducing "
-                        "location uncertainty that was pushing predictive mass into extreme "
-                        "ordinal categories."
-                    ),
-                },
                 "t0_sd_temperament_neuroticism_behavioral_inhibition": {
                     "distribution": "LogNormal",
                     "params": {"mu": -0.5, "sigma": 0.2},
@@ -628,6 +592,143 @@ def authored_proposals():
                     ),
                 },
             },
+            "accept": [
+                {
+                    "check": "C5a location reach",
+                    "target": "trait_negative_affectivity_level",
+                    "rationale": (
+                        "Only three stable-trait observations exist and they occupy the two "
+                        "middle categories. Calibrating a shared ordinal-threshold prior to "
+                        "that empirical frequency would overstate the information in this "
+                        "channel; retaining broad prior-predictive category uncertainty is the "
+                        "more honest consequence."
+                    ),
+                }
+            ],
+        },
+        {
+            "construct": "comorbid_psychiatric_vulnerability",
+            "indicators": [
+                {
+                    "variable": "comorbid_psychiatric_diagnosis_count",
+                    "family": "poisson",
+                    "link": "log",
+                    "reasoning": (
+                        "The 57 observations are nonnegative integer counts with variance close "
+                        "to the mean and no empirical evidence that an extra dispersion parameter "
+                        "is identifiable, so Poisson is the parsimonious compatible emission."
+                    ),
+                }
+            ],
+            "priors": {
+                "manifest_mean_comorbid_psychiatric_diagnosis_count": {
+                    "distribution": "Normal",
+                    "params": {"mu": -0.9, "sigma": 0.5},
+                    "reasoning": (
+                        "Centers the marginal count near the observed 0.67 after log-link mean "
+                        "inflation from an approximately unit-scale static latent, while leaving "
+                        "room for sparse-history uncertainty."
+                    ),
+                },
+                "t0_sd_comorbid_psychiatric_vulnerability": {
+                    "distribution": "LogNormal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "reasoning": (
+                        "Matches the pooled static-state scale family and preserves the "
+                        "standardized-latent convention for this time-invariant vulnerability."
+                    ),
+                },
+            },
+        },
+        {
+            "construct": "stable_ssri_pharmacodynamic_responsiveness",
+            "indicators": [
+                {
+                    "variable": "ssri_responsiveness_evidence_level",
+                    "family": "ordered_logistic",
+                    "link": "cumulative_logit",
+                    "reasoning": (
+                        "The four declared responsiveness levels are ordered and all but the "
+                        "lowest appear in 68 observations, so ordered logistic preserves the "
+                        "structural codebook without treating the scores as metric."
+                    ),
+                }
+            ],
+            "priors": {
+                "t0_sd_stable_ssri_pharmacodynamic_responsiveness": {
+                    "distribution": "LogNormal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "reasoning": (
+                        "Matches the pooled static-state scale family and retains an "
+                        "approximately unit-scale responsiveness trait."
+                    ),
+                },
+            },
+        },
+        {
+            "construct": "cyp2c19_pharmacokinetic_capacity",
+            "indicators": [
+                {
+                    "variable": "cyp2c19_genotype_metabolizer_evidence",
+                    "family": "ordered_logistic",
+                    "link": "cumulative_logit",
+                    "reasoning": (
+                        "The poor-to-ultrarapid metabolizer codebook is intrinsically ordered, "
+                        "and the 15 genotype-derived observations occupy four of its five "
+                        "declared levels, so ordered logistic preserves the pharmacokinetic "
+                        "ranking without treating category distances as metric."
+                    ),
+                }
+            ],
+            "priors": {
+                "t0_sd_cyp2c19_pharmacokinetic_capacity": {
+                    "distribution": "LogNormal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "reasoning": (
+                        "Matches the pooled static-state scale family and retains an "
+                        "approximately unit-scale latent pharmacokinetic capacity."
+                    ),
+                },
+            },
+        },
+        {
+            "construct": "cyp2c19_pharmacokinetic_capacity",
+            "indicators": [
+                {
+                    "variable": "cyp2c19_genotype_metabolizer_evidence",
+                    "family": "ordered_logistic",
+                    "link": "cumulative_logit",
+                    "reasoning": (
+                        "The poor-to-ultrarapid metabolizer codebook is intrinsically ordered, "
+                        "and the repeated genotype-derived observations retain the same "
+                        "ordered-logistic measurement semantics."
+                    ),
+                }
+            ],
+            "priors": {
+                "t0_sd_cyp2c19_pharmacokinetic_capacity": {
+                    "distribution": "LogNormal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "reasoning": (
+                        "Retains the pooled static-state family and unit-scale convention; "
+                        "the repeated genotype classification does not justify shrinking the "
+                        "latent pharmacokinetic scale to mimic category occupancy."
+                    ),
+                },
+            },
+            "accept": [
+                {
+                    "check": "C5a location reach",
+                    "target": "cyp2c19_genotype_metabolizer_evidence",
+                    "rationale": (
+                        "The 15 rows repeatedly encode one subject's stable genotype and are not "
+                        "15 independent pharmacokinetic measurements. Moving the pooled ordinal "
+                        "threshold prior toward their duplicated intermediate category would "
+                        "overstate the information and distort the other ordered channels, so "
+                        "the resulting prior sensitivity is the honest consequence."
+                    ),
+                }
+            ],
         },
     ]
     return N_DRAWS, PROPOSALS, SEED
@@ -722,23 +823,15 @@ def new_trial_issue_ledger(mo):
     mo.md(r"""
     ## New-trial framework issue ledger
 
-    Distinct framework issues found in this replay: **1**. **REPLAY STOPPED.**
+    The prior replay's exact ordered-logistic location ridge is repaired in this run. Threshold and
+    categorical channels no longer activate `manifest_mean_*`; auto-standardized continuous channels
+    follow the same location-anchor rule. The prompt now exposes active likelihood-extra priors such
+    as `obs_ordered_base` and `obs_ordered_gaps`, and the compiler independently rejects an authored
+    intercept on an inactive surface.
 
-    1. **Resolved threshold likelihoods receive an inactive observation-intercept surface.**
-       `parameter_is_active_for_statistical_model_spec` correctly returns `False` for an
-       ordered-logistic `manifest_mean_*`, but the deterministic skeleton unconditionally
-       re-adds the conditional surface after its successful provisional compile. The production
-       prompt therefore requires the parameter, and the authored partial compiler binds it to
-       `manifest_means_free` alongside the static state's free `t0_mean_*`. That contradicts the
-       model-semantics authority and creates a redundant location surface. The already-admitted
-       ordinal fragments cannot be trusted, so authoring stops here rather than accepting or
-       further tuning C5a.
-
-    The replay stops immediately at the fourth distinct issue, or earlier if one issue makes the
-    compiler/PPC result untrustworthy. Prior-run findings are not counted again unless they recur
-    after the corresponding repair. The stored DEMO snapshot's empty `known_inputs` declaration is
-    a documented pre-repair input prerequisite; this trial re-derives the executable design through
-    the production assembler so the repaired role is actually exercised.
+    The stored DEMO snapshot's empty `known_inputs` declaration remains a documented input
+    prerequisite; this trial re-derives the executable design through the production assembler so
+    the repaired known-input role is exercised.
     """)
     return
 
