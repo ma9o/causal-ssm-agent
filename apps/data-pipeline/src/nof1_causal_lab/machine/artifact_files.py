@@ -37,6 +37,7 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
         json={"measurement_structure": "measurement_structure.json"}
     ),
     "causal_design": ArtifactFileSpec(json={"causal_design": "causal_design.json"}),
+    "structural_plan": ArtifactFileSpec(json={"structural_plan": "structural-plan.json"}),
     "identification_report": ArtifactFileSpec(
         json={"identification_report": "identification_report.json"}
     ),

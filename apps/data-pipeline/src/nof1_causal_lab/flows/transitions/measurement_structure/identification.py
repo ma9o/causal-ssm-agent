@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 logger = logging.getLogger(__name__)
 
 
 def derive_identification_report(
-    causal_design: dict[str, Any],
+    causal_design: UncheckedJsonObject,
     *,
-    latent_structure: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
+    latent_structure: UncheckedJsonObject | None = None,
+) -> UncheckedJsonObject | None:
     """Compute the positive identification report from a causal design."""
     from nof1_causal_lab.utils.causal_design import get_outcome_name
 

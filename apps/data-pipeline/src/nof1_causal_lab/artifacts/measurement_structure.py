@@ -6,7 +6,7 @@ import ast
 import logging
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args, override
 
 from pydantic import (
     BaseModel,
@@ -17,6 +17,7 @@ from pydantic import (
     model_validator,
 )
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
 from nof1_causal_lab.utils.aggregations import COMPUTED_RULE_FUNCTIONS
 from nof1_causal_lab.utils.observation_semantics import (
@@ -101,6 +102,7 @@ def _computed_rule_source_names(expr: str) -> set[str]:
     names: set[str] = set()
 
     class _NameCollector(ast.NodeVisitor):
+        @override
         def visit_Call(self, node: ast.Call) -> None:
             if not isinstance(node.func, ast.Name):
                 raise ValueError("computed_rule.window_expr only supports simple function calls")
@@ -114,10 +116,12 @@ def _computed_rule_source_names(expr: str) -> set[str]:
             for arg in node.args:
                 self.visit(arg)
 
+        @override
         def visit_Attribute(self, node: ast.Attribute) -> None:
             _ = node
             raise ValueError("computed_rule.window_expr does not support attribute access")
 
+        @override
         def visit_Name(self, node: ast.Name) -> None:
             if node.id not in COMPUTED_RULE_FUNCTIONS:
                 names.add(node.id)
@@ -180,6 +184,14 @@ class Indicator(BaseModel):
             "to ensure correct numeric encoding."
         ),
     )
+    categorical_levels: list[str] | None = Field(
+        default=None,
+        description=(
+            "Exhaustive list of level labels for categorical indicators "
+            "(e.g., ['home', 'work', 'other']). Required when "
+            "measurement_dtype='categorical' to ensure correct numeric encoding."
+        ),
+    )
     source_columns: list[str] = Field(
         default_factory=list,
         description=(
@@ -237,6 +249,24 @@ class Indicator(BaseModel):
                 )
             if len(self.ordinal_levels) != len(set(self.ordinal_levels)):
                 raise ValueError("ordinal_levels must not contain duplicate labels")
+        return self
+
+    @model_validator(mode="after")
+    def validate_categorical_levels(self) -> Indicator:
+        """Ensure categorical_levels is valid for categorical indicators."""
+        if self.measurement_dtype == "categorical":
+            if not self.categorical_levels:
+                raise ValueError(
+                    "categorical_levels is required when measurement_dtype='categorical' "
+                    "(provide at least 2 level labels)"
+                )
+            if len(self.categorical_levels) < 2:
+                raise ValueError(
+                    "categorical_levels must have at least 2 items, "
+                    f"got {len(self.categorical_levels)}"
+                )
+            if len(self.categorical_levels) != len(set(self.categorical_levels)):
+                raise ValueError("categorical_levels must not contain duplicate labels")
         return self
 
     @model_validator(mode="after")
@@ -352,7 +382,7 @@ class MeasurementStructure(BaseModel):
 
 
 def validate_measurement_structure(
-    data: dict,
+    data: UncheckedJsonObject,
     latent: LatentStructure,
 ) -> tuple[MeasurementStructure | None, list[str]]:
     """Validate a measurement structure dict against a latent structure."""

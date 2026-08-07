@@ -31,14 +31,15 @@ from nof1_causal_lab.models.ssm.dynamics.vector_field import (
     VectorField,
     VectorFieldArgs,
 )
-from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     InitialStateParams,
     MeasurementParams,
     RuntimeDynamics,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
 from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
     _transition_start_linearization_states,
@@ -621,7 +622,7 @@ def test_ssm_model_laplace_path_accepts_nonlinear_point_dynamics():
     model = SSMModel(_nonlinear_point_ssm_spec())
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
     times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = model.make_laplace_backend(n_ieks_iters=2)
+    backend = get_laplace_backend(model, n_ieks_iters=2)
     condition_data = {
         "vf_0_decay": jnp.array([0.35, 0.45], dtype=jnp.float32),
         "vf_1_Emax": jnp.array(0.80, dtype=jnp.float32),
@@ -643,7 +644,7 @@ def test_map_laplace_bundle_evaluates_nonlinear_point_model():
     model = SSMModel(_nonlinear_point_ssm_spec())
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
     times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = model.make_laplace_backend(n_ieks_iters=2)
+    backend = get_laplace_backend(model, n_ieks_iters=2)
 
     bundle = _build_map_laplace_bundle(
         model,
@@ -667,7 +668,7 @@ def test_map_laplace_bundle_has_finite_gradient_for_nonlinear_point_model():
     model = SSMModel(_nonlinear_point_ssm_spec())
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
     times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = model.make_laplace_backend(n_ieks_iters=2)
+    backend = get_laplace_backend(model, n_ieks_iters=2)
 
     bundle = _build_map_laplace_bundle(
         model,

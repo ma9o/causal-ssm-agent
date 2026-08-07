@@ -5,13 +5,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     import polars as pl
 
 logger = logging.getLogger(__name__)
 
 
-def project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.DataFrame:
+def project_to_source_columns(
+    df: pl.DataFrame,
+    indicators: list[UncheckedJsonObject],
+) -> pl.DataFrame:
     """Project DataFrame to only the columns referenced by indicators."""
     source_cols: set[str] = set()
     for indicator in indicators:
@@ -42,12 +47,12 @@ def project_to_source_columns(df: pl.DataFrame, indicators: list[dict]) -> pl.Da
 
 
 def group_indicators_by_window(
-    indicators: list[dict],
+    indicators: list[UncheckedJsonObject],
     model_clock: str,
-) -> list[tuple[str, list[dict]]]:
+) -> list[tuple[str, list[UncheckedJsonObject]]]:
     from nof1_causal_lab.utils.causal_design import get_effective_observation_window
 
-    grouped: dict[str, list[dict]] = {}
+    grouped: dict[str, list[UncheckedJsonObject]] = {}
     for indicator in indicators:
         window = get_effective_observation_window(indicator, model_clock) or model_clock
         grouped.setdefault(window, []).append(indicator)
@@ -57,14 +62,14 @@ def group_indicators_by_window(
 def prepare_semantic_chunks(
     *,
     raw_df: pl.DataFrame,
-    semantic_inds: list[dict],
-    measurement_structure: dict,
+    semantic_inds: list[UncheckedJsonObject],
+    measurement_structure: UncheckedJsonObject,
     model_clock: str,
     time_col: str,
     windows_per_chunk: int,
     max_events_per_window: int,
     max_windows: int | None,
-) -> tuple[list[str], list[list[str]], list[dict]]:
+) -> tuple[list[str], list[list[str]], list[UncheckedJsonObject]]:
     """Prepare semantic extraction chunks without executing them."""
     from nof1_causal_lab.utils.causal_design import make_measurement_extraction_context
     from nof1_causal_lab.utils.data import bucket_by_clock
@@ -72,7 +77,7 @@ def prepare_semantic_chunks(
 
     chunk_texts: list[str] = []
     chunk_window_starts: list[list[str]] = []
-    chunk_contexts: list[dict] = []
+    chunk_contexts: list[UncheckedJsonObject] = []
 
     for observation_window, semantic_group in group_indicators_by_window(
         semantic_inds, model_clock

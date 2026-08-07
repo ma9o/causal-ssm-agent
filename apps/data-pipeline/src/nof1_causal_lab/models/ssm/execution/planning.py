@@ -1,4 +1,4 @@
-"""Shared inference-method planning for runtime prep and UI payloads."""
+"""Shared exact execution-method planning for runtime prep and inference."""
 
 from __future__ import annotations
 

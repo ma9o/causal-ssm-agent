@@ -19,6 +19,8 @@ References:
 - arXiv:2504.20172 - Jahn, Karnik & Schulman on bounded latent reach
 """
 
+from typing import Any
+
 import pytest
 
 from nof1_causal_lab.utils.identifiability import (
@@ -34,7 +36,10 @@ from nof1_causal_lab.utils.identifiability import (
 # =============================================================================
 
 
-def make_latent_structure(constructs: list[dict], edges: list[dict]) -> dict:
+def make_latent_structure(
+    constructs: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Create a latent structure dict with sensible defaults."""
     processed_constructs = []
     for c in constructs:
@@ -55,7 +60,7 @@ def make_latent_structure(constructs: list[dict], edges: list[dict]) -> dict:
     return {"constructs": processed_constructs, "edges": processed_edges}
 
 
-def make_measurement_structure(observed_constructs: list[str]) -> dict:
+def make_measurement_structure(observed_constructs: list[str]) -> dict[str, Any]:
     """Create a measurement structure with one indicator per observed construct."""
     return {
         "indicators": [
@@ -65,21 +70,24 @@ def make_measurement_structure(observed_constructs: list[str]) -> dict:
     }
 
 
-def _get_estimand(result: dict, treatment: str) -> str:
+def _get_estimand(result: dict[str, Any], treatment: str) -> str:
     details = result.get("identifiable_treatments", {}).get(treatment, {})
     if isinstance(details, dict):
         return details.get("estimand", "")
     return ""
 
 
-def _get_blockers(result: dict, treatment: str) -> list[str]:
+def _get_blockers(result: dict[str, Any], treatment: str) -> list[str]:
     details = result.get("non_identifiable_treatments", {}).get(treatment, {})
     if isinstance(details, dict):
         return details.get("confounders", [])
     return []
 
 
-def _run_checks(result: dict, checks: list[tuple]) -> None:
+def _run_checks(
+    result: dict[str, Any],
+    checks: list[tuple[Any, ...]],
+) -> None:
     """Dispatch a list of check tuples against a check_identifiability result.
 
     Supported check kinds:
@@ -151,7 +159,7 @@ def _run_checks(result: dict, checks: list[tuple]) -> None:
 #   checks:      list of check tuples (see _run_checks for kinds)
 # =============================================================================
 
-IDENTIFICATION_CASES: list[dict] = [
+IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 1. Classic Pearl Graphs ------------------------------------------
     # Bow graph: X->Y, U->X, U->Y. Simplest non-identifiable structure.
     {
@@ -1483,7 +1491,7 @@ def test_identification(case):
 #   ("not_marginalizable", name)
 # =============================================================================
 
-MARGINALIZATION_CASES: list[dict] = [
+MARGINALIZATION_CASES: list[dict[str, Any]] = [
     # U has only one observed child (X) — can be marginalized.
     {
         "id": "marg_single_child_confounder",
@@ -1621,7 +1629,7 @@ def test_marginalization(case):
 # =============================================================================
 
 
-def _ar1_obs_xy() -> tuple[dict, set[str]]:
+def _ar1_obs_xy() -> tuple[dict[str, Any], set[str]]:
     latent = make_latent_structure(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},

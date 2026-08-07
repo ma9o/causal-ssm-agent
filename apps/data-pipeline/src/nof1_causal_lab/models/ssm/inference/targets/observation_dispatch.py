@@ -10,10 +10,12 @@ import jax.numpy as jnp
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-
-from .base import NUMERICAL_EPSILON
-from .emissions import build_heterogeneous_mean_sample_fn
-from .observation_families import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
+    NUMERICAL_EPSILON,
+    LikelihoodExtraParams,
+)
+from nof1_causal_lab.models.ssm.execution.emissions import build_heterogeneous_mean_sample_fn
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     FAMILY_REGISTRY,
     POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
     get_posterior_predictive_switch_index,
@@ -67,7 +69,7 @@ def build_predictive_observation_sampler(
     manifest_cov: jnp.ndarray,
     *,
     manifest_links=None,
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
 ) -> PredictiveObservationSampler:
     """Compile predictive samplers for point observations and mean-space summaries."""
     dists, links = resolve_manifest_families_and_links(

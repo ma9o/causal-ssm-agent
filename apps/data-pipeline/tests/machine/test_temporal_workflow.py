@@ -12,6 +12,7 @@ import dataclasses
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,11 +30,12 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     read_model_spec_checkpoint,
 )
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
+from tests.helpers import make_structural_plan
 
 pytestmark = pytest.mark.timeout(240)
 
 
-def _valid_latent_structure() -> dict:
+def _valid_latent_structure() -> dict[str, Any]:
     return {
         "constructs": [
             {
@@ -63,10 +65,11 @@ def _valid_latent_structure() -> dict:
     }
 
 
-def _valid_measurement_structure() -> dict:
+def _valid_measurement_structure() -> dict[str, Any]:
     return {
         "model_clock": "1d",
         "known_inputs": [],
+        "scientific_only_constructs": [],
         "indicators": [
             {
                 "name": "sleep_steps_proxy",
@@ -84,7 +87,9 @@ def _valid_measurement_structure() -> dict:
 
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
+    import nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow as construct_flow
     import nof1_causal_lab.flows.transitions.model_spec.assembly as model_spec_assembly
+    import nof1_causal_lab.models.ssm.construct_admission as construct_admission
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
     from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module
@@ -132,6 +137,48 @@ def machine_env(monkeypatch, tmp_path):
         fake_materialize_model_spec_result,
     )
 
+    def fake_admit_construct(state, contribution, *_args, **_kwargs):
+        admitted = construct_admission.AdmissionState(
+            names=(*state.names, contribution.name),
+            likelihoods=(*state.likelihoods, *contribution.likelihoods),
+            parameters=(*state.parameters, *contribution.parameters),
+            priors={**state.priors, **contribution.priors},
+            annotations=state.annotations,
+        )
+        report = construct_admission.AdmissionReport(
+            name=contribution.name,
+            results=(),
+            timings=(),
+            outcome="ADMITTED",
+            annotations=(),
+            admitted=True,
+        )
+        return admitted, report
+
+    def fake_validate_full_admission_state(state, targets, *_args, **_kwargs):
+        del state
+        return construct_admission.FullAdmissionValidation(
+            reports=tuple(
+                construct_admission.AdmissionReport(
+                    name=target.name,
+                    results=(),
+                    timings=(),
+                    outcome="ADMITTED",
+                    annotations=(),
+                    admitted=True,
+                )
+                for target in targets
+            ),
+            timings=(),
+        )
+
+    monkeypatch.setattr(construct_flow, "admit_construct", fake_admit_construct)
+    monkeypatch.setattr(
+        construct_admission,
+        "validate_full_admission_state",
+        fake_validate_full_admission_state,
+    )
+
     def complete_without_derivations(store, state, produced, retracted=None):
         del state
         extra = []
@@ -140,6 +187,10 @@ def machine_env(monkeypatch, tmp_path):
             None,
         )
         if measurement_structure is not None:
+            structural_plan = make_structural_plan(["sleep"], [])
+            structural_plan["semantics"]["indicators"]["indicator:0000"]["name"] = (
+                "sleep_steps_proxy"
+            )
             extra.extend(
                 [
                     store.write_version(
@@ -167,6 +218,13 @@ def machine_env(monkeypatch, tmp_path):
                                 "estimable_treatments": ["sleep_steps_proxy"]
                             }
                         },
+                    ),
+                    store.write_version(
+                        "structural_plan",
+                        provenance="computed",
+                        derived_from={"causal_design": 1},
+                        produced_by="derive:structural_plan",
+                        json_files={"structural-plan.json": {"structural_plan": structural_plan}},
                     ),
                 ]
             )
@@ -296,6 +354,55 @@ def machine_env(monkeypatch, tmp_path):
                 "time": 0.25,
                 "stop_reason": "tool_calls",
             }
+        if "submit_construct" in tool_names:
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-submit-construct",
+                            "type": "function",
+                            "function": {
+                                "name": "submit_construct",
+                                "arguments": json.dumps(
+                                    {
+                                        "construct": "sleep",
+                                        "indicators": [
+                                            {
+                                                "variable": "sleep_steps_proxy",
+                                                "family": "gaussian",
+                                                "link": "identity",
+                                                "reasoning": "test fixture",
+                                            }
+                                        ],
+                                        "priors": {
+                                            "rho_sleep": {
+                                                "distribution": "Beta",
+                                                "params": {
+                                                    "alpha": 2.0,
+                                                    "beta": 2.0,
+                                                },
+                                                "reasoning": "test fixture",
+                                            },
+                                            "sigma_sleep": {
+                                                "distribution": "HalfNormal",
+                                                "params": {"sigma": 1.0},
+                                                "reasoning": "test fixture",
+                                            },
+                                        },
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                },
+                "completion": "",
+                "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
+                "model": model_name,
+                "time": 0.25,
+                "stop_reason": "tool_calls",
+            }
         return {
             "message": {
                 "role": "assistant",
@@ -385,7 +492,7 @@ def test_episode_workflow_journey(machine_env):
                 before = (await handle.query(EpisodeWorkflow.get_state)).current
                 raised = await propose(RunArtifact(artifact_id="statistical_model_spec"))
                 assert raised.status == "raised"
-                assert raised.error_type == "ModelCompileError"
+                assert raised.error_type == "ModelCompileError", raised.error_message
                 assert "report" in raised.diagnostics
                 after = (await handle.query(EpisodeWorkflow.get_state)).current
                 assert after == before

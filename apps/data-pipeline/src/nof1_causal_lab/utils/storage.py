@@ -22,6 +22,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -172,7 +174,7 @@ def walk_files(path: str) -> list[str]:
     return [str(entry) for entry in root.rglob("*") if entry.is_file()]
 
 
-def file_info(path: str) -> dict[str, Any]:
+def file_info(path: str) -> UncheckedJsonObject:
     """Return file metadata (size, type, last_modified / mtime)."""
     if is_remote():
         return get_fs().info(path)

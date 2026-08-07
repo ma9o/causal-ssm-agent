@@ -6,7 +6,7 @@ Each primitive corresponds to one named geometric pathology. Compose via ``Chain
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import jax
 import jax.numpy as jnp
@@ -35,12 +35,15 @@ class Bijector:
 
 @dataclass(frozen=True)
 class Identity(Bijector):
+    @override
     def forward(self, u: Array) -> Array:
         return u
 
+    @override
     def inverse(self, x: Array) -> Array:
         return x
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         return jnp.zeros(u.shape[:-1])
 
@@ -51,12 +54,15 @@ class Shift(Bijector):
 
     offset: tuple[float, ...] = (0.0, 0.0)
 
+    @override
     def forward(self, u: Array) -> Array:
         return u + jnp.asarray(self.offset)
 
+    @override
     def inverse(self, x: Array) -> Array:
         return x - jnp.asarray(self.offset)
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         return jnp.zeros(u.shape[:-1])
 
@@ -76,12 +82,15 @@ class Shear(Bijector):
         c, s = jnp.cos(self.theta), jnp.sin(self.theta)
         return jnp.array([[c, -s], [s, c]])
 
+    @override
     def forward(self, u: Array) -> Array:
         return (u * jnp.asarray(self.scale)) @ self._R().T
 
+    @override
     def inverse(self, x: Array) -> Array:
         return (x @ self._R()) / jnp.asarray(self.scale)
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         log_det = jnp.log(jnp.asarray(self.scale)).sum()
         return jnp.broadcast_to(log_det, u.shape[:-1])
@@ -99,12 +108,15 @@ class Bend(Bijector):
     axis: int = 1
     source: int = 0
 
+    @override
     def forward(self, u: Array) -> Array:
         return u.at[..., self.axis].add(self.f(u[..., self.source]))
 
+    @override
     def inverse(self, x: Array) -> Array:
         return x.at[..., self.axis].add(-self.f(x[..., self.source]))
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         return jnp.zeros(u.shape[:-1])
 
@@ -121,12 +133,15 @@ class Funnel(Bijector):
     axis: int = 1
     source: int = 0
 
+    @override
     def forward(self, u: Array) -> Array:
         return u.at[..., self.axis].multiply(jnp.exp(self.g(u[..., self.source])))
 
+    @override
     def inverse(self, x: Array) -> Array:
         return x.at[..., self.axis].multiply(jnp.exp(-self.g(x[..., self.source])))
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         return self.g(u[..., self.source])
 
@@ -140,17 +155,20 @@ class Softplus(Bijector):
 
     axes: tuple[int, ...] = (0,)
 
+    @override
     def forward(self, u: Array) -> Array:
         axes = jnp.array(self.axes)
         updated = jax.nn.softplus(u[..., axes])
         return u.at[..., axes].set(updated)
 
+    @override
     def inverse(self, x: Array) -> Array:
         axes = jnp.array(self.axes)
         v = x[..., axes]
         inv = jnp.log(jnp.expm1(v))
         return x.at[..., axes].set(inv)
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         axes = jnp.array(self.axes)
         return jax.nn.log_sigmoid(u[..., axes]).sum(axis=-1)
@@ -162,15 +180,18 @@ class Logit(Bijector):
 
     axes: tuple[int, ...] = (0,)
 
+    @override
     def forward(self, u: Array) -> Array:
         axes = jnp.array(self.axes)
         return u.at[..., axes].set(jax.nn.sigmoid(u[..., axes]))
 
+    @override
     def inverse(self, x: Array) -> Array:
         axes = jnp.array(self.axes)
         v = jnp.clip(x[..., axes], 1e-6, 1.0 - 1e-6)
         return x.at[..., axes].set(jnp.log(v) - jnp.log1p(-v))
 
+    @override
     def forward_log_det_jac(self, u: Array) -> Array:
         axes = jnp.array(self.axes)
         v = u[..., axes]

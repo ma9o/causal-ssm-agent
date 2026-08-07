@@ -138,7 +138,7 @@ def _export_parameters(*, check: bool) -> bool:
     roles_body = "\n".join(
         [
             "The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly "
-            "the following parameters from a [`CausalDesign`](../../pipeline/measurement-structure.md#causaldesign):",
+            "the following parameters from a [`StructuralPlan`](../../pipeline/measurement-structure.md#structuralplan):",
             "",
             _render_parameter_roles_markdown_table(),
             "",

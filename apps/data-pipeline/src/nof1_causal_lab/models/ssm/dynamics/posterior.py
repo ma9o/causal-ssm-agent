@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 from .runtime import pack_vector_field_params_from_samples
 from .spec import compile_dynamics
@@ -27,7 +29,7 @@ class PosteriorDynamicsSamples:
     param_samples: list[tuple[dict[str, Array], ...]]
 
 
-def _posterior_draw_count(samples: dict[str, Any]) -> int:
+def _posterior_draw_count(samples: UncheckedJsonObject) -> int:
     if not samples:
         return 0
     for values in samples.values():
@@ -38,7 +40,7 @@ def _posterior_draw_count(samples: dict[str, Any]) -> int:
 
 def component_param_samples_from_site_samples(
     spec: SSMSpec,
-    samples: dict[str, Any],
+    samples: UncheckedJsonObject,
     *,
     prefix: str = "vf",
 ) -> list[tuple[dict[str, Array], ...]]:
@@ -57,7 +59,7 @@ def component_param_samples_from_site_samples(
 
 def posterior_dynamics_from_samples(
     spec: SSMSpec,
-    samples: dict[str, Any],
+    samples: UncheckedJsonObject,
     *,
     prefix: str = "vf",
 ) -> PosteriorDynamicsSamples:

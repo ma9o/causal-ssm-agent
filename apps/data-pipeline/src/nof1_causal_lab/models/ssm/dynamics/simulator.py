@@ -14,18 +14,17 @@ intervention initial-condition handoff, nothing else. Estimands
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import diffrax as dfx
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as random
+from jax import Array
 
 from .vector_field import VectorFieldArgs
 
 if TYPE_CHECKING:
-    from jax import Array
-
     from .intervention import Intervention
     from .vector_field import VectorField
 
@@ -48,7 +47,7 @@ class SimulationConfig(eqx.Module):
     """Use deterministic integer-step Brownian increments for fixed-step simulation."""
 
 
-class _IndexedBrownianPath(dfx.AbstractBrownianPath):
+class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncrement]):
     """Fast deterministic Brownian increments for a fixed-step forward solve.
 
     Every solver interval is keyed by its integer step index rather than the
@@ -67,6 +66,7 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath):
     levy_area: type[dfx.BrownianIncrement] = eqx.field(static=True, default=dfx.BrownianIncrement)
 
     @eqx.filter_jit  # noqa: V105 - required by the Diffrax AbstractBrownianPath protocol
+    @override
     def evaluate(self, t0, t1=None, left: bool = True, use_levy: bool = False):
         del left
         if t1 is None:

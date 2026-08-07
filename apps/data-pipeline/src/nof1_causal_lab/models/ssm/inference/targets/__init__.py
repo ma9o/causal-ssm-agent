@@ -6,7 +6,7 @@ and return p(y|θ) for use in NumPyro via numpyro.factor().
 Production SSM fitting uses the IEKS/Laplace marginal likelihood path.
 """
 
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     InitialStateParams,
     MeasurementParams,
     RuntimeDynamics,

@@ -26,11 +26,10 @@ _LAPLACE_BACKEND_SYMBOLS = (
 )
 
 # The ONLY modules permitted to reference the Laplace backend: its own
-# implementation package, the factories on the model, and the warmup/init path
+# implementation package, the inference-owned factory, and the warmup/init path
 # (Pathfinder/MAP positions + preconditioner, cSMC reference trajectory, and the
 # m-PGibbs diagnostic backend stored alongside — never the sampler target).
 _ALLOWED_EXACT = {
-    "models/ssm/model.py",
     "models/ssm/inference/backend_factory.py",
     "models/ssm/inference/methods/marginal_particle_gibbs/fit.py",
     "models/ssm/inference/warmup/latent_init.py",

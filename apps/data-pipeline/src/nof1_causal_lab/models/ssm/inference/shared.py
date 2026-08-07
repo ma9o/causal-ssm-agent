@@ -25,7 +25,7 @@ def select_default_method(
     n_timepoints: int | None = None,
 ) -> InferenceMethod:
     """Select the default inference method based on model structure."""
-    from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
+    from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
 
     inference_structure = plan_inference_structure(
         spec,

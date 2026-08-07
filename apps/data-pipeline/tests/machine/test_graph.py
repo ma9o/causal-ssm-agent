@@ -44,10 +44,14 @@ def test_derivations_are_standalone_multi_parent_nodes():
         "latent_structure",
         "measurement_structure",
     )
+    assert derivations["structural_plan"].from_ == ("causal_design",)
     assert derivations["identification_report"].from_ == ("causal_design",)
     assert derivations["identification_report"].optional
     assert derivations["validation_report"].from_ == ("panel", "causal_design")
-    assert derivations["compiled_ssm"].from_ == ("statistical_model_spec", "causal_design")
+    assert derivations["compiled_ssm"].from_ == (
+        "statistical_model_spec",
+        "structural_plan",
+    )
 
     transition_outputs = {artifact for spec in ARTIFACT_GRAPH for artifact in spec.all_produces}
     assert not transition_outputs.intersection(derivations)

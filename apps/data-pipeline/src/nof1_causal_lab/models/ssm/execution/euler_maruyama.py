@@ -1,4 +1,4 @@
-"""Euler-Maruyama transition target utilities for nonlinear vector fields."""
+"""Exact Euler-Maruyama transition operations for nonlinear vector fields."""
 
 import math
 

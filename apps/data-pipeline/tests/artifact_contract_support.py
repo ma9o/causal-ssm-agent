@@ -1,6 +1,6 @@
 """Artifact-contract validation helpers owned by the test suite."""
 
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -54,5 +54,4 @@ def validate_artifact_payload(artifact_id: str, data: dict[str, Any]) -> dict[st
     if artifact_id not in ARTIFACT_CONTRACTS:
         known = ", ".join(sorted(ARTIFACT_CONTRACTS))
         raise ValueError(f"Unknown artifact_id '{artifact_id}'. Expected one of: {known}")
-    contract_id = cast("ArtifactContractId", artifact_id)
-    return ARTIFACT_CONTRACTS[contract_id].model_validate(data).model_dump(mode="json")
+    return ARTIFACT_CONTRACTS[artifact_id].model_validate(data).model_dump(mode="json")

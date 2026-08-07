@@ -11,6 +11,7 @@ import dataclasses
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,7 +24,7 @@ from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 pytestmark = pytest.mark.timeout(240)
 
 
-def _valid_latent_structure() -> dict:
+def _valid_latent_structure() -> dict[str, Any]:
     return {
         "constructs": [
             {

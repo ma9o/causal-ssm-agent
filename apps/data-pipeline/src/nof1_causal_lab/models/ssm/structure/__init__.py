@@ -7,6 +7,7 @@ from nof1_causal_lab.models.ssm.structure.blocks import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
 from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
     SemanticBinding,
@@ -18,7 +19,10 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 
 __all__ = [
     "DiffusionBlockSpec",
+    "Fixed",
+    "Free",
     "ManifestCholBlockSpec",
+    "ParameterSlot",
     "PriorAuthoringTransform",
     "SemanticBinding",
     "SiteDescriptor",

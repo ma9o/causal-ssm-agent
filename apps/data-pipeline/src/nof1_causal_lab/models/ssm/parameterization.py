@@ -55,6 +55,7 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 
@@ -244,7 +245,7 @@ def build_site_registry(spec: SSMSpec) -> list[SiteDescriptor]:
                 )
             )
 
-    from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
+    from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 
     if has_student_t_diffusion(spec):
         sites.append(
@@ -493,7 +494,7 @@ def assemble_extra_params_from_registry(
     spec: SSMSpec,
     samples: dict[str, jnp.ndarray],
     registry: list[SiteDescriptor],
-) -> dict[str, jnp.ndarray]:
+) -> LikelihoodExtraParams:
     """Assemble likelihood extra parameters using registry metadata as authority."""
     from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 

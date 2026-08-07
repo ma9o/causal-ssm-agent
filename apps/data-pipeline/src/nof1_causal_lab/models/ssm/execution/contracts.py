@@ -1,4 +1,4 @@
-"""Base protocol and parameter types for likelihood computation.
+"""Core executable SSM protocols and parameter values.
 
 Defines the interface that likelihood backends must implement:
 compute_log_likelihood(params, observations, times) -> jnp.ndarray
@@ -11,16 +11,29 @@ Used by Laplace likelihood backends to inject marginalized state likelihoods
 into NumPyro models via numpyro.factor().
 """
 
-from typing import Any, NamedTuple, Protocol
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.shapes import Array, Float
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.priors import PriorRegistry
+    from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 MISSING_DATA_LARGE_VAR = 1e10
 CHOL_JITTER = 1e-8
 NUMERICAL_EPSILON = 1e-10
 PROB_CLIP_MIN = 1e-7
+
+type LikelihoodParameterValue = jnp.ndarray | int | float
+type LikelihoodExtraParams = dict[str, LikelihoodParameterValue]
 
 LIKELIHOOD_SOLVER_KIND_POINT_IEKS = 1
 LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
@@ -75,8 +88,11 @@ class InitialStateParams(NamedTuple):
 class TrajectoryTarget(Protocol):
     """Latent path prior contract exposed to inference runtimes."""
 
-    kind: str
-    supports_affine_prefix_marginals: bool
+    @property
+    def kind(self) -> str: ...
+
+    @property
+    def supports_affine_prefix_marginals(self) -> bool: ...
 
     def initial_moments(self, context) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 
@@ -120,8 +136,33 @@ class TrajectoryTarget(Protocol):
         self,
         context,
         latent_trajectory: jnp.ndarray,
-        prior_terms: Any | None = None,
+        prior_terms: object | None = None,
     ) -> jnp.ndarray: ...
+
+
+class ExecutableSSM(Protocol):
+    """Exact generative surface consumed by inference and simulation adapters."""
+
+    spec: SSMSpec
+    priors: PriorRegistry | None
+    observation_support: ObservationSupportRuntime | None
+    transition_inputs: jnp.ndarray | None
+
+    @property
+    def vector_field(self) -> VectorField: ...
+
+    def trajectory_target(
+        self,
+        scheme: Literal["euler_maruyama"],
+    ) -> TrajectoryTarget: ...
+
+    def get_prior_runtime_bundle(self) -> PriorRuntimeBundle: ...
+
+    def get_cached_artifact[T](
+        self,
+        cache_key: tuple[object, ...],
+        factory: Callable[[], T],
+    ) -> T: ...
 
 
 def build_likelihood_eval_aux(

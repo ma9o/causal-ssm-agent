@@ -83,6 +83,7 @@ def stage1b_measurement_all_observed():
     return {
         "model_clock": "1d",
         "known_inputs": [],
+        "scientific_only_constructs": [],
         "indicators": [
             {
                 "name": "treatment_dose",

@@ -16,12 +16,13 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
     ScipyPathfinderResult,
     run_scipy_pathfinder_approximation,
@@ -43,12 +44,12 @@ class ParameterWarmupResult:
     """Resolved parameter initialisation and preconditioning artifacts."""
 
     init_positions: jnp.ndarray | None
-    init_diagnostics: dict[str, Any]
+    init_diagnostics: UncheckedJsonObject
     preconditioner_chol: jnp.ndarray | None
-    preconditioner_diagnostics: dict[str, Any]
-    warmup_diagnostics: dict[str, Any]
+    preconditioner_diagnostics: UncheckedJsonObject
+    warmup_diagnostics: UncheckedJsonObject
     pathfinder_state: ScipyPathfinderResult | None
-    pathfinder_diagnostics: dict[str, Any] | None
+    pathfinder_diagnostics: UncheckedJsonObject | None
 
 
 def _phase_elapsed(t0: float) -> float:
@@ -82,8 +83,8 @@ def _validate_initial_positions_override(
 
 
 def _pathfinder_preconditioner_diagnostics(
-    pathfinder_diagnostics: dict[str, Any],
-) -> dict[str, Any]:
+    pathfinder_diagnostics: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     return {
         "auto_preconditioner": True,
         "auto_preconditioner_method": "pathfinder",
@@ -107,7 +108,7 @@ def _log_pathfinder_completion(
     *,
     phase_label: str,
     started_at: float,
-    pathfinder_diagnostics: dict[str, Any],
+    pathfinder_diagnostics: UncheckedJsonObject,
 ) -> None:
     best_elbo = pathfinder_diagnostics.get("best_pathfinder_elbo")
     elbo_spread = pathfinder_diagnostics.get("pathfinder_elbo_spread")
@@ -177,9 +178,9 @@ def prepare_parameter_warmup(
     dim = int(bundle.flat_example.shape[0])
     dtype = bundle.flat_example.dtype
     pathfinder_state: ScipyPathfinderResult | None = None
-    pathfinder_diagnostics: dict[str, Any] | None = None
+    pathfinder_diagnostics: UncheckedJsonObject | None = None
     init_positions: jnp.ndarray | None = None
-    init_diagnostics: dict[str, Any]
+    init_diagnostics: UncheckedJsonObject
     preconditioner_chol = parameter_preconditioner_chol
 
     pathfinder_consumers: list[str] = []

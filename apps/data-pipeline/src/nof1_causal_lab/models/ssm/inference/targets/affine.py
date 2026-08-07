@@ -16,7 +16,7 @@ from nof1_causal_lab.models.ssm.dynamics.edges import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+    from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
     from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 

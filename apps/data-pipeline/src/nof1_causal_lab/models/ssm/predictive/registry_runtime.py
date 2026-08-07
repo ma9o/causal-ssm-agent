@@ -34,13 +34,14 @@ from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simu
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
 )
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
 )
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
+    build_site_registry,
     sample_prior_unconstrained,
 )
 
@@ -115,12 +116,11 @@ def _ensure_discrete_metadata(spec: SSMSpec) -> None:
 def _assemble_extra_params_batched(
     spec: SSMSpec,
     constrained_samples: dict[str, jnp.ndarray],
-    runtime: PriorRuntimeBundle,
+    registry,
     *,
     n_draws: int,
 ) -> dict[str, jnp.ndarray]:
     """Assemble per-draw observation/process hyperparameters."""
-    registry = runtime.site_runtime.registry
     if not any(site.assembly_group == "likelihood" for site in registry):
         return {}
 
@@ -469,7 +469,7 @@ def sample_prior_parameters_from_runtime(
     extra_params = _assemble_extra_params_batched(
         spec,
         constrained_samples,
-        runtime,
+        runtime.site_runtime.registry,
         n_draws=num_samples,
     )
     return {
@@ -594,6 +594,14 @@ def simulate_posterior_predictive_observations(
     n_use = min(n_subsample, n_draws)
     indices = jnp.linspace(0, n_draws - 1, n_use).astype(int)
     sub = {name: jnp.asarray(value)[indices] for name, value in samples.items()}
+    sub.update(
+        _assemble_extra_params_batched(
+            spec,
+            sub,
+            build_site_registry(spec),
+            n_draws=n_use,
+        )
+    )
     keys = predictive_keys(seed)
     _latents, linear_predictors = _simulate_vector_field_predictive_latents(
         spec,

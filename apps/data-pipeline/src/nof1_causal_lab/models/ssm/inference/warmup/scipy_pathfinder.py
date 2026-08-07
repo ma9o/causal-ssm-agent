@@ -32,13 +32,15 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import scipy.optimize
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,7 +55,7 @@ class ScipyPathfinderResult:
     mean: np.ndarray  # (p,) — best-ELBO iterate
     chol: np.ndarray  # (p, p) lower-triangular — Cholesky of L-BFGS H^{-1} at that iterate
     best_elbo: float
-    diagnostics: dict[str, Any]
+    diagnostics: UncheckedJsonObject
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,7 @@ class _ScipyPathfinderStartResult:
     mean: np.ndarray | None
     chol: np.ndarray | None
     best_elbo: float
-    diagnostics: dict[str, Any]
+    diagnostics: UncheckedJsonObject
 
 
 @functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
@@ -724,7 +726,7 @@ def run_scipy_pathfinder_approximation(
     elbo_refine_candidates: int = 16,
     elbo_candidate_batch_size: int = 8,
     init_scale: float = 0.1,
-) -> tuple[ScipyPathfinderResult, dict[str, Any]]:
+) -> tuple[ScipyPathfinderResult, UncheckedJsonObject]:
     """Run scipy Pathfinder on the IEKS-marginal log-posterior for parameters."""
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
@@ -732,7 +734,9 @@ def run_scipy_pathfinder_approximation(
 
     total_t0 = time.monotonic()
     setup_t0 = time.monotonic()
-    backend = model.make_laplace_backend(n_ieks_iters)
+    from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+
+    backend = get_laplace_backend(model, n_ieks_iters)
     laplace_bundle = _build_map_laplace_bundle(
         model, observations, times, trace_key, backend, reparam
     )
@@ -839,7 +843,7 @@ def run_scipy_pathfinder_approximation(
 
 def sample_scipy_pathfinder_init_positions(
     pathfinder_state: ScipyPathfinderResult,
-    pathfinder_diagnostics: dict[str, Any],
+    pathfinder_diagnostics: UncheckedJsonObject,
     *,
     sample_key: jnp.ndarray,
     num_chains: int,
@@ -850,7 +854,7 @@ def sample_scipy_pathfinder_init_positions(
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
     method_label: str = "sampler",
-) -> tuple[jnp.ndarray, dict[str, Any]]:
+) -> tuple[jnp.ndarray, UncheckedJsonObject]:
     """Sample per-chain initial positions from a fitted scipy Pathfinder state."""
     mean_np = np.asarray(jax.device_get(pathfinder_state.mean), dtype=np.float64)
     chol_np = np.asarray(jax.device_get(pathfinder_state.chol), dtype=np.float64)

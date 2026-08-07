@@ -7,20 +7,21 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 def assemble_sampled_extra_params(
     spec: SSMSpec,
     sampled_values: dict[str, jnp.ndarray],
-) -> dict[str, jnp.ndarray]:
+) -> LikelihoodExtraParams:
     """Assemble likelihood hyperparameters and derived observation metadata."""
-    extra_params: dict[str, jnp.ndarray] = {}
+    extra_params: LikelihoodExtraParams = {}
     manifest_dist_set = set(spec.manifest_dists)
 
     scalar_keys = (

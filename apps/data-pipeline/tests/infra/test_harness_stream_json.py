@@ -8,6 +8,7 @@ failing the primary trace reconstruction.
 """
 
 import json
+from typing import Any
 
 import pytest
 
@@ -55,7 +56,7 @@ def parse_pi_stream(lines):
     return _parse_stream(lines, PiStreamState(), apply_pi_event, "pi")
 
 
-def _pi_events_tool_loop() -> list[dict]:
+def _pi_events_tool_loop() -> list[dict[str, Any]]:
     return [
         {"type": "session", "version": 3, "id": "pi-session"},
         {
@@ -140,7 +141,7 @@ class TestPiParser:
             parse_pi_stream(["not-json"])
 
 
-def _claude_events_simple() -> list[dict]:
+def _claude_events_simple() -> list[dict[str, Any]]:
     return [
         {
             "type": "system",
@@ -174,7 +175,7 @@ def _claude_events_simple() -> list[dict]:
     ]
 
 
-def _claude_events_tool_loop() -> list[dict]:
+def _claude_events_tool_loop() -> list[dict[str, Any]]:
     return [
         {"type": "system", "subtype": "init", "session_id": "s2", "model": "claude-opus-4-7"},
         {"type": "user", "message": {"role": "user", "content": "Validate this"}},
@@ -343,7 +344,7 @@ class TestClaudeParser:
         assert "…" not in formatted
 
 
-def _codex_events_simple() -> list[dict]:
+def _codex_events_simple() -> list[dict[str, Any]]:
     return [
         {"type": "thread.started", "thread_id": "0199a213-81c0-7800-8aa1-bbab2a035a53"},
         {"type": "agent_message", "message": {"role": "user", "content": "Fix it"}},
@@ -357,7 +358,7 @@ def _codex_events_simple() -> list[dict]:
     ]
 
 
-def _codex_events_tool_loop() -> list[dict]:
+def _codex_events_tool_loop() -> list[dict[str, Any]]:
     return [
         {"type": "thread.started", "thread_id": "tid-2"},
         {

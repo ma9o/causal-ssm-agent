@@ -8,24 +8,29 @@ from typing import TYPE_CHECKING, Any, cast
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     LinkFunction,
+    StatisticalModelSpec,
 )
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
-from nof1_causal_lab.utils.causal_design import (
-    build_reference_indicator_lookup,
-    get_constructs,
-    get_estimation_edges,
-    get_estimation_state_order,
-    get_indicator_polarity,
+from nof1_causal_lab.utils.causal_design import get_indicator_polarity
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
     get_induced_dependencies,
     get_manifest_indicators,
     get_marginalized_scales,
+    get_plan_constructs,
+    get_reference_indicator_lookup,
+    get_state_names,
 )
-from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 from .parameter_surfaces import parameter_is_active_for_statistical_model_spec
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
 
     from .contracts import (
@@ -39,7 +44,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ModelSpecSkeleton:
-    """Deterministic model-spec decision surface derived from the causal design."""
+    """Deterministic model-spec decision surface derived from the structural plan."""
 
     resolved_likelihoods: list[ResolvedLikelihoodCandidate] = field(default_factory=list)
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate] = field(default_factory=list)
@@ -57,14 +62,14 @@ class ModelSpecSkeleton:
         return [param["name"] for param in self.all_params]
 
 
-def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
+def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkeleton:
     """Pre-compute all deterministic parts of the model-spec model skeleton."""
-    retained_state_order = get_estimation_state_order(causal_design)
-    retained_edges = get_estimation_edges(causal_design)
-    induced_dependencies = get_induced_dependencies(causal_design)
-    indicators = get_manifest_indicators(causal_design)
+    retained_state_order = get_state_names(structural_plan)
+    retained_edges = get_edges(structural_plan)
+    induced_dependencies = get_induced_dependencies(structural_plan)
+    indicators = get_manifest_indicators(structural_plan)
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_constructs(causal_design)
+        construct["name"]: construct for construct in get_plan_constructs(structural_plan)
     }
     retained_constructs = [
         latent_construct_lookup[name]
@@ -73,13 +78,13 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
     ]
 
     grouped_indicators = indicators_per_construct(indicators)
-    reference_indicator_lookup = build_reference_indicator_lookup(indicators)
+    reference_indicator_lookup = get_reference_indicator_lookup(structural_plan)
     retained_construct_names = {construct["name"] for construct in retained_constructs}
 
     resolved_likelihoods: list[ResolvedLikelihoodCandidate] = []
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate] = []
-    seed_parameters: list[dict[str, Any]] = []
-    seed_loading_params: list[dict[str, Any]] = []
+    seed_parameters: list[UncheckedJsonObject] = []
+    seed_loading_params: list[UncheckedJsonObject] = []
 
     # --- Likelihoods ---
     for indicator in indicators:
@@ -153,12 +158,6 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
     for edge in retained_edges:
         cause = edge["cause"]
         effect = edge["effect"]
-        effect_construct = latent_construct_lookup.get(effect)
-        if (
-            effect_construct is not None
-            and effect_construct.get("temporal_status") == "time_invariant"
-        ):
-            continue
         seed_parameters.append(
             {
                 "name": f"beta_{cause}_{effect}",
@@ -236,7 +235,7 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
 
     seed_parameters.extend(
         _confounder_baseline_factor_parameters(
-            get_marginalized_scales(causal_design),
+            get_marginalized_scales(structural_plan),
             retained_state_order=retained_state_order,
         )
     )
@@ -264,7 +263,7 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
         )
 
     parameters, loading_params = _compiler_authoritative_model_spec_inventory(
-        causal_design,
+        structural_plan,
         resolved_likelihoods=resolved_likelihoods,
         ambiguous_indicators=ambiguous_indicators,
         seed_parameters=seed_parameters,
@@ -283,7 +282,7 @@ def derive_deterministic_spec(causal_design: dict) -> ModelSpecSkeleton:
     )
 
 
-def indicators_per_construct(indicators: list[dict[str, Any]]) -> dict[str, list[str]]:
+def indicators_per_construct(indicators: list[UncheckedJsonObject]) -> dict[str, list[str]]:
     grouped: dict[str, list[str]] = {}
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
@@ -292,7 +291,7 @@ def indicators_per_construct(indicators: list[dict[str, Any]]) -> dict[str, list
     return grouped
 
 
-def _indicator_semantics_fields(indicator: dict[str, Any]) -> dict[str, str | None]:
+def _indicator_semantics_fields(indicator: UncheckedJsonObject) -> dict[str, str | None]:
     """Return canonical support semantics for an indicator dict."""
     support_kind = indicator.get("support_kind")
     summary_operator = indicator.get("summary_operator")
@@ -310,21 +309,22 @@ def _indicator_semantics_fields(indicator: dict[str, Any]) -> dict[str, str | No
 
 
 def _compiler_authoritative_model_spec_inventory(
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     *,
     resolved_likelihoods: list[ResolvedLikelihoodCandidate],
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
-    seed_parameters: list[dict[str, Any]],
-    seed_loading_params: list[dict[str, Any]],
+    seed_parameters: list[UncheckedJsonObject],
+    seed_loading_params: list[UncheckedJsonObject],
     retained_state_order: list[str],
-    retained_edges: list[dict[str, Any]],
-    induced_dependencies: list[dict[str, Any]],
+    retained_edges: list[UncheckedJsonObject],
+    induced_dependencies: list[UncheckedJsonObject],
     retained_construct_names: set[str],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[UncheckedJsonObject], list[UncheckedJsonObject]]:
     """Return the compiler-authoritative public model-spec prior inventory."""
+    from nof1_causal_lab.models.prior_planning import build_default_prior_plan
     from nof1_causal_lab.models.ssm.compile.artifact import (
         compile_ssm_artifact,
-        resolve_prior_proposals,
+        resolve_executable_priors,
     )
 
     seed_by_name = {
@@ -349,48 +349,38 @@ def _compiler_authoritative_model_spec_inventory(
     provisional_likelihood_by_variable = {
         str(likelihood["variable"]): dict(likelihood) for likelihood in provisional_likelihoods
     }
-    provisional_statistical_model_spec = {
-        "likelihoods": provisional_likelihoods,
-        "initialization_policy": "stationary",
-        "observation_intercept_policy": "free",
-        "equilibrium_forcing": False,
-        "parameters": [
-            parameter
-            for parameter in [*seed_parameters, *seed_loading_params]
-            if parameter_is_active_for_statistical_model_spec(
-                parameter,
-                provisional_likelihood_by_variable,
-                initialization_policy="stationary",
-                observation_intercept_policy="free",
-                equilibrium_forcing=False,
-            )
-        ],
-    }
-    try:
-        compiled_ssm = compile_ssm_artifact(
-            provisional_statistical_model_spec, {}, causal_design=causal_design
-        )
-    except ValueError:
-        # Some unit tests intentionally exercise pre-compile-invalid causal designs.
-        # Preserve the deterministic skeleton for those cases and simply skip the
-        # compiler-backed membership step rather than failing at prompt-construction time.
-        fallback_inventory = dict(seed_by_name)
-        for parameter in _fallback_initial_state_parameters(retained_state_order):
-            fallback_inventory.setdefault(parameter["name"], parameter)
-        return _order_model_spec_inventory(
-            fallback_inventory.values(),
-            retained_state_order=retained_state_order,
-            retained_edges=retained_edges,
-            induced_dependencies=induced_dependencies,
-        )
+    provisional_statistical_model_spec = StatisticalModelSpec.model_validate(
+        {
+            "likelihoods": provisional_likelihoods,
+            "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
+            "equilibrium_forcing": False,
+            "parameters": [
+                parameter
+                for parameter in [*seed_parameters, *seed_loading_params]
+                if parameter_is_active_for_statistical_model_spec(
+                    parameter,
+                    provisional_likelihood_by_variable,
+                    initialization_policy="stationary",
+                    observation_intercept_policy="free",
+                    equilibrium_forcing=False,
+                )
+            ],
+        }
+    )
+    compiled_ssm = compile_ssm_artifact(
+        provisional_statistical_model_spec,
+        build_default_prior_plan(provisional_statistical_model_spec),
+        structural_plan=structural_plan,
+    )
 
     binding_by_parameter = {
         binding.parameter: binding for binding in compiled_ssm.parameter_bindings
     }
 
-    final_inventory: dict[str, dict[str, Any]] = {}
-    for row in resolve_prior_proposals(compiled_ssm, authored_priors={}):
-        parameter_name = str(row.get("parameter") or "")
+    final_inventory: dict[str, UncheckedJsonObject] = {}
+    for row in resolve_executable_priors(compiled_ssm):
+        parameter_name = row.parameter
         if not parameter_name or _is_compiler_default_only_parameter_name(parameter_name):
             continue
         parameter = seed_by_name.get(parameter_name)
@@ -441,39 +431,13 @@ def _compiler_authoritative_model_spec_inventory(
     )
 
 
-def _fallback_initial_state_parameters(retained_state_order: list[str]) -> list[dict[str, Any]]:
-    """Provide deterministic initial-state parameters when compile-time discovery is unavailable."""
-    parameters: list[dict[str, Any]] = []
-    for construct_name in retained_state_order:
-        parameters.append(
-            {
-                "name": f"t0_mean_{construct_name}",
-                "role": "initial_state_mean",
-                "constraint": "none",
-                "description": f"Initial-state mean for {construct_name}",
-                "construct": construct_name,
-            }
-        )
-    for construct_name in retained_state_order:
-        parameters.append(
-            {
-                "name": f"t0_sd_{construct_name}",
-                "role": "initial_state_sd",
-                "constraint": "positive",
-                "description": f"Initial-state SD for {construct_name}",
-                "construct": construct_name,
-            }
-        )
-    return parameters
-
-
 def _order_model_spec_inventory(
-    parameters: list[dict[str, Any]] | Any,
+    parameters: Iterable[UncheckedJsonObject],
     *,
     retained_state_order: list[str],
-    retained_edges: list[dict[str, Any]],
-    induced_dependencies: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    retained_edges: list[UncheckedJsonObject],
+    induced_dependencies: list[UncheckedJsonObject],
+) -> tuple[list[UncheckedJsonObject], list[UncheckedJsonObject]]:
     """Return deterministically ordered parameter and loading inventories."""
     construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
     edge_order = {(edge["cause"], edge["effect"]): idx for idx, edge in enumerate(retained_edges)}
@@ -483,8 +447,8 @@ def _order_model_spec_inventory(
     }
 
     parameters_list = [dict(parameter) for parameter in parameters]
-    role_buckets: dict[str, list[dict[str, Any]]] = {}
-    loading_params: list[dict[str, Any]] = []
+    role_buckets: dict[str, list[UncheckedJsonObject]] = {}
+    loading_params: list[UncheckedJsonObject] = []
 
     for parameter in parameters_list:
         role = str(parameter["role"])
@@ -493,14 +457,14 @@ def _order_model_spec_inventory(
             continue
         role_buckets.setdefault(role, []).append(parameter)
 
-    def _construct_key(parameter: dict[str, Any]) -> tuple[int, str]:
+    def _construct_key(parameter: UncheckedJsonObject) -> tuple[int, str]:
         construct_names = tuple(parameter.get("construct_names") or ())
         construct_name = str(
             parameter.get("construct") or (construct_names[-1] if construct_names else "")
         )
         return (construct_order.get(construct_name, len(construct_order)), construct_name)
 
-    def _measurement_error_key(parameter: dict[str, Any]) -> tuple[int, str, str]:
+    def _measurement_error_key(parameter: UncheckedJsonObject) -> tuple[int, str, str]:
         construct_name = str(parameter.get("construct") or "")
         indicator_name = str(parameter.get("indicator") or "")
         return (
@@ -509,12 +473,12 @@ def _order_model_spec_inventory(
             indicator_name,
         )
 
-    def _observation_parameter_key(parameter: dict[str, Any]) -> tuple[int, str]:
+    def _observation_parameter_key(parameter: UncheckedJsonObject) -> tuple[int, str]:
         construct_names = tuple(parameter.get("construct_names") or ())
         first_construct = str(construct_names[0]) if construct_names else ""
         return (construct_order.get(first_construct, len(construct_order)), str(parameter["name"]))
 
-    ordered_parameters: list[dict[str, Any]] = []
+    ordered_parameters: list[UncheckedJsonObject] = []
     ordered_parameters.extend(
         sorted(role_buckets.pop("measurement_error_sd", []), key=_measurement_error_key)
     )
@@ -584,7 +548,7 @@ def _order_model_spec_inventory(
     return ordered_parameters, loading_params
 
 
-def _dependency_parameter_name(dependency: dict[str, Any]) -> str:
+def _dependency_parameter_name(dependency: UncheckedJsonObject) -> str:
     """Return the semantic model-spec parameter name for one induced dependency."""
     construct_1, construct_2 = dependency["between"]
     if dependency["kind"] == "innovation_correlation":
@@ -597,15 +561,15 @@ def _is_compiler_default_only_parameter_name(parameter_name: str) -> bool:
     return parameter_name == "proc_df"
 
 
-def _is_conditional_prior_surface_parameter(parameter: dict[str, Any]) -> bool:
+def _is_conditional_prior_surface_parameter(parameter: UncheckedJsonObject) -> bool:
     """Whether a parameter is conditional on the locked likelihood choices."""
     return bool(parameter.get("conditional_prior_surface"))
 
 
 def _enrich_parameter_with_binding(
-    parameter: dict[str, Any],
+    parameter: UncheckedJsonObject,
     binding: CompiledParameterBinding | None,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Attach compiler binding metadata used by model-spec prior surfaces."""
     enriched = dict(parameter)
     if not binding:
@@ -649,11 +613,11 @@ def _component_parameter_label(site_kind: Any, prior_field: Any) -> str | None:
 
 
 def _measurement_error_parameters(
-    indicators: list[dict[str, Any]],
+    indicators: list[UncheckedJsonObject],
     *,
     retained_construct_names: set[str],
     indicators_per_construct: dict[str, list[str]],
-) -> list[dict[str, Any]]:
+) -> list[UncheckedJsonObject]:
     """Return one semantic measurement-error prior per free manifest channel.
 
     Emitted as a conditional surface: it activates only when the indicator's
@@ -666,7 +630,7 @@ def _measurement_error_parameters(
     noise_families = sorted(
         family.value for family in DistributionFamily if family.uses_manifest_noise
     )
-    parameters: list[dict[str, Any]] = []
+    parameters: list[UncheckedJsonObject] = []
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
         indicator_name = indicator["name"]
@@ -693,10 +657,10 @@ def _measurement_error_parameters(
 
 
 def _candidate_state_intercept_parameters(
-    retained_constructs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    retained_constructs: list[UncheckedJsonObject],
+) -> list[UncheckedJsonObject]:
     """Return conditional continuous-time intercept surfaces for dynamic states."""
-    parameters: list[dict[str, Any]] = []
+    parameters: list[UncheckedJsonObject] = []
     for construct in retained_constructs:
         if construct.get("temporal_status") == "time_invariant":
             continue
@@ -717,10 +681,10 @@ def _candidate_state_intercept_parameters(
 
 
 def _candidate_initial_state_parameters(
-    retained_constructs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    retained_constructs: list[UncheckedJsonObject],
+) -> list[UncheckedJsonObject]:
     """Return conditional initial-state surfaces gated by initialization policy."""
-    parameters: list[dict[str, Any]] = []
+    parameters: list[UncheckedJsonObject] = []
     for construct in retained_constructs:
         construct_name = str(construct["name"])
         temporal_status = construct.get("temporal_status")
@@ -752,10 +716,10 @@ def _candidate_initial_state_parameters(
 
 
 def _candidate_observation_intercept_parameters(
-    indicators: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    indicators: list[UncheckedJsonObject],
+) -> list[UncheckedJsonObject]:
     """Return per-indicator conditional manifest-intercept surfaces."""
-    parameters: list[dict[str, Any]] = []
+    parameters: list[UncheckedJsonObject] = []
     for indicator in indicators:
         indicator_name = str(indicator["name"])
         construct_name = indicator.get("construct_name")
@@ -774,10 +738,10 @@ def _candidate_observation_intercept_parameters(
 
 
 def _confounder_baseline_factor_parameters(
-    marginalized_scales: list[dict[str, Any]],
+    marginalized_scales: list[UncheckedJsonObject],
     *,
     retained_state_order: list[str],
-) -> list[dict[str, Any]]:
+) -> list[UncheckedJsonObject]:
     """Return one baseline-factor scale per identifiable confounder equivalence class.
 
     Confounders sharing the same loading column (same set of retained children)
@@ -786,7 +750,7 @@ def _confounder_baseline_factor_parameters(
     and list the aggregated source confounders for elicitation context.
     """
     construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
-    parameters: list[dict[str, Any]] = []
+    parameters: list[UncheckedJsonObject] = []
     for scale in marginalized_scales:
         if scale["kind"] != "initial_state_correlation":
             continue
@@ -818,11 +782,11 @@ def _confounder_baseline_factor_parameters(
 
 
 def _candidate_observation_extra_parameters(
-    indicators: list[dict[str, Any]],
+    indicators: list[UncheckedJsonObject],
     *,
     resolved_likelihoods: list[ResolvedLikelihoodCandidate],
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
-) -> list[dict[str, Any]]:
+) -> list[UncheckedJsonObject]:
     """Return likelihood-extra prior candidates activated by the locked family choices."""
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
     possible_distributions_by_indicator: dict[str, set[str]] = {}
@@ -858,7 +822,7 @@ def _candidate_observation_extra_parameters(
             if family.value in families
         )
 
-    candidates: list[dict[str, Any]] = []
+    candidates: list[UncheckedJsonObject] = []
 
     positive_sites = {
         "obs_df": (
@@ -897,40 +861,40 @@ def _candidate_observation_extra_parameters(
         )
 
     ordered_indicator_names = _candidate_variables(DistributionFamily.ORDERED_LOGISTIC)
-    if ordered_indicator_names:
+    for indicator_name in ordered_indicator_names:
+        indicator = indicator_lookup[indicator_name]
+        construct_name = str(indicator["construct_name"])
         candidates.append(
             {
-                "name": "obs_ordered_base",
+                "name": f"obs_ordered_base_{indicator_name}",
                 "role": "observation_hyperparameter",
                 "constraint": "none",
-                "description": "Ordered-logistic threshold base locations",
-                "indicator_names": ordered_indicator_names,
-                "construct_names": _construct_names(ordered_indicator_names),
-                "activation_indicator_names": list(ordered_indicator_names),
+                "description": f"Ordered-logistic threshold base for {indicator_name}",
+                "indicator": indicator_name,
+                "construct": construct_name,
+                "indicator_names": [indicator_name],
+                "construct_names": [construct_name],
+                "activation_indicator_names": [indicator_name],
                 "activation_distribution_families": [DistributionFamily.ORDERED_LOGISTIC.value],
                 "conditional_prior_surface": True,
             }
         )
-
-    ordered_gap_indicator_names = sorted(
-        indicator_name
-        for indicator_name in ordered_indicator_names
-        if len((indicator_lookup.get(indicator_name) or {}).get("ordinal_levels") or ()) > 2
-    )
-    if ordered_gap_indicator_names:
-        candidates.append(
-            {
-                "name": "obs_ordered_gaps",
-                "role": "observation_hyperparameter_positive",
-                "constraint": "positive",
-                "description": "Ordered-logistic threshold gaps",
-                "indicator_names": ordered_indicator_names,
-                "construct_names": _construct_names(ordered_indicator_names),
-                "activation_indicator_names": ordered_gap_indicator_names,
-                "activation_distribution_families": [DistributionFamily.ORDERED_LOGISTIC.value],
-                "conditional_prior_surface": True,
-            }
-        )
+        if len(indicator.get("ordinal_levels") or ()) > 2:
+            candidates.append(
+                {
+                    "name": f"obs_ordered_gaps_{indicator_name}",
+                    "role": "observation_hyperparameter_positive",
+                    "constraint": "positive",
+                    "description": f"Ordered-logistic threshold gaps for {indicator_name}",
+                    "indicator": indicator_name,
+                    "construct": construct_name,
+                    "indicator_names": [indicator_name],
+                    "construct_names": [construct_name],
+                    "activation_indicator_names": [indicator_name],
+                    "activation_distribution_families": [DistributionFamily.ORDERED_LOGISTIC.value],
+                    "conditional_prior_surface": True,
+                }
+            )
 
     categorical_indicator_names = _candidate_variables(DistributionFamily.CATEGORICAL)
     if categorical_indicator_names:
@@ -957,9 +921,9 @@ def _candidate_observation_extra_parameters(
 
 def _provisional_likelihood_choices(
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate],
-) -> list[dict[str, Any]]:
+) -> list[UncheckedJsonObject]:
     """Choose deterministic provisional likelihoods for compiler-owned prior discovery."""
-    choices: list[dict[str, Any]] = []
+    choices: list[UncheckedJsonObject] = []
     for item in ambiguous_indicators:
         variable = str(item["variable"])
         if "fixed_distribution" in item:
@@ -999,7 +963,7 @@ def _parameter_metadata_from_compiler_row(
     *,
     binding: CompiledParameterBinding | None,
     retained_construct_names: set[str],
-) -> dict[str, Any] | None:
+) -> UncheckedJsonObject | None:
     """Convert one compiler-owned extra prior row into model-spec parameter metadata."""
     if parameter_name.startswith("t0_mean_"):
         construct_name = parameter_name.removeprefix("t0_mean_")

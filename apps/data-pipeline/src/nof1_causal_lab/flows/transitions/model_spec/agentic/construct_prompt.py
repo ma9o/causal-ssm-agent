@@ -16,21 +16,25 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 
 from nof1_causal_lab.distributions import constraint_domain
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.causal_design import (
     choose_reference_indicator,
-    get_constructs,
     get_effective_observation_window,
-    get_estimation_edges,
-    get_estimation_state_order,
     get_indicator_polarity,
-    get_indicators,
-    get_known_inputs,
 )
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
+    get_known_inputs,
+    get_manifest_indicators,
+    get_model_clock,
+    get_plan_constructs,
+    get_plan_indicators,
+    get_state_names,
+)
 
 from .construct_flow import (
-    construct_parents,
-    deferred_closing_edge_params,
+    AdmissionTurnInventory,
     render_admission_feedback,
 )
 from .prompts.shared_fragments import (
@@ -41,6 +45,8 @@ from .prompts.shared_fragments import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+
     from .construct_flow import ConstructBuildState
 
 _SYSTEM_TASK = """You are specifying one construct of a continuous-time latent state-space model,
@@ -72,24 +78,26 @@ fails the attempt. Follow the tool schema exactly (`indicators`, not
 and the registered tool schema contain everything required for the submission."""
 
 
-def _indicators_for(causal_design: dict, construct: str) -> list[dict]:
-    return [i for i in get_indicators(causal_design) if i.get("construct_name") == construct]
+def _indicators_for(
+    structural_plan: StructuralPlan,
+    construct: str,
+) -> list[UncheckedJsonObject]:
+    return [
+        indicator
+        for indicator in get_manifest_indicators(structural_plan)
+        if indicator.get("construct_name") == construct
+    ]
 
 
-def _canonical_parameter_names(state: ConstructBuildState, construct: str) -> list[str]:
+def _canonical_parameter_names(
+    state: ConstructBuildState,
+    inventory: AdmissionTurnInventory,
+) -> list[str]:
     """The compiler-authoritative free parameters this construct may author priors for."""
-    assert state.catalog is not None  # set in ConstructBuildState.__post_init__
-    names = state.catalog.prior_names_for(
-        construct,
-        admitted_prior_names=state.admission.priors,
-    )
-    names |= deferred_closing_edge_params(
-        state.causal_design, construct, set(state.admission.names)
-    )
-    return sorted(names)
+    return sorted(inventory.prior_names(state.admission.priors))
 
 
-def _parameter_activation_note(parameter: dict[str, Any]) -> str:
+def _parameter_activation_note(parameter: UncheckedJsonObject) -> str:
     """Describe the submitted-likelihood condition for a conditional prior surface."""
     if not parameter.get("conditional_prior_surface"):
         return ""
@@ -131,7 +139,7 @@ def _format_percent(value: Any) -> str:
     return f"{number:.1%}" if math.isfinite(number) else "unavailable"
 
 
-def _validation_frame(validation_report: dict[str, Any]) -> list[str]:
+def _validation_frame(validation_report: UncheckedJsonObject) -> list[str]:
     """Render only validation facts that apply to the whole authoring run."""
     is_valid = validation_report.get("is_valid")
     status = "VALID" if is_valid is True else "INVALID" if is_valid is False else "UNKNOWN"
@@ -147,12 +155,12 @@ def _validation_frame(validation_report: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _active_construct_frame(causal_design: dict, construct: str) -> list[str]:
+def _active_construct_frame(structural_plan: StructuralPlan, construct: str) -> list[str]:
     construct_meta = next(
-        (item for item in get_constructs(causal_design) if item.get("name") == construct),
+        (item for item in get_plan_constructs(structural_plan) if item.get("name") == construct),
         {},
     )
-    model_clock = causal_design.get("measurement", {}).get("model_clock") or "unknown"
+    model_clock = get_model_clock(structural_plan)
     theoretical_role = construct_meta.get("role") or "unknown"
     temporal_status = construct_meta.get("temporal_status") or "unknown"
     outcome = "yes" if construct_meta.get("is_outcome") else "no"
@@ -178,17 +186,16 @@ def _active_construct_frame(causal_design: dict, construct: str) -> list[str]:
 
 def _incoming_driver_context(
     state: ConstructBuildState,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     construct: str,
+    compiler_prior_names: set[str],
 ) -> list[str]:
     """Render executable incoming causes, separated by estimation role."""
-    edges = [
-        edge for edge in get_estimation_edges(causal_design) if edge.get("effect") == construct
-    ]
-    state_names = set(get_estimation_state_order(causal_design))
+    edges = [edge for edge in get_edges(structural_plan) if edge.get("effect") == construct]
+    state_names = set(get_state_names(structural_plan))
     known_input_by_name = {
         str(item.get("construct") or item.get("construct_name")): item
-        for item in get_known_inputs(causal_design)
+        for item in get_known_inputs(structural_plan)
         if item.get("construct") or item.get("construct_name")
     }
     lines = ["## Incoming drivers"]
@@ -209,10 +216,18 @@ def _incoming_driver_context(
                 f"scale divisor={_format_number(known_input.get('scale', 1.0))}, "
                 f"missing policy=`{known_input.get('missing_policy', 'zero')}`{suffix}"
             )
+            lines.extend(
+                _known_input_profile_lines(
+                    state.data_for_model,
+                    structural_plan,
+                    source_indicator=str(known_input["source_indicator"]),
+                    scale=float(known_input.get("scale", 1.0)),
+                )
+            )
         elif cause in state_names:
             status = (
-                "admitted and authorable now"
-                if cause in state.admission.names
+                "materialized in the current restricted compile and authorable now"
+                if f"beta_{cause}_{construct}" in compiler_prior_names
                 else (
                     "deferred feedback parent; its incoming effect is not authorable on this turn"
                 )
@@ -236,7 +251,7 @@ def _observed_values(data_for_model: pl.DataFrame, indicator: str) -> list[float
     return [float(value) for value in values if math.isfinite(float(value))]
 
 
-def _ordinal_occupancy(indicator: dict, values: list[float]) -> str | None:
+def _ordinal_occupancy(indicator: UncheckedJsonObject, values: list[float]) -> str | None:
     levels = indicator.get("ordinal_levels") or []
     if indicator.get("measurement_dtype") != "ordinal" or not levels:
         return None
@@ -252,6 +267,43 @@ def _ordinal_occupancy(indicator: dict, values: list[float]) -> str | None:
     if invalid:
         entries.append(f"invalid/out-of-range ({invalid})")
     return ", ".join(entries)
+
+
+def _known_input_profile_lines(
+    data_for_model: pl.DataFrame,
+    structural_plan: StructuralPlan,
+    *,
+    source_indicator: str,
+    scale: float,
+) -> list[str]:
+    """Render the empirical source scale needed to author a known-input effect."""
+    indicator = next(
+        item for item in get_plan_indicators(structural_plan) if item["name"] == source_indicator
+    )
+    values = _observed_values(data_for_model, source_indicator)
+    if not values:
+        return ["  - Source data: 0 observed numeric values."]
+
+    mean_value = sum(values) / len(values)
+    variance = sum((value - mean_value) ** 2 for value in values) / len(values)
+    scaled_values = [value / scale for value in values]
+    scaled_mean = mean_value / scale
+    scaled_variance = variance / (scale**2)
+    lines = [
+        "  - Source data before scaling: "
+        f"n={len(values)}; distinct={len(set(values))}; "
+        f"mean={_format_number(mean_value)}; sd={_format_number(math.sqrt(variance))}; "
+        f"range=[{_format_number(min(values))}, {_format_number(max(values))}].",
+        "  - Compiler input at observed source rows: "
+        f"mean={_format_number(scaled_mean)}; "
+        f"sd={_format_number(math.sqrt(scaled_variance))}; "
+        f"range=[{_format_number(min(scaled_values))}, "
+        f"{_format_number(max(scaled_values))}] after the scale divisor.",
+    ]
+    occupancy = _ordinal_occupancy(indicator, values)
+    if occupancy is not None:
+        lines.append(f"  - Observed ordinal occupancy: {occupancy}.")
+    return lines
 
 
 def _schedule_context(
@@ -298,7 +350,7 @@ def _schedule_context(
     return lines
 
 
-def _profile_lines(profile: dict[str, Any] | None) -> list[str]:
+def _profile_lines(profile: UncheckedJsonObject | None) -> list[str]:
     if not profile:
         return ["  - Raw empirical profile: unavailable (no numeric observations)."]
 
@@ -357,9 +409,9 @@ def _profile_lines(profile: dict[str, Any] | None) -> list[str]:
 
 def _indicator_card(
     *,
-    indicator: dict,
+    indicator: UncheckedJsonObject,
     reference_var: str | None,
-    audit: dict[str, Any],
+    audit: UncheckedJsonObject,
     model_clock: str | None,
     data_for_model: pl.DataFrame,
 ) -> list[str]:
@@ -432,8 +484,8 @@ def build_construct_messages(
     state: ConstructBuildState,
     construct: str,
     question: str,
-    causal_design: dict,
-    validation_report: dict[str, Any],
+    structural_plan: StructuralPlan,
+    validation_report: UncheckedJsonObject,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for admitting ``construct``."""
     system = "\n\n".join(
@@ -446,16 +498,17 @@ def build_construct_messages(
         ]
     )
 
-    indicators = _indicators_for(causal_design, construct)
+    indicators = _indicators_for(structural_plan, construct)
     reference = choose_reference_indicator(indicators)
     reference_var = reference["name"] if reference else None
     audits = dict(validation_report.get("indicators") or {})
-    param_names = _canonical_parameter_names(state, construct)
+    inventory = state.parameter_inventory_for(construct)
+    param_names = _canonical_parameter_names(state, inventory)
     construct_meta = next(
-        (item for item in get_constructs(causal_design) if item.get("name") == construct),
+        (item for item in get_plan_constructs(structural_plan) if item.get("name") == construct),
         {},
     )
-    model_clock = causal_design.get("measurement", {}).get("model_clock")
+    model_clock = get_model_clock(structural_plan)
     validation_frame = _validation_frame(validation_report)
 
     lines: list[str] = [
@@ -463,11 +516,16 @@ def build_construct_messages(
         "",
         *validation_frame,
         *([""] if validation_frame else []),
-        *_active_construct_frame(causal_design, construct),
+        *_active_construct_frame(structural_plan, construct),
         "",
         "Already admitted: " + (", ".join(state.admission.names) or "(none yet)"),
         "",
-        *_incoming_driver_context(state, causal_design, construct),
+        *_incoming_driver_context(
+            state,
+            structural_plan,
+            construct,
+            set(inventory.compiler_prior_names),
+        ),
         "",
         *_schedule_context(
             state.data_for_model,
@@ -491,18 +549,9 @@ def build_construct_messages(
             ]
         )
 
-    closing_betas = sorted(
-        n
-        for n in deferred_closing_edge_params(causal_design, construct, set(state.admission.names))
-        if n.startswith("beta_")
-    )
-    catalog = state.catalog
-    assert catalog is not None  # guaranteed by _canonical_parameter_names above
-    saturating_parents = [
-        parent
-        for parent in construct_parents(causal_design, construct)
-        if parent in state.admission.names
-    ]
+    closing_betas = sorted(inventory.closing_beta_names)
+    catalog = inventory.catalog
+    saturating_parents = inventory.incoming_saturating_parents
     lines += [
         "",
         "## Canonical parameters available for this construct",
@@ -523,11 +572,10 @@ def build_construct_messages(
         role, constraint = catalog.role_for(n)
         site_name = catalog.site_for(n)
         pooled_families = {
-            prior.get("distribution")
+            prior.distribution.value
             for prior_name, prior in state.admission.priors.items()
             if site_name is not None and catalog.site_for(prior_name) == site_name
         }
-        pooled_families.discard(None)
         family_requirement = (
             f" — pooled compiler site `{site_name}`: MUST use "
             f"`{next(iter(pooled_families))}` to match admitted parameters"

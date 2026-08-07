@@ -27,10 +27,12 @@ from nof1_causal_lab.artifacts import (
     ParameterConstraint,
     ParameterRole,
 )
+from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
 from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
@@ -40,17 +42,17 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     DesignInfo,
     admit_construct,
     recheck_member,
-    restrict_causal_design,
     trial_admission_state,
 )
 from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
-from nof1_causal_lab.utils.causal_design import (
-    get_estimation_edges,
-    get_estimation_state_order,
-    get_indicators,
-    get_known_input_source_indicators,
-)
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
+    get_known_input_source_indicators,
+    get_plan_indicators,
+    get_state_names,
+    restrict_structural_plan,
+)
 
 from .parameter_surfaces import parameter_is_active_for_statistical_model_spec
 
@@ -59,9 +61,13 @@ if TYPE_CHECKING:
 
     import polars as pl
 
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+
 # Attempts per construct before the build fails (each attempt is one fresh
 # agent session that must call submit_construct with a revised proposal).
 _MAX_ATTEMPTS_PER_CONSTRUCT = 4
+
+type ParameterMetadata = dict[str, Any]
 
 # --------------------------------------------------------------------------- #
 # Compiler-authoritative parameter catalog
@@ -101,18 +107,18 @@ class ParamCatalog:
     by_construct: Mapping[str, tuple[str, ...]]
     global_params: frozenset[str]
     site_names: Mapping[str, str]
-    metadata: Mapping[str, Mapping[str, Any]]
+    metadata: Mapping[str, ParameterMetadata]
 
     @classmethod
-    def from_causal_design(cls, causal_design: dict) -> ParamCatalog:
+    def from_structural_plan(cls, structural_plan: StructuralPlan) -> ParamCatalog:
         from .skeleton import derive_deterministic_spec
 
-        skeleton = derive_deterministic_spec(causal_design)
+        skeleton = derive_deterministic_spec(structural_plan)
         roles: dict[str, tuple[ParameterRole, ParameterConstraint]] = {}
         by_construct: dict[str, list[str]] = {}
         global_params: set[str] = set()
         site_names: dict[str, str] = {}
-        metadata: dict[str, Mapping[str, Any]] = {}
+        metadata: dict[str, ParameterMetadata] = {}
         for param in (*skeleton.parameters, *skeleton.loading_params):
             role = ParameterRole(param["role"])
             # Initial-state means/SDs and the `cint_` well-centre are pinned by
@@ -174,25 +180,16 @@ class ParamCatalog:
         admitted_prior_names: Collection[str] = (),
     ) -> set[str]:
         names = set(self.by_construct.get(construct, ()))
-        names -= self.global_params & set(admitted_prior_names)
+        names -= set(admitted_prior_names)
         return names
 
-    def allowed_for(
+    def active_names(
         self,
-        construct: str,
-        parents: Sequence[str],
-        *,
-        likelihood_by_variable: Mapping[str, Mapping[str, Any]] | None = None,
-        admitted_prior_names: Collection[str] = (),
+        names: Collection[str],
+        likelihood_by_variable: Mapping[str, Mapping[str, Any]],
     ) -> set[str]:
-        structural = self.structural_names(construct, parents)
-        names = self.prior_names_for(
-            construct,
-            admitted_prior_names=admitted_prior_names,
-        )
-        if likelihood_by_variable is None:
-            return names | structural
-        active = {
+        """Filter compiler parameters against the submitted likelihood surface."""
+        return {
             name
             for name in names
             if parameter_is_active_for_statistical_model_spec(
@@ -203,7 +200,23 @@ class ParamCatalog:
                 equilibrium_forcing=False,
             )
         }
-        return active | structural
+
+    def allowed_for(
+        self,
+        construct: str,
+        saturating_parents: Sequence[str],
+        *,
+        likelihood_by_variable: Mapping[str, Mapping[str, Any]] | None = None,
+        admitted_prior_names: Collection[str] = (),
+    ) -> set[str]:
+        structural = self.structural_names(construct, saturating_parents)
+        names = self.prior_names_for(
+            construct,
+            admitted_prior_names=admitted_prior_names,
+        )
+        if likelihood_by_variable is None:
+            return names | structural
+        return self.active_names(names, likelihood_by_variable) | structural
 
     def role_for(self, name: str) -> tuple[ParameterRole, ParameterConstraint]:
         return self.roles.get(name, _STRUCTURAL_ROLE)
@@ -211,14 +224,99 @@ class ParamCatalog:
     def site_for(self, name: str) -> str | None:
         return self.site_names.get(name)
 
-    def metadata_for(self, name: str) -> Mapping[str, Any]:
+    def metadata_for(self, name: str) -> ParameterMetadata:
         return self.metadata[name]
 
 
-def construct_parents(causal_design: dict, construct: str) -> list[str]:
+@dataclass(frozen=True)
+class AdmissionTurnInventory:
+    """Parameters materialized by the compiler for one cumulative admission turn."""
+
+    catalog: ParamCatalog
+    compiler_prior_names: frozenset[str]
+    structural_prior_names: frozenset[str]
+    closing_beta_names: frozenset[str]
+    incoming_saturating_parents: tuple[str, ...]
+
+    def prior_names(self, admitted_prior_names: Collection[str]) -> set[str]:
+        return set(self.compiler_prior_names) - set(admitted_prior_names)
+
+    def allowed_for(
+        self,
+        likelihood_by_variable: Mapping[str, Mapping[str, Any]],
+        *,
+        admitted_prior_names: Collection[str],
+    ) -> set[str]:
+        active = self.catalog.active_names(
+            self.prior_names(admitted_prior_names),
+            likelihood_by_variable,
+        )
+        return active | set(self.structural_prior_names)
+
+
+def derive_admission_turn_inventory(
+    *,
+    construct: str,
+    admitted: Collection[str],
+    current_catalog: ParamCatalog,
+    previous_catalog: ParamCatalog | None,
+) -> AdmissionTurnInventory:
+    """Derive the turn's parameter surface from consecutive restricted compiles.
+
+    The current restricted plan contains the admitted prefix plus ``construct``.
+    Parameters owned by ``construct`` cover its local and incoming-edge sites;
+    the compiler delta from the previous prefix adds sites that materialize
+    elsewhere when this construct closes a feedback loop or dependency.
+    """
+    admitted_names = set(admitted)
+    previous_names = set(previous_catalog.roles) if previous_catalog is not None else set()
+    newly_materialized = set(current_catalog.roles) - previous_names
+    compiler_prior_names = current_catalog.prior_names_for(construct) | newly_materialized
+
+    fixed_effects = {
+        name: current_catalog.metadata_for(name)
+        for name in compiler_prior_names
+        if current_catalog.role_for(name)[0] == ParameterRole.FIXED_EFFECT
+    }
+    incoming_saturating_parents = tuple(
+        sorted(
+            str(metadata["cause"])
+            for metadata in fixed_effects.values()
+            if metadata.get("effect") == construct and metadata.get("cause") in admitted_names
+        )
+    )
+    closing_beta_names = frozenset(
+        name
+        for name, metadata in fixed_effects.items()
+        if metadata.get("cause") == construct and metadata.get("effect") in admitted_names
+    )
+
+    structural_names = {f"self_limit_{construct}"}
+    saturating_edges = {(parent, construct) for parent in incoming_saturating_parents} | {
+        (construct, str(fixed_effects[name]["effect"])) for name in closing_beta_names
+    }
+    for cause, effect in saturating_edges:
+        structural_names.update(
+            {
+                f"hill_emax_{cause}_{effect}",
+                f"hill_ec50_{cause}_{effect}",
+                f"hill_n_{cause}_{effect}",
+            }
+        )
+
+    return AdmissionTurnInventory(
+        catalog=current_catalog,
+        compiler_prior_names=frozenset(compiler_prior_names),
+        structural_prior_names=frozenset(structural_names),
+        closing_beta_names=closing_beta_names,
+        incoming_saturating_parents=incoming_saturating_parents,
+    )
+
+
+def construct_parents(structural_plan: StructuralPlan, construct: str) -> list[str]:
     """Direct causal parents of ``construct`` (edge sources into it)."""
     parents: list[str] = []
-    for edge in get_estimation_edges(causal_design):
+    for edge in get_edges(structural_plan):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if effect == construct and cause is not None and str(cause) not in parents:
@@ -227,12 +325,14 @@ def construct_parents(causal_design: dict, construct: str) -> list[str]:
 
 
 def _locked_likelihood_by_variable(
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     indicators: Sequence[Mapping[str, Any]],
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, UncheckedJsonObject]:
     """Resolve submitted emissions into the compiler's likelihood-activation surface."""
-    indicator_lookup = {indicator["name"]: indicator for indicator in get_indicators(causal_design)}
-    locked: dict[str, dict[str, Any]] = {}
+    indicator_lookup = {
+        indicator["name"]: indicator for indicator in get_plan_indicators(structural_plan)
+    }
+    locked: dict[str, UncheckedJsonObject] = {}
     for submitted in indicators:
         variable = str(submitted["variable"])
         indicator = indicator_lookup[variable]
@@ -274,36 +374,8 @@ def _acceptance_map(
     return accepted
 
 
-def deferred_closing_edge_params(
-    causal_design: dict, construct: str, admitted: Collection[str]
-) -> set[str]:
-    """Params for cycle-closing edges ``construct -> already-admitted effect``.
-
-    ``restrict_causal_design`` keeps an edge only when both endpoints are kept,
-    so a feedback edge out of ``construct`` into an earlier-admitted member
-    first materializes during THIS construct's admission. Its weight prior
-    must be authorable here: the effect construct was admitted without the
-    edge, and authoring the prior on its turn would have named a site absent
-    from that turn's restricted model.
-    """
-    names: set[str] = set()
-    for edge in get_estimation_edges(causal_design):
-        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
-        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
-        if cause == construct and effect in admitted:
-            names.add(f"beta_{construct}_{effect}")
-            names.update(
-                {
-                    f"hill_emax_{construct}_{effect}",
-                    f"hill_ec50_{construct}_{effect}",
-                    f"hill_n_{construct}_{effect}",
-                }
-            )
-    return names
-
-
 def _closing_edge_effects(
-    causal_design: dict, construct: str, prior_admitted: Collection[str]
+    structural_plan: StructuralPlan, construct: str, prior_admitted: Collection[str]
 ) -> list[str]:
     """Already-admitted effect(s) of feedback edges out of ``construct``.
 
@@ -311,7 +383,7 @@ def _closing_edge_effects(
     closes the loop — so they warrant a coupled recheck against the closed-loop model.
     """
     effects: list[str] = []
-    for edge in get_estimation_edges(causal_design):
+    for edge in get_edges(structural_plan):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause == construct and effect in prior_admitted and str(effect) not in effects:
@@ -320,7 +392,7 @@ def _closing_edge_effects(
 
 
 def _closed_loop_target(
-    member: ConstructContribution, causal_design: dict, priors: Mapping[str, Any]
+    member: ConstructContribution, structural_plan: StructuralPlan, priors: Mapping[str, Any]
 ) -> ConstructContribution:
     """``member``'s contribution with its edge set recomputed on the closed loop.
 
@@ -328,8 +400,8 @@ def _closed_loop_target(
     ``hill_*`` prior is already in ``priors`` (authored during the loop-closing submission).
     """
     name = member.name
-    parents = construct_parents(causal_design, name)
-    latent_parents = set(get_estimation_state_order(causal_design))
+    parents = construct_parents(structural_plan, name)
+    latent_parents = set(get_state_names(structural_plan))
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
@@ -345,7 +417,7 @@ def _closed_loop_target(
 
 
 def contribution_from_payload(
-    causal_design: dict, payload: Mapping[str, Any], catalog: ParamCatalog
+    structural_plan: StructuralPlan, payload: Mapping[str, Any], catalog: ParamCatalog
 ) -> ConstructContribution:
     """Parse a ``submit_construct`` payload into a canonical construct contribution.
 
@@ -375,7 +447,16 @@ def contribution_from_payload(
             'e.g. {"lambda_x": {"distribution": "Normal", "params": {"mu": 0, "sigma": 1}}} '
             "— got a non-object prior value."
         )
-    priors = {str(k): dict(v) for k, v in raw_priors.items()}
+    priors = {}
+    for parameter, prior_payload in raw_priors.items():
+        executable_payload = {
+            field: prior_payload[field]
+            for field in ("distribution", "params", "reference_interval_days")
+            if field in prior_payload
+        }
+        priors[str(parameter)] = ExecutablePrior.model_validate(
+            {"parameter": str(parameter), **executable_payload}
+        )
     parameters = tuple(
         ParameterSpec(
             name=pn,
@@ -385,8 +466,8 @@ def contribution_from_payload(
         )
         for pn in priors
     )
-    parents = construct_parents(causal_design, name)
-    latent_parents = set(get_estimation_state_order(causal_design))
+    parents = construct_parents(structural_plan, name)
+    latent_parents = set(get_state_names(structural_plan))
     edge_parents = tuple(
         p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
     )
@@ -411,7 +492,7 @@ def contribution_from_payload(
 def build_design_info(
     state: AdmissionState,
     contribution: ConstructContribution,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     data_for_model: pl.DataFrame,
     *,
     n_draws: int,
@@ -420,7 +501,7 @@ def build_design_info(
     """Reachability design for admitting ``contribution`` onto ``state`` (the trial model)."""
     return _design_for_state(
         trial_admission_state(state, contribution),
-        causal_design,
+        structural_plan,
         data_for_model,
         n_draws=n_draws,
         seed=seed,
@@ -429,7 +510,7 @@ def build_design_info(
 
 def _design_for_state(
     model_state: AdmissionState,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     data_for_model: pl.DataFrame,
     *,
     n_draws: int,
@@ -449,9 +530,11 @@ def _design_for_state(
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
-    restricted = restrict_causal_design(causal_design, set(model_state.names))
+    restricted = restrict_structural_plan(structural_plan, set(model_state.names))
     compiled = compile_ssm_artifact(
-        model_state.statistical_model_spec(), dict(model_state.priors), causal_design=restricted
+        model_state.statistical_model_spec(),
+        PriorPlan(priors=dict(model_state.priors)),
+        structural_plan=restricted,
     )
 
     indicator_names = [lik.variable for lik in model_state.likelihoods]
@@ -513,24 +596,26 @@ def render_admission_feedback(report: AdmissionReport) -> str:
 # is present; pure state tests use ``workspace_id=None`` and have no side effects.
 
 
-def _admission_plan_payload(causal_design: dict, order: Sequence[str]) -> dict[str, Any]:
+def _admission_plan_payload(
+    structural_plan: StructuralPlan, order: Sequence[str]
+) -> UncheckedJsonObject:
     """The static admission plan: constructs in admission order + the DAG edges among them."""
     order_set = set(order)
     edges: list[dict[str, str]] = []
-    for edge in get_estimation_edges(causal_design):
+    for edge in get_edges(structural_plan):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause in order_set and effect in order_set:
             edges.append({"cause": str(cause), "effect": str(effect)})
     constructs = [
-        {"name": name, "parents": construct_parents(causal_design, name)} for name in order
+        {"name": name, "parents": construct_parents(structural_plan, name)} for name in order
     ]
     return {"constructs": constructs, "edges": edges, "max_attempts": _MAX_ATTEMPTS_PER_CONSTRUCT}
 
 
-def _admission_parameters_payload(contribution: ConstructContribution) -> list[dict[str, Any]]:
+def _admission_parameters_payload(contribution: ConstructContribution) -> list[UncheckedJsonObject]:
     """Authored priors of a submission as ``{name, distribution, params}`` for the UI table."""
-    params: list[dict[str, Any]] = []
+    params: list[UncheckedJsonObject] = []
     for name, dist in contribution.priors.items():
         raw = dist.get("params", {}) if isinstance(dist, dict) else {}
         params.append(
@@ -543,7 +628,7 @@ def _admission_parameters_payload(contribution: ConstructContribution) -> list[d
     return params
 
 
-def _check_result_payload(result: CheckResult) -> dict[str, Any]:
+def _check_result_payload(result: CheckResult) -> UncheckedJsonObject:
     """A reachability CheckResult in the admission-view contract (mode from the severity table)."""
     return {
         "check": result.check,
@@ -557,7 +642,7 @@ def _check_result_payload(result: CheckResult) -> dict[str, Any]:
     }
 
 
-def _timing_payload(timing: AdmissionTiming) -> dict[str, Any]:
+def _timing_payload(timing: AdmissionTiming) -> UncheckedJsonObject:
     return {
         "phase": timing.phase,
         "label": timing.label,
@@ -570,14 +655,14 @@ def _admission_report_payload(
     report: AdmissionReport,
     contribution: ConstructContribution,
     attempt: int,
-    coupled_recheck: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    coupled_recheck: UncheckedJsonObject | None = None,
+) -> UncheckedJsonObject:
     """One attempt's battery outcome + authored priors, in the admission-view contract.
 
     ``coupled_recheck`` (present only when admitting this construct closed a feedback loop)
     carries the closed-loop re-evaluation of the already-admitted cycle member(s).
     """
-    payload: dict[str, Any] = {
+    payload: UncheckedJsonObject = {
         "name": report.name,
         "attempt": attempt,
         "outcome": report.outcome,
@@ -609,7 +694,7 @@ def _admission_report_payload(
 class ConstructBuildState:
     """Mutable state driving the construct-by-construct admission loop."""
 
-    causal_design: dict
+    structural_plan: StructuralPlan
     data_for_model: pl.DataFrame
     order: list[str]
     n_draws: int = 200
@@ -618,7 +703,6 @@ class ConstructBuildState:
     # construct-admission view can stream; the batch/test path leaves it None and emits nothing.
     workspace_id: str | None = None
     attempt: int = 0
-    catalog: ParamCatalog | None = None
     admission: AdmissionState = field(default_factory=AdmissionState)
     cursor: int = 0
     search_queries: dict[str, str] = field(default_factory=dict)
@@ -629,14 +713,42 @@ class ConstructBuildState:
     submission_made: bool = False
     # Kept so a loop-closing admission can re-run the battery on already-admitted members.
     admitted_contributions: dict[str, ConstructContribution] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.catalog is None:
-            self.catalog = ParamCatalog.from_causal_design(self.causal_design)
+    _catalog_by_prefix: dict[frozenset[str], ParamCatalog] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
     @property
     def current_construct(self) -> str | None:
         return self.order[self.cursor] if self.cursor < len(self.order) else None
+
+    def parameter_inventory_for(self, construct: str) -> AdmissionTurnInventory:
+        """Return the cached compiler delta for the active cumulative prefix."""
+        admitted = frozenset(self.admission.names)
+        current_prefix = admitted | {construct}
+        current_catalog = self._catalog_by_prefix.get(current_prefix)
+        if current_catalog is None:
+            current_catalog = ParamCatalog.from_structural_plan(
+                restrict_structural_plan(self.structural_plan, set(current_prefix))
+            )
+            self._catalog_by_prefix[current_prefix] = current_catalog
+
+        previous_catalog = None
+        if admitted:
+            previous_catalog = self._catalog_by_prefix.get(admitted)
+            if previous_catalog is None:
+                previous_catalog = ParamCatalog.from_structural_plan(
+                    restrict_structural_plan(self.structural_plan, set(admitted))
+                )
+                self._catalog_by_prefix[admitted] = previous_catalog
+
+        return derive_admission_turn_inventory(
+            construct=construct,
+            admitted=admitted,
+            current_catalog=current_catalog,
+            previous_catalog=previous_catalog,
+        )
 
     def submit_construct(
         self,
@@ -655,21 +767,11 @@ class ConstructBuildState:
                 f"Out-of-order submission: the active construct is `{expected}`, not "
                 f"`{construct}`. Submit `{expected}` first."
             )
-        assert self.catalog is not None  # set in __post_init__
-        parents = construct_parents(self.causal_design, construct)
-        saturating_parents = [parent for parent in parents if parent in self.admission.names]
-        closing = deferred_closing_edge_params(
-            self.causal_design, construct, set(self.admission.names)
-        )
-        locked_likelihoods = _locked_likelihood_by_variable(self.causal_design, indicators)
-        allowed = (
-            self.catalog.allowed_for(
-                construct,
-                saturating_parents,
-                likelihood_by_variable=locked_likelihoods,
-                admitted_prior_names=self.admission.priors,
-            )
-            | closing
+        inventory = self.parameter_inventory_for(construct)
+        locked_likelihoods = _locked_likelihood_by_variable(self.structural_plan, indicators)
+        allowed = inventory.allowed_for(
+            locked_likelihoods,
+            admitted_prior_names=self.admission.priors,
         )
         unknown = [name for name in priors if name not in allowed]
         if unknown:
@@ -680,7 +782,7 @@ class ConstructBuildState:
             )
         missing_closing = [
             beta
-            for beta in sorted(n for n in closing if n.startswith("beta_"))
+            for beta in sorted(inventory.closing_beta_names)
             if beta not in priors and beta.replace("beta_", "hill_emax_", 1) not in priors
         ]
         if missing_closing:
@@ -692,12 +794,20 @@ class ConstructBuildState:
                 "submission (as the `beta_...` prior named above, or its `hill_*` variants) "
                 "— otherwise the compiler rejects the unbound edge site."
             )
+        payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
+        contribution = contribution_from_payload(
+            self.structural_plan,
+            payload,
+            inventory.catalog,
+        )
         pooled_families: dict[str, set[str]] = {}
-        for name, prior in {**self.admission.priors, **priors}.items():
-            site_name = self.catalog.site_for(name)
-            distribution = prior.get("distribution")
-            if site_name is not None and isinstance(distribution, str):
-                pooled_families.setdefault(site_name, set()).add(distribution)
+        for name, prior in {
+            **self.admission.priors,
+            **contribution.priors,
+        }.items():
+            site_name = inventory.catalog.site_for(name)
+            if site_name is not None:
+                pooled_families.setdefault(site_name, set()).add(prior.distribution.value)
         mixed_sites = {
             site_name: families
             for site_name, families in pooled_families.items()
@@ -713,8 +823,6 @@ class ConstructBuildState:
                 f"{details}. Match the distribution family already authored for every "
                 "parameter sharing that site."
             )
-        payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
-        contribution = contribution_from_payload(self.causal_design, payload, self.catalog)
         if self.workspace_id:
             emit_model_spec_admission_event(
                 self.workspace_id,
@@ -726,7 +834,7 @@ class ConstructBuildState:
             design = build_design_info(
                 self.admission,
                 contribution,
-                self.causal_design,
+                self.structural_plan,
                 self.data_for_model,
                 n_draws=self.n_draws,
                 seed=self.seed,
@@ -747,10 +855,10 @@ class ConstructBuildState:
         except ValueError as exc:
             return str(exc)
         new_state, report = admit_construct(
-            self.admission, contribution, self.causal_design, design, accepted=accepted
+            self.admission, contribution, self.structural_plan, design, accepted=accepted
         )
         report = replace(report, timings=(design_timing, *report.timings))
-        coupled_recheck: dict[str, Any] | None = None
+        coupled_recheck: UncheckedJsonObject | None = None
         coupled_results: list[CheckResult] = []
         if report.admitted:
             coupled_results, coupled_recheck = self._coupled_recheck(
@@ -809,11 +917,11 @@ class ConstructBuildState:
         construct: str,
         prior_admitted: Collection[str],
         tentative_state: AdmissionState,
-    ) -> tuple[list[CheckResult], dict[str, Any] | None]:
+    ) -> tuple[list[CheckResult], UncheckedJsonObject | None]:
         """Gate loop closure by rechecking every already-admitted affected member."""
         members = [
             m
-            for m in _closing_edge_effects(self.causal_design, construct, prior_admitted)
+            for m in _closing_edge_effects(self.structural_plan, construct, prior_admitted)
             if m in self.admitted_contributions
         ]
         if not members:
@@ -821,7 +929,7 @@ class ConstructBuildState:
         design_started = perf_counter_ns()
         design = _design_for_state(
             tentative_state,
-            self.causal_design,
+            self.structural_plan,
             self.data_for_model,
             n_draws=self.n_draws,
             seed=self.seed,
@@ -836,10 +944,10 @@ class ConstructBuildState:
         raw_results: list[CheckResult] = []
         for member in members:
             target = _closed_loop_target(
-                self.admitted_contributions[member], self.causal_design, tentative_state.priors
+                self.admitted_contributions[member], self.structural_plan, tentative_state.priors
             )
             member_results, member_timings = recheck_member(
-                tentative_state, target, self.causal_design, design
+                tentative_state, target, self.structural_plan, design
             )
             raw_results.extend(member_results)
             timings.extend(
@@ -860,7 +968,7 @@ class ConstructBuildState:
         }
 
 
-SUBMIT_CONSTRUCT_SCHEMA: dict[str, Any] = {
+SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
     "type": "object",
     "properties": {
         "construct": {

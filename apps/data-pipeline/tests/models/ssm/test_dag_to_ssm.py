@@ -18,8 +18,9 @@ import numpyro.handlers as handlers
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.artifacts import CausalDesign, LinkFunction, StructuralPlan
 from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.parameterization import (
     SiteDescriptor,
@@ -28,7 +29,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_site_prior_distribution,
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
-from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
+from nof1_causal_lab.models.ssm.structure import Fixed, Free, SparseMatrixBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_spec_fixtures import (
     block_ssm_spec,
@@ -83,7 +84,7 @@ def _make_3latent_spec(
     )
 
 
-def _make_causal_design_dict() -> dict:
+def _make_causal_design_dict() -> dict[str, Any]:
     """Minimal CausalDesign dict: X→Y, Y→Z, 4 indicators."""
     return {
         "latent": {
@@ -181,6 +182,13 @@ def _make_causal_design_dict() -> dict:
     }
 
 
+def _make_structural_plan() -> StructuralPlan:
+    """Compile the shared causal fixture to the executable structural artifact."""
+    from nof1_causal_lab.models.structural import build_structural_plan
+
+    return build_structural_plan(CausalDesign.model_validate(_make_causal_design_dict()))
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Fix 1: DAG-constrained dynamics
 # ═══════════════════════════════════════════════════════════════════════
@@ -202,7 +210,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         weight_sites = sorted(
@@ -219,7 +227,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         weight_sites = [
@@ -247,7 +255,7 @@ class TestDynamicsMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((5, 1)),
             times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         assert not any(name.startswith("vf_") and name.endswith("_weight") for name in trace)
@@ -293,7 +301,7 @@ class TestLambdaMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         # Only 1 free loading sampled
@@ -330,7 +338,7 @@ class TestLambdaMask:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         # No lambda_free sampled
@@ -451,7 +459,7 @@ class TestPerElementPriors:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((5, 2)),
             times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         # The off-diagonal value should be near 2.0 (tight prior)
@@ -467,13 +475,13 @@ class TestPerElementPriors:
 class TestRuntimeStructuralSupport:
     """Test that compilation constructs correct block support from CausalDesign."""
 
-    def test_build_structural_support_from_causal_design(self):
+    def test_build_structural_support_from_plan(self):
         """Compilation constructs dynamics/lambda support from CausalDesign."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_design,
+            build_structural_support_from_plan,
         )
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
 
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
@@ -485,13 +493,13 @@ class TestRuntimeStructuralSupport:
             lambda_support,
             _cat,
             _edge_lag_days,
-        ) = build_structural_support_from_causal_design(
+        ) = build_structural_support_from_plan(
             latent_names,
             manifest_cols,
             3,
             4,
             manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
 
         # Dynamics mask: baseline persistence diagonals + X→Y + Y→Z
@@ -519,7 +527,7 @@ class TestRuntimeStructuralSupport:
     def test_no_causal_design_materializes_explicit_default_masks(self):
         """Without causal_design, structural defaults are still explicit."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_design,
+            build_structural_support_from_plan,
         )
 
         (
@@ -529,13 +537,13 @@ class TestRuntimeStructuralSupport:
             lambda_support,
             _cat,
             _edge_lag_days,
-        ) = build_structural_support_from_causal_design(
+        ) = build_structural_support_from_plan(
             None,
             ["x1"],
             1,
             1,
             manifest_dists=[DistributionFamily.GAUSSIAN],
-            causal_design=None,
+            structural_plan=None,
         )
         np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
         np.testing.assert_array_equal(input_effect_support, np.zeros((1, 0), dtype=bool))
@@ -544,7 +552,7 @@ class TestRuntimeStructuralSupport:
     def test_known_input_edge_compiles_to_input_effect_support(self):
         """Known inputs are transition drivers, not latent dynamics columns."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_causal_design,
+            build_structural_support_from_plan,
         )
 
         causal_design = {
@@ -560,6 +568,7 @@ class TestRuntimeStructuralSupport:
                         "name": "mood",
                         "description": "Mood state",
                         "role": "endogenous",
+                        "is_outcome": True,
                         "temporal_status": "time_varying",
                     },
                 ],
@@ -593,36 +602,27 @@ class TestRuntimeStructuralSupport:
                     },
                 ],
             },
-            "estimation": {
-                "state_order": ["mood"],
-                "edges": [
-                    {
-                        "cause": "dose",
-                        "effect": "mood",
-                        "description": "Dose affects mood",
-                        "lagged": True,
-                    }
-                ],
-                "induced_dependencies": [],
-                "known_inputs": [
-                    {
-                        "construct": "dose",
-                        "source_indicator": "dose_mg",
-                        "scale": 10.0,
-                        "missing_policy": "zero",
-                    }
-                ],
-            },
+            "known_inputs": [
+                {
+                    "construct": "dose",
+                    "source_indicator": "dose_mg",
+                    "scale": 10.0,
+                    "missing_policy": "zero",
+                }
+            ],
         }
+        from nof1_causal_lab.models.structural import build_structural_plan
+
+        structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
 
         dynamics_support, input_effect_support, lambda_mat, lambda_support, _cat, edge_lag_days = (
-            build_structural_support_from_causal_design(
+            build_structural_support_from_plan(
                 ["mood"],
                 ["mood_rating"],
                 1,
                 1,
                 manifest_dists=[DistributionFamily.GAUSSIAN],
-                causal_design=causal_design,
+                structural_plan=structural_plan,
             )
         )
 
@@ -763,11 +763,10 @@ class TestRuntimeStructuralSupport:
                 ),
             )
 
-    def test_model_build_rejects_direct_ssm_spec_plus_causal_design(self):
-        """Direct specs may not carry a causal graph unless already translated."""
+    def test_model_build_accepts_only_already_compiled_ssm_spec(self):
+        """Runtime construction consumes an SSMSpec without structural authoring inputs."""
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        causal_design = _make_causal_design_dict()
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -778,16 +777,13 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        with pytest.raises(
-            ValueError, match="Do not pass causal_design alongside a direct SSMSpec"
-        ):
-            build_ssm_model(X, ssm_spec=_make_3latent_spec(), causal_design=causal_design)
+        model = build_ssm_model(X, ssm_spec=_make_3latent_spec())
+        assert model.spec.n_latent == 3
 
-    def test_model_build_rejects_autodetect_when_causal_design_present(self):
-        """Auto-detected specs may not bypass causal-structure translation."""
+    def test_model_build_has_no_autodetect_path(self):
+        """Runtime construction requires an already compiled SSMSpec."""
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        causal_design = _make_causal_design_dict()
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -798,8 +794,8 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        with pytest.raises(ValueError, match="requires either statistical_model_spec or ssm_spec"):
-            build_ssm_model(X, causal_design=causal_design)
+        with pytest.raises(TypeError, match="ssm_spec"):
+            cast("Any", build_ssm_model)(X)
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
         """Initial-state confounders should compile to low-rank baseline factors."""
@@ -826,7 +822,7 @@ class TestRuntimeStructuralSupport:
                     {
                         "name": "stress",
                         "description": "Stress",
-                        "role": "exogenous",
+                        "role": "endogenous",
                         "temporal_status": "time_varying",
                     },
                     {
@@ -838,8 +834,16 @@ class TestRuntimeStructuralSupport:
                     },
                 ],
                 "edges": [
-                    {"cause": "u_shared", "effect": "stress"},
-                    {"cause": "u_shared", "effect": "sleep"},
+                    {
+                        "cause": "u_shared",
+                        "effect": "stress",
+                        "description": "Shared baseline causes stress",
+                    },
+                    {
+                        "cause": "u_shared",
+                        "effect": "sleep",
+                        "description": "Shared baseline causes sleep",
+                    },
                 ],
             },
             "measurement": {
@@ -863,18 +867,10 @@ class TestRuntimeStructuralSupport:
                     },
                 ],
             },
-            "estimation": {
-                "state_order": ["stress", "sleep"],
-                "edges": [],
-                "induced_dependencies": [
-                    {
-                        "between": ["stress", "sleep"],
-                        "kind": "initial_state_correlation",
-                        "source_confounders": ["u_shared"],
-                    }
-                ],
-            },
         }
+        from nof1_causal_lab.models.structural import build_structural_plan
+
+        structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
         statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
@@ -900,7 +896,9 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
+        spec, _edge_lag_days = translate_spec(
+            statistical_model_spec, structural_plan=structural_plan
+        )
 
         np.testing.assert_array_equal(spec.static_state_sd_block.free_support, np.array([True]))
         np.testing.assert_allclose(np.asarray(spec.static_state_sd_block.template), np.zeros(1))
@@ -926,7 +924,7 @@ class TestRuntimeStructuralSupport:
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
@@ -957,7 +955,9 @@ class TestRuntimeStructuralSupport:
             parameters=[],
         )
 
-        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
+        spec, _edge_lag_days = translate_spec(
+            statistical_model_spec, structural_plan=structural_plan
+        )
 
         assert spec.manifest_standardized == [True, True, True, True]
 
@@ -974,7 +974,7 @@ class TestRuntimeStructuralSupport:
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
@@ -1060,7 +1060,9 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        spec, _edge_lag_days = translate_spec(statistical_model_spec, causal_design=causal_design)
+        spec, _edge_lag_days = translate_spec(
+            statistical_model_spec, structural_plan=structural_plan
+        )
 
         assert isinstance(spec.manifest_chol_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
@@ -1082,7 +1084,7 @@ class TestRuntimeStructuralSupport:
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
@@ -1124,7 +1126,7 @@ class TestRuntimeStructuralSupport:
             ValueError,
             match="no longer accepts INITIAL_STATE_CORRELATION parameters",
         ):
-            translate_spec(statistical_model_spec, causal_design=causal_design)
+            translate_spec(statistical_model_spec, structural_plan=structural_plan)
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_causal_design(self):
         """Even self-pairs are rejected once causal-design compilation is active."""
@@ -1139,7 +1141,7 @@ class TestRuntimeStructuralSupport:
         )
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
             likelihoods=[
                 LikelihoodSpec(
@@ -1181,7 +1183,7 @@ class TestRuntimeStructuralSupport:
             ValueError,
             match="no longer accepts INITIAL_STATE_CORRELATION parameters",
         ):
-            translate_spec(statistical_model_spec, causal_design=causal_design)
+            translate_spec(statistical_model_spec, structural_plan=structural_plan)
 
     def test_model_build_end_to_end(self):
         """Model construction with causal_design produces masked spec."""
@@ -1195,7 +1197,6 @@ class TestRuntimeStructuralSupport:
             ParameterSpec,
             StatisticalModelSpec,
         )
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(
@@ -1277,7 +1278,7 @@ class TestRuntimeStructuralSupport:
             ],
         )
 
-        causal_design = _make_causal_design_dict()
+        structural_plan = _make_structural_plan()
 
         # Minimal wide data
         X = pl.DataFrame(
@@ -1290,9 +1291,16 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        model = build_ssm_model(
-            X, statistical_model_spec=statistical_model_spec, priors={}, causal_design=causal_design
+        from nof1_causal_lab.models.prior_planning import build_default_prior_plan
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
+
+        compiled = compile_ssm_artifact(
+            statistical_model_spec,
+            build_default_prior_plan(statistical_model_spec),
+            structural_plan,
         )
+        model = hydrate_compiled_model(compiled, X)
         spec = model.spec
 
         dynamics_sites = [
@@ -1421,7 +1429,7 @@ class TestTraceVerification:
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
             observations=jnp.zeros((10, 4)),
             times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
 
         assert trace["vf_0_decay"]["value"].shape == (3,)
@@ -1477,15 +1485,15 @@ class TestGradualBuildComponents:
                 ),
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
+        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
 
         wells = {
             c.target: c for c in spec.dynamics_spec.components if isinstance(c, NodePotentialSpec)
         }
         # Y (index 1) is self-limiting → quartic freed; X, Z stay pinned at 0.
-        assert wells[1].fixed_quartic is None
-        assert wells[0].fixed_quartic == 0.0
-        assert wells[2].fixed_quartic == 0.0
+        assert isinstance(wells[1].quartic, Free)
+        assert wells[0].quartic == Fixed(0.0)
+        assert wells[2].quartic == Fixed(0.0)
 
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts import (
@@ -1513,7 +1521,7 @@ class TestGradualBuildComponents:
                 _hill_param("hill_n_X_Y"),
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
+        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
 
         edges = [
             c
@@ -1558,13 +1566,13 @@ class TestGradualBuildComponents:
                 ),
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, causal_design=_make_causal_design_dict())
+        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
         model = SSMModel(spec)
 
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
             observations=jnp.zeros((8, 4)),
             times=jnp.arange(8, dtype=jnp.float32),
-            likelihood_backend=model.make_laplace_backend(6),
+            likelihood_backend=get_laplace_backend(model, 6),
         )
         quartic_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_quartic")]
         emax_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_Emax")]

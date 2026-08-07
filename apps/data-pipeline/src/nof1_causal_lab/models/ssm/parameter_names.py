@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from nof1_causal_lab.artifacts.statistical_model_spec import ParameterRole, StatisticalModelSpec
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,16 +54,6 @@ def split_compound_name(
     return None
 
 
-def _resolve_statistical_model_spec(
-    statistical_model_spec: StatisticalModelSpec | dict,
-) -> StatisticalModelSpec:
-    return (
-        StatisticalModelSpec.model_validate(statistical_model_spec)
-        if isinstance(statistical_model_spec, dict)
-        else statistical_model_spec
-    )
-
-
 def _strip_initial_state_correlation_prefix(name: str) -> str:
     for prefix in INITIAL_STATE_CORRELATION_PREFIXES:
         if name.startswith(prefix):
@@ -73,10 +63,9 @@ def _strip_initial_state_correlation_prefix(name: str) -> str:
 
 def resolve_initial_state_correlation_bindings(
     latent_names: Sequence[str],
-    statistical_model_spec: StatisticalModelSpec | dict,
+    statistical_model_spec: StatisticalModelSpec,
 ) -> list[InitialStateCorrelationBinding]:
     """Resolve authored initial-state correlation parameters against latent names."""
-    spec_obj = _resolve_statistical_model_spec(statistical_model_spec)
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
     latent_name_set = set(latent_idx)
 
@@ -84,7 +73,7 @@ def resolve_initial_state_correlation_bindings(
     seen_pairs: dict[tuple[int, int], str] = {}
     errors: list[str] = []
 
-    for parameter in spec_obj.parameters:
+    for parameter in statistical_model_spec.parameters:
         if parameter.role != ParameterRole.INITIAL_STATE_CORRELATION:
             continue
         compound = _strip_initial_state_correlation_prefix(parameter.name)
@@ -134,7 +123,7 @@ def resolve_initial_state_correlation_bindings(
 
 def build_initial_state_correlation_support(
     latent_names: Sequence[str],
-    statistical_model_spec: StatisticalModelSpec | dict,
+    statistical_model_spec: StatisticalModelSpec,
 ) -> np.ndarray | None:
     """Build sparse lower-triangle support for authored initial-state correlations."""
     bindings = resolve_initial_state_correlation_bindings(latent_names, statistical_model_spec)

@@ -1,16 +1,24 @@
 """Test measurement-structure measurement structure proposal and related assembly helpers."""
 
+from typing import Any
+
 import pytest
 
 from nof1_causal_lab.artifacts import CausalDesign
+from nof1_causal_lab.artifacts.latent_structure import LatentStructure
 from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
 from nof1_causal_lab.models.ssm.compile.artifact import (
     validate_measurement_structure_for_compilation,
 )
+from nof1_causal_lab.models.structural import build_structural_plan
 from nof1_causal_lab.utils.causal_design import get_outcome_name
+from nof1_causal_lab.utils.structural_plan import get_edges, get_known_inputs, get_state_names
 
 
-def _assert_same_declared_measurement(actual: dict, expected: dict) -> None:
+def _assert_same_declared_measurement(
+    actual: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
     assert actual["model_clock"] == expected["model_clock"]
     assert [item["name"] for item in actual["indicators"]] == [
         item["name"] for item in expected["indicators"]
@@ -21,10 +29,12 @@ def _assert_same_declared_measurement(actual: dict, expected: dict) -> None:
 
 
 def _measurement_compile_feedback(
-    measurement_structure: dict, latent_structure: dict
+    measurement_structure: dict[str, Any],
+    latent_structure: dict[str, Any],
 ) -> str | None:
     _, errors = validate_measurement_structure_for_compilation(
-        measurement_structure, latent_structure
+        measurement_structure,
+        LatentStructure.model_validate(latent_structure),
     )
     return "\n".join(errors) if errors else None
 
@@ -141,16 +151,17 @@ class TestStage1bGrounding:
                 "non_identifiable_treatments": {},
             },
             known_inputs=[],
+            scientific_only_constructs=[],
         )
 
         validated = CausalDesign.model_validate(spec)
         assert len(validated.latent.constructs) == 2
         assert len(validated.measurement.indicators) == 2
-        assert validated.estimation is not None
-        assert set(validated.estimation.state_order) == {"Treatment", "Outcome"}
-        assert get_outcome_name(spec["latent"]) == "Outcome"
+        plan = build_structural_plan(validated)
+        assert set(get_state_names(plan)) == {"Treatment", "Outcome"}
+        assert get_outcome_name(spec.latent.model_dump(mode="json")) == "Outcome"
 
-    def test_valid_known_input_is_authored_into_estimation_projection(
+    def test_valid_known_input_is_authored_into_structural_plan(
         self,
         stage1b_simple_latent,
         stage1b_measurement_all_observed,
@@ -168,6 +179,7 @@ class TestStage1bGrounding:
                     "source_indicator": "treatment_dose",
                 }
             ],
+            "scientific_only_constructs": [],
         }
 
         output, feedback = measurement_structure_grounding(proposal, stage1b_simple_latent)
@@ -187,12 +199,21 @@ class TestStage1bGrounding:
             stage1b_simple_latent,
             output["measurement_structure"],
             known_inputs=output["known_inputs"],
+            scientific_only_constructs=output["scientific_only_constructs"],
         )
-        assert causal_design["estimation"]["state_order"] == ["Outcome"]
-        assert causal_design["estimation"]["known_inputs"] == output["known_inputs"]
-        assert [
-            (edge["cause"], edge["effect"]) for edge in causal_design["estimation"]["edges"]
-        ] == [("Treatment", "Outcome")]
+        plan = build_structural_plan(causal_design)
+        assert get_state_names(plan) == ["Outcome"]
+        [known_input] = get_known_inputs(plan)
+        assert {
+            key: known_input[key]
+            for key in ("construct", "source_indicator", "scale", "missing_policy")
+        } == output["known_inputs"][0]
+        assert known_input["source_id"].startswith("known_input:")
+        assert known_input["construct_id"].startswith("construct:")
+        assert known_input["source_indicator_id"].startswith("indicator:")
+        assert [(edge["cause"], edge["effect"]) for edge in get_edges(plan)] == [
+            ("Treatment", "Outcome")
+        ]
 
     def test_known_input_source_must_measure_declared_construct(
         self,
@@ -212,6 +233,7 @@ class TestStage1bGrounding:
                     "source_indicator": "outcome_score",
                 }
             ],
+            "scientific_only_constructs": [],
         }
 
         output, feedback = measurement_structure_grounding(proposal, stage1b_simple_latent)
@@ -364,7 +386,7 @@ class TestStage1bGrounding:
         assert output is None
         assert "VALIDATION ERRORS" in feedback
 
-    def test_drops_unmeasured_constructs_from_estimation_projection(self):
+    def test_projects_unmeasured_constructs_from_structural_plan(self):
         """Latent-only constructs should not remain in the executable state vector."""
         latent_structure = {
             "constructs": [
@@ -431,10 +453,12 @@ class TestStage1bGrounding:
                 "non_identifiable_treatments": {},
             },
             known_inputs=[],
+            scientific_only_constructs=[],
         )
 
-        assert causal_design["estimation"]["state_order"] == ["Treatment", "Outcome"]
-        assert causal_design["estimation"]["edges"] == []
+        plan = build_structural_plan(causal_design)
+        assert get_state_names(plan) == ["Treatment", "Outcome"]
+        assert get_edges(plan) == []
 
 
 if __name__ == "__main__":

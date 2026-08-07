@@ -9,17 +9,16 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "arviz>=0.19.0",
-    "blackjax>=1.2.0",
+    "arviz-base>=1.2.0,<1.3.0",
+    "arviz-stats[xarray]>=1.2.0,<1.3.0",
+    "blackjax>=1.6.2",
     "cloudpickle>=3.1.1",
-    "cuthbert>=0.0.10",
     "diffrax>=0.6.0",
-    "equinox>=0.11.0",
+    "equinox>=0.13.8",
     "exa-py>=1.0.0",
     "fastapi>=0.115.0",
     "fsspec>=2024.2.0",
     "jax>=0.4.35",
-    "jaxlib>=0.4.35",
     "httpx>=0.27.0",
     "jaxtyping>=0.3.0",
     "mcp>=1.0.0",
@@ -27,15 +26,15 @@ dependencies = [
     "optimistix>=0.0.9",
     "networkx>=3.6",
     "numpy>=2.3.3",
-    "numpyro>=0.16.0",
-    "optax>=0.2.0",
+    "numpyro>=0.21.0",
     "polars>=1.35.2",
     "pydantic>=2.11.9",
     "pyyaml>=6.0.2",
     "python-dotenv>=1.2.1",
+    "scipy>=1.13.0",
+    "typing-extensions>=4.10.0",
+    "uvicorn>=0.31.1",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
-    "ipython>=9.12.0",
-    "sympy>=1.14.0",
     "temporalio>=1.30.0",
 ]
 
@@ -44,7 +43,7 @@ nof1-publish = "nof1_causal_lab.publish:main"
 nof1-sweep = "nof1_causal_lab.machine.sweep:sweep_cli"
 
 [build-system]
-requires = ["uv_build>=0.8.24,<0.11.0"]
+requires = ["uv_build>=0.11.28,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -57,10 +56,12 @@ eval = [
 ]
 dev = [
     "beartype>=0.19.0",
+    "deptry>=0.25.1",
     "ipykernel>=7.2.0",
     "ipywidgets>=8.1.7",
     "jupyter-client>=8.8.0",
     "marimo>=0.23.11",
+    "matplotlib>=3.10.0",
     "nbconvert>=7.16.6",
     "nbformat>=5.10.4",
     "plotly>=6.7.0",
@@ -68,13 +69,13 @@ dev = [
     # provider extra, whose combined pins cap resolution at 1.38.0 — below
     # marimo's required pydantic-ai-slim[openai]>=1.107.0 (OpenAIChatCompatibleProvider).
     "pydantic-ai-slim[openai]>=1.107.0,<2.0.0",
-    "pymc>=5.16",
+    "pymc>=6.1.0",
     "pytest>=9.0.2",
     "pytest-instafail>=0.5.0",
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.6.1",
     "ruff>=0.9.0",
-    "ty>=0.0.51",
+    "ty>=0.0.61",
     "vulture>=2.14",
 ]
 
@@ -215,28 +216,32 @@ include = ["src", "notebooks", "evaluation", "scripts", "tests"]
 exclude = ["notebooks/data"]
 
 [tool.ty.rules]
+missing-override-decorator = "error"
+missing-type-argument = "error"
+possibly-missing-attribute = "error"
+possibly-unresolved-reference = "error"
 unused-type-ignore-comment = "error"
+
+[tool.deptry]
+known_first_party = ["nof1_causal_lab"]
+non_dev_dependency_groups = ["cloud"]
+
+[tool.deptry.per_rule_ignores]
+# fsspec discovers s3fs by protocol; production code never imports the backend directly.
+DEP002 = ["s3fs"]
 
 [tool.ty.analysis]
 respect-type-ignore-comments = true
-# `Any`-out only deps ty cannot check cleanly, for two distinct reasons:
-#   - no py.typed (types not exported): blackjax, cuthbert, cuthbertlib, numpyro, optax.
-#   - typed, but ty (pre-1.0) mis-models them: equinox (its Module metaclass /
-#     dataclass_transform widens our subclass construction to `Module`) and arviz
-#     (`from_dict(**kwargs)` splat). Revisit as ty matures.
-# diffrax / optimistix / y0 ship py.typed and ty handles them — kept checked.
+# These dependencies do not publish PEP 561 typing metadata, so ty treats their
+# import boundary as `Any`. The ArviZ component packages, Equinox, diffrax,
+# optimistix, and y0 publish typing metadata and remain checked.
 replace-imports-with-any = [
-    "arviz.**",
     "blackjax.**",
-    "cuthbert.**",
-    "cuthbertlib.**",
-    "equinox.**",
     "numpyro.**",
-    "optax.**",
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.discretization.exact,nof1_causal_lab.models.ssm.discretization.local_linearization,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.emissions,nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,nof1_causal_lab.models.ssm.inference.targets.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
+addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.discretization.exact,nof1_causal_lab.models.ssm.discretization.local_linearization,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.euler_maruyama,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

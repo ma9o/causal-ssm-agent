@@ -3,11 +3,12 @@
 import json
 
 from nof1_causal_lab.flows.transitions.measurement_structure.prompting import templates
+from nof1_causal_lab.json_types import UncheckedJsonObject
 
 
 def build_measurement_structure_user_prompt(
     question: str,
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     chunks: list[str],
     dataset_summary: str,
 ) -> str:

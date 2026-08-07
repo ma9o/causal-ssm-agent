@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import ModelCompileError, TransitionExecutionError
@@ -45,6 +47,9 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.machine.artifacts import ArtifactId
+
 
 def _model_spec_root(workspace_id: str, run_id: str) -> str:
     return data_module.scratch_run_dir(workspace_id, run_id)
@@ -62,7 +67,7 @@ def _slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-").lower() or "construct"
 
 
-def _filter_model_spec_contract(cls: Any, data: dict[str, Any]) -> dict[str, Any]:
+def _filter_model_spec_contract(cls: Any, data: UncheckedJsonObject) -> UncheckedJsonObject:
     fields = set(cls.model_fields.keys())
     return {key: value for key, value in data.items() if key in fields}
 
@@ -107,19 +112,21 @@ def _barrier_reopen_constructs(units: list[Any], failed_constructs: list[str]) -
 
 def _load_model_spec_inputs(
     workspace_id: str,
-    pins: dict,
-) -> tuple[str, dict[str, Any], Any, dict[str, Any]]:
+    pins: dict[ArtifactId, int],
+) -> tuple[str, StructuralPlan, Any, UncheckedJsonObject]:
     store = ArtifactStore(workspace_id)
     question = store.read_json_file(
         "question",
         pins["question"],
         json_filename("question", "question"),
     )["text"]
-    causal_design = store.read_json_file(
-        "causal_design",
-        pins["causal_design"],
-        json_filename("causal_design", "causal_design"),
-    )["causal_design"]
+    structural_plan = StructuralPlan.model_validate(
+        store.read_json_file(
+            "structural_plan",
+            pins["structural_plan"],
+            json_filename("structural_plan", "structural_plan"),
+        )["structural_plan"]
+    )
     data_for_model = store.read_parquet_file(
         "panel",
         pins["panel"],
@@ -130,7 +137,7 @@ def _load_model_spec_inputs(
         pins["validation_report"],
         json_filename("validation_report", "validation_report"),
     )
-    return question, causal_design, data_for_model, validation_report
+    return question, structural_plan, data_for_model, validation_report
 
 
 @activity.defn
@@ -153,7 +160,7 @@ async def plan_statistical_model_spec_activity(
     pins = input_pins(input.state, spec)
     run_id = f"seq-{input.seq:06d}"
     root = _model_spec_root(input.workspace_id, run_id)
-    question, causal_design, data_for_model, validation_report = _load_model_spec_inputs(
+    question, structural_plan, data_for_model, validation_report = _load_model_spec_inputs(
         input.workspace_id,
         pins,
     )
@@ -165,14 +172,14 @@ async def plan_statistical_model_spec_activity(
         else config.prior_elicitation.literature_search.enabled
     )
     enable_literature = bool(requested_literature and get_secret("EXA_API_KEY"))
-    order = build_construct_order(causal_design)
-    units = build_construct_units(causal_design)
+    order = build_construct_order(structural_plan)
+    units = build_construct_units(structural_plan)
     source_ref = latest_failed_model_spec_checkpoint_ref(input.workspace_id)
     source = read_model_spec_checkpoint(input.workspace_id, source_ref) if source_ref else None
     rebase: ModelSpecRebaseSummary | None = None
     if source is None:
         state = ConstructBuildState(
-            causal_design=causal_design,
+            structural_plan=structural_plan,
             data_for_model=data_for_model,
             order=order,
             workspace_id=None,
@@ -185,7 +192,7 @@ async def plan_statistical_model_spec_activity(
         assert source_ref is not None
         state = restore_construct_state(
             source,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
             data_for_model=data_for_model,
             workspace_id=None,
         )
@@ -202,7 +209,7 @@ async def plan_statistical_model_spec_activity(
         assert source_ref is not None
         state, accepted_constructs, reopened, reason = rebase_accepted_constructs(
             source,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
             data_for_model=data_for_model,
         )
         search_queries = dict(state.search_queries)
@@ -230,7 +237,7 @@ async def plan_statistical_model_spec_activity(
     emit_model_spec_admission_event(
         input.workspace_id,
         "plan",
-        _admission_plan_payload(causal_design, order),
+        _admission_plan_payload(structural_plan, order),
     )
     if rebase is not None:
         emit_model_spec_admission_event(
@@ -243,7 +250,7 @@ async def plan_statistical_model_spec_activity(
         context_ref,
         {
             "question": question,
-            "causal_design": causal_design,
+            "structural_plan": structural_plan.model_dump(mode="json"),
             "indicator_audits": validation_report.get("indicators", {}),
             "enable_literature": enable_literature,
         },
@@ -284,13 +291,13 @@ async def plan_statistical_model_spec_attempt_activity(
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-    _question, causal_design, data_for_model, validation_report = _load_model_spec_inputs(
+    _question, structural_plan, data_for_model, validation_report = _load_model_spec_inputs(
         input.workspace_id,
         checkpoint.input_pins,
     )
     state = restore_construct_state(
         checkpoint,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=data_for_model,
         workspace_id=None,
         target_construct=input.construct_name,
@@ -314,7 +321,7 @@ async def plan_statistical_model_spec_attempt_activity(
         state=state,
         construct=construct,
         question=metadata["question"],
-        causal_design=metadata["causal_design"],
+        structural_plan=structural_plan,
         validation_report=validation_report,
     )
     subroutine_id = f"model-spec-{_slug(construct)}-attempt-{input.attempt:03d}"
@@ -484,13 +491,13 @@ async def validate_statistical_model_spec_barrier_activity(
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-    _question, causal_design, data_for_model, _validation_report = _load_model_spec_inputs(
+    _question, structural_plan, data_for_model, _validation_report = _load_model_spec_inputs(
         input.workspace_id,
         checkpoint.input_pins,
     )
     state = restore_construct_state(
         checkpoint,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=data_for_model,
         workspace_id=None,
     )
@@ -504,13 +511,13 @@ async def validate_statistical_model_spec_barrier_activity(
     try:
         targets = tuple(
             _closed_loop_target(
-                state.admitted_contributions[name], causal_design, state.admission.priors
+                state.admitted_contributions[name], structural_plan, state.admission.priors
             )
             for name in input.construct_order
         )
         design = _design_for_state(
             state.admission,
-            causal_design,
+            structural_plan,
             data_for_model,
             n_draws=state.n_draws,
             seed=state.seed,
@@ -518,7 +525,7 @@ async def validate_statistical_model_spec_barrier_activity(
         validation = validate_full_admission_state(
             state.admission,
             targets,
-            causal_design,
+            structural_plan,
             design,
             accepted={
                 name: _acceptance_map(accepted_by_name[name].accept)
@@ -543,7 +550,7 @@ async def validate_statistical_model_spec_barrier_activity(
         ) from exc
     reports_by_name = {report.name: report for report in validation.reports}
     failed = [report for report in validation.reports if not report.admitted]
-    units = build_construct_units(causal_design)
+    units = build_construct_units(structural_plan)
     reopen = _barrier_reopen_constructs(units, [report.name for report in failed])
     emit_model_spec_admission_event(
         input.workspace_id,
@@ -638,20 +645,20 @@ async def finalize_statistical_model_spec_activity(
 
     try:
         checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-        _question, causal_design, data_for_model, _validation_report = _load_model_spec_inputs(
+        _question, structural_plan, data_for_model, _validation_report = _load_model_spec_inputs(
             input.workspace_id,
             checkpoint.input_pins,
         )
         state = restore_construct_state(
             checkpoint,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
             data_for_model=data_for_model,
             workspace_id=None,
         )
         from nof1_causal_lab.models.ssm.construct_admission import build_construct_order
 
         missing = sorted(
-            set(build_construct_order(causal_design))
+            set(build_construct_order(structural_plan))
             - {item.construct_name for item in checkpoint.accepted_constructs}
         )
         if missing:
@@ -667,7 +674,7 @@ async def finalize_statistical_model_spec_activity(
             authored_priors=dict(state.admission.priors),
             data_for_model=state.data_for_model,
             indicator_audits=metadata["indicator_audits"],
-            causal_design=state.causal_design,
+            structural_plan=state.structural_plan,
             validation=None,
             search_queries=dict(state.search_queries),
             skip_ppc=True,

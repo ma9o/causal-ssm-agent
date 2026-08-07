@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.artifacts.statistical_model_spec import ParameterRole, StatisticalModelSpec
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import axis_names_with_fallback
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameter_names import (
@@ -23,8 +24,7 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
@@ -53,19 +53,6 @@ class SemanticBindingRegistry:
 def empty_prior_bindings() -> SemanticBindingRegistry:
     """Return an empty semantic binding registry for spec-only code paths."""
     return SemanticBindingRegistry(())
-
-
-def _statistical_model_spec_obj(
-    statistical_model_spec: StatisticalModelSpec | dict,
-) -> StatisticalModelSpec:
-    if isinstance(statistical_model_spec, dict):
-        return StatisticalModelSpec.model_validate(statistical_model_spec)
-    if isinstance(statistical_model_spec, StatisticalModelSpec):
-        return statistical_model_spec
-    raise TypeError(
-        "build_semantic_prior_bindings() requires statistical_model_spec to be a StatisticalModelSpec or dict, "
-        f"got {type(statistical_model_spec).__name__}."
-    )
 
 
 def _site_by_prior_field(
@@ -259,6 +246,9 @@ class _BindingContext:
         _add_site_binding(self.bindings, parameter_name, binding)
 
 
+type SpecialParameterHandler = Callable[[Any, _BindingContext], None]
+
+
 def _apply_simple_axis_rule(
     rule: _SimpleAxisRule,
     parameter: Any,
@@ -328,7 +318,7 @@ def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
             effect_idx=effect_idx,
             error_message=(
                 "FIXED_EFFECT parameter does not correspond to a known-input edge "
-                f"in causal_design: {parameter.name!r}"
+                f"in structural_plan: {parameter.name!r}"
             ),
         )
         return
@@ -337,7 +327,7 @@ def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
         ctx.add_site_binding(parameter.name, candidate)
     elif ctx.strict_structure:
         ctx.errors.append(
-            "FIXED_EFFECT parameter does not correspond to an edge in causal_design: "
+            "FIXED_EFFECT parameter does not correspond to an edge in structural_plan: "
             f"{parameter.name!r}"
         )
 
@@ -368,7 +358,7 @@ def _handle_loading(parameter: Any, ctx: _BindingContext) -> None:
         construct_names=(construct_name,),
         indicator_names=(indicator_name,),
         error_message=(
-            "LOADING parameter does not correspond to a free loading in causal_design: "
+            "LOADING parameter does not correspond to a free loading in structural_plan: "
             f"{parameter.name!r}"
         ),
     )
@@ -394,6 +384,43 @@ def _handle_static_state_sd(parameter: Any, ctx: _BindingContext) -> None:
 
 
 def _handle_observation_hyperparameter(parameter: Any, ctx: _BindingContext) -> None:
+    if parameter.name in {"obs_ordered_base", "obs_ordered_gaps"}:
+        ctx.errors.append(
+            f"Global ordered-logistic prior {parameter.name!r} is not an authorable parameter. "
+            f"Use {parameter.name}_<indicator> for each ordered indicator."
+        )
+        return
+
+    ordered_component_prefixes = (
+        (
+            "obs_ordered_base_",
+            "obs_ordered_base",
+            PriorAuthoringTransform.IDENTITY,
+        ),
+        (
+            "obs_ordered_gaps_",
+            "obs_ordered_gaps",
+            PriorAuthoringTransform.SITE_ROW,
+        ),
+    )
+    for prefix, site_name, transform in ordered_component_prefixes:
+        if not parameter.name.startswith(prefix):
+            continue
+        indicator_name = parameter.name.removeprefix(prefix)
+        manifest_idx = ctx.manifest_idx_map.get(indicator_name)
+        ctx.add(
+            parameter.name,
+            ctx.sites_by_name.get(site_name),
+            manifest_idx,
+            transform=transform,
+            indicator_names=(indicator_name,),
+            error_message=(
+                "Ordered-logistic observation parameter does not correspond to an active "
+                f"manifest component: {parameter.name!r}"
+            ),
+        )
+        return
+
     site = ctx.sites_by_name.get(parameter.name)
     if site is not None:
         ctx.add(
@@ -503,7 +530,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         component_fallback_pattern="rho_{construct}",
         error_template=(
             "AR parameter does not correspond to a free dynamics decay term in "
-            "causal_design: {param!r}"
+            "structural_plan: {param!r}"
         ),
     ),
     ParameterRole.RESIDUAL_SD: _SimpleAxisRule(
@@ -513,7 +540,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         layout_index_attr="diffusion_diag_index",
         error_template=(
             "RESIDUAL_SD parameter does not correspond to a free diffusion "
-            "diagonal term in causal_design: {param!r}"
+            "diagonal term in structural_plan: {param!r}"
         ),
     ),
     ParameterRole.INITIAL_STATE_MEAN: _SimpleAxisRule(
@@ -523,7 +550,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         layout_index_attr="t0_means_free_index",
         error_template=(
             "INITIAL_STATE_MEAN parameter does not correspond to a free initial-state "
-            "mean in causal_design: {param!r}"
+            "mean in structural_plan: {param!r}"
         ),
     ),
     ParameterRole.INITIAL_STATE_SD: _SimpleAxisRule(
@@ -533,7 +560,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         layout_index_attr="t0_diag_free_index",
         error_template=(
             "INITIAL_STATE_SD parameter does not correspond to a free initial-state "
-            "standard deviation in causal_design: {param!r}"
+            "standard deviation in structural_plan: {param!r}"
         ),
     ),
     ParameterRole.STATE_INTERCEPT: _SimpleAxisRule(
@@ -544,7 +571,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         component_fallback_pattern="cint_{construct}",
         error_template=(
             "STATE_INTERCEPT parameter does not correspond to a free continuous-time "
-            "intercept in causal_design: {param!r}"
+            "intercept in structural_plan: {param!r}"
         ),
     ),
     ParameterRole.OBSERVATION_INTERCEPT: _SimpleAxisRule(
@@ -554,7 +581,7 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         layout_index_attr="manifest_means_free_index",
         error_template=(
             "OBSERVATION_INTERCEPT parameter does not correspond to a free manifest "
-            "intercept in causal_design: {param!r}"
+            "intercept in structural_plan: {param!r}"
         ),
     ),
     ParameterRole.MEASUREMENT_ERROR_SD: _SimpleAxisRule(
@@ -564,13 +591,13 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
         layout_index_attr="manifest_var_free_index",
         error_template=(
             "MEASUREMENT_ERROR_SD parameter does not correspond to a free manifest "
-            "noise term in causal_design: {param!r}"
+            "noise term in structural_plan: {param!r}"
         ),
     ),
 }
 
 
-_SPECIAL_HANDLERS: dict[ParameterRole, Callable[[Any, _BindingContext], None]] = {
+_SPECIAL_HANDLERS: dict[ParameterRole, SpecialParameterHandler] = {
     ParameterRole.FIXED_EFFECT: _handle_fixed_effect,
     ParameterRole.LOADING: _handle_loading,
     ParameterRole.STATIC_STATE_SD: _handle_static_state_sd,
@@ -620,12 +647,11 @@ def _dispatch_parameter(parameter: Any, ctx: _BindingContext) -> None:
 
 def build_semantic_prior_bindings(
     ssm_spec: SSMSpec,
-    statistical_model_spec: StatisticalModelSpec | dict,
+    statistical_model_spec: StatisticalModelSpec,
     *,
-    causal_design: dict | None = None,
+    structural_plan: StructuralPlan | None = None,
 ) -> SemanticBindingRegistry:
     """Build parameter-name -> compiled sample-site bindings."""
-    spec_obj = _statistical_model_spec_obj(statistical_model_spec)
     latent_names = axis_names_with_fallback(
         ssm_spec.latent_names,
         expected=ssm_spec.n_latent,
@@ -646,7 +672,7 @@ def build_semantic_prior_bindings(
     component_candidates = _component_binding_candidates(ssm_spec, active_sites)
 
     ctx = _BindingContext(
-        spec_obj=spec_obj,
+        spec_obj=statistical_model_spec,
         ssm_spec=ssm_spec,
         latent_names=latent_names,
         manifest_names=manifest_names,
@@ -660,12 +686,12 @@ def build_semantic_prior_bindings(
         active_sites=active_sites,
         sites_by_name=sites_by_name,
         component_candidates=component_candidates,
-        strict_structure=causal_design is not None,
+        strict_structure=structural_plan is not None,
     )
 
     for role_group in _ROLE_PROCESSING_GROUPS:
         role_set = frozenset(role_group)
-        for parameter in spec_obj.parameters:
+        for parameter in statistical_model_spec.parameters:
             if parameter.role not in role_set:
                 continue
             _dispatch_parameter(parameter, ctx)

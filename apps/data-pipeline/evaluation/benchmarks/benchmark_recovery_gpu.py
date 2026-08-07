@@ -16,8 +16,11 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import modal
+
+type RecoveryBenchmarkResult = dict[str, Any]
 
 GPU = os.environ.get("BENCHMARK_GPU", "H100")
 FORCE_BUILD = "--force-build" in sys.argv
@@ -62,7 +65,7 @@ def run_recovery(
     pathfinder_maxiter: int,
     n_pathfinder_starts: int,
     seed: int,
-) -> dict:
+) -> RecoveryBenchmarkResult:
     """Run the current recovery comparison on one GPU worker."""
     import jax
     from evaluation.benchmarks import benchmark

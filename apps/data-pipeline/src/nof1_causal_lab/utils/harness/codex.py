@@ -49,6 +49,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -270,7 +271,7 @@ class CodexHarnessSession:
         cwd: str | Path | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
-        initial_events: list[dict] | None = None,
+        initial_events: list[UncheckedJsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
@@ -299,7 +300,7 @@ class CodexHarnessSession:
         return self._state.thread_id
 
     @property
-    def raw_events(self) -> list[dict]:
+    def raw_events(self) -> list[UncheckedJsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -419,11 +420,11 @@ class CodexHarnessSession:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_codex_event(self._state, event)
 
-    def _build_turn_result(self, turn_events: list[dict]) -> TurnResult:
+    def _build_turn_result(self, turn_events: list[UncheckedJsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
 
-        def _unwrap(event: dict) -> dict:
+        def _unwrap(event: UncheckedJsonObject) -> UncheckedJsonObject:
             # Codex 0.121 nests items inside `item.completed`; older/prototype
             # schemas put tool_call/tool_result at the top level.
             if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
@@ -526,7 +527,7 @@ async def open_codex_harness_session(
     cwd: str | Path | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
-    initial_events: list[dict] | None = None,
+    initial_events: list[UncheckedJsonObject] | None = None,
     turn_index: int = 0,
 ) -> AsyncIterator[CodexHarnessSession]:
     """Open a Codex-backed agent session scoped to an ``async with`` block.

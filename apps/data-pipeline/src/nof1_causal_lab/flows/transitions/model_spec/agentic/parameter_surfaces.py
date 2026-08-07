@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     InitializationPolicy,
     ObservationInterceptPolicy,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_semantics import indicator_requires_observation_intercept
 
 
 def parameter_is_active_for_statistical_model_spec(
-    parameter: dict[str, Any],
-    chosen_likelihood_by_variable: dict[str, dict[str, Any]],
+    parameter: UncheckedJsonObject,
+    chosen_likelihood_by_variable: dict[str, UncheckedJsonObject],
     *,
     initialization_policy: str,
     observation_intercept_policy: str,
@@ -63,8 +62,6 @@ def parameter_is_active_for_statistical_model_spec(
         return indicator_requires_observation_intercept(
             distribution,
             link,
-            likelihood.get("support_kind"),
-            likelihood.get("summary_operator"),
             standardized=bool(likelihood.get("standardized")),
         )
 

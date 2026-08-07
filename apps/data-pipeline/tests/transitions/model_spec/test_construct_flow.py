@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import polars as pl
@@ -20,6 +20,9 @@ from nof1_causal_lab.artifacts import (
     ParameterConstraint,
     ParameterRole,
 )
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.prior import ExecutablePrior
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
     SUBMIT_CONSTRUCT_SCHEMA,
     ConstructBuildState,
@@ -29,7 +32,6 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import 
     _closing_edge_effects,
     construct_parents,
     contribution_from_payload,
-    deferred_closing_edge_params,
     render_admission_feedback,
 )
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
@@ -43,18 +45,90 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     _signal_from_linear_predictor,
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.models.structural import build_structural_plan
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
-def _normal(mu: float, sigma: float) -> dict:
+def _normal(mu: float, sigma: float) -> dict[str, Any]:
     return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
 
 
+def _executable_prior(
+    parameter: str,
+    payload: dict[str, Any],
+) -> ExecutablePrior:
+    return ExecutablePrior.model_validate({"parameter": parameter, **payload})
+
+
+def _make_structural_plan_dict() -> dict[str, Any]:
+    return build_structural_plan(
+        CausalDesign.model_validate(_make_causal_design_dict())
+    ).model_dump(mode="json")
+
+
+def _typed_structural_plan(
+    payload: dict[str, Any] | None = None,
+) -> StructuralPlan:
+    return StructuralPlan.model_validate(payload or _make_structural_plan_dict())
+
+
+def _construct(plan: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(
+        construct
+        for construct in plan["semantics"]["constructs"].values()
+        if construct["name"] == name
+    )
+
+
+def _indicator(plan: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(
+        indicator
+        for indicator in plan["semantics"]["indicators"].values()
+        if indicator["name"] == name
+    )
+
+
+def _add_feedback_edge(
+    plan: dict[str, Any],
+    *,
+    cause: str = "Z",
+    effect: str = "Y",
+) -> None:
+    construct_id_by_name = {
+        construct["name"]: source_id
+        for source_id, construct in plan["semantics"]["constructs"].items()
+    }
+    source_id = f"edge:{len(plan['semantics']['edges']):04d}"
+    plan["semantics"]["edges"][source_id] = {
+        "cause": cause,
+        "effect": effect,
+        "description": f"{cause} feeds back on {effect}",
+        "lagged": True,
+        "sources": [],
+    }
+    plan["edges"].append(
+        {
+            "source_id": source_id,
+            "cause_id": construct_id_by_name[cause],
+            "effect_id": construct_id_by_name[effect],
+            "lagged": True,
+        }
+    )
+    plan["dispositions"].append(
+        {
+            "source_id": source_id,
+            "source_kind": "edge",
+            "disposition": "retained_edge",
+            "reason": "test feedback edge",
+        }
+    )
+
+
 def test_param_catalog_reflects_compiler_free_params():
-    catalog = ParamCatalog.from_causal_design(_make_causal_design_dict())
+    catalog = ParamCatalog.from_structural_plan(_typed_structural_plan())
     # X has two indicators → both measurement-noise + the free loading are authorable.
     assert "obs_sd_x1" in catalog.by_construct["X"]
     assert "lambda_x2_X" in catalog.by_construct["X"]
@@ -83,15 +157,15 @@ def test_param_catalog_reflects_compiler_free_params():
 
 
 def test_param_catalog_surfaces_static_mean_when_standardization_can_activate_it():
-    causal_design = _make_causal_design_dict()
-    causal_design["latent"]["constructs"][0]["temporal_status"] = "time_invariant"
-    catalog = ParamCatalog.from_causal_design(causal_design)
+    structural_plan = _make_structural_plan_dict()
+    _construct(structural_plan, "X")["temporal_status"] = "time_invariant"
+    catalog = ParamCatalog.from_structural_plan(_typed_structural_plan(structural_plan))
     assert "t0_mean_X" in catalog.by_construct["X"]
 
 
 def test_submit_construct_rejects_non_free_parameter():
     state = ConstructBuildState(
-        causal_design=_make_causal_design_dict(),
+        structural_plan=_typed_structural_plan(),
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -105,19 +179,16 @@ def test_submit_construct_rejects_non_free_parameter():
 
 
 def test_submit_construct_rejects_intercept_inactive_for_locked_likelihood():
-    causal_design = _make_causal_design_dict()
-    x1 = next(
-        indicator
-        for indicator in causal_design["measurement"]["indicators"]
-        if indicator["name"] == "x1"
-    )
+    structural_plan = _make_structural_plan_dict()
+    x1 = _indicator(structural_plan, "x1")
     x1.update(
         measurement_dtype="ordinal",
         aggregation="last",
         ordinal_levels=["low", "medium", "high"],
     )
+    plan = _typed_structural_plan(structural_plan)
     state = ConstructBuildState(
-        causal_design=causal_design,
+        structural_plan=plan,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -135,61 +206,100 @@ def test_submit_construct_rejects_intercept_inactive_for_locked_likelihood():
 
 
 def test_construct_parents_reads_the_dag():
-    spec = _make_causal_design_dict()
+    spec = _typed_structural_plan()
     assert construct_parents(spec, "Y") == ["X"]
     assert construct_parents(spec, "Z") == ["Y"]
     assert construct_parents(spec, "X") == []
 
 
-def test_deferred_closing_edge_params_cover_feedback_cycles():
-    """The cycle-closing edge's priors become authorable on the second member's turn."""
-    spec = _make_causal_design_dict()
-    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
-    spec["latent"]["edges"].append(dict(feedback))
-    spec["estimation"]["edges"].append(dict(feedback))
+def test_restricted_compiler_delta_surfaces_feedback_closing_edge():
+    """The restricted compiler materializes the closing edge on the second member's turn."""
+    spec = _make_structural_plan_dict()
+    _add_feedback_edge(spec)
+    plan = _typed_structural_plan(spec)
+    state = ConstructBuildState(
+        structural_plan=plan,
+        data_for_model=pl.DataFrame(),
+        order=["Y", "Z"],
+        admission=AdmissionState(names=("X",)),
+    )
 
-    # Y admitted first (its restricted spec has no Z edge) — nothing deferred for it.
-    assert deferred_closing_edge_params(spec, "Y", admitted=set()) == set()
-    # Z joins with Y already admitted: the closing edge Z->Y materializes now.
-    names = deferred_closing_edge_params(spec, "Z", admitted={"X", "Y"})
-    assert "beta_Z_Y" in names
-    assert "hill_emax_Z_Y" in names
-    # A plain downstream edge (Y->Z with Z being admitted) is not a closing edge.
-    assert deferred_closing_edge_params(spec, "Z", admitted=set()) == set()
+    y_inventory = state.parameter_inventory_for("Y")
+    assert "beta_X_Y" in y_inventory.compiler_prior_names
+    assert "beta_Z_Y" not in y_inventory.compiler_prior_names
+    assert not y_inventory.closing_beta_names
+
+    state.admission = AdmissionState(names=("X", "Y"))
+    z_inventory = state.parameter_inventory_for("Z")
+    assert "beta_Y_Z" in z_inventory.compiler_prior_names
+    assert z_inventory.closing_beta_names == frozenset({"beta_Z_Y"})
+    assert "hill_emax_Z_Y" in z_inventory.structural_prior_names
+
+
+def test_prompt_and_submission_exclude_deferred_incoming_feedback_prior():
+    payload = _make_structural_plan_dict()
+    _add_feedback_edge(payload)
+    plan = _typed_structural_plan(payload)
+    state = ConstructBuildState(
+        structural_plan=plan,
+        data_for_model=pl.DataFrame(),
+        order=["Y", "Z"],
+        admission=AdmissionState(names=("X",)),
+    )
+
+    _system, user = build_construct_messages(
+        state=state,
+        construct="Y",
+        question="Does X drive Y?",
+        structural_plan=plan,
+        validation_report={"indicators": {}},
+    )
+
+    assert "`beta_X_Y`" in user
+    assert "`beta_Z_Y`" not in user
+    assert "deferred feedback parent; its incoming effect is not authorable on this turn" in user
+
+    feedback = state.submit_construct(
+        construct="Y",
+        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        priors={"beta_Z_Y": _normal(0.2, 0.1)},
+    )
+    assert "not free" in feedback
+    assert "beta_Z_Y" in feedback
 
 
 def test_closing_edge_effects_detects_the_rechecked_member():
-    spec = _make_causal_design_dict()
-    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
-    spec["estimation"]["edges"].append(dict(feedback))
+    spec = _make_structural_plan_dict()
+    _add_feedback_edge(spec)
+    plan = _typed_structural_plan(spec)
     # Admitting Z with Y already admitted closes the Y<->Z loop → Y is the member to recheck.
-    assert _closing_edge_effects(spec, "Z", {"X", "Y"}) == ["Y"]
+    assert _closing_edge_effects(plan, "Z", {"X", "Y"}) == ["Y"]
     # Admitting Y (only X admitted) closes no loop — Y->Z's effect isn't admitted yet.
-    assert _closing_edge_effects(spec, "Y", {"X"}) == []
+    assert _closing_edge_effects(plan, "Y", {"X"}) == []
 
 
 def test_closed_loop_target_includes_the_closing_feedback_edge():
-    spec = _make_causal_design_dict()
-    feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
-    spec["estimation"]["edges"].append(dict(feedback))
+    spec = _make_structural_plan_dict()
+    _add_feedback_edge(spec)
+    plan = _typed_structural_plan(spec)
     # Y was admitted open-loop with just X->Y; once Z closes the loop the priors also carry
     # beta_Z_Y, so the recheck target must see BOTH parents to re-measure edge overwhelm.
     member_y = ConstructContribution(name="Y", edge_parents=("X",))
     target = _closed_loop_target(
-        member_y, spec, {"beta_X_Y": _normal(0.3, 0.1), "beta_Z_Y": _normal(0.2, 0.1)}
+        member_y, plan, {"beta_X_Y": _normal(0.3, 0.1), "beta_Z_Y": _normal(0.2, 0.1)}
     )
     assert target.edge_parents == ("X", "Z")
     assert target.hill_parents == ()
     # A saturating closing edge registers as both an edge parent and a Hill parent.
     hill_target = _closed_loop_target(
-        member_y, spec, {"beta_X_Y": _normal(0.3, 0.1), "hill_emax_Z_Y": _normal(1.0, 0.5)}
+        member_y, plan, {"beta_X_Y": _normal(0.3, 0.1), "hill_emax_Z_Y": _normal(1.0, 0.5)}
     )
     assert hill_target.edge_parents == ("X", "Z")
     assert hill_target.hill_parents == ("Z",)
 
 
 def test_contribution_from_payload_linear_edge():
-    spec = _make_causal_design_dict()
+    spec = _typed_structural_plan()
     payload = {
         "construct": "Y",
         "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
@@ -199,7 +309,7 @@ def test_contribution_from_payload_linear_edge():
             "beta_X_Y": _normal(0.3, 0.1),
         },
     }
-    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_design(spec))
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_structural_plan(spec))
     assert contrib.name == "Y"
     assert [lik.variable for lik in contrib.likelihoods] == ["y1"]
     assert contrib.likelihoods[0].distribution == DistributionFamily.GAUSSIAN
@@ -210,7 +320,7 @@ def test_contribution_from_payload_linear_edge():
 
 
 def test_contribution_from_payload_hill_edge_and_self_limit():
-    spec = _make_causal_design_dict()
+    spec = _typed_structural_plan()
     payload = {
         "construct": "Y",
         "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
@@ -222,7 +332,7 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
             "hill_n_X_Y": {"distribution": "HalfNormal", "params": {"sigma": 2.0}},
         },
     }
-    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_causal_design(spec))
+    contrib = contribution_from_payload(spec, payload, ParamCatalog.from_structural_plan(spec))
     assert contrib.edge_parents == ("X",)
     assert contrib.hill_parents == ("X",)
     self_limit = next(p for p in contrib.parameters if p.name == "self_limit_Y")
@@ -231,7 +341,7 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
 
 def test_submit_construct_rejects_out_of_order():
     state = ConstructBuildState(
-        causal_design=_make_causal_design_dict(),
+        structural_plan=_typed_structural_plan(),
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -248,16 +358,24 @@ def test_submit_construct_rejects_out_of_order():
 
 def test_submit_construct_rejects_mixed_family_in_pooled_site():
     state = ConstructBuildState(
-        causal_design=_make_causal_design_dict(),
+        structural_plan=_typed_structural_plan(),
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
         admission=AdmissionState(
             names=("X",),
             priors={
-                "sigma_X": {
-                    "distribution": "TruncatedNormal",
-                    "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
-                }
+                "sigma_X": _executable_prior(
+                    "sigma_X",
+                    {
+                        "distribution": "TruncatedNormal",
+                        "params": {
+                            "mu": 0.5,
+                            "sigma": 0.1,
+                            "lower": 0.1,
+                            "upper": 1.0,
+                        },
+                    },
+                )
             },
         ),
         cursor=1,
@@ -280,13 +398,12 @@ def test_submit_construct_rejects_mixed_family_in_pooled_site():
 def test_feedback_closure_hard_recheck_blocks_commit(monkeypatch):
     from nof1_causal_lab.flows.transitions.model_spec.agentic import construct_flow as module
 
-    causal_design = _make_causal_design_dict()
-    feedback_edge = {"cause": "Y", "effect": "X", "lagged": True}
-    causal_design["latent"]["edges"].append(dict(feedback_edge))
-    causal_design["estimation"]["edges"].append(dict(feedback_edge))
+    structural_plan = _make_structural_plan_dict()
+    _add_feedback_edge(structural_plan, cause="Y", effect="X")
+    plan = _typed_structural_plan(structural_plan)
     initial = AdmissionState(names=("X",))
     state = ConstructBuildState(
-        causal_design=causal_design,
+        structural_plan=plan,
         data_for_model=pl.DataFrame(),
         order=["Y"],
         admission=initial,
@@ -403,18 +520,26 @@ def test_ordered_logistic_signal_uses_sampled_cutpoints():
 
 
 def test_build_construct_messages_surfaces_params_and_feedback():
-    spec = _make_causal_design_dict()
+    spec = _typed_structural_plan()
     state = ConstructBuildState(
-        causal_design=spec,
+        structural_plan=spec,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
         admission=AdmissionState(
             names=("X",),
             priors={
-                "sigma_X": {
-                    "distribution": "TruncatedNormal",
-                    "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
-                }
+                "sigma_X": _executable_prior(
+                    "sigma_X",
+                    {
+                        "distribution": "TruncatedNormal",
+                        "params": {
+                            "mu": 0.5,
+                            "sigma": 0.1,
+                            "lower": 0.1,
+                            "upper": 1.0,
+                        },
+                    },
+                )
             },
         ),
         cursor=1,  # active construct is Y, with X already admitted
@@ -423,7 +548,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={"indicators": {}},
     )
     assert "continuous-time latent state-space model" in system
@@ -449,7 +574,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={"indicators": {}},
     )
     assert "Latest reachability feedback" in user2
@@ -457,17 +582,16 @@ def test_build_construct_messages_surfaces_params_and_feedback():
 
 
 def test_build_construct_messages_surfaces_conditional_likelihood_parameters():
-    spec = _make_causal_design_dict()
-    x1 = next(
-        indicator for indicator in spec["measurement"]["indicators"] if indicator["name"] == "x1"
-    )
+    payload = _make_structural_plan_dict()
+    x1 = _indicator(payload, "x1")
     x1.update(
         measurement_dtype="ordinal",
         aggregation="last",
         ordinal_levels=["low", "medium", "high"],
     )
+    spec = _typed_structural_plan(payload)
     state = ConstructBuildState(
-        causal_design=spec,
+        structural_plan=spec,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -475,42 +599,76 @@ def test_build_construct_messages_surfaces_conditional_likelihood_parameters():
         state=state,
         construct="X",
         question="How does X behave?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={"indicators": {}},
     )
-    assert "`obs_ordered_base`" in user
-    assert "`obs_ordered_gaps`" in user
+    assert "`obs_ordered_base_x1`" in user
+    assert "`obs_ordered_gaps_x1`" in user
+    assert "`obs_ordered_base`" not in user
+    assert "`obs_ordered_gaps`" not in user
     assert "`manifest_mean_x1`" in user
     assert "omit for threshold/categorical" in user
 
-    state.admission = AdmissionState(priors={"obs_ordered_base": _normal(0.0, 1.0)})
+    state.admission = AdmissionState(
+        priors={
+            "obs_ordered_base_x1": _executable_prior(
+                "obs_ordered_base_x1",
+                _normal(0.0, 1.0),
+            )
+        }
+    )
     _system, user = build_construct_messages(
         state=state,
         construct="X",
         question="How does X behave?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={"indicators": {}},
     )
-    assert "`obs_ordered_base`" not in user
+    assert "`obs_ordered_base_x1`" not in user
+
+
+def test_ordered_threshold_parameters_bind_per_indicator_into_vectorized_sites():
+    payload = _make_structural_plan_dict()
+    x1 = _indicator(payload, "x1")
+    x1.update(
+        measurement_dtype="ordinal",
+        aggregation="last",
+        ordinal_levels=["low", "medium", "high"],
+    )
+    x2 = _indicator(payload, "x2")
+    x2.update(
+        measurement_dtype="ordinal",
+        aggregation="last",
+        ordinal_levels=["none", "mild", "moderate", "high", "severe"],
+    )
+    catalog = ParamCatalog.from_structural_plan(_typed_structural_plan(payload))
+
+    assert catalog.site_for("obs_ordered_base_x1") == "obs_ordered_base"
+    assert catalog.site_for("obs_ordered_base_x2") == "obs_ordered_base"
+    assert catalog.metadata_for("obs_ordered_base_x1")["compiled_flat_index"] == 0
+    assert catalog.metadata_for("obs_ordered_base_x2")["compiled_flat_index"] == 1
+    assert catalog.metadata_for("obs_ordered_gaps_x1")["prior_transform"] == "site_row"
+    assert catalog.metadata_for("obs_ordered_gaps_x2")["prior_transform"] == "site_row"
 
 
 def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observed_level():
-    spec = _make_causal_design_dict()
-    state = ConstructBuildState(
-        causal_design=spec,
-        data_for_model=pl.DataFrame(),
-        order=["X", "Y", "Z"],
-    )
-    x1 = next(ind for ind in spec["measurement"]["indicators"] if ind["name"] == "x1")
+    payload = _make_structural_plan_dict()
+    x1 = _indicator(payload, "x1")
     x1["measurement_dtype"] = "ordinal"
     x1["aggregation"] = "last"
     x1["ordinal_levels"] = ["low", "medium", "high"]
+    spec = _typed_structural_plan(payload)
+    state = ConstructBuildState(
+        structural_plan=spec,
+        data_for_model=pl.DataFrame(),
+        order=["X", "Y", "Z"],
+    )
 
     _system, user = build_construct_messages(
         state=state,
         construct="X",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={
             "indicators": {
                 "x1": {
@@ -529,9 +687,9 @@ def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observ
 
 
 def test_build_construct_messages_renders_concern_local_semantic_context():
-    spec = _make_causal_design_dict()
-    spec["measurement"]["model_clock"] = "6h"
-    y1 = next(ind for ind in spec["measurement"]["indicators"] if ind["name"] == "y1")
+    payload = _make_structural_plan_dict()
+    payload["semantics"]["model_clock"] = "6h"
+    y1 = _indicator(payload, "y1")
     y1.update(
         {
             "measurement_dtype": "ordinal",
@@ -540,6 +698,7 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
             "ordinal_levels": ["none", "mild", "severe"],
         }
     )
+    spec = _typed_structural_plan(payload)
     panel = pl.DataFrame(
         {
             "indicator": ["y1", "y1", "y1", "x1"],
@@ -553,7 +712,7 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
         }
     )
     state = ConstructBuildState(
-        causal_design=spec,
+        structural_plan=spec,
         data_for_model=panel,
         order=["X", "Y", "Z"],
         admission=AdmissionState(names=("X",)),
@@ -625,7 +784,7 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report=validation_report,
     )
 
@@ -652,9 +811,9 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
 
 
 def test_build_construct_messages_handles_null_empirical_profile():
-    spec = _make_causal_design_dict()
+    spec = _typed_structural_plan()
     state = ConstructBuildState(
-        causal_design=spec,
+        structural_plan=spec,
         data_for_model=pl.DataFrame(),
         order=["X", "Y", "Z"],
     )
@@ -663,7 +822,7 @@ def test_build_construct_messages_handles_null_empirical_profile():
         state=state,
         construct="X",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={
             "indicators": {"x1": {"profile": None, "validation": {"issues": [], "checks": {}}}}
         },
@@ -673,19 +832,53 @@ def test_build_construct_messages_handles_null_empirical_profile():
 
 
 def test_build_construct_messages_renders_incoming_known_input_without_hill_option():
-    spec = _make_causal_design_dict()
-    spec["estimation"]["state_order"] = ["Y", "Z"]
-    spec["estimation"]["known_inputs"] = [
+    payload = _make_structural_plan_dict()
+    construct_id_by_name = {
+        construct["name"]: source_id
+        for source_id, construct in payload["semantics"]["constructs"].items()
+    }
+    indicator_id_by_name = {
+        indicator["name"]: source_id
+        for source_id, indicator in payload["semantics"]["indicators"].items()
+    }
+    payload["state_order"] = [
+        construct_id_by_name["Y"],
+        construct_id_by_name["Z"],
+    ]
+    payload["manifest_indicator_order"] = [
+        indicator_id_by_name["y1"],
+        indicator_id_by_name["z1"],
+    ]
+    payload["reference_indicator_ids"] = {
+        construct_id: indicator_id
+        for construct_id, indicator_id in payload["reference_indicator_ids"].items()
+        if construct_id in payload["state_order"]
+    }
+    payload["known_inputs"] = [
         {
-            "construct": "X",
-            "source_indicator": "x1",
+            "source_id": "known_input:0000",
+            "construct_id": construct_id_by_name["X"],
+            "source_indicator_id": indicator_id_by_name["x1"],
             "scale": 10.0,
             "missing_policy": "forward_fill",
         }
     ]
+    for disposition in payload["dispositions"]:
+        if disposition["source_id"] == construct_id_by_name["X"]:
+            disposition["disposition"] = "known_input"
+        elif disposition["source_id"] == indicator_id_by_name["x1"]:
+            disposition["disposition"] = "known_input_source"
+        elif disposition["source_id"] == indicator_id_by_name["x2"]:
+            disposition["disposition"] = "excluded_indicator"
+    spec = _typed_structural_plan(payload)
     state = ConstructBuildState(
-        causal_design=spec,
-        data_for_model=pl.DataFrame(),
+        structural_plan=spec,
+        data_for_model=pl.DataFrame(
+            {
+                "indicator": ["x1", "x1", "x1", "x1"],
+                "value": [0.0, 10.0, 10.0, 20.0],
+            }
+        ),
         order=["Y", "Z"],
     )
 
@@ -693,7 +886,7 @@ def test_build_construct_messages_renders_incoming_known_input_without_hill_opti
         state=state,
         construct="Y",
         question="Does X drive Y?",
-        causal_design=spec,
+        structural_plan=spec,
         validation_report={"indicators": {}},
     )
 
@@ -701,6 +894,8 @@ def test_build_construct_messages_renders_incoming_known_input_without_hill_opti
     assert "source indicator=`x1`" in user
     assert "scale divisor=10" in user
     assert "missing policy=`forward_fill`" in user
+    assert "Source data before scaling: n=4; distinct=3; mean=10; sd=7.071" in user
+    assert "Compiler input at observed source rows: mean=1; sd=0.7071; range=[0, 2]" in user
     assert "`beta_X_Y`" in user
     assert "Known-input effects are linear-only" in user
     assert "hill_emax_X_Y" not in user

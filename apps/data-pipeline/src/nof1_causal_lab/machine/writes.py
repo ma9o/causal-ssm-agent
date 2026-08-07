@@ -9,8 +9,9 @@ transition result.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
@@ -29,7 +30,11 @@ if TYPE_CHECKING:
     )
 
 
-def _validated(artifact_id: ArtifactId, model_cls: type[BaseModel], payload: dict) -> dict:
+def _validated(
+    artifact_id: ArtifactId,
+    model_cls: type[BaseModel],
+    payload: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     try:
         return model_cls.model_validate(payload).model_dump(mode="json")
     except Exception as exc:
@@ -38,7 +43,7 @@ def _validated(artifact_id: ArtifactId, model_cls: type[BaseModel], payload: dic
 
 def _write_question(
     store: ArtifactStore,
-    payload: dict[str, Any],
+    payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
     text = payload.get("text", "")
@@ -58,7 +63,7 @@ def _write_question(
 def _write_saved_scenarios(
     store: ArtifactStore,
     state: EpisodeState,
-    payload: dict[str, Any],
+    payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
     from nof1_causal_lab.flows.transitions.analysis.contracts import SavedScenarioContract
@@ -112,7 +117,7 @@ def _write_contract_artifact(
     store: ArtifactStore,
     state: EpisodeState,
     artifact_id: ArtifactId,
-    payload: dict[str, Any],
+    payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
     contract_ref, filename = _CONTRACT_WRITES[artifact_id]
@@ -131,7 +136,7 @@ def _write_contract_artifact(
 def execute_write(
     workspace_id: str,
     artifact_id: ArtifactId,
-    payload: dict[str, Any],
+    payload: UncheckedJsonObject,
     provenance: Provenance,
     state: EpisodeState,
 ) -> TransitionEffects:

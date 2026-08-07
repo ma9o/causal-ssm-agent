@@ -28,6 +28,7 @@ from nof1_causal_lab.models.causal_proofs import (
     certify_reportable_posterior,
 )
 from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
+from tests.helpers import make_structural_plan
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics
@@ -222,6 +223,17 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         produced_by="run:measurement_structure",
         json_files={"causal_design.json": {"causal_design": design.model_dump(mode="json")}},
     )
+    structural_plan_payload = make_structural_plan(
+        ["screen_time", "sleep_quality"],
+        [("screen_time", "sleep_quality")],
+    )
+    structural_plan = store.write_version(
+        "structural_plan",
+        provenance="computed",
+        derived_from={"causal_design": causal_design.version},
+        produced_by="derive:structural_plan",
+        json_files={"structural-plan.json": {"structural_plan": structural_plan_payload}},
+    )
     measurements = store.write_version(
         "measurements",
         provenance="computed",
@@ -263,7 +275,12 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         (
             2,
             RunArtifact(artifact_id="measurement_structure"),
-            [measurement_structure, causal_design, identification_report],
+            [
+                measurement_structure,
+                causal_design,
+                identification_report,
+                structural_plan,
+            ],
         ),
         (3, RunArtifact(artifact_id="measurements"), [measurements, panel]),
         (4, RunArtifact(artifact_id="posterior"), [posterior]),
@@ -627,7 +644,13 @@ def test_manifest_effects_include_interval_supported_outcome_indicators():
     }
 
 
-def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():
+def test_get_model_info_uses_structural_plan_for_variables_and_treatments():
+    structural_plan = make_structural_plan(
+        ["screen_time", "sleep"],
+        [("screen_time", "sleep")],
+    )
+    structural_plan["semantics"]["indicators"]["indicator:0000"]["name"] = "daily_event_count"
+    structural_plan["semantics"]["indicators"]["indicator:0001"]["name"] = "sleep_issue_searches"
     ctx = {
         "causal_design": {
             "causal_design": {
@@ -686,6 +709,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
+        "structural_plan": {"structural_plan": structural_plan},
         "posterior": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
         "baseline_report": {},
         "_prepared_runtime": SimpleNamespace(

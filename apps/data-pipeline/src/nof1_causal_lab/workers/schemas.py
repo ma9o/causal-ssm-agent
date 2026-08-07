@@ -5,6 +5,7 @@ from typing import Any
 import polars as pl
 from pydantic import BaseModel, Field, ValidationError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.causal_design import (
     get_measurement_indicator_info as _get_measurement_indicator_info,
 )
@@ -95,8 +96,8 @@ def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
 
 
 def validate_worker_output(
-    data: dict,
-    measurement_structure: dict,
+    data: UncheckedJsonObject,
+    measurement_structure: UncheckedJsonObject,
     expected_window_starts: list[str] | None = None,
 ) -> tuple[WorkerOutput | None, list[str]]:
     """Validate worker output dict, collecting ALL errors instead of failing on first.

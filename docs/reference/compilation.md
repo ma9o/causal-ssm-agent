@@ -1,14 +1,20 @@
 # SSM Compilation Pipeline
 
-The compilation pipeline translates a [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec) (the `statistical_model_spec` transition output) into a NumPyro-ready `SSMModel`. The resulting `CompiledSSMArtifact` is consumed by [`posterior` transition](../pipeline/inference.md) for fitting.
+The structural front first translates a scientific [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) into a versioned [`StructuralPlan`](../pipeline/measurement-structure.md#structuralplan). The application projects evidence-rich `PriorProposal` rows into a typed `PriorPlan`. The SSM compiler then consumes only the [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec), `PriorPlan`, and `StructuralPlan`, producing a `CompiledSSMArtifact` for the [`posterior` transition](../pipeline/inference.md).
 
 ```mermaid
 graph TD
     StatisticalModelSpec(["StatisticalModelSpec"])
     PriorProposal(["PriorProposal"])
+    PriorPlan(["PriorPlan"])
     CausalDesign(["CausalDesign"])
+    StructuralPlan(["StructuralPlan"])
 
-    StatisticalModelSpec & PriorProposal & CausalDesign --> validate
+    CausalDesign --> plan["build_structural_plan() — models/structural"]
+    plan --> StructuralPlan
+    PriorProposal --> prior_plan["build_prior_plan() — models/prior_planning.py"]
+    prior_plan --> PriorPlan
+    StatisticalModelSpec & PriorPlan & StructuralPlan --> validate
 
     subgraph compile_ssm_artifact ["compile_ssm_artifact() — compile/artifact.py"]
         validate["validate_statistical_model_spec_for_compilation()"]
@@ -35,10 +41,12 @@ graph TD
     prior_sem --> artifact
     bind_out --> artifact
     diag_out --> artifact
-    artifact["CompiledSSMArtifact\nspec + edge_lag_days + compiled_prior_semantics + parameter_bindings + compile_diagnostics"]
+    StructuralPlan --> closure["Structural bindings + anchor certificates"]
+    closure --> artifact
+    artifact["CompiledSSMArtifact\nstructure + compiled_prior_semantics + parameter_bindings + compile_diagnostics"]
 
     subgraph prepare_model_runtime ["prepare_model_runtime() — runtime.py"]
-        artifact --> model_ctor["build_model_from_compiled_artifact()\n(deserialize_ssm_spec + load_prior_runtime_bundle)"]
+        artifact --> model_ctor["hydrate_compiled_model()\n(deserialize_ssm_spec + load_prior_runtime_bundle)"]
         model_ctor --> hydrate["hydrate_discrete_manifest_metadata() — observation_support.py"]
         hydrate --> validate_obs["validate_observation_support()"]
         validate_obs --> ssm_model(["SSMModel"])
@@ -48,13 +56,14 @@ graph TD
         registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
     end
 
-    ssm_model --> fit["fit_prepared_model(runtime) → ParticleMCMCPosterior"]
+    ssm_model --> fit["flows/transitions/inference.fit_prepared_model(runtime)\n→ ParticleMCMCPosterior"]
     fit --> execute["SSMModel.model() execution"]
     assemble --> execute
 
     click StatisticalModelSpec "../pipeline/statistical-model-spec.md#statisticalmodelspec"
     click PriorProposal "../pipeline/statistical-model-spec.md#priorproposal"
     click CausalDesign "../pipeline/measurement-structure.md#causaldesign"
+    click StructuralPlan "../pipeline/measurement-structure.md#structuralplan"
 ```
 
 ## Key Data Types
@@ -62,35 +71,44 @@ graph TD
 | Type | Defined in | Purpose |
 |------|-----------|---------|
 | [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec) | `artifacts/statistical_model_spec.py` | User-facing statistical model spec: parameters, likelihoods, roles |
-| [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) | `artifacts/causal_design.py` | DAG edges, construct metadata, temporal granularity |
+| [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) | `artifacts/causal_design.py` | Scientific DAG, measurement semantics, and authored executable dispositions |
+| [`StructuralPlan`](../pipeline/measurement-structure.md#structuralplan) | `artifacts/structural_plan.py` | Versioned executable structure and semantic catalog keyed by stable source IDs |
+| `PriorPlan` | `artifacts/prior.py` | Complete, family-validated executable priors keyed exactly to `StatisticalModelSpec` parameters |
 | `SSMSpec` | `models/ssm/model.py` | SSM artifact: dimensions, names, distributions, structure blocks, and composite drift spec |
 | `SiteDescriptor` | `models/ssm/structure/sites.py` | Canonical sample-site identity: name, shape, support, semantic kind, assembly group, and prior binding field |
 | `PriorRegistry` | `models/ssm/priors.py` | Site-keyed canonical priors for both structure blocks and dynamics components |
 | `PriorRuntimeBundle` | `models/ssm/parameterization.py` | Runtime site registry, transforms, and prior-state arrays reconstructed without model tracing |
 | `SemanticBindingRegistry` | `models/ssm/compile/prior_indexing.py` | Named registry of parameter-name → compiled sample-site bindings; replaces the old positional prior-index tuple |
-| `CompiledSSMArtifact` | `models/ssm/compile/artifact.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
+| `CompiledStructure` | `models/ssm/compile/contracts.py` | Serialized SSM structure, source bindings, edge lags, and identification-anchor certificates |
+| `CompiledSSMArtifact` | `models/ssm/compile/contracts.py` | Serializable bundle: compiled structure + compiled prior semantics + parameter bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
 | `ParticleMCMCPosterior` | `models/ssm/inference/types.py` | Production particle-MCMC samples, diagnostics, and engine evidence |
 | `WarmupProposal` | `models/ssm/inference/types.py` | Laplace/IEKS initialization draws and proposal preconditioning only |
 
+## Stage 0: Structural Planning (`models/structural/`)
+
+`build_structural_plan()` normalizes the authoring artifacts once. It assigns stable source IDs, carries construct/edge/indicator semantics into one catalog, orders retained states and manifests, selects each retained state's reference indicator, compiles known inputs and induced dependencies, and records an explicit disposition for every source item. Unsupported static-target edges and incomplete executable coverage fail here rather than being silently dropped.
+
+The compiler's separate `compile/structural/closure.py` pass binds every retained structural item to its runtime target and rejects either direction of mismatch. Its anchor pass certifies one location anchor and one scale anchor for every retained latent. The compiler consumes the completed plan and never calls the structural planner or identification utilities.
+
 ## Stage 1: Spec Translation (`compile/spec_translation.py`)
 
-Converts a `StatisticalModelSpec` + `CausalDesign` into an `SSMSpec` — the artifact that persists concrete numeric templates, structure blocks, and the composite drift spec.
+Converts a `StatisticalModelSpec` + `StructuralPlan` into an `SSMSpec` — the artifact that persists concrete numeric templates, structure blocks, and the composite drift spec.
 
 **What it does:**
 
-- Extracts latent construct layout from the DAG (names, order, time-invariant mask)
+- Extracts latent construct layout from the structural plan (names, order, time-invariant mask)
 - Builds the **dynamics spec** as a composite vector field. The standard affine artifact uses `DiagonalDecaySpec` for per-latent decay, `LinearEdgeSpec` for cross-lag dynamics, and `StateInterceptSpec` for any free continuous-time state intercepts.
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
 - Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`.
-- Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces on the causal-design path
+- Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces
 - Derives deterministic `manifest_standardized` flags from the locked likelihood family, link, and observation support semantics
 - Applies `initialization_policy` and `equilibrium_forcing` to determine which `t0_*`, `cint_*`, and `manifest_mean_*` surfaces remain free
 - Computes **edge_lag_days**: for each cross-lag edge, the lag in days (used by prior compilation to scale DT→CT)
 - Selects observation distribution families from `measurement_dtype`
 - Eliminates legacy string matrix modes: translation always emits concrete templates and explicit masks
 
-**Key function:** `translate_spec(statistical_model_spec, causal_design) -> (SSMSpec, edge_lag_days)`
+**Key function:** `translate_spec(statistical_model_spec, structural_plan) -> (SSMSpec, edge_lag_days)`
 
 ## `measurements` transition: Semantic Prior Bindings (`compile/prior_indexing.py`)
 
@@ -103,7 +121,7 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 - Derives the canonical free-entry order from block and dynamics `SiteDescriptor`s so the compiler, runtime assembly, and posterior name resolution all share one site registry.
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
-**Key function:** `build_semantic_prior_bindings(ssm_spec, statistical_model_spec, *, causal_design=None) -> SemanticBindingRegistry`
+**Key function:** `build_semantic_prior_bindings(ssm_spec, statistical_model_spec, *, structural_plan=None) -> SemanticBindingRegistry`
 
 This is now a strict internal helper: it requires both a translated `SSMSpec` and a semantic `StatisticalModelSpec`. Spec-only entrypoints decide explicitly when no semantic bindings should be produced; the indexer no longer falls back to all-empty maps.
 
@@ -121,16 +139,16 @@ This is now a strict internal helper: it requires both a translated `SSMSpec` an
 
 ## `validation_report` derivation: Prior Compilation (`compile/prior_compilation.py`)
 
-Translates user-facing prior specifications into a site-keyed `PriorRegistry` with the correct parameterization.
+Translates a complete typed `PriorPlan` into a site-keyed `PriorRegistry` with the correct parameterization. Evidence, citations, and agent-facing rationales stay in `PriorProposal`; only family-validated executable fields cross the compiler boundary.
 
 **Critical transformations:**
 
 - **AR coefficients (DT→CT):** User specifies `rho_*` as baseline persistence in `(0, 1)` over the authored interval, absent incoming feedback. The compiler transforms it to positive continuous-time base decay with `base_decay = −log(rho) / dt`; nondegenerate priors are moment-matched to `Gamma(concentration, rate)`, and fixed-width `rho_*` priors compile to positive `Delta(value)`.
 - **Hard-sparsity drift assembly:** Off-diagonal entries are compiled as `A_ij = beta_ij / dt` on allowed edges only. For each dynamic row, the realised diagonal is derived as `A_ii = -(base_decay_i + sum_j |A_ij| + stability_margin)`, preserving structural zeros while guaranteeing strict row diagonal dominance.
-- **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the causal-design model clock. If none exists, compilation now raises instead of silently assuming `1.0d`.
+- **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the structural-plan model clock. If none exists, compilation raises instead of silently assuming `1.0d`.
 - **Site binding:** compiled priors attach to canonical `SiteDescriptor`s. Structure blocks and dynamics components use the same prior materialization path.
 
-**Key function:** `compile_priors(raw_priors, statistical_model_spec, ssm_spec, edge_lag_days, causal_design) -> (PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic])`
+**Public boundary:** `compile_ssm_inputs_from_statistical_model_spec(statistical_model_spec, prior_plan, structural_plan=...)`. The internal `compile_priors()` helper receives compiler payloads projected from the plan.
 
 **Post-compilation diagnostics:**
 
@@ -154,9 +172,13 @@ Bundles everything into a `CompiledSSMArtifact` — a JSON-serializable dict tha
 
 ```python
 CompiledSSMArtifact = {
-    "schema_version": 1,
-    "spec": {...},                      # SSMSpec as dict
-    "edge_lag_days": [...],             # serialized lag metadata per retained edge
+    "schema_version": 2,
+    "structure": {
+        "spec": {...},                  # SSMSpec as dict
+        "edge_lag_days": [...],         # source-bound lag metadata
+        "bindings": [...],              # StructuralPlan source ID → runtime target
+        "anchor_certificates": [...],   # per-latent location/scale proof
+    },
     "compiled_prior_semantics": {...},  # serialized PriorRuntimeBundle payload
     "parameter_bindings": [...],        # semantic name → NumPyro site mappings
     "compile_diagnostics": [...],       # compile-time warnings / notes
@@ -170,9 +192,9 @@ Also provides validation entry points used by earlier pipeline transitions:
 - `validate_statistical_model_spec_for_compilation()` — catches structural errors before committing to compilation
 - `trial_compile_statistical_model_spec()` / `trial_compile_measurement_structure()` — dry-run compilation that returns an error string or None
 
-## Stage 5: Runtime Preparation (`compile/artifact.py`, `runtime.py`, `observation_support.py`)
+## Stage 5: Runtime Preparation (`runtime.py`, `serialization.py`, `observation_support.py`)
 
-`build_model_from_compiled_artifact()` in `compile/artifact.py` reconstructs the compiled artifact into a live `SSMModel`.
+`hydrate_compiled_model()` in `runtime.py` reconstructs the compiled artifact into a live `SSMModel`. Deserialization lives in `serialization.py`; compilation never calls runtime hydration, and runtime never calls compiler implementation code.
 
 **`observation_support.py`** handles data-dependent hydration:
 
@@ -181,10 +203,12 @@ Also provides validation entry points used by earlier pipeline transitions:
 
 **`runtime.py`** provides the runtime API:
 
-- `build_ssm_model(wide_data, ...)` → `SSMModel` — materializes the NumPyro model from direct specs or compiled inputs
+- `build_ssm_model(wide_data, ssm_spec=..., ...)` → `SSMModel` — materializes the NumPyro model from an already compiled `SSMSpec`
+- `hydrate_compiled_model(compiled_ssm, wide_data)` → `SSMModel` — reconstructs a persisted artifact and delegates model construction
 - `prepare_model_runtime(data_for_model, ...)` → `PreparedModelRuntime` — prepares observations, times, observation support, transition inputs, and sampler config
-- `fit_prepared_model(runtime)` → `ParticleMCMCPosterior` — routes prepared arrays into production particle inference
 - `sample_prior_predictive(model, ...)` — generates prior predictive samples for validation
+
+The application-owned `flows/transitions/inference/fit.py` adapter applies sampler configuration and routes a `PreparedModelRuntime` into `inference.fit()`. Runtime hydration therefore has no dependency on inference algorithms.
 
 Runtime reconstruction now has three layers:
 
@@ -203,8 +227,8 @@ Moving `fit()` onto `SSMModel` would couple it to DataFrame handling and sampler
 
 **Two model-construction entry points:**
 
-- `build_model_from_compiled_artifact(compiled_ssm, wide_data)` in `compile/artifact.py` — deserializes a persisted `CompiledSSMArtifact`, rebuilds the prior runtime bundle from `compiled_prior_semantics`, hydrates observation metadata from wide data, and returns an `SSMModel`. This is the pipeline path because Stage 5 consumes the artifact that `statistical_model_spec` transition persisted.
-- `build_ssm_model(wide_data, statistical_model_spec=..., priors=..., causal_design=...)` in `runtime.py` — compiles on the fly from raw specs and returns an `SSMModel`. This is the direct path for tests and notebooks.
+- `hydrate_compiled_model(compiled_ssm, wide_data)` in `runtime.py` — deserializes a persisted `CompiledSSMArtifact`, rebuilds the prior runtime bundle from `compiled_prior_semantics`, hydrates observation metadata from wide data, and returns an `SSMModel`. This is the pipeline path because Stage 5 consumes the artifact that the `statistical_model_spec` transition persisted.
+- `build_ssm_model(wide_data, ssm_spec=..., prior_registry=...)` in `runtime.py` — builds from an already translated `SSMSpec`. It never invokes the compiler.
 
 Both return a live `SSMModel`. Callers that need fit-ready arrays use `prepare_model_runtime()` or `prepare_wide_model_runtime()` to construct a `PreparedModelRuntime`.
 
@@ -212,17 +236,16 @@ Both return a live `SSMModel`. Callers that need fit-ready arrays use `prepare_m
 
 ```mermaid
 graph LR
-    spec["compile/spec_translation.py"] --> inputs["compile/inputs.py"]
-    indexing["compile/prior_indexing.py"] --> inputs
-    prior["compile/prior_compilation.py"] --> inputs
-    inputs --> artifact["compile/artifact.py"]
-    inputs --> runtime["runtime.py"]
-    artifact --> runtime
-    obs["observation_support.py"] --> runtime
-    common["compile/common.py"] -.-> spec & indexing & prior & inputs & artifact & runtime
+    structural["models/structural"] --> plan["StructuralPlan"]
+    plan --> artifact["compile/artifact.py"]
+    artifact --> inputs["compile/inputs.py"]
+    inputs --> spec["compile/spec_translation.py"]
+    inputs --> indexing["compile/prior_indexing.py"]
+    inputs --> prior["compile/prior_compilation.py"]
+    compiled["CompiledSSMArtifact"] --> runtime["runtime.py"]
+    runtime --> serialization["serialization.py"]
+    runtime --> obs["observation_support.py"]
+    runtime --> model["model.py + execution/"]
 ```
 
-Leaf modules (`compile/spec_translation.py`, `compile/prior_indexing.py`, `observation_support.py`, `compile/common.py`) have no intra-pipeline dependencies and can be understood in isolation. The compilation orchestrator (`compile/inputs.py`) exposes two explicit entry points:
-
-- `compile_ssm_inputs_from_statistical_model_spec()` for the semantic `statistical_model_spec` transition path
-- `compile_ssm_inputs_from_spec()` for already-translated `SSMSpec` callers
+The compiler and runtime subgraphs meet through serialized data, not calls in both directions. `scripts/check_architecture_boundaries.py` enforces this direction along with the StructuralPlan, PriorPlan, and execution/inference boundaries. The compilation orchestrator (`compile/inputs.py`) exposes `compile_ssm_inputs_from_statistical_model_spec()` for the semantic `statistical_model_spec` transition path. Already translated `SSMSpec` callers go directly to runtime construction because they have nothing left to compile.

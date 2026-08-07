@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
     get_prior_family_spec,
     get_real_runtime_family_index,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 def axis_names_with_fallback(
@@ -27,7 +26,7 @@ def axis_names_with_fallback(
 
 def normalize_prior_params(
     distribution: PriorDistributionFamily | str,
-    params: dict,
+    params: UncheckedJsonObject,
 ) -> dict[str, float | int]:
     """Convert a typed prior distribution into compiler-normalized parameter params."""
     try:
@@ -99,11 +98,3 @@ def normalize_prior_params(
         }
 
     raise ValueError(f"Unsupported prior distribution family: {distribution!r}")
-
-
-def dump_prior_payloads(priors: dict[str, Any] | None) -> dict[str, dict]:
-    """Normalize prior proposals into plain ``dict`` payloads."""
-    return {
-        name: value.model_dump() if hasattr(value, "model_dump") else dict(value)
-        for name, value in (priors or {}).items()
-    }

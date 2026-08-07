@@ -94,7 +94,7 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition(
         consumes=(
             "question",
-            "causal_design",
+            "structural_plan",
             "identification_report",
             "panel",
             "validation_report",
@@ -118,9 +118,10 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
 
 DERIVATIONS: tuple[Derivation, ...] = (
     Derivation(produces="causal_design", from_=("latent_structure", "measurement_structure")),
+    Derivation(produces="structural_plan", from_=("causal_design",)),
     Derivation(produces="identification_report", from_=("causal_design",), optional=True),
     Derivation(produces="validation_report", from_=("panel", "causal_design")),
-    Derivation(produces="compiled_ssm", from_=("statistical_model_spec", "causal_design")),
+    Derivation(produces="compiled_ssm", from_=("statistical_model_spec", "structural_plan")),
 )
 
 ROOTS: tuple[Root, ...] = (

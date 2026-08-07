@@ -12,13 +12,13 @@ import numpy as np
 from jax import vmap
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.execution.observation_families import (
+    any_family_needs_level_metadata,
+    resolve_manifest_families_and_links,
+)
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     CompiledObservationModel,
     compile_observation_model,
-)
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
-    any_family_needs_level_metadata,
-    resolve_manifest_families_and_links,
 )
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,

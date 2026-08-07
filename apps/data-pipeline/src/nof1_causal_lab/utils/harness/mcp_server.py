@@ -36,6 +36,8 @@ import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -74,7 +76,10 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
         ]
 
     @server.call_tool()
-    async def _call_tool(name: str, arguments: dict | None) -> list[mcp_types.TextContent]:
+    async def _call_tool(
+        name: str,
+        arguments: UncheckedJsonObject | None,
+    ) -> list[mcp_types.TextContent]:
         logger.info("MCP call_tool name=%s args_keys=%s", name, list((arguments or {}).keys()))
         tool = tool_map.get(name)
         if tool is None:

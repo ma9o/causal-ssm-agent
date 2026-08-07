@@ -10,9 +10,11 @@ import secrets
 import socket
 import traceback
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import uvicorn
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,7 +44,7 @@ async def _request_body(receive) -> bytes:
     return b"".join(chunks)
 
 
-async def _send_json(send, status: int, payload: dict[str, Any]) -> None:
+async def _send_json(send, status: int, payload: UncheckedJsonObject) -> None:
     body = json.dumps(payload).encode()
     await send(
         {

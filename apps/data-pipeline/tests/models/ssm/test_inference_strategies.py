@@ -30,16 +30,19 @@ import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import ParticleMCMCPosterior, SSMModel, fit
+from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     InitialStateParams,
+    LikelihoodExtraParams,
     MeasurementParams,
     RuntimeDynamics,
 )
-from nof1_causal_lab.models.ssm.inference.targets.emissions import get_mean_param_log_prob_fn
+from nof1_causal_lab.models.ssm.execution.emissions import get_mean_param_log_prob_fn
+from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
     compile_observation_model,
@@ -444,7 +447,7 @@ class TestLaplaceEMBlockSolver:
         def _objective(raw_params):
             obs_df = jnp.exp(raw_params[0]) + 2.5
             obs_var = jnp.exp(raw_params[1]) + 0.1
-            extra_params = {"obs_df": obs_df}
+            extra_params: LikelihoodExtraParams = {"obs_df": obs_df}
             R = jnp.array([[obs_var]], dtype=jnp.float32)
             measurement_semantics = _build_measurement_objects(R, extra_params)
             _z_mode, log_lik, _inner_eval_aux = _ieks_smooth(
@@ -1374,11 +1377,11 @@ class TestInferenceCaching:
         spec = _one_dim_block_spec()
         model = SSMModel(spec)
 
-        backend_a = model.make_laplace_backend(6)
-        backend_b = model.make_laplace_backend(6)
-        laplace_a = model.make_laplace_backend(3)
-        laplace_b = model.make_laplace_backend(3)
-        laplace_c = model.make_laplace_backend(5)
+        backend_a = get_laplace_backend(model, 6)
+        backend_b = get_laplace_backend(model, 6)
+        laplace_a = get_laplace_backend(model, 3)
+        laplace_b = get_laplace_backend(model, 3)
+        laplace_c = get_laplace_backend(model, 5)
 
         assert backend_a is backend_b
         assert laplace_a is laplace_b
@@ -1425,7 +1428,7 @@ class TestDefaultMethodRouting:
 
     def test_default_always_routes_to_marginal_particle_gibbs(self):
         """Default routing resolves to marginalized Particle Gibbs for all model types."""
-        from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
+        from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
 
         spec = _one_dim_block_spec()
 
@@ -1790,6 +1793,50 @@ def test_marginal_particle_gibbs_dsmc_paid_mix_smoke():
     assert 0.0 <= latent_frozen_fraction <= 1.0
 
 
+def test_marginal_particle_gibbs_paid_mix_reuses_initial_latent_trajectories(
+    monkeypatch,
+):
+    from nof1_causal_lab.models.ssm.inference.warmup import latent_init
+
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    def _unexpected_ieks(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("cached initial trajectories must skip IEKS")
+
+    monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=1,
+        num_chains=1,
+        seed=43,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="paid_mix",
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        initial_latent_trajectories=jnp.zeros((1, int(observations.shape[0]), int(spec.n_latent))),
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=1,
+    )
+
+
 def test_marginal_particle_gibbs_dsmc_coordinate_block_smoke():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
@@ -2121,7 +2168,7 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
         spec = None
         _parameter_layout = None
 
-        def make_laplace_backend(self, _n_ieks_iters):
+        def get_cached_artifact(self, _cache_key, _factory):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
@@ -2287,7 +2334,7 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
         spec = None
         _parameter_layout = None
 
-        def make_laplace_backend(self, _n_ieks_iters):
+        def get_cached_artifact(self, _cache_key, _factory):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
@@ -2460,7 +2507,7 @@ def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
         spec = None
         _parameter_layout = None
 
-        def make_laplace_backend(self, _n_ieks_iters):
+        def get_cached_artifact(self, _cache_key, _factory):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
@@ -2626,7 +2673,7 @@ def test_map_can_skip_parameter_hessian(monkeypatch):
         spec = None
         _parameter_layout = None
 
-        def make_laplace_backend(self, _n_ieks_iters):
+        def get_cached_artifact(self, _cache_key, _factory):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
@@ -2773,7 +2820,7 @@ def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
         spec = None
         _parameter_layout = None
 
-        def make_laplace_backend(self, _n_ieks_iters):
+        def get_cached_artifact(self, _cache_key, _factory):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):

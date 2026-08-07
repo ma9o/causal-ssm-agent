@@ -107,6 +107,7 @@ def compiled_ssm() -> dict[str, Any]:
     from nof1_causal_lab.models.ssm.compile.contracts import (
         CompiledPriorSemantics,
         CompiledSSMArtifact,
+        CompiledStructure,
     )
     from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
@@ -118,9 +119,13 @@ def compiled_ssm() -> dict[str, Any]:
         manifest_names=["stress_score", "sleep_score"],
     )
     artifact = CompiledSSMArtifact(
-        schema_version=1,
-        spec=serialize_ssm_spec(spec),
-        edge_lag_days=[],
+        schema_version=2,
+        structure=CompiledStructure(
+            spec=serialize_ssm_spec(spec),
+            edge_lag_days=[],
+            bindings=[],
+            anchor_certificates=[],
+        ),
         compiled_prior_semantics=CompiledPriorSemantics(
             schema_version=5,
             site_registry=[],
@@ -134,6 +139,25 @@ def compiled_ssm() -> dict[str, Any]:
 
 def state_from(*infos: ArtifactVersionInfo) -> EpisodeState:
     return EpisodeState().with_versions(list(infos))
+
+
+def seed_structural_plan(
+    store: ArtifactStore,
+    *,
+    causal_design_version: int = 1,
+) -> ArtifactVersionInfo:
+    from tests.helpers import make_structural_plan
+
+    plan = make_structural_plan(["Stress", "Sleep"], [])
+    plan["semantics"]["indicators"]["indicator:0000"]["name"] = "stress_score"
+    plan["semantics"]["indicators"]["indicator:0001"]["name"] = "sleep_score"
+    return store.write_version(
+        "structural_plan",
+        provenance="computed",
+        derived_from={"causal_design": causal_design_version},
+        produced_by="derive:structural_plan",
+        json_files={json_filename("structural_plan", "structural_plan"): {"structural_plan": plan}},
+    )
 
 
 def seed_panel(
@@ -159,7 +183,7 @@ def seed_panel(
 def seed_compiled_ssm(
     store: ArtifactStore,
     *,
-    causal_design_version: int = 1,
+    structural_plan_version: int = 1,
     statistical_model_spec_version: int = 1,
 ) -> ArtifactVersionInfo:
     return store.write_version(
@@ -167,7 +191,7 @@ def seed_compiled_ssm(
         provenance="computed",
         derived_from={
             "statistical_model_spec": statistical_model_spec_version,
-            "causal_design": causal_design_version,
+            "structural_plan": structural_plan_version,
         },
         produced_by="derive:compiled_ssm",
         json_files={

@@ -1,4 +1,4 @@
-"""Concrete latent trajectory targets for SSM inference runtimes."""
+"""Concrete exact latent trajectory targets shared by execution consumers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-import nof1_causal_lab.models.ssm.inference.targets.euler_maruyama as euler_maruyama
+import nof1_causal_lab.models.ssm.execution.euler_maruyama as euler_maruyama
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
@@ -105,7 +105,7 @@ class EulerMaruyamaTarget:
         self,
         context,
         latent_trajectory: jnp.ndarray,
-        prior_terms: Any | None = None,
+        prior_terms: object | None = None,
     ) -> jnp.ndarray:
         del prior_terms
         return euler_maruyama.trajectory_prior_log_prob(

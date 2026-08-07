@@ -59,6 +59,8 @@ from jax.scipy.stats import norm as jnorm
 from plotly.subplots import make_subplots
 from scipy import stats as sstats
 
+type GridShape = tuple[int, int, int]
+
 jax.config.update("jax_enable_x64", True)
 
 # ── Calibration palette (self-contained; shared convention across the SBC-style notebooks) ──
@@ -255,7 +257,14 @@ def _make_grid(grid):
 
 
 @lru_cache(maxsize=512)
-def crossgen(truth_cfg: Cfg, cand_cfg: Cfg, amp: float, n_sims: int, grid: tuple, seed: int):
+def crossgen(
+    truth_cfg: Cfg,
+    cand_cfg: Cfg,
+    amp: float,
+    n_sims: int,
+    grid: GridShape,
+    seed: int,
+):
     """One cross-generation experiment: simulate from truth_cfg, fit cand_cfg, return PITs.
 
     Returns ``(param_pits[n_sims, 3], pred_pits[n_sims])``. ``param_pits[:, d]`` is the
@@ -367,7 +376,13 @@ class _Scored(NamedTuple):
 
 
 def _scored(
-    truth: Cfg, cand: Cfg, amp: float, n_sims: int, grid: tuple, seed: int, M: int
+    truth: Cfg,
+    cand: Cfg,
+    amp: float,
+    n_sims: int,
+    grid: GridShape,
+    seed: int,
+    M: int,
 ) -> _Scored:
     _axes, params, logprior = _make_grid(grid)
     base = jax.random.PRNGKey(seed)
@@ -430,13 +445,26 @@ def _scored(
 
 @lru_cache(maxsize=256)
 def crossgen_scored(
-    truth: Cfg, cand: Cfg, amp: float, n_sims: int, grid: tuple, seed: int, M: int
+    truth: Cfg,
+    cand: Cfg,
+    amp: float,
+    n_sims: int,
+    grid: GridShape,
+    seed: int,
+    M: int,
 ) -> _Scored:
     return _scored(truth, cand, amp, n_sims, grid, seed, M)
 
 
 # ── PIT calibration: simultaneous bands, χ² score, shape verdict ─────────────────
-_BAND_CACHE: dict[tuple, tuple] = {}
+_PIT_HIST_BAND_CACHE: dict[
+    tuple[str, int, int],
+    tuple[np.ndarray, np.ndarray, np.ndarray],
+] = {}
+_PIT_ECDF_BAND_CACHE: dict[
+    tuple[str, int, int],
+    tuple[np.ndarray, np.ndarray, np.ndarray],
+] = {}
 
 
 def _simultaneous_envelope(
@@ -472,15 +500,15 @@ def _simultaneous_envelope(
 def pit_hist_band(S: int, bins: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-bin simultaneous 95% band for a histogram of S Uniform(0, 1) PITs."""
     key = ("hist", S, bins)
-    if key not in _BAND_CACHE:
+    if key not in _PIT_HIST_BAND_CACHE:
         u = np.random.default_rng(20240701).random((NSIM_BAND, S))
         idx = np.minimum((u * bins).astype(int), bins - 1)
         counts = np.zeros((NSIM_BAND, bins), dtype=int)
         rows = np.repeat(np.arange(NSIM_BAND), S)
         np.add.at(counts, (rows, idx.ravel()), 1)
         lo, hi = _simultaneous_envelope(counts)
-        _BAND_CACHE[key] = (lo, hi, np.linspace(0.0, 1.0, bins + 1))
-    return _BAND_CACHE[key]
+        _PIT_HIST_BAND_CACHE[key] = (lo, hi, np.linspace(0.0, 1.0, bins + 1))
+    return _PIT_HIST_BAND_CACHE[key]
 
 
 def _ecdf_at(samples: np.ndarray, grid: np.ndarray) -> np.ndarray:
@@ -490,13 +518,13 @@ def _ecdf_at(samples: np.ndarray, grid: np.ndarray) -> np.ndarray:
 def pit_ecdf_band(S: int, n_eval: int = 60) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Simultaneous 95% band for the ECDF of S Uniform(0, 1) PITs, on a fixed grid."""
     key = ("ecdf", S, n_eval)
-    if key not in _BAND_CACHE:
+    if key not in _PIT_ECDF_BAND_CACHE:
         grid = np.linspace(0.0, 1.0, n_eval)
         rng = np.random.default_rng(20240702)
         curves = np.stack([_ecdf_at(rng.random(S), grid) for _ in range(NSIM_BAND)])
         lo, hi = _simultaneous_envelope(curves)
-        _BAND_CACHE[key] = (grid, lo, hi)
-    return _BAND_CACHE[key]
+        _PIT_ECDF_BAND_CACHE[key] = (grid, lo, hi)
+    return _PIT_ECDF_BAND_CACHE[key]
 
 
 def pit_ecdf_diff(
@@ -1355,7 +1383,13 @@ FILTER_COLORS = {"KF": C_OBSK, "EKF": C_NOISE, "UKF": C_DYN, "PF": C_PASS, "orac
 
 
 @lru_cache(maxsize=64)
-def filter_compare(amp: float, n_sims: int, seed: int, n_pf: int, m_or: int) -> dict:
+def filter_compare(
+    amp: float,
+    n_sims: int,
+    seed: int,
+    n_pf: int,
+    m_or: int,
+) -> dict[str, float]:
     """Forecast CRPS for KF/EKF/UKF/PF + the oracle floor, all at the TRUE params on a full
     nonlinear, Gaussian-noise truth (so only the state-inference differs). Lower = sharper."""
     truth = BEST  # nonlinear dynamics + readout, Gaussian noise (so noise is not a confound)

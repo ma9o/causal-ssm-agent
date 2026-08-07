@@ -8,9 +8,19 @@ from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily,
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, StateDecaySpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.parameterization import (
+    build_prior_runtime_bundle,
+    build_site_registry,
+)
 from nof1_causal_lab.models.ssm.preflight import (
     ObservationPreflightError,
     validate_observations_for_fit,
+)
+from nof1_causal_lab.models.ssm.priors import (
+    PriorDistributionFamily,
+    PriorRegistry,
+    PriorSpec,
+    default_prior_registry_for_sites,
 )
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
@@ -68,6 +78,25 @@ def test_raises_on_unreachable_free_manifest_mean():
 def test_passes_when_free_mean_is_within_prior_reach():
     model = _model(free_means=(True, True))
     validate_observations_for_fit(model, _observations(0.5, -0.3))
+
+
+def test_compiled_runtime_prior_is_authoritative_over_model_registry():
+    default_model = _model(free_means=(True, True))
+    authored_priors = PriorRegistry(
+        {
+            "manifest_means_free": PriorSpec(
+                PriorDistributionFamily.NORMAL,
+                {"mu": [87.0, 0.0], "sigma": [10.0, 2.0]},
+            )
+        }
+    )
+    model = SSMModel(
+        default_model.spec,
+        default_prior_registry_for_sites(build_site_registry(default_model.spec)),
+        prior_runtime_bundle=build_prior_runtime_bundle(default_model.spec, authored_priors),
+    )
+
+    validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
 def test_fixed_manifest_means_are_not_judged():

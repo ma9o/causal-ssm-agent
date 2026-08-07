@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +13,7 @@ from tests.artifact_contract_support import validate_artifact_payload
 
 
 @pytest.fixture
-def valid_artifact_payloads() -> dict[str, dict]:
+def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
     """Minimal valid payload for each persisted artifact id."""
     return {
         "raw_data": {
@@ -65,6 +66,7 @@ def valid_artifact_payloads() -> dict[str, dict]:
                 ],
             },
             "known_inputs": [],
+            "scientific_only_constructs": [],
         },
         "measurements": {
             "workers": [
@@ -236,7 +238,7 @@ def test_tool_server_registry_matches_served_tool_contracts() -> None:
 
 
 def test_validate_artifact_payload_accepts_all_artifacts(
-    valid_artifact_payloads: dict[str, dict],
+    valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
     """Each artifact payload validates and round-trips to a JSON-serializable dict."""
     for artifact_id, payload in valid_artifact_payloads.items():
@@ -251,7 +253,7 @@ def test_validate_artifact_payload_rejects_unknown_artifact():
 
 
 def test_validate_artifact_payload_rejects_missing_required_fields(
-    valid_artifact_payloads: dict[str, dict],
+    valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
     """Artifact contract validation should fail on contract violations."""
     bad = deepcopy(valid_artifact_payloads["measurements"])
@@ -261,7 +263,7 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
 
 
 def test_measurement_structure_requires_known_input_decision(
-    valid_artifact_payloads: dict[str, dict],
+    valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
     """The authored projection decision cannot disappear through a silent default."""
     bad = deepcopy(valid_artifact_payloads["measurement_structure"])
@@ -270,7 +272,9 @@ def test_measurement_structure_requires_known_input_decision(
         validate_artifact_payload("measurement_structure", bad)
 
 
-def test_baseline_report_rejects_extra_fields(valid_artifact_payloads: dict[str, dict]):
+def test_baseline_report_rejects_extra_fields(
+    valid_artifact_payloads: dict[str, dict[str, Any]],
+):
     """Extra fields on intervention results should be rejected (extra=forbid)."""
     bad = deepcopy(valid_artifact_payloads["baseline_report"])
     bad["intervention_results"][0]["unknown_field"] = 42
@@ -278,7 +282,9 @@ def test_baseline_report_rejects_extra_fields(valid_artifact_payloads: dict[str,
         validate_artifact_payload("baseline_report", bad)
 
 
-def test_saved_scenarios_reject_extra_fields(valid_artifact_payloads: dict[str, dict]):
+def test_saved_scenarios_reject_extra_fields(
+    valid_artifact_payloads: dict[str, dict[str, Any]],
+):
     """Saved scenario entries should remain schema-checked."""
     bad = deepcopy(valid_artifact_payloads["baseline_report"])
     bad["saved_scenarios"][0]["unknown_field"] = 42
@@ -286,7 +292,9 @@ def test_saved_scenarios_reject_extra_fields(valid_artifact_payloads: dict[str, 
         validate_artifact_payload("baseline_report", bad)
 
 
-def test_outcome_enum_no_longer_exists(valid_artifact_payloads: dict[str, dict]):
+def test_outcome_enum_no_longer_exists(
+    valid_artifact_payloads: dict[str, dict[str, Any]],
+):
     """Contracts are pure artifacts: execution failure is a typed exception on
     the transition, never an outcome flag on the payload (extra=forbid)."""
     bad = deepcopy(valid_artifact_payloads["measurement_structure"])

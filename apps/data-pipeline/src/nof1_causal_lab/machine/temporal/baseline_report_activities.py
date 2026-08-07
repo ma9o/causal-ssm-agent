@@ -9,6 +9,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, pickle_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import TransitionExecutionError
@@ -52,7 +53,7 @@ def _baseline_draws_stats(draws: list[float] | None) -> tuple[float | None, floa
     return sum(draws) / len(draws), sum(1 for draw in draws if draw > 0) / len(draws)
 
 
-def _first_baseline_assistant_summary(trace: dict[str, Any]) -> str | None:
+def _first_baseline_assistant_summary(trace: UncheckedJsonObject) -> str | None:
     for message in trace.get("messages", []):
         if message.get("role") != "assistant":
             continue
@@ -213,7 +214,7 @@ async def finalize_baseline_report_activity(
     try:
         context = _read_baseline_json(input.context_ref)
         trace = storage.read_json(input.trace_ref)
-        payload: dict[str, Any] = {
+        payload: UncheckedJsonObject = {
             "intervention_results": context["intervention_results"],
         }
         final_summary = _first_baseline_assistant_summary(trace)

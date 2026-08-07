@@ -195,7 +195,7 @@ describe("priorLine", () => {
     const prior = {
       parameter: "beta_X_Y",
       distribution: "Normal",
-      params: { loc: 0, scale: 1 },
+      params: { mu: 0, sigma: 1 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
@@ -210,7 +210,7 @@ describe("priorLine", () => {
     const prior = {
       parameter: "sigma_mood",
       distribution: "HalfNormal",
-      params: { scale: 2 },
+      params: { sigma: 2 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
@@ -236,7 +236,7 @@ describe("priorLatex", () => {
     const prior = {
       parameter: "beta_X_Y",
       distribution: "Normal",
-      params: { loc: 0, scale: 1 },
+      params: { mu: 0, sigma: 1 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
@@ -253,7 +253,7 @@ describe("observationPriorLatex", () => {
       prior: {
         parameter: "obs_concentration",
         distribution: "Gamma",
-        params: { alpha: 5, beta: 0.5 },
+        params: { concentration: 5, rate: 0.5 },
         sources: [],
         reasoning: "",
       } as PriorProposal,

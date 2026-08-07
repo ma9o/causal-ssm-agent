@@ -1,4 +1,4 @@
-"""Shared aggregated-error helpers for the compilation pipeline."""
+"""Dependency-neutral aggregated errors for deterministic compilation fronts."""
 
 from __future__ import annotations
 

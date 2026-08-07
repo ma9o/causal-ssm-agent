@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Unpack
 
 import jax.numpy as jnp
 
 from nof1_causal_lab.flows.model_spec_compile_cache import restore_model_spec_compile_cache
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.runtime import (
     PreparedModelRuntime,
-    fit_prepared_model,
     prepare_model_runtime,
 )
 
@@ -20,9 +20,31 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
-    from nof1_causal_lab.sampler_config import SamplerConfigInput
+    from nof1_causal_lab.sampler_config import (
+        MarginalParticleGibbsOptions,
+        SamplerConfigInput,
+    )
 
 logger = logging.getLogger(__name__)
+
+
+def fit_prepared_model(
+    runtime: PreparedModelRuntime,
+    **kwargs: Unpack[MarginalParticleGibbsOptions],
+) -> ParticleMCMCPosterior:
+    """Apply application sampler configuration to a prepared executable model."""
+    from nof1_causal_lab.models.ssm.inference import fit
+
+    sampler_config = {**runtime.sampler_config, **kwargs}
+    method = sampler_config.get("method", "marginal_particle_gibbs")
+    fit_kwargs = {key: value for key, value in sampler_config.items() if key != "method"}
+    return fit(
+        runtime.model,
+        observations=runtime.observations,
+        times=runtime.times,
+        method=method,
+        **fit_kwargs,
+    )
 
 
 def _fit_elapsed_seconds(start: float) -> float:
@@ -216,7 +238,9 @@ def fit_model(
         }
 
 
-def run_ppc(fitted_result: dict) -> dict:
+def run_ppc(
+    fitted_result: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     """Run posterior predictive checks on the fitted model.
 
     Forward-simulates from posterior draws and compares to observed data,

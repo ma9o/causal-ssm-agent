@@ -33,7 +33,7 @@ pytestmark = pytest.mark.timeout(240)
 def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_path):
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
 
-    calls: list[list[dict]] = []
+    calls: list[list[dict[str, Any]]] = []
     conversation_ref = str(tmp_path / "conversation.json")
     next_conversation_ref = str(tmp_path / "conversation-next.json")
     call_ref = str(tmp_path / "call.json")

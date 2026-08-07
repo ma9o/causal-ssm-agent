@@ -25,6 +25,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.artifacts import (
         ArtifactVersionInfo,
@@ -304,7 +306,7 @@ class EpisodeWorkflow:
         reason: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
-        diagnostics: dict[str, Any] | None = None,
+        diagnostics: UncheckedJsonObject | None = None,
         produced: list[ArtifactVersionInfo] | None = None,
         retracted: list[RetractedArtifact] | None = None,
         resume: ResumeRef | None = None,
@@ -341,12 +343,12 @@ class EpisodeWorkflow:
 
 def _unwrap_temporal_failure(
     exc: ActivityError | ChildWorkflowError,
-) -> tuple[str, str, dict[str, Any], ResumeRef | None]:
+) -> tuple[str, str, UncheckedJsonObject, ResumeRef | None]:
     cause = exc.cause
     while isinstance(cause, (ActivityError, ChildWorkflowError)):
         cause = cause.cause
     if isinstance(cause, ApplicationError):
-        diagnostics: dict[str, Any] = {}
+        diagnostics: UncheckedJsonObject = {}
         if cause.details:
             first = cause.details[0]
             if isinstance(first, dict):

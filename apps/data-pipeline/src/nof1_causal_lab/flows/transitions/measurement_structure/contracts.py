@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.causal_design import KnownInput  # noqa: TC001
+from nof1_causal_lab.artifacts.causal_design import (  # noqa: TC001
+    KnownInput,
+    ScientificOnlyConstruct,
+)
 from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 class ValidateMeasurementStructureInput(BaseModel):
@@ -41,6 +43,12 @@ class MeasurementStructureContract(BaseArtifactContract):
             "transition inputs rather than latent states"
         )
     )
+    scientific_only_constructs: list[ScientificOnlyConstruct] = Field(
+        description=(
+            "Measured scientific-context constructs explicitly excluded from the "
+            "executable N-of-1 state vector"
+        )
+    )
 
 
 class IdentificationReportContract(BaseModel):
@@ -54,4 +62,4 @@ class IdentificationReportContract(BaseModel):
 
     outcome_name: str
     estimable_treatments: list[str] = Field(min_length=1)
-    non_identifiable_treatments: dict[str, Any] = Field(default_factory=dict)
+    non_identifiable_treatments: UncheckedJsonObject = Field(default_factory=dict)

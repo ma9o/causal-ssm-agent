@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.errors import ModelFitError
 from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfig
 
 
-def _log_ppc(ppc_result: dict[str, Any]) -> None:
+def _log_ppc(ppc_result: UncheckedJsonObject) -> None:
     logger.info("--- Posterior Predictive Checks ---")
     if not ppc_result.get("checked", False):
         logger.info("  Skipped: %s", ppc_result.get("error", "unknown"))
@@ -55,7 +56,7 @@ def run_inference_with_data(
     provenance: PosteriorProvenance,
     workspace_id: str,
     compute_loo_diagnostics: bool,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Fit the model from materialized model-spec/2 artifacts and shape posterior."""
     from .fit import fit_model, run_ppc
 

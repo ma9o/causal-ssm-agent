@@ -13,10 +13,17 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
+from nof1_causal_lab.artifacts import (
+    CausalDesign,
+    LinkFunction,
+    StatisticalModelSpec,
+    StructuralPlan,
+)
 from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
@@ -49,6 +56,7 @@ from nof1_causal_lab.models.ssm.structure import (
 if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 from nof1_causal_lab.models.ssm.structure.sites import PriorAuthoringTransform, SiteKind
+from tests.helpers import make_prior_plan, make_structural_plan
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -282,30 +290,32 @@ def dag_model(dag_spec):
 @pytest.fixture
 def statistical_model_spec_and_priors():
     return (
-        {
-            "likelihoods": [
-                {
-                    "variable": "mood_score",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "test",
-                }
-            ],
-            "parameters": [
-                {
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "AR mood",
-                },
-                {
-                    "name": "sigma_mood",
-                    "role": "residual_sd",
-                    "constraint": "positive",
-                    "description": "SD mood",
-                },
-            ],
-        },
+        StatisticalModelSpec.model_validate(
+            {
+                "likelihoods": [
+                    {
+                        "variable": "mood_score",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "reasoning": "test",
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "rho_mood",
+                        "role": "ar_coefficient",
+                        "constraint": "unit_interval",
+                        "description": "AR mood",
+                    },
+                    {
+                        "name": "sigma_mood",
+                        "role": "residual_sd",
+                        "constraint": "positive",
+                        "description": "SD mood",
+                    },
+                ],
+            }
+        ),
         {
             "rho_mood": {
                 "parameter": "rho_mood",
@@ -325,6 +335,12 @@ def statistical_model_spec_and_priors():
     )
 
 
+def _mood_structural_plan() -> StructuralPlan:
+    plan = make_structural_plan(["mood"], [])
+    plan["semantics"]["indicators"]["indicator:0000"]["name"] = "mood_score"
+    return StructuralPlan.model_validate(plan)
+
+
 # ---------------------------------------------------------------------------
 # Site registry tests
 # ---------------------------------------------------------------------------
@@ -342,7 +358,7 @@ class TestSiteRegistry:
         """Registry produces the same site names as model tracing."""
         spec = simple_model.spec
         registry = build_site_registry(spec)
-        backend = simple_model.make_laplace_backend(6)
+        backend = get_laplace_backend(simple_model, 6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
@@ -353,7 +369,7 @@ class TestSiteRegistry:
         """Registry matches trace for DAG-constrained model with cint."""
         spec = dag_model.spec
         registry = build_site_registry(spec)
-        backend = dag_model.make_laplace_backend(6)
+        backend = get_laplace_backend(dag_model, 6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
@@ -364,7 +380,7 @@ class TestSiteRegistry:
         """Registry shapes match traced shapes."""
         spec = simple_model.spec
         registry = build_site_registry(spec)
-        backend = simple_model.make_laplace_backend(6)
+        backend = get_laplace_backend(simple_model, 6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
@@ -388,7 +404,7 @@ class TestSiteRegistry:
         )
         model = SSMModel(spec)
         registry = build_site_registry(spec)
-        backend = model.make_laplace_backend(6)
+        backend = get_laplace_backend(model, 6)
         T = 10
         obs = jnp.zeros((T, spec.n_manifest))
         times = jnp.linspace(0, 1, T)
@@ -520,7 +536,7 @@ class TestSiteRegistry:
         assert site_map["static_state_sd_free"].shape == (1,)
         assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
 
-        backend = model.make_laplace_backend(6)
+        backend = get_laplace_backend(model, 6)
         obs = jnp.zeros((5, spec.n_manifest))
         times = jnp.arange(5, dtype=jnp.float32)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
@@ -579,7 +595,7 @@ class TestTransformsAndUnravel:
         registry = build_site_registry(spec)
         D, _unravel_fn = build_unravel_fn(registry)
 
-        backend = simple_model.make_laplace_backend(6)
+        backend = get_laplace_backend(simple_model, 6)
         obs = jnp.zeros((10, spec.n_manifest))
         times = jnp.linspace(0, 1, 10)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
@@ -1061,12 +1077,171 @@ class TestCanonicalRuntimePriors:
 class TestCompiledArtifactIntegration:
     """Test that compiled_prior_semantics is emitted and correctly consumed."""
 
+    def test_global_ordered_threshold_priors_are_not_authorable(self):
+        from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
+        from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
+
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=1,
+            latent_names=["burden"],
+            manifest_names=["scale"],
+            manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
+            manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
+            manifest_level_counts=[4],
+        )
+        statistical_model_spec = StatisticalModelSpec.model_validate(
+            {
+                "likelihoods": [
+                    {
+                        "variable": "scale",
+                        "distribution": "ordered_logistic",
+                        "link": "cumulative_logit",
+                        "reasoning": "test",
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "obs_ordered_base",
+                        "role": "observation_hyperparameter",
+                        "constraint": "none",
+                        "description": "global base",
+                    }
+                ],
+            }
+        )
+
+        with pytest.raises(
+            PriorIndexingError,
+            match="Use obs_ordered_base_<indicator>",
+        ):
+            compile_priors(
+                {
+                    "obs_ordered_base": {
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                    }
+                },
+                statistical_model_spec,
+                spec,
+            )
+
+    def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):
+        from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
+
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=2,
+            latent_names=["burden"],
+            manifest_names=["short_scale", "long_scale"],
+            manifest_dists=[
+                DistributionFamily.ORDERED_LOGISTIC,
+                DistributionFamily.ORDERED_LOGISTIC,
+            ],
+            manifest_links=[
+                LinkFunction.CUMULATIVE_LOGIT,
+                LinkFunction.CUMULATIVE_LOGIT,
+            ],
+            manifest_level_counts=[4, 10],
+        )
+        statistical_model_spec = StatisticalModelSpec.model_validate(
+            {
+                "likelihoods": [
+                    {
+                        "variable": "short_scale",
+                        "distribution": "ordered_logistic",
+                        "link": "cumulative_logit",
+                        "reasoning": "test",
+                    },
+                    {
+                        "variable": "long_scale",
+                        "distribution": "ordered_logistic",
+                        "link": "cumulative_logit",
+                        "reasoning": "test",
+                    },
+                ],
+                "parameters": [
+                    {
+                        "name": "obs_ordered_base_short_scale",
+                        "role": "observation_hyperparameter",
+                        "constraint": "none",
+                        "description": "short base",
+                    },
+                    {
+                        "name": "obs_ordered_gaps_short_scale",
+                        "role": "observation_hyperparameter_positive",
+                        "constraint": "positive",
+                        "description": "short gaps",
+                    },
+                    {
+                        "name": "obs_ordered_base_long_scale",
+                        "role": "observation_hyperparameter",
+                        "constraint": "none",
+                        "description": "long base",
+                    },
+                    {
+                        "name": "obs_ordered_gaps_long_scale",
+                        "role": "observation_hyperparameter_positive",
+                        "constraint": "positive",
+                        "description": "long gaps",
+                    },
+                ],
+            }
+        )
+        priors, bindings, _diagnostics = compile_priors(
+            {
+                "obs_ordered_base_short_scale": {
+                    "distribution": "Normal",
+                    "params": {"mu": -1.0, "sigma": 0.5},
+                },
+                "obs_ordered_gaps_short_scale": {
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 2.0},
+                },
+                "obs_ordered_base_long_scale": {
+                    "distribution": "Normal",
+                    "params": {"mu": -3.0, "sigma": 1.0},
+                },
+                "obs_ordered_gaps_long_scale": {
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.5},
+                },
+            },
+            statistical_model_spec,
+            spec,
+        )
+
+        binding_by_parameter = bindings.by_parameter
+        assert binding_by_parameter["obs_ordered_base_short_scale"].flat_index == 0
+        assert binding_by_parameter["obs_ordered_base_long_scale"].flat_index == 1
+        assert (
+            binding_by_parameter["obs_ordered_gaps_short_scale"].transform
+            is PriorAuthoringTransform.SITE_ROW
+        )
+        assert (
+            binding_by_parameter["obs_ordered_gaps_long_scale"].transform
+            is PriorAuthoringTransform.SITE_ROW
+        )
+
+        base_prior = priors.priors_by_site["obs_ordered_base"]
+        np.testing.assert_allclose(base_prior.params["mu"], [-1.0, -3.0])
+        np.testing.assert_allclose(base_prior.params["sigma"], [0.5, 1.0])
+
+        gap_prior = priors.priors_by_site["obs_ordered_gaps"]
+        gap_scales = np.asarray(gap_prior.params["sigma"]).reshape(2, 8)
+        np.testing.assert_allclose(gap_scales[0], 2.0)
+        np.testing.assert_allclose(gap_scales[1], 0.5)
+
     def test_artifact_contains_compiled_prior_semantics(self, statistical_model_spec_and_priors):
         """compile_ssm_artifact emits semantics and omits legacy priors."""
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
         assert not hasattr(artifact, "priors")
         assert artifact.edge_lag_days == []
         sem = artifact.compiled_prior_semantics
@@ -1125,26 +1300,14 @@ class TestCompiledArtifactIntegration:
                     },
                 ],
             },
-            "estimation": {
-                "state_order": ["mood"],
-                "edges": [
-                    {
-                        "cause": "dose",
-                        "effect": "mood",
-                        "description": "Dose affects mood",
-                        "lagged": True,
-                    }
-                ],
-                "induced_dependencies": [],
-                "known_inputs": [
-                    {
-                        "construct": "dose",
-                        "source_indicator": "dose_mg",
-                        "scale": 10.0,
-                        "missing_policy": "forward_fill",
-                    }
-                ],
-            },
+            "known_inputs": [
+                {
+                    "construct": "dose",
+                    "source_indicator": "dose_mg",
+                    "scale": 10.0,
+                    "missing_policy": "forward_fill",
+                }
+            ],
         }
         statistical_model_spec = {
             "likelihoods": [
@@ -1182,7 +1345,15 @@ class TestCompiledArtifactIntegration:
             "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
 
-        artifact = compile_ssm_artifact(statistical_model_spec, priors, causal_design=causal_design)
+        from nof1_causal_lab.models.structural import build_structural_plan
+
+        structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
+        typed_statistical_model_spec = StatisticalModelSpec.model_validate(statistical_model_spec)
+        artifact = compile_ssm_artifact(
+            typed_statistical_model_spec,
+            make_prior_plan(typed_statistical_model_spec, priors),
+            structural_plan,
+        )
 
         assert artifact.spec.manifest_names == ["mood_score"]
         assert artifact.spec.input_names == ["dose"]
@@ -1207,17 +1378,19 @@ class TestCompiledArtifactIntegration:
         assert beta_binding.transform is PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
 
     def test_model_from_artifact_uses_semantics(self, statistical_model_spec_and_priors):
-        """build_model_from_compiled_artifact reads compiled_prior_semantics."""
+        """hydrate_compiled_model reads compiled_prior_semantics."""
         import polars as pl
 
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            build_model_from_compiled_artifact,
-            compile_ssm_artifact,
-        )
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
-        model = build_model_from_compiled_artifact(
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
+        model = hydrate_compiled_model(
             artifact,
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
         )
@@ -1234,7 +1407,11 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
         payload = artifact.model_dump(mode="json")
         del payload["compiled_prior_semantics"]
 
@@ -1250,9 +1427,13 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
         payload = artifact.model_dump(mode="json")
-        del payload["spec"]["input_lagged"]
+        del payload["structure"]["spec"]["input_lagged"]
 
         with pytest.raises(ValidationError, match="input_lagged"):
             CompiledSSMArtifact.model_validate(payload)
@@ -1270,7 +1451,11 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.utils.data import pivot_to_wide
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
 
         rng = np.random.default_rng(42)
         n = 30
@@ -1303,15 +1488,19 @@ class TestCompiledArtifactIntegration:
         """Compiled models can sample prior predictive from artifact semantics."""
         import polars as pl
 
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            build_model_from_compiled_artifact,
-            compile_ssm_artifact,
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.runtime import (
+            hydrate_compiled_model,
+            sample_prior_predictive,
         )
-        from nof1_causal_lab.models.ssm.runtime import sample_prior_predictive
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(statistical_model_spec, priors)
-        model = build_model_from_compiled_artifact(
+        artifact = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, priors),
+            _mood_structural_plan(),
+        )
+        model = hydrate_compiled_model(
             artifact,
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
         )
@@ -1324,12 +1513,15 @@ class TestCompiledArtifactIntegration:
         """Compiled models execute vector-valued positive priors via runtime semantics."""
         import polars as pl
 
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            build_model_from_compiled_artifact,
-            serialize_ssm_spec,
+        from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
+        from nof1_causal_lab.models.ssm.compile.contracts import (
+            CompiledSSMArtifact,
+            CompiledStructure,
         )
-        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
-        from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs
+        from nof1_causal_lab.models.ssm.runtime import (
+            hydrate_compiled_model,
+            prepare_fit_inputs,
+        )
 
         spec = _make_spec(
             n_latent=2,
@@ -1349,9 +1541,13 @@ class TestCompiledArtifactIntegration:
             )
         )
         artifact = CompiledSSMArtifact(
-            schema_version=1,
-            spec=serialize_ssm_spec(spec),
-            edge_lag_days=[],
+            schema_version=2,
+            structure=CompiledStructure(
+                spec=serialize_ssm_spec(spec),
+                edge_lag_days=[],
+                bindings=[],
+                anchor_certificates=[],
+            ),
             compiled_prior_semantics=compile_prior_semantics(spec, priors),
             parameter_bindings=[],
             compile_diagnostics=[],
@@ -1364,9 +1560,9 @@ class TestCompiledArtifactIntegration:
             }
         )
 
-        model = build_model_from_compiled_artifact(artifact, wide)
+        model = hydrate_compiled_model(artifact, wide)
         observations, times, _manifest_names, _wide = prepare_fit_inputs(model.spec, wide)
-        backend = model.make_laplace_backend(6)
+        backend = get_laplace_backend(model, 6)
         trace = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations,
             times,

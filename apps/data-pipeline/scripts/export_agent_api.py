@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.tool_server import app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -36,8 +37,8 @@ _MAX_EXAMPLE_DEPTH = 8
 
 
 def _example_from_schema(
-    schema: dict[str, Any],
-    components: dict[str, Any],
+    schema: UncheckedJsonObject,
+    components: UncheckedJsonObject,
     *,
     depth: int = 0,
     seen: frozenset[str] = frozenset(),
@@ -74,7 +75,7 @@ def _example_from_schema(
 
     schema_type = schema.get("type")
     if schema_type == "object" or "properties" in schema:
-        props: dict[str, Any] = schema.get("properties", {})
+        props: UncheckedJsonObject = schema.get("properties", {})
         required = set(schema.get("required", []))
         # Include required fields plus any discriminator/fixed-value field (a
         # `const`, e.g. move `kind`) even when a default makes it non-required,
@@ -98,7 +99,7 @@ def _example_from_schema(
     return "string"
 
 
-def _path_with_placeholders(path: str, parameters: list[dict[str, Any]]) -> str:
+def _path_with_placeholders(path: str, parameters: list[UncheckedJsonObject]) -> str:
     """Substitute path params with uppercase placeholders for the curl example."""
     result = path
     for param in parameters:
@@ -109,7 +110,10 @@ def _path_with_placeholders(path: str, parameters: list[dict[str, Any]]) -> str:
 
 
 def _curl_block(
-    method: str, path: str, operation: dict[str, Any], components: dict[str, Any]
+    method: str,
+    path: str,
+    operation: UncheckedJsonObject,
+    components: UncheckedJsonObject,
 ) -> str:
     parameters = operation.get("parameters", [])
     url = f"{_BASE_URL}{_path_with_placeholders(path, parameters)}"
@@ -129,7 +133,7 @@ def _curl_block(
     return "```bash\n" + "\n".join(lines) + "\n```"
 
 
-def _parameters_block(operation: dict[str, Any]) -> str | None:
+def _parameters_block(operation: UncheckedJsonObject) -> str | None:
     parameters = operation.get("parameters", [])
     if not parameters:
         return None
@@ -161,7 +165,7 @@ def _skill_frontmatter() -> str:
     return f'---\nname: nof1-episode-api\ndescription: "{description}"\n---'
 
 
-def render_skill(openapi: dict[str, Any]) -> str:
+def render_skill(openapi: UncheckedJsonObject) -> str:
     info = openapi.get("info", {})
     components = openapi.get("components", {}).get("schemas", {})
     title = info.get("title", "Agent API")
@@ -226,7 +230,7 @@ def main(*, check: bool = False) -> bool:
         return False
 
     if changed:
-        print("Agent API exports are out of date. Run `bun run docs:codegen`.", file=sys.stderr)
+        print("Agent API exports are out of date. Run `bun run codegen`.", file=sys.stderr)
         for path in changed:
             print(f"  {path}", file=sys.stderr)
         return True

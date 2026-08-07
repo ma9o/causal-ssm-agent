@@ -6,11 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.prior import PriorValidationResult  # noqa: TC001
 from nof1_causal_lab.artifacts.statistical_model_spec import (  # noqa: TC001
     DistributionFamily,
-    InitializationPolicy,
     LinkFunction,
-    ObservationInterceptPolicy,
 )
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.structure.sites import (  # noqa: TC001
@@ -19,7 +18,6 @@ from nof1_causal_lab.models.ssm.structure.sites import (  # noqa: TC001
     SupportClass,
     TransformKind,
 )
-from nof1_causal_lab.workers.schemas_prior import PriorValidationResult  # noqa: TC001
 
 type SerializedNumeric = int | float | list[SerializedNumeric]
 
@@ -59,13 +57,12 @@ class SerializedSSMSpec(PersistedModel):
     input_missing_policies: list[Literal["zero", "forward_fill"]] | None = None
     input_lagged: list[bool]
     static_factor_names: list[str] | None = None
-    initialization_policy: InitializationPolicy
-    observation_intercept_policy: ObservationInterceptPolicy
 
 
 class SerializedEdgeLag(PersistedModel):
     """One directed continuous-time lag attached to a compiled edge."""
 
+    source_id: str
     effect_idx: int = Field(ge=0)
     cause_idx: int = Field(ge=0)
     lag_days: float = Field(gt=0)
@@ -124,12 +121,69 @@ class CompiledParameterBinding(PersistedModel):
     cause_idx: int | None
 
 
+class CompiledStructuralBinding(PersistedModel):
+    """Stable structural-plan source identity bound to one runtime target."""
+
+    source_id: str
+    source_kind: Literal[
+        "state",
+        "manifest",
+        "known_input",
+        "edge",
+        "induced_dependency",
+    ]
+    target_kind: Literal[
+        "latent_state",
+        "manifest_channel",
+        "transition_input",
+        "dynamics_edge",
+        "input_effect",
+        "diffusion_correlation",
+        "static_factor",
+    ]
+    target_indices: tuple[int, ...]
+    target_name: str
+
+
+class AnchorCertificate(PersistedModel):
+    """Compiler proof that one retained latent has location and scale anchors."""
+
+    construct_id: str
+    construct_name: str
+    location_anchor: Literal[
+        "standardized_manifest",
+        "fixed_dynamics_center",
+        "fixed_initial_mean",
+    ]
+    location_source_id: str | None = None
+    scale_anchor: Literal["fixed_manifest_loading", "categorical_slope_pin"]
+    scale_source_id: str
+
+
+class CompiledStructure(PersistedModel):
+    """Executable structure plus total provenance back to StructuralPlan."""
+
+    spec: SerializedSSMSpec
+    edge_lag_days: list[SerializedEdgeLag]
+    bindings: list[CompiledStructuralBinding]
+    anchor_certificates: list[AnchorCertificate]
+
+
 class CompiledSSMArtifact(PersistedModel):
     """Complete versioned artifact required to restore an executable SSM."""
 
-    schema_version: Literal[1]
-    spec: SerializedSSMSpec
-    edge_lag_days: list[SerializedEdgeLag]
+    schema_version: Literal[2]
+    structure: CompiledStructure
     compiled_prior_semantics: CompiledPriorSemantics
     parameter_bindings: list[CompiledParameterBinding]
     compile_diagnostics: list[PriorValidationResult]
+
+    @property
+    def spec(self) -> SerializedSSMSpec:
+        """Runtime-facing compiled spec."""
+        return self.structure.spec
+
+    @property
+    def edge_lag_days(self) -> list[SerializedEdgeLag]:
+        """Runtime-facing edge lag metadata."""
+        return self.structure.edge_lag_days

@@ -2,11 +2,11 @@
 
 from .causal_design import (
     CausalDesign,
-    EstimationSpec,
     IdentifiabilityStatus,
     IdentifiedTreatmentStatus,
-    InducedDependency,
+    KnownInput,
     NonIdentifiableTreatmentStatus,
+    ScientificOnlyConstruct,
 )
 from .duration import parse_duration_to_hours
 from .latent_structure import (
@@ -25,6 +25,7 @@ from .measurement_structure import (
     check_semantic_collisions,
     validate_measurement_structure,
 )
+from .prior import ExecutablePrior, PriorPlan
 from .statistical_model_spec import (
     EXPECTED_CONSTRAINT_FOR_ROLE,
     VALID_LINKS_FOR_DISTRIBUTION,
@@ -40,6 +41,15 @@ from .statistical_model_spec import (
     StatisticalModelSpec,
     validate_statistical_model_spec_dict,
 )
+from .structural_plan import (
+    StructuralDisposition,
+    StructuralEdge,
+    StructuralInducedDependency,
+    StructuralItemDisposition,
+    StructuralKnownInput,
+    StructuralPlan,
+    StructuralSemanticCatalog,
+)
 
 __all__ = [
     "CausalEdge",
@@ -48,25 +58,34 @@ __all__ = [
     "Construct",
     "DistributionFamily",
     "EXPECTED_CONSTRAINT_FOR_ROLE",
-    "EstimationSpec",
+    "ExecutablePrior",
     "IdentifiabilityStatus",
     "IdentifiedTreatmentStatus",
     "Indicator",
     "IndicatorPolarity",
-    "InducedDependency",
     "InitializationPolicy",
+    "KnownInput",
     "LatentStructure",
     "LikelihoodSource",
     "LikelihoodSpec",
     "LinkFunction",
     "MeasurementStructure",
     "StatisticalModelSpec",
+    "StructuralDisposition",
+    "StructuralEdge",
+    "StructuralInducedDependency",
+    "StructuralItemDisposition",
+    "StructuralKnownInput",
+    "StructuralPlan",
+    "StructuralSemanticCatalog",
     "ObservationInterceptPolicy",
     "NonIdentifiableTreatmentStatus",
     "ParameterConstraint",
     "ParameterRole",
     "ParameterSpec",
+    "PriorPlan",
     "Role",
+    "ScientificOnlyConstruct",
     "TemporalStatus",
     "VALID_LINKS_FOR_DISTRIBUTION",
     "check_semantic_collisions",

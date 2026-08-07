@@ -14,6 +14,7 @@ from typing import Any, cast
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.errors import TransitionExecutionError
@@ -57,7 +58,7 @@ def _first_config_value(*values: Any) -> Any:
     return None
 
 
-def _filter_measurements_contract(cls: Any, data: dict[str, Any]) -> dict[str, Any]:
+def _filter_measurements_contract(cls: Any, data: UncheckedJsonObject) -> UncheckedJsonObject:
     fields = set(cls.model_fields.keys())
     return {key: value for key, value in data.items() if key in fields}
 
@@ -170,7 +171,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
         i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
     ]
 
-    computed_dicts: list[dict[str, Any]] = []
+    computed_dicts: list[UncheckedJsonObject] = []
     if computed_inds:
         computed_df = compute_indicators(raw_df, computed_inds, model_clock, time_col)
         computed_dicts = computed_df.to_dicts()
@@ -365,13 +366,13 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         chunk_specs = list(plan.get("chunks") or [])
         results_by_worker = {result.worker_id: result for result in input.chunk_results}
 
-        semantic_dicts: list[dict[str, Any]] = []
-        worker_statuses: list[dict[str, Any]] = []
+        semantic_dicts: list[UncheckedJsonObject] = []
+        worker_statuses: list[UncheckedJsonObject] = []
 
         for chunk_spec in chunk_specs:
             worker_id = int(chunk_spec["worker_id"])
             result = results_by_worker[worker_id]
-            status: dict[str, Any] = {
+            status: UncheckedJsonObject = {
                 "worker_id": worker_id,
                 "status": result.status,
                 "n_extractions": result.n_extractions,
@@ -392,7 +393,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
             if all_dicts
             else [],
         )
-        extraction_result: dict[str, Any] = {
+        extraction_result: UncheckedJsonObject = {
             "observation_rows": observation_rows,
             "worker_statuses": worker_statuses,
             "n_total_extractions": len(computed_dicts)
@@ -404,7 +405,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         }
         materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
         panel = materialized["data_for_model"]
-        report: dict[str, Any] = {"workers": materialized["worker_statuses"]}
+        report: UncheckedJsonObject = {"workers": materialized["worker_statuses"]}
         report = _filter_measurements_contract(MeasurementsContract, report)
 
         store = ArtifactStore(input.workspace_id)

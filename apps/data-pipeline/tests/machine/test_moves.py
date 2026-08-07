@@ -78,6 +78,7 @@ class TestLegalMoves:
             _version("latent_structure"),
             _version("measurement_structure"),
             _version("causal_design"),
+            _version("structural_plan"),
             _version("identification_report"),
             _version("measurements"),
             _version("panel"),

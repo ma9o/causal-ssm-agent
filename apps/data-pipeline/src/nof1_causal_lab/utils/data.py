@@ -3,6 +3,7 @@ from typing import TypedDict
 
 import polars as pl
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.causal_design import (
     get_effective_observation_window,
 )
@@ -199,7 +200,7 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 def annotate_observation_rows(
     df: pl.DataFrame,
-    measurement_structure: dict,
+    measurement_structure: UncheckedJsonObject,
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:

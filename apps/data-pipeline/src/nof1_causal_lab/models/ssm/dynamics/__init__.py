@@ -11,6 +11,8 @@ Prior/predictive validation lives in ``ssm.predictive``.
 
 from __future__ import annotations
 
+from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
+
 from .edges import (
     DiagonalDecay,
     HillEdge,
@@ -77,6 +79,8 @@ __all__ = [
     "DiagonalDecaySpec",
     "VectorFieldComponent",
     "EdgeInputOverride",
+    "Fixed",
+    "Free",
     "HillEdge",
     "HillEdgeSpec",
     "Intercept",
@@ -90,6 +94,7 @@ __all__ = [
     "NodePotential",
     "NodePotentialSpec",
     "Override",
+    "ParameterSlot",
     "PosteriorDynamicsSamples",
     "PrecomputedValueFn",
     "SimulationConfig",

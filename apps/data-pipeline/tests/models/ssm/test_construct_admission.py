@@ -17,6 +17,8 @@ from nof1_causal_lab.artifacts import (
     ParameterRole,
     ParameterSpec,
 )
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.prior import ExecutablePrior
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionState,
     AdmissionTiming,
@@ -28,12 +30,20 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     _run_battery,
     admit_construct,
     build_construct_order,
-    restrict_causal_design,
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.models.structural import build_structural_plan
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
+    get_known_inputs,
+    get_manifest_indicators,
+    get_state_names,
+    restrict_structural_plan,
+)
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 _SOFT_CHECKS = {
@@ -51,6 +61,10 @@ _TARGETS = {"X", "Y", "Z", "x1", "x2", "y1", "z1", "X->Y", "Y->Z"}
 _ALL_SOFT = {(check, target): "t" for check in _SOFT_CHECKS for target in _TARGETS}
 
 
+def _structural_plan() -> StructuralPlan:
+    return build_structural_plan(CausalDesign.model_validate(_make_causal_design_dict()))
+
+
 def _lik(var: str) -> LikelihoodSpec:
     return LikelihoodSpec(
         variable=var,
@@ -64,12 +78,24 @@ def _p(name: str, role: ParameterRole, constraint: ParameterConstraint) -> Param
     return ParameterSpec(name=name, role=role, constraint=constraint, description="t")
 
 
-def _normal(mu: float, sigma: float) -> dict:
-    return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
+def _normal(parameter: str, mu: float, sigma: float) -> ExecutablePrior:
+    return ExecutablePrior.model_validate(
+        {
+            "parameter": parameter,
+            "distribution": "Normal",
+            "params": {"mu": mu, "sigma": sigma},
+        }
+    )
 
 
-def _halfnormal(sigma: float) -> dict:
-    return {"distribution": "HalfNormal", "params": {"sigma": sigma}}
+def _halfnormal(parameter: str, sigma: float) -> ExecutablePrior:
+    return ExecutablePrior.model_validate(
+        {
+            "parameter": parameter,
+            "distribution": "HalfNormal",
+            "params": {"sigma": sigma},
+        }
+    )
 
 
 def _contrib_X() -> ConstructContribution:
@@ -84,11 +110,11 @@ def _contrib_X() -> ConstructContribution:
             _p("obs_sd_x2", ParameterRole.MEASUREMENT_ERROR_SD, ParameterConstraint.POSITIVE),
         ),
         priors={
-            "rho_X": _normal(0.6, 0.1),
-            "sigma_X": _halfnormal(0.5),
-            "lambda_x2_X": _normal(1.0, 0.2),
-            "obs_sd_x1": _halfnormal(0.3),
-            "obs_sd_x2": _halfnormal(0.3),
+            "rho_X": _normal("rho_X", 0.6, 0.1),
+            "sigma_X": _halfnormal("sigma_X", 0.5),
+            "lambda_x2_X": _normal("lambda_x2_X", 1.0, 0.2),
+            "obs_sd_x1": _halfnormal("obs_sd_x1", 0.3),
+            "obs_sd_x2": _halfnormal("obs_sd_x2", 0.3),
         },
     )
 
@@ -103,9 +129,9 @@ def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribut
             _p(f"beta_{parent}_{name}", ParameterRole.FIXED_EFFECT, ParameterConstraint.NONE),
         ),
         priors={
-            f"rho_{name}": _normal(0.6, 0.1),
-            f"sigma_{name}": _halfnormal(0.5),
-            f"beta_{parent}_{name}": _normal(0.3, 0.1),
+            f"rho_{name}": _normal(f"rho_{name}", 0.6, 0.1),
+            f"sigma_{name}": _halfnormal(f"sigma_{name}", 0.5),
+            f"beta_{parent}_{name}": _normal(f"beta_{parent}_{name}", 0.3, 0.1),
         },
         edge_parents=(parent,),
     )
@@ -126,7 +152,7 @@ def _design(seed: int = 0) -> DesignInfo:
 
 
 def test_build_construct_order_is_topological():
-    order = build_construct_order(_make_causal_design_dict())
+    order = build_construct_order(_structural_plan())
     assert order.index("X") < order.index("Y") < order.index("Z")
 
 
@@ -153,7 +179,7 @@ def test_admit_construct_records_shared_and_diagnostic_timings(monkeypatch):
     _state, report = admission_module.admit_construct(
         AdmissionState(),
         ConstructContribution(name="X"),
-        {},
+        _structural_plan(),
         _design(),
     )
 
@@ -231,8 +257,8 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
 def test_build_construct_order_covers_only_estimation_states():
     """Constructs marginalized/anchored/dropped out of the estimation
     projection carry no state — nothing to admit for them."""
-    spec = _make_causal_design_dict()
-    spec["latent"]["constructs"].append(
+    causal_design = _make_causal_design_dict()
+    causal_design["latent"]["constructs"].append(
         {
             "name": "M",
             "description": "Marginalized confounder",
@@ -240,61 +266,63 @@ def test_build_construct_order_covers_only_estimation_states():
             "temporal_status": "time_varying",
         }
     )
-    order = build_construct_order(spec)
+    order = build_construct_order(build_structural_plan(CausalDesign.model_validate(causal_design)))
     assert order == ["X", "Y", "Z"]
 
 
 def test_build_construct_order_admits_lagged_feedback_cycles():
     """Lagged feedback loops sort as a unit: cycle members adjacent, parents first."""
-    spec = _make_causal_design_dict()
+    causal_design = _make_causal_design_dict()
     feedback = {"cause": "Z", "effect": "Y", "description": "Z feeds back on Y", "lagged": True}
-    spec["latent"]["edges"].append(dict(feedback))
-    spec["estimation"]["edges"].append(dict(feedback))
-    order = build_construct_order(spec)
+    causal_design["latent"]["edges"].append(dict(feedback))
+    order = build_construct_order(build_structural_plan(CausalDesign.model_validate(causal_design)))
     assert order == ["X", "Y", "Z"]
 
 
-def test_restrict_causal_design_to_subset():
-    restricted = restrict_causal_design(_make_causal_design_dict(), {"X", "Y"})
-    names = {c["name"] for c in restricted["latent"]["constructs"]}
-    assert names == {"X", "Y"}
-    assert restricted["estimation"]["state_order"] == ["X", "Y"]
-    inds = {i["name"] for i in restricted["measurement"]["indicators"]}
-    assert inds == {"x1", "x2", "y1"}  # z1 dropped
-    assert all(e["effect"] != "Z" for e in restricted["estimation"]["edges"])
-
-
-def test_restrict_causal_design_preserves_known_input_dependency():
-    causal_design = _make_causal_design_dict()
-    causal_design["estimation"]["state_order"] = ["Y", "Z"]
-    causal_design["estimation"]["known_inputs"] = [
-        {
-            "construct": "X",
-            "source_indicator": "x1",
-            "scale": 10.0,
-            "missing_policy": "forward_fill",
-        }
-    ]
-
-    restricted = restrict_causal_design(causal_design, {"Y"})
-
-    assert restricted["estimation"]["state_order"] == ["Y"]
-    assert restricted["estimation"]["known_inputs"] == [
-        {
-            "construct": "X",
-            "source_indicator": "x1",
-            "scale": 10.0,
-            "missing_policy": "forward_fill",
-        }
-    ]
-    assert {construct["name"] for construct in restricted["latent"]["constructs"]} == {"X", "Y"}
-    assert [(edge["cause"], edge["effect"]) for edge in restricted["estimation"]["edges"]] == [
-        ("X", "Y")
-    ]
-    assert {indicator["name"] for indicator in restricted["measurement"]["indicators"]} == {
+def test_restrict_structural_plan_to_subset():
+    restricted = restrict_structural_plan(_structural_plan(), {"X", "Y"})
+    assert get_state_names(restricted) == ["X", "Y"]
+    assert {indicator["name"] for indicator in get_manifest_indicators(restricted)} == {
         "x1",
+        "x2",
         "y1",
     }
+    assert all(edge["effect"] != "Z" for edge in get_edges(restricted))
+
+
+def test_restrict_structural_plan_preserves_known_input_dependency():
+    causal_design = _make_causal_design_dict()
+    causal_design["known_inputs"] = [
+        {
+            "construct": "X",
+            "source_indicator": "x1",
+            "scale": 10.0,
+            "missing_policy": "forward_fill",
+        }
+    ]
+
+    plan = build_structural_plan(CausalDesign.model_validate(causal_design))
+    restricted = restrict_structural_plan(plan, {"Y"})
+
+    assert get_state_names(restricted) == ["Y"]
+    assert [
+        {
+            "construct": item["construct"],
+            "source_indicator": item["source_indicator"],
+            "scale": item["scale"],
+            "missing_policy": item["missing_policy"],
+        }
+        for item in get_known_inputs(restricted)
+    ] == [
+        {
+            "construct": "X",
+            "source_indicator": "x1",
+            "scale": 10.0,
+            "missing_policy": "forward_fill",
+        }
+    ]
+    assert [(edge["cause"], edge["effect"]) for edge in get_edges(restricted)] == [("X", "Y")]
+    assert {indicator["name"] for indicator in get_manifest_indicators(restricted)} == {"y1"}
 
 
 def test_known_input_edge_off_zeroes_only_the_compiled_input_cell(monkeypatch):
@@ -339,9 +367,9 @@ def test_known_input_edge_off_zeroes_only_the_compiled_input_cell(monkeypatch):
 
 @pytest.mark.slow
 def test_admit_root_runs_full_battery():
-    causal_design = _make_causal_design_dict()
+    structural_plan = _structural_plan()
     state, report = admit_construct(
-        AdmissionState(), _contrib_X(), causal_design, _design(), accepted=_ALL_SOFT
+        AdmissionState(), _contrib_X(), structural_plan, _design(), accepted=_ALL_SOFT
     )
     ids = {r.check for r in report.results}
     assert {"C1a finiteness", "C1b confinement", "C2 latent scale", "C3 resolvability"} <= ids
@@ -365,13 +393,13 @@ def test_admit_root_runs_full_battery():
 
 @pytest.mark.slow
 def test_admit_child_runs_edge_check_via_edge_off_resim():
-    causal_design = _make_causal_design_dict()
+    structural_plan = _structural_plan()
     design = _design()
     state, _ = admit_construct(
-        AdmissionState(), _contrib_X(), causal_design, design, accepted=_ALL_SOFT
+        AdmissionState(), _contrib_X(), structural_plan, design, accepted=_ALL_SOFT
     )
     state, report = admit_construct(
-        state, _contrib_child("Y", "y1", "X"), causal_design, design, accepted=_ALL_SOFT
+        state, _contrib_child("Y", "y1", "X"), structural_plan, design, accepted=_ALL_SOFT
     )
     ids = {r.check for r in report.results}
     assert "C4b edge overwhelm" in ids
@@ -388,12 +416,11 @@ def test_admit_child_runs_edge_check_via_edge_off_resim():
 def test_full_chain_builds_and_compiles_to_ssm_artifact():
     import polars as pl
 
-    from nof1_causal_lab.models.ssm.compile.artifact import (
-        build_model_from_compiled_artifact,
-        compile_ssm_artifact,
-    )
+    from nof1_causal_lab.artifacts.prior import PriorPlan
+    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
 
-    causal_design = _make_causal_design_dict()
+    structural_plan = _structural_plan()
     contributions = {
         "X": _contrib_X(),
         "Y": _contrib_child("Y", "y1", "X"),
@@ -402,11 +429,11 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
     accepted = dict.fromkeys(contributions, _ALL_SOFT)
     state = AdmissionState()
     reports = []
-    for name in build_construct_order(causal_design):
+    for name in build_construct_order(structural_plan):
         state, report = admit_construct(
             state,
             contributions[name],
-            causal_design,
+            structural_plan,
             _design(),
             accepted[name],
         )
@@ -418,10 +445,12 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
     # The accumulated StatisticalModelSpec + priors compile to the real compiled_ssm artifact
     # the stage produces, and build a live, fittable 3-latent structure.
     compiled = compile_ssm_artifact(
-        state.statistical_model_spec(), dict(state.priors), causal_design=causal_design
+        state.statistical_model_spec(),
+        PriorPlan(priors=dict(state.priors)),
+        structural_plan,
     )
     assert compiled.spec is not None
-    assert compiled.schema_version == 1
+    assert compiled.schema_version == 2
     wide = pl.DataFrame(
         {
             "time": list(range(10)),
@@ -431,5 +460,5 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
             "z1": [0.4] * 10,
         }
     )
-    model = build_model_from_compiled_artifact(compiled, wide)
+    model = hydrate_compiled_model(compiled, wide)
     assert model.spec.n_latent == 3

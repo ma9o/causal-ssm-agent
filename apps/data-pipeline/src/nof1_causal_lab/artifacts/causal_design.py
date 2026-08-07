@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .latent_structure import CausalEdge, LatentStructure  # noqa: TC001
+from .latent_structure import LatentStructure  # noqa: TC001
 from .measurement_structure import MeasurementStructure  # noqa: TC001
 
 
@@ -53,23 +53,8 @@ class IdentifiabilityStatus(BaseModel):
     )
 
 
-class InducedDependency(BaseModel):
-    """Dependence induced among retained states after marginalizing latent roots."""
-
-    between: tuple[str, str] = Field(
-        description="Pair of retained states whose joint dependence is induced"
-    )
-    kind: Literal["innovation_correlation", "initial_state_correlation"] = Field(
-        description="Which covariance block the induced dependence belongs to"
-    )
-    source_confounders: list[str] = Field(
-        default_factory=list,
-        description="Marginalized source constructs that induce this dependence",
-    )
-
-
 class KnownInput(BaseModel):
-    """Observed input trajectory used as a deterministic transition driver."""
+    """Authored declaration of an observed transition driver."""
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
@@ -89,47 +74,53 @@ class KnownInput(BaseModel):
     )
 
     @property
+    @override
     def construct(self) -> str:
         """Artifact-facing construct name."""
         return self.construct_name
 
 
-class EstimationSpec(BaseModel):
-    """Deterministic estimation-time projection of the user-facing latent DAG."""
+class ScientificOnlyConstruct(BaseModel):
+    """Authored exclusion from the executable SSM projection."""
 
-    state_order: list[str] = Field(
-        description="Retained latent states in canonical array order for compilation"
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    construct_name: str = Field(
+        alias="construct",
+        description="Measured construct retained for scientific context but not executable state",
     )
-    edges: list[CausalEdge] = Field(
-        default_factory=list,
-        description="Directed estimation graph over retained states",
+    reason: str = Field(
+        min_length=1,
+        description="Why the construct is excluded from the executable N-of-1 model",
     )
-    induced_dependencies: list[InducedDependency] = Field(
-        default_factory=list,
-        description="Dependencies induced after marginalizing latent root confounders",
-    )
-    known_inputs: list[KnownInput] = Field(
-        default_factory=list,
-        description="Observed construct trajectories compiled as B u(t) transition inputs",
-    )
+
+    @property
+    @override
+    def construct(self) -> str:
+        """Artifact-facing construct name."""
+        return self.construct_name
 
 
 class CausalDesign(BaseModel):
-    """Complete causal design combining latent and measurement structures."""
+    """Scientific causal design before executable structural compilation."""
 
     latent: LatentStructure = Field(description="Theoretical causal structure (topological)")
     measurement: MeasurementStructure = Field(description="Operationalization into indicators")
     identifiability: IdentifiabilityStatus | None = Field(
         default=None, description="Identifiability status of target causal effects"
     )
-    estimation: EstimationSpec | None = Field(
-        default=None,
-        description="Deterministic estimation-time projection consumed by downstream fitting",
+    known_inputs: list[KnownInput] = Field(
+        default_factory=list,
+        description="Authored observed-input declarations compiled by StructuralPlan",
+    )
+    scientific_only_constructs: list[ScientificOnlyConstruct] = Field(
+        default_factory=list,
+        description="Measured constructs explicitly excluded from the executable SSM",
     )
 
     @model_validator(mode="after")
     def validate_causal_design(self) -> CausalDesign:
-        """Validate measurement structure coverage and estimation projection integrity."""
+        """Validate authored measurement and executable-disposition declarations."""
         construct_names = {construct.name for construct in self.latent.constructs}
 
         for indicator in self.measurement.indicators:
@@ -138,93 +129,64 @@ class CausalDesign(BaseModel):
                     f"Indicator '{indicator.name}' references unknown construct '{indicator.construct_name}'"
                 )
 
-        estimation = self.estimation
-        if estimation is not None:
-            if len(estimation.state_order) != len(set(estimation.state_order)):
-                raise ValueError("Estimation state_order contains duplicate construct names")
-
-            state_names = set(estimation.state_order)
-            known_input_names = {known_input.construct for known_input in estimation.known_inputs}
-            if len(known_input_names) != len(estimation.known_inputs):
-                raise ValueError("Estimation known_inputs contains duplicate constructs")
-            overlapping_inputs = sorted(state_names & known_input_names)
-            if overlapping_inputs:
+        indicator_lookup = {indicator.name: indicator for indicator in self.measurement.indicators}
+        known_input_names = {known_input.construct for known_input in self.known_inputs}
+        if len(known_input_names) != len(self.known_inputs):
+            raise ValueError("CausalDesign known_inputs contains duplicate constructs")
+        scientific_only_names = {item.construct for item in self.scientific_only_constructs}
+        if len(scientific_only_names) != len(self.scientific_only_constructs):
+            raise ValueError(
+                "CausalDesign scientific_only_constructs contains duplicate constructs"
+            )
+        overlap = known_input_names & scientific_only_names
+        if overlap:
+            raise ValueError(
+                "CausalDesign constructs cannot be both known inputs and scientific-only: "
+                f"{sorted(overlap)}"
+            )
+        unknown_scientific_only = scientific_only_names - construct_names
+        if unknown_scientific_only:
+            raise ValueError(
+                "CausalDesign scientific_only_constructs reference unknown constructs: "
+                f"{sorted(unknown_scientific_only)}"
+            )
+        observed_construct_names = {
+            indicator.construct_name for indicator in self.measurement.indicators
+        }
+        unmeasured_scientific_only = scientific_only_names - observed_construct_names
+        if unmeasured_scientific_only:
+            raise ValueError(
+                "CausalDesign scientific_only_constructs must have measurement evidence: "
+                f"{sorted(unmeasured_scientific_only)}"
+            )
+        for known_input in self.known_inputs:
+            if known_input.construct not in construct_names:
                 raise ValueError(
-                    f"Known inputs cannot also be retained latent states: {overlapping_inputs}"
+                    "CausalDesign known_input references unknown construct: "
+                    f"{known_input.construct!r}"
                 )
-
-            unknown_states = state_names - construct_names
-            if unknown_states:
+            source_indicator = indicator_lookup.get(known_input.source_indicator)
+            if source_indicator is None:
                 raise ValueError(
-                    "Estimation state_order references unknown constructs: "
-                    f"{sorted(unknown_states)}"
+                    "CausalDesign known_input references unknown source_indicator: "
+                    f"{known_input.source_indicator!r}"
                 )
-
-            indicator_lookup = {
-                indicator.name: indicator for indicator in self.measurement.indicators
-            }
-            for known_input in estimation.known_inputs:
-                if known_input.construct not in construct_names:
-                    raise ValueError(
-                        "Estimation known_input references unknown construct: "
-                        f"{known_input.construct!r}"
-                    )
-                source_indicator = indicator_lookup.get(known_input.source_indicator)
-                if source_indicator is None:
-                    raise ValueError(
-                        "Estimation known_input references unknown source_indicator: "
-                        f"{known_input.source_indicator!r}"
-                    )
-                if source_indicator.construct_name != known_input.construct:
-                    raise ValueError(
-                        "Estimation known_input source_indicator must measure the same "
-                        f"construct: {known_input.source_indicator!r} measures "
-                        f"{source_indicator.construct_name!r}, expected "
-                        f"{known_input.construct!r}"
-                    )
-
-            for edge in estimation.edges:
-                if edge.effect not in state_names or edge.cause not in (
-                    state_names | known_input_names
-                ):
-                    raise ValueError(
-                        "Estimation edge must point into a retained state and originate "
-                        "from either a retained state or known input: "
-                        f"{edge.cause!r} -> {edge.effect!r}"
-                    )
-
-            kind_by_confounder: dict[str, str] = {}
-            for dependency in estimation.induced_dependencies:
-                state_1, state_2 = dependency.between
-                if state_1 not in state_names or state_2 not in state_names:
-                    raise ValueError(
-                        f"Induced dependency must reference retained states: {dependency.between!r}"
-                    )
-                unknown_sources = set(dependency.source_confounders) - construct_names
-                if unknown_sources:
-                    raise ValueError(
-                        "Induced dependency references unknown source confounders: "
-                        f"{sorted(unknown_sources)}"
-                    )
-                for confounder in dependency.source_confounders:
-                    prior_kind = kind_by_confounder.setdefault(confounder, dependency.kind)
-                    if prior_kind != dependency.kind:
-                        raise ValueError(
-                            f"Confounder {confounder!r} induces dependencies with "
-                            f"inconsistent kinds ({prior_kind!r} and "
-                            f"{dependency.kind!r}); a marginalized confounder must "
-                            "project to exactly one covariance block."
-                        )
+            if source_indicator.construct_name != known_input.construct:
+                raise ValueError(
+                    "CausalDesign known_input source_indicator must measure the same "
+                    f"construct: {known_input.source_indicator!r} measures "
+                    f"{source_indicator.construct_name!r}, expected "
+                    f"{known_input.construct!r}"
+                )
 
         return self
 
 
 __all__ = [
     "CausalDesign",
-    "EstimationSpec",
     "IdentifiabilityStatus",
     "IdentifiedTreatmentStatus",
-    "InducedDependency",
     "KnownInput",
     "NonIdentifiableTreatmentStatus",
+    "ScientificOnlyConstruct",
 ]

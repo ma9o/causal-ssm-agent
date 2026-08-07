@@ -33,7 +33,7 @@ Usage::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
 import numpyro
 import numpyro.distributions as dist
@@ -44,6 +44,8 @@ from numpyro.infer.reparam import (
     Reparam,
     TransformReparam,
 )
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,7 +68,7 @@ class Strategy(ABC):
         self.config: dict[str, Reparam | None] = {}
 
     @abstractmethod
-    def configure(self, msg: dict) -> Reparam | None:
+    def configure(self, msg: UncheckedJsonObject) -> Reparam | None:
         """Input a sample site and return a Reparam or None.
 
         Called only on first model execution per site; subsequent
@@ -81,7 +83,10 @@ class Strategy(ABC):
         """
         raise NotImplementedError
 
-    def __call__(self, msg_or_fn: dict | Callable):
+    def __call__(
+        self,
+        msg_or_fn: UncheckedJsonObject | Callable[..., Any],
+    ) -> Any:
         """Use as config callable or model decorator.
 
         When called with a dict (by handlers.reparam internally),
@@ -139,7 +144,8 @@ class AutoReparam(Strategy):
             raise ValueError(f"centered must be in [0, 1], got {centered}")
         self.centered = centered
 
-    def configure(self, msg: dict) -> Reparam | None:
+    @override
+    def configure(self, msg: UncheckedJsonObject) -> Reparam | None:
         fn = msg["fn"]
         if not msg.get("is_observed", False):
             # Unwrap through known wrapper types only (Independent,

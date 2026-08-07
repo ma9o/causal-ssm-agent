@@ -18,6 +18,8 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 PORT = int(os.environ.get("MARIMO_CLAUDE_SHIM_PORT", "8011"))
 TIMEOUT_S = float(os.environ.get("MARIMO_CLAUDE_SHIM_TIMEOUT", "180"))
 # Pin model + reasoning effort regardless of the CLI's global default. Override
@@ -44,7 +46,7 @@ _PREAMBLE = os.environ.get("MARIMO_CLAUDE_SYSTEM") or (
 app = FastAPI()
 
 
-async def _run_claude(messages: list[dict]) -> str:
+async def _run_claude(messages: list[dict[str, str]]) -> str:
     system = "\n".join(m["content"] for m in messages if m.get("role") == "system")
     convo = "\n\n".join(
         f"{m['role']}: {m['content']}"
@@ -79,7 +81,7 @@ async def _run_claude(messages: list[dict]) -> str:
     return json.loads(out.decode())["result"]
 
 
-def _completion(model: str, text: str) -> dict:
+def _completion(model: str, text: str) -> UncheckedJsonObject:
     return {
         "id": "chatcmpl-claude",
         "object": "chat.completion",

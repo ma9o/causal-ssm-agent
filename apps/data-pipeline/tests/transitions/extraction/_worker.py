@@ -79,9 +79,9 @@ async def run_worker_extraction(
     window_text: str,
     window_starts: list[str],
     question: str,
-    measurement_structure: dict,
+    measurement_structure: dict[str, Any],
     session_factory: Any,
-    logger: Any | None = None,
+    logger: logging.Logger | None = None,
     call_label: str | None = None,
 ) -> WorkerResult:
     """Run worker extraction for a chunk of support windows.

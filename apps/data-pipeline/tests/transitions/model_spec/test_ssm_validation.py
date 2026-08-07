@@ -5,13 +5,18 @@ from typing import Any
 
 import jax.numpy as jnp
 
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.compile.contracts import (
     CompiledParameterBinding,
     CompiledPriorSemantics,
     CompiledSSMArtifact,
+    CompiledStructure,
     SerializedSSMSpec,
 )
+from tests.helpers import make_prior_plan, make_structural_plan
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -37,14 +42,49 @@ from tests.transitions.model_spec._support import (
 )
 
 
+def _compile_structural_plan(causal_design: dict[str, Any]) -> StructuralPlan:
+    from nof1_causal_lab.models.structural import build_structural_plan
+
+    normalized = _with_positive_indicator_polarity(causal_design)
+    constructs = normalized["latent"]["constructs"]
+    for construct in constructs:
+        construct.setdefault("description", construct["name"])
+        construct.setdefault("role", "endogenous")
+        construct.setdefault("temporal_status", "time_varying")
+    if constructs and not any(construct.get("is_outcome") for construct in constructs):
+        constructs[0]["is_outcome"] = True
+    for edge in normalized["latent"].get("edges", []):
+        edge.setdefault(
+            "description",
+            f"{edge['cause']} causes {edge['effect']}",
+        )
+    for indicator in normalized["measurement"].get("indicators", []):
+        indicator.setdefault("how_to_measure", f"Measure {indicator['name']}")
+    return build_structural_plan(CausalDesign.model_validate(normalized))
+
+
+def _typed_statistical_model_spec(payload: dict[str, Any]) -> StatisticalModelSpec:
+    return StatisticalModelSpec.model_validate(payload)
+
+
+def _mood_structural_plan() -> StructuralPlan:
+    plan = make_structural_plan(["mood"], [])
+    plan["semantics"]["indicators"]["indicator:0000"]["name"] = "mood_score"
+    return StructuralPlan.model_validate(plan)
+
+
 def _compiled_prior_artifact(payload: dict[str, Any]) -> CompiledSSMArtifact:
     """Build the minimal current artifact needed by prior-resolution tests."""
     spec_payload = payload.get("spec", {})
     latent_names = spec_payload.get("latent_names") if isinstance(spec_payload, dict) else None
     return CompiledSSMArtifact.model_construct(
-        schema_version=1,
-        spec=SerializedSSMSpec.model_construct(latent_names=latent_names),
-        edge_lag_days=[],
+        schema_version=2,
+        structure=CompiledStructure.model_construct(
+            spec=SerializedSSMSpec.model_construct(latent_names=latent_names),
+            edge_lag_days=[],
+            bindings=[],
+            anchor_certificates=[],
+        ),
         compiled_prior_semantics=CompiledPriorSemantics.model_validate(
             payload["compiled_prior_semantics"]
         ),
@@ -60,7 +100,11 @@ def _prior_params(prior_registry, site_name: str):
     return prior_registry.priors_by_site[site_name].params
 
 
-def _prior_params_for_parameter(prior_registry, index_maps, parameter: str) -> tuple[dict, int]:
+def _prior_params_for_parameter(
+    prior_registry,
+    index_maps,
+    parameter: str,
+) -> tuple[dict[str, Any], int]:
     binding = index_maps.by_parameter[parameter]
     return prior_registry.priors_by_site[binding.site_name].params, binding.flat_index
 
@@ -150,13 +194,16 @@ class TestSSMModelConstruction:
         self, simple_statistical_model_spec, simple_priors, simple_data
     ):
         """Runtime construction creates an SSMModel with correct dimensions."""
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
 
-        model = build_ssm_model(
-            pl.from_pandas(simple_data),
-            statistical_model_spec=simple_statistical_model_spec,
-            priors=simple_priors,
+        statistical_model_spec = _typed_statistical_model_spec(simple_statistical_model_spec)
+        compiled = compile_ssm_artifact(
+            statistical_model_spec,
+            make_prior_plan(statistical_model_spec, simple_priors),
+            _mood_structural_plan(),
         )
+        model = hydrate_compiled_model(compiled, pl.from_pandas(simple_data))
         assert model.spec.n_manifest == 1  # mood_score only
         assert model.spec.n_latent >= 1
         # Lambda should map latent to manifest
@@ -213,7 +260,7 @@ class TestModelSpecAssembly:
                 },
             ),
             patch(
-                "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
+                "nof1_causal_lab.flows.transitions.model_spec.prior_resolution.resolve_prior_proposals",
                 return_value=[],
             ),
             patch(
@@ -226,7 +273,7 @@ class TestModelSpecAssembly:
                 authored_priors=simple_priors,
                 data_for_model=_make_polars_data(),
                 indicator_audits=None,
-                causal_design=None,
+                structural_plan=_mood_structural_plan(),
                 validation=validation,
             )
 
@@ -250,7 +297,7 @@ class TestModelSpecAssembly:
             validation = validate_assembly(
                 simple_statistical_model_spec,
                 simple_priors,
-                None,
+                _mood_structural_plan(),
             )
 
         assert compile_mock.call_count == 1
@@ -293,7 +340,7 @@ class TestModelSpecAssembly:
             validation = validate_assembly(
                 simple_statistical_model_spec,
                 simple_priors,
-                {"measurement": {"model_clock": "1d"}},
+                _mood_structural_plan(),
             )
 
         assert validation.compile_ok is True
@@ -315,7 +362,9 @@ class TestModelSpecAssembly:
 
     def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
         """Implicit initial-state priors should come from compiled semantics."""
-        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
+        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
+            resolve_prior_proposals,
+        )
 
         compiled_ssm = _compiled_prior_artifact(
             {
@@ -415,12 +464,17 @@ class TestModelSpecAssembly:
         simple_priors,
     ):
         """Resolved public priors should retain authored semantics when compilation is lossy."""
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            compile_ssm_artifact,
+        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
             resolve_prior_proposals,
         )
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
-        compiled_ssm = compile_ssm_artifact(simple_statistical_model_spec, simple_priors)
+        typed_statistical_model_spec = _typed_statistical_model_spec(simple_statistical_model_spec)
+        compiled_ssm = compile_ssm_artifact(
+            typed_statistical_model_spec,
+            make_prior_plan(typed_statistical_model_spec, simple_priors),
+            _mood_structural_plan(),
+        )
         resolved = {
             prior["parameter"]: prior
             for prior in resolve_prior_proposals(compiled_ssm, authored_priors=simple_priors)
@@ -434,7 +488,9 @@ class TestModelSpecAssembly:
 
     def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
         """Compiled semantics should surface LogNormal and bounded real priors."""
-        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
+        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
+            resolve_prior_proposals,
+        )
 
         compiled_ssm = _compiled_prior_artifact(
             {
@@ -513,7 +569,9 @@ class TestModelSpecAssembly:
 
     def test_resolve_prior_proposals_uses_family_over_canonical_bounds(self):
         """Canonical low/high leaves must not force Normal sites to look truncated."""
-        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
+        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
+            resolve_prior_proposals,
+        )
 
         compiled_ssm = _compiled_prior_artifact(
             {
@@ -568,7 +626,9 @@ class TestModelSpecAssembly:
 
     def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
         """Compiled correlation-support sites should reconstruct bounded real priors."""
-        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
+        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
+            resolve_prior_proposals,
+        )
 
         compiled_ssm = _compiled_prior_artifact(
             {
@@ -646,7 +706,7 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            simple_statistical_model_spec,
+            _typed_statistical_model_spec(simple_statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
@@ -672,22 +732,27 @@ class TestSSMPriorConversion:
             },
         }
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
-            compile_ssm_priors(priors, simple_statistical_model_spec, ssm_spec=None)
+            compile_ssm_priors(
+                priors,
+                _typed_statistical_model_spec(simple_statistical_model_spec),
+                ssm_spec=None,
+            )
 
-    def test_compile_ssm_inputs_validates_dict_once(
+    def test_compile_ssm_inputs_accepts_validated_spec_without_revalidation(
         self, simple_statistical_model_spec, simple_priors
     ):
-        """Compilation should validate a dict spec once, then pass the parsed object through."""
-        from nof1_causal_lab.artifacts import StatisticalModelSpec
+        """Typed compilation should consume an already validated spec without reparsing it."""
+        statistical_model_spec = _typed_statistical_model_spec(simple_statistical_model_spec)
 
         with patch.object(
             StatisticalModelSpec, "model_validate", wraps=StatisticalModelSpec.model_validate
         ) as validate:
             compile_ssm_inputs_from_statistical_model_spec(
-                simple_statistical_model_spec, simple_priors
+                statistical_model_spec,
+                make_prior_plan(statistical_model_spec, simple_priors),
             )
 
-        assert validate.call_count == 1
+        assert validate.call_count == 0
 
     def test_structured_prior_requires_structural_binding_for_loading(
         self, simple_statistical_model_spec
@@ -712,7 +777,11 @@ class TestSSMPriorConversion:
             },
         }
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
-            compile_ssm_priors(priors, spec, ssm_spec=None)
+            compile_ssm_priors(
+                priors,
+                _typed_statistical_model_spec(spec),
+                ssm_spec=None,
+            )
 
     def test_unbound_prior_name_fails_without_statistical_model_spec(self):
         """Semantic prior compilation should fail fast when statistical_model_spec is missing."""
@@ -723,7 +792,7 @@ class TestSSMPriorConversion:
             },
         }
         with pytest.raises(ValueError, match="requires statistical_model_spec"):
-            compile_ssm_priors(priors, {}, ssm_spec=None)
+            compile_ssm_priors(priors, None, ssm_spec=None)
 
     def test_compile_priors_aggregates_independent_prior_errors(self):
         """Independent prior compile failures should be reported together."""
@@ -759,7 +828,11 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="Prior compilation failed") as exc_info:
-            compile_ssm_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
+            compile_ssm_priors(
+                priors,
+                _typed_statistical_model_spec(statistical_model_spec),
+                ssm_spec=ssm_spec,
+            )
 
         message = str(exc_info.value)
         assert "Prior compilation failed" in message
@@ -771,7 +844,7 @@ class TestSSMPriorConversion:
         """Strict causal-design binding errors should be reported together."""
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
-        causal_design = _with_positive_indicator_polarity(
+        causal_design = _compile_structural_plan(
             {
                 "latent": {
                     "constructs": [
@@ -876,7 +949,12 @@ class TestSSMPriorConversion:
         }
 
         with pytest.raises(ValueError, match="Prior index binding failed") as exc_info:
-            compile_ssm_artifact(statistical_model_spec, priors, causal_design=causal_design)
+            typed_statistical_model_spec = _typed_statistical_model_spec(statistical_model_spec)
+            compile_ssm_artifact(
+                typed_statistical_model_spec,
+                make_prior_plan(typed_statistical_model_spec, priors),
+                structural_plan=causal_design,
+            )
 
         message = str(exc_info.value)
         assert "Prior index binding failed" in message
@@ -924,7 +1002,7 @@ class TestSSMPriorConversion:
         ssm_spec = _default_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
@@ -968,26 +1046,14 @@ class TestSSMPriorConversion:
         priors = {
             "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
         }
-        causal_design = _with_positive_indicator_polarity(
-            {
-                "latent": {
-                    "constructs": [
-                        {
-                            "name": "heart_rate",
-                            "temporal_status": "time_varying",
-                        },
-                    ],
-                    "edges": [],
-                },
-                "measurement": {"model_clock": "1h", "indicators": []},
-            }
-        )
+        causal_design = make_structural_plan(["heart_rate"], [])
+        causal_design["semantics"]["model_clock"] = "1h"
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
-            causal_design=causal_design,
+            structural_plan=StructuralPlan.model_validate(causal_design),
         )
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
@@ -1051,7 +1117,7 @@ class TestSSMPriorConversion:
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1113,7 +1179,7 @@ class TestSSMPriorConversion:
 
         _ssm_priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1178,7 +1244,7 @@ class TestSSMPriorConversion:
 
         _priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1242,7 +1308,7 @@ class TestSSMPriorConversion:
 
         _priors, _idx, diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1297,26 +1363,11 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
         }
-        causal_design = _with_positive_indicator_polarity(
-            {
-                "latent": {
-                    "constructs": [
-                        {
-                            "name": "heart_rate",
-                            "role": "endogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "name": "activity",
-                            "role": "endogenous",
-                            "temporal_status": "time_varying",
-                        },
-                    ],
-                    "edges": [{"cause": "activity", "effect": "heart_rate"}],
-                },
-                "measurement": {"model_clock": "1h", "indicators": []},
-            }
+        causal_design = make_structural_plan(
+            ["heart_rate", "activity"],
+            [("activity", "heart_rate")],
         )
+        causal_design["semantics"]["model_clock"] = "1h"
         edge_support = np.array([[False, True], [False, False]])
         ssm_spec = _default_ssm_spec(
             n_latent=2,
@@ -1326,9 +1377,9 @@ class TestSSMPriorConversion:
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
-            statistical_model_spec,
+            _typed_statistical_model_spec(statistical_model_spec),
             ssm_spec=ssm_spec,
-            causal_design=causal_design,
+            structural_plan=StructuralPlan.model_validate(causal_design),
         )
 
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
@@ -1405,7 +1456,7 @@ class TestSSMPriorConversion:
             "sigma_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
             "sigma_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
-        causal_design = _with_positive_indicator_polarity(
+        causal_design = _compile_structural_plan(
             {
                 "latent": {
                     "constructs": [
@@ -1445,11 +1496,12 @@ class TestSSMPriorConversion:
             }
         )
 
+        typed_statistical_model_spec = _typed_statistical_model_spec(statistical_model_spec)
         _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days = (
             compile_ssm_inputs_from_statistical_model_spec(
-                statistical_model_spec,
-                priors,
-                causal_design=causal_design,
+                typed_statistical_model_spec,
+                make_prior_plan(typed_statistical_model_spec, priors),
+                structural_plan=causal_design,
             )
         )
 
@@ -1470,14 +1522,21 @@ class TestTrialCompile:
 
     def test_valid_spec_returns_none(self, simple_statistical_model_spec):
         """A well-formed spec compiles successfully with default priors."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
+        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+            trial_compile_statistical_model_spec,
+        )
 
-        result = trial_compile_statistical_model_spec(simple_statistical_model_spec)
+        result = trial_compile_statistical_model_spec(
+            _typed_statistical_model_spec(simple_statistical_model_spec),
+            _mood_structural_plan(),
+        )
         assert result is None
 
     def test_compile_failure_returns_error(self):
         """When compilation raises, trial_compile returns the error string."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
+        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+            trial_compile_statistical_model_spec,
+        )
 
         spec = {
             "likelihoods": [
@@ -1501,13 +1560,20 @@ class TestTrialCompile:
             "nof1_causal_lab.models.ssm.compile.artifact._compile_validated_ssm_artifact",
             side_effect=ValueError("dimension mismatch in dynamics matrix"),
         ):
-            result = trial_compile_statistical_model_spec(spec)
+            plan = make_structural_plan(["x"], [])
+            plan["semantics"]["indicators"]["indicator:0000"]["name"] = "x"
+            result = trial_compile_statistical_model_spec(
+                _typed_statistical_model_spec(spec),
+                StructuralPlan.model_validate(plan),
+            )
         assert result is not None
         assert "dimension mismatch" in result
 
     def test_role_constraint_mismatch_returns_error(self):
-        """Compiler should reject parameter-role constraint mismatches."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
+        """Raw spec validation should reject parameter-role constraint mismatches."""
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
+            validate_statistical_model_spec_dict,
+        )
 
         spec = {
             "likelihoods": [
@@ -1534,14 +1600,18 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_statistical_model_spec(spec)
+        validated, errors = validate_statistical_model_spec_dict(spec)
 
-        assert result is not None
-        assert "constraint 'none' unexpected for role 'residual_sd'" in result
+        assert validated is None
+        assert any(
+            "constraint 'none' unexpected for role 'residual_sd'" in error for error in errors
+        )
 
     def test_missing_ar_parameters_returns_error(self):
         """Compiler should reject StatisticalModelSpecs with no latent dimensionality signal."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
+        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+            trial_compile_statistical_model_spec,
+        )
 
         spec = {
             "likelihoods": [
@@ -1562,15 +1632,18 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_statistical_model_spec(spec)
+        plan = make_structural_plan(["x"], [])
+        plan["semantics"]["indicators"]["indicator:0000"]["name"] = "x"
+        result = trial_compile_statistical_model_spec(
+            _typed_statistical_model_spec(spec),
+            StructuralPlan.model_validate(plan),
+        )
 
         assert result is not None
-        assert "No AR_COEFFICIENT parameters found" in result
+        assert "Backward closure violation in vf_0_decay" in result
 
-    def test_rank_deficient_structure_returns_error(self):
-        """Compiler should reject statistical model specs with fewer manifests than latents."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
-
+    def test_unmanifested_retained_state_returns_error(self):
+        """Structural planning rejects a retained state with no manifest."""
         spec = {
             "likelihoods": [
                 {
@@ -1589,56 +1662,22 @@ class TestTrialCompile:
                 }
             ],
         }
-        causal_design = _with_positive_indicator_polarity(
-            {
-                "latent": {
-                    "constructs": [
-                        {
-                            "name": "Treatment",
-                            "role": "exogenous",
-                            "description": "Treatment",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "name": "Outcome",
-                            "role": "endogenous",
-                            "description": "Outcome",
-                            "temporal_status": "time_varying",
-                            "is_outcome": True,
-                        },
-                    ],
-                    "edges": [],
-                },
-                "estimation": {
-                    "state_order": ["Treatment", "Outcome"],
-                    "edges": [],
-                    "induced_dependencies": [],
-                },
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {
-                            "name": "outcome_score",
-                            "construct_name": "Outcome",
-                            "how_to_measure": "Use the outcome column directly",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        }
-                    ],
-                },
-            }
-        )
+        causal_design = make_structural_plan(["treatment", "outcome"], [])
+        causal_design["semantics"]["indicators"]["indicator:0001"]["name"] = "outcome_score"
+        causal_design["manifest_indicator_order"] = ["indicator:0001"]
+        causal_design["dispositions"][2]["disposition"] = "excluded_indicator"
 
-        result = trial_compile_statistical_model_spec(spec, causal_design)
-
-        assert result is not None
-        assert "Loading matrix is rank-deficient" in result
+        _typed_statistical_model_spec(spec)
+        with pytest.raises(ValueError, match="retained states lack manifest indicators"):
+            StructuralPlan.model_validate(causal_design)
 
     def test_trial_compile_aggregates_initial_state_translation_errors(self):
         """Translation should report multiple initial-state correlation errors together."""
-        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_statistical_model_spec
+        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+            trial_compile_statistical_model_spec,
+        )
 
-        causal_design = _with_positive_indicator_polarity(
+        causal_design = _compile_structural_plan(
             {
                 "latent": {
                     "constructs": [
@@ -1727,7 +1766,10 @@ class TestTrialCompile:
             ],
         }
 
-        result = trial_compile_statistical_model_spec(spec, causal_design)
+        result = trial_compile_statistical_model_spec(
+            _typed_statistical_model_spec(spec),
+            causal_design,
+        )
 
         assert result is not None
         assert "no longer accepts INITIAL_STATE_CORRELATION parameters" in result

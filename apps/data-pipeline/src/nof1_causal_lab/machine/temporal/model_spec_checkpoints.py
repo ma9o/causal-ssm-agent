@@ -11,20 +11,25 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import ArtifactId  # noqa: TC001
 from nof1_causal_lab.machine.moves import RunArtifact
 from nof1_causal_lab.machine.store import EpisodeJournal, utc_now_iso
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
 CHECKPOINT_REF_PREFIX = "model-spec-checkpoint:"
 CHECKPOINT_SCHEMA_VERSION = 3
 ADMISSION_EVALUATION_SCHEMA_VERSION = 1
-ADMISSION_ENGINE_VERSION = 1
+ADMISSION_ENGINE_VERSION = 2
 
 
 class AcceptedConstructCheckpoint(BaseModel):
@@ -34,11 +39,11 @@ class AcceptedConstructCheckpoint(BaseModel):
 
     submission_id: str
     construct_name: str
-    indicators: list[dict[str, Any]] = Field(default_factory=list)
-    priors: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    indicators: list[UncheckedJsonObject] = Field(default_factory=list)
+    priors: dict[str, UncheckedJsonObject] = Field(default_factory=dict)
     accept: list[dict[str, str]] = Field(default_factory=list)
     annotations: list[str] = Field(default_factory=list)
-    results: list[dict[str, Any]] = Field(default_factory=list)
+    results: list[UncheckedJsonObject] = Field(default_factory=list)
     outcome: str
     feedback: str
 
@@ -102,17 +107,18 @@ class ModelSpecAdmissionEvaluation(BaseModel):
     outcome: str
     feedback: str
     annotations: list[str] = Field(default_factory=list)
-    results: list[dict[str, Any]] = Field(default_factory=list)
+    results: list[UncheckedJsonObject] = Field(default_factory=list)
     error: str | None = None
 
 
 def model_spec_admission_evaluation_key(
-    checkpoint: ModelSpecCheckpoint,
     *,
+    input_identity: Mapping[str, Any],
+    accepted_constructs: Sequence[AcceptedConstructCheckpoint],
     ancestor_constructs: set[str],
     construct_name: str,
-    indicators: list[dict[str, Any]],
-    priors: dict[str, dict[str, Any]],
+    indicators: list[UncheckedJsonObject],
+    priors: dict[str, UncheckedJsonObject],
     accept: list[dict[str, str]],
     n_draws: int,
     seed: int,
@@ -124,13 +130,13 @@ def model_spec_admission_evaluation_key(
             "indicators": item.indicators,
             "priors": item.priors,
         }
-        for item in checkpoint.accepted_constructs
+        for item in accepted_constructs
         if item.construct_name in ancestor_constructs
     ]
     payload = {
         "schema_version": ADMISSION_EVALUATION_SCHEMA_VERSION,
         "engine_version": ADMISSION_ENGINE_VERSION,
-        "input_pins": checkpoint.input_pins,
+        "input_identity": input_identity,
         "accepted_ancestors": accepted,
         "proposal": {
             "construct_name": construct_name,
@@ -359,7 +365,7 @@ def latest_failed_model_spec_checkpoint_ref(workspace_id: str) -> str | None:
 def restore_construct_state(
     checkpoint: ModelSpecCheckpoint,
     *,
-    causal_design: dict[str, Any],
+    structural_plan: StructuralPlan,
     data_for_model: Any,
     workspace_id: str | None,
     target_construct: str | None = None,
@@ -375,14 +381,14 @@ def restore_construct_state(
         trial_admission_state,
     )
 
-    global_order = build_construct_order(causal_design)
+    global_order = build_construct_order(structural_plan)
     accepted_by_name = {saved.construct_name: saved for saved in checkpoint.accepted_constructs}
     if len(accepted_by_name) != len(checkpoint.accepted_constructs):
         raise ValueError("Checkpoint contains duplicate accepted constructs")
     unknown = set(accepted_by_name) - set(global_order)
     if unknown:
         raise ValueError(
-            "Checkpoint contains constructs absent from the current causal design: "
+            "Checkpoint contains constructs absent from the current structural plan: "
             + ", ".join(sorted(unknown))
         )
     if target_construct is not None:
@@ -392,7 +398,7 @@ def restore_construct_state(
             raise ValueError(
                 f"Model-spec target construct {target_construct!r} is already accepted"
             )
-        units = build_construct_units(causal_design)
+        units = build_construct_units(structural_plan)
         unit_by_id = {unit.unit_id: unit for unit in units}
         target_unit = next(unit for unit in units if target_construct in unit.constructs)
         required_units: set[str] = set()
@@ -418,7 +424,7 @@ def restore_construct_state(
         accepted_order = [name for name in global_order if name in accepted_by_name]
     order = [*accepted_order, *([target_construct] if target_construct is not None else [])]
     state = ConstructBuildState(
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=data_for_model,
         order=order,
         workspace_id=workspace_id,
@@ -432,15 +438,15 @@ def restore_construct_state(
                 f"Scoped checkpoint restore expected {state.current_construct!r}, "
                 f"found {construct_name!r}"
             )
-        assert state.catalog is not None
+        inventory = state.parameter_inventory_for(construct_name)
         contribution = contribution_from_payload(
-            causal_design,
+            structural_plan,
             {
                 "construct": saved.construct_name,
                 "indicators": saved.indicators,
                 "priors": saved.priors,
             },
-            state.catalog,
+            inventory.catalog,
         )
         trial = trial_admission_state(state.admission, contribution)
         state.admission = replace(
@@ -467,11 +473,13 @@ def load_checkpoint_construct_state(
 
     checkpoint = read_model_spec_checkpoint(workspace_id, checkpoint_ref)
     store = ArtifactStore(workspace_id)
-    causal_design = store.read_json_file(
-        "causal_design",
-        checkpoint.input_pins["causal_design"],
-        json_filename("causal_design", "causal_design"),
-    )["causal_design"]
+    structural_plan = StructuralPlan.model_validate(
+        store.read_json_file(
+            "structural_plan",
+            checkpoint.input_pins["structural_plan"],
+            json_filename("structural_plan", "structural_plan"),
+        )["structural_plan"]
+    )
     data_for_model = store.read_parquet_file(
         "panel",
         checkpoint.input_pins["panel"],
@@ -479,7 +487,7 @@ def load_checkpoint_construct_state(
     )
     state = restore_construct_state(
         checkpoint,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=data_for_model,
         workspace_id=emit_workspace_id,
         target_construct=target_construct,
@@ -490,7 +498,7 @@ def load_checkpoint_construct_state(
 def rebase_accepted_constructs(
     source: ModelSpecCheckpoint,
     *,
-    causal_design: dict[str, Any],
+    structural_plan: StructuralPlan,
     data_for_model: Any,
 ) -> tuple[Any, list[AcceptedConstructCheckpoint], str | None, str | None]:
     """Replay saved units and invalidate only a failed unit and its descendants."""
@@ -499,8 +507,8 @@ def rebase_accepted_constructs(
         build_construct_units,
     )
 
-    order = build_construct_order(causal_design)
-    units = build_construct_units(causal_design)
+    order = build_construct_order(structural_plan)
+    units = build_construct_units(structural_plan)
     unit_by_id = {unit.unit_id: unit for unit in units}
     unit_by_construct = {construct: unit.unit_id for unit in units for construct in unit.constructs}
     successors: dict[str, set[str]] = {unit.unit_id: set() for unit in units}
@@ -557,7 +565,7 @@ def rebase_accepted_constructs(
         )
         state = restore_construct_state(
             scoped,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
             data_for_model=data_for_model,
             workspace_id=None,
             target_construct=construct_name,
@@ -612,7 +620,7 @@ def rebase_accepted_constructs(
     )
     state = restore_construct_state(
         retained_checkpoint,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=data_for_model,
         workspace_id=None,
     )

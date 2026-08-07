@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import pytest
 
-from nof1_causal_lab.models.ssm.inference.targets.emissions import (
+from nof1_causal_lab.models.ssm.execution.emissions import (
     emission_log_prob_bernoulli,
     emission_log_prob_bernoulli_probit,
     emission_log_prob_beta,

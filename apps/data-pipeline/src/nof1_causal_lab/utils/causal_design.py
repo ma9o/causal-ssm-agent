@@ -1,34 +1,24 @@
-"""Accessor helpers for CausalDesign dicts.
-
-The contract now has two structural layers:
-- ``latent``: user-facing theoretical DAG
-- ``estimation``: retained executable state-space projection
-
-Use the explicit latent/estimation accessors in new code. The historical
-``get_constructs()`` / ``get_edges()`` helpers still refer to the latent DAG.
-"""
-
-from collections import defaultdict
-from typing import Any, cast
+"""Semantic helpers for scientific CausalDesign and measurement artifacts."""
 
 import networkx as nx
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.observation_semantics import (
     get_observation_semantics,
 )
 
 
-def get_constructs(causal_design: dict) -> list[dict]:
+def get_constructs(causal_design: UncheckedJsonObject) -> list[UncheckedJsonObject]:
     """Get latent constructs from a CausalDesign dict."""
     return causal_design.get("latent", {}).get("constructs", [])
 
 
-def get_indicators(causal_design: dict) -> list[dict]:
+def get_indicators(causal_design: UncheckedJsonObject) -> list[UncheckedJsonObject]:
     """Get indicators from a CausalDesign dict."""
     return causal_design.get("measurement", {}).get("indicators", [])
 
 
-def get_indicator_polarity(indicator: dict) -> str:
+def get_indicator_polarity(indicator: UncheckedJsonObject) -> str:
     """Return the declared indicator polarity, failing loudly when absent."""
     polarity = indicator.get("construct_polarity")
     if polarity not in {"positive", "negative"}:
@@ -52,7 +42,9 @@ _REFERENCE_DTYPE_TIERS = {
 }
 
 
-def choose_reference_indicator(indicators: list[dict]) -> dict | None:
+def choose_reference_indicator(
+    indicators: list[UncheckedJsonObject],
+) -> UncheckedJsonObject | None:
     """Choose a deterministic marker indicator for one construct.
 
     Prefer the dtype whose fixed loading anchors the latent scale most strongly
@@ -62,7 +54,7 @@ def choose_reference_indicator(indicators: list[dict]) -> dict | None:
     if not indicators:
         return None
 
-    def _rank(item: tuple[int, dict]) -> tuple[int, int, int]:
+    def _rank(item: tuple[int, UncheckedJsonObject]) -> tuple[int, int, int]:
         declaration_index, indicator = item
         dtype = str(indicator.get("measurement_dtype") or "")
         tier = _REFERENCE_DTYPE_TIERS.get(dtype, 2)
@@ -72,9 +64,9 @@ def choose_reference_indicator(indicators: list[dict]) -> dict | None:
     return min(enumerate(indicators), key=_rank)[1]
 
 
-def build_reference_indicator_lookup(indicators: list[dict]) -> dict[str, str]:
+def build_reference_indicator_lookup(indicators: list[UncheckedJsonObject]) -> dict[str, str]:
     """Return construct -> chosen reference indicator name."""
-    grouped: dict[str, list[dict]] = {}
+    grouped: dict[str, list[UncheckedJsonObject]] = {}
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
         if isinstance(construct_name, str):
@@ -88,152 +80,19 @@ def build_reference_indicator_lookup(indicators: list[dict]) -> dict[str, str]:
     return lookup
 
 
-def get_estimation_spec(causal_design: dict) -> dict:
-    """Get the estimation projection, failing loudly when it is missing."""
-    estimation = causal_design.get("estimation")
-    if not isinstance(estimation, dict):
-        raise ValueError("causal_design.estimation is required for estimation-sensitive access")
-    return estimation
-
-
-def get_estimation_state_order(causal_design: dict) -> list[str]:
-    """Get retained latent states in canonical estimation order."""
-    return list(get_estimation_spec(causal_design).get("state_order") or [])
-
-
-def get_estimation_edges(causal_design: dict) -> list[dict]:
-    """Get retained directed edges in the estimation projection."""
-    return list(get_estimation_spec(causal_design).get("edges") or [])
-
-
-def get_known_inputs(causal_design: dict) -> list[dict]:
-    """Get known input declarations from the estimation projection."""
-    return list(get_estimation_spec(causal_design).get("known_inputs") or [])
-
-
-def get_known_input_source_indicators(causal_design: dict) -> set[str]:
-    """Return indicator names consumed as deterministic transition inputs."""
-    return {
-        str(known_input["source_indicator"])
-        for known_input in get_known_inputs(causal_design)
-        if known_input.get("source_indicator")
-    }
-
-
-def get_manifest_indicators(causal_design: dict) -> list[dict]:
-    """Get indicators that remain in the manifest likelihood."""
-    input_constructs = {
-        str(item.get("construct") or item.get("construct_name"))
-        for item in get_known_inputs(causal_design)
-        if item.get("construct") or item.get("construct_name")
-    }
-    return [
-        indicator
-        for indicator in get_indicators(causal_design)
-        if indicator.get("construct_name") not in input_constructs
-    ]
-
-
-def get_estimation_constructs(causal_design: dict) -> list[dict]:
-    """Get retained latent construct payloads in estimation-state order."""
-    latent_lookup = {
-        construct["name"]: construct
-        for construct in get_constructs(causal_design)
-        if construct.get("name")
-    }
-    return [
-        latent_lookup[name]
-        for name in get_estimation_state_order(causal_design)
-        if name in latent_lookup
-    ]
-
-
-def get_induced_dependencies(causal_design: dict) -> list[dict[str, Any]]:
-    """Get induced dependencies created by marginalizing latent roots."""
-    return list(get_estimation_spec(causal_design).get("induced_dependencies") or [])
-
-
-def _canonical_scale_name(sources: list[str]) -> str:
-    """Canonical identifier for a confounder equivalence class."""
-    return "tau_" + "__".join(sorted(sources))
-
-
-def get_marginalized_scales(causal_design: dict) -> list[dict]:
-    """Return the scale-indexed view of marginalized confounders.
-
-    Confounders sharing the same *footprint* — the union of retained state
-    pairs they induce a dependency between — form one identifiable equivalence
-    class. The likelihood depends only on the class's sum-of-squares
-    contribution, so each class corresponds to exactly one static-factor scale
-    parameter, regardless of how many source confounders it aggregates.
-
-    Each returned entry is:
-        - ``parameter``: canonical name ``tau_<sorted_sources_joined>``.
-        - ``kind``: ``initial_state_correlation`` | ``innovation_correlation``.
-        - ``sources``: the source confounders aggregated into this scale.
-        - ``affected_states``: states in the scale's loading column.
-        - ``directions``: state pairs this scale contributes to.
-
-    Raises:
-        ValueError: a confounder's ``kind`` is inconsistent across the deps it
-        appears in (structurally impossible under the projection contract; if
-        it happens, the estimation spec is malformed).
-    """
-    deps = get_induced_dependencies(causal_design)
-
-    footprint_by_confounder: dict[str, set[str]] = defaultdict(set)
-    kind_by_confounder: dict[str, str] = {}
-    directions_by_confounder: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for dep in deps:
-        # Induced dependencies always carry a non-None ``kind`` string by the
-        # estimation-projection contract (see estimation_projection.py).
-        kind = cast("str", dep.get("kind"))
-        between = tuple(dep.get("between") or ())
-        if len(between) != 2:
-            continue
-        for confounder in dep.get("source_confounders") or ():
-            footprint_by_confounder[confounder].update(between)
-            directions_by_confounder[confounder].append(between)
-            prior_kind = kind_by_confounder.setdefault(confounder, kind)
-            if prior_kind != kind:
-                raise ValueError(
-                    f"Confounder {confounder!r} participates in dependencies with "
-                    f"inconsistent kinds ({prior_kind!r} and {kind!r}); a confounder "
-                    "must project to exactly one covariance block."
-                )
-
-    members_by_footprint: dict[tuple[str, frozenset[str]], list[str]] = defaultdict(list)
-    for confounder, footprint in footprint_by_confounder.items():
-        key = (kind_by_confounder[confounder], frozenset(footprint))
-        members_by_footprint[key].append(confounder)
-
-    scales: list[dict] = []
-    for (kind, footprint), members in members_by_footprint.items():
-        sources = sorted(members)
-        directions: set[tuple[str, str]] = set()
-        for confounder in sources:
-            directions.update(directions_by_confounder[confounder])
-        scales.append(
-            {
-                "parameter": _canonical_scale_name(sources),
-                "kind": kind,
-                "sources": sources,
-                "affected_states": sorted(footprint),
-                "directions": sorted(directions),
-            }
-        )
-    scales.sort(key=lambda scale: scale["parameter"])
-    return scales
-
-
-def get_effective_observation_window(indicator: dict, model_clock: str | None) -> str | None:
+def get_effective_observation_window(
+    indicator: UncheckedJsonObject,
+    model_clock: str | None,
+) -> str | None:
     """Return the effective support window for an indicator."""
     return indicator.get("observation_window") or model_clock
 
 
-def get_measurement_indicator_info(measurement_structure: dict) -> dict[str, dict]:
+def get_measurement_indicator_info(
+    measurement_structure: UncheckedJsonObject,
+) -> dict[str, UncheckedJsonObject]:
     """Extract indicator info from a MeasurementStructure dict."""
-    result: dict[str, dict] = {}
+    result: dict[str, UncheckedJsonObject] = {}
     model_clock = measurement_structure.get("model_clock")
     for ind in measurement_structure.get("indicators", []):
         sem = get_observation_semantics(ind)
@@ -260,7 +119,9 @@ _WORKER_INDICATOR_KEYS = (
 )
 
 
-def make_measurement_extraction_context(measurement_structure: dict) -> dict:
+def make_measurement_extraction_context(
+    measurement_structure: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     """Build minimal context needed by extraction extraction workers.
 
     Workers need:
@@ -291,7 +152,9 @@ def make_measurement_extraction_context(measurement_structure: dict) -> dict:
     }
 
 
-def get_outcome_construct(causal_design_or_latent: dict) -> dict | None:
+def get_outcome_construct(
+    causal_design_or_latent: UncheckedJsonObject,
+) -> UncheckedJsonObject | None:
     """Get the outcome construct dict from a CausalDesign or latent structure dict.
 
     Handles both full CausalDesign dicts and bare latent structure dicts.
@@ -311,7 +174,7 @@ def get_outcome_construct(causal_design_or_latent: dict) -> dict | None:
     return None
 
 
-def get_outcome_name(causal_design_or_latent: dict) -> str | None:
+def get_outcome_name(causal_design_or_latent: UncheckedJsonObject) -> str | None:
     """Get the outcome construct name from a CausalDesign or latent structure dict.
 
     Convenience wrapper around get_outcome_construct() that returns just the name.
@@ -331,7 +194,7 @@ def get_outcome_name(causal_design_or_latent: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def build_digraph(latent_structure: dict) -> nx.DiGraph:
+def build_digraph(latent_structure: UncheckedJsonObject) -> nx.DiGraph:
     """Build a simple DiGraph from a latent structure's edge list.
 
     Args:
@@ -343,7 +206,7 @@ def build_digraph(latent_structure: dict) -> nx.DiGraph:
     return build_digraph_from_edges(latent_structure.get("edges", []))
 
 
-def build_digraph_from_edges(edges: list[dict]) -> nx.DiGraph:
+def build_digraph_from_edges(edges: list[UncheckedJsonObject]) -> nx.DiGraph:
     """Build a simple DiGraph from an edge list."""
     G = nx.DiGraph()
     for edge in edges:
@@ -354,7 +217,7 @@ def build_digraph_from_edges(edges: list[dict]) -> nx.DiGraph:
 def _get_treatments_from_graph(
     *,
     node_names: list[str],
-    edges: list[dict],
+    edges: list[UncheckedJsonObject],
     outcome: str | None,
 ) -> list[str]:
     """Return nodes with a directed path to the outcome within the given graph."""
@@ -373,7 +236,7 @@ def _get_treatments_from_graph(
     )
 
 
-def get_all_treatments(latent_structure: dict) -> list[str]:
+def get_all_treatments(latent_structure: UncheckedJsonObject) -> list[str]:
     """Get all potential treatments from latent structure.
 
     A treatment is any construct that has a causal path to the outcome.

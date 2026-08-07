@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.bundle import (
     build_particle_runtime_bundle,
 )
@@ -239,17 +240,25 @@ def fit_marginal_particle_gibbs(
                 (num_chains, int(bundle.cached.flat_example.shape[0])),
             )
         )
-        ieks_paths = compute_ieks_latent_paths(
-            model,
-            observations,
-            times,
-            positions=pilot_positions,
-            trace_key=trace_key,
-            reparam=reparam,
-            n_ieks_iters=n_ieks_iters,
-        )
         if initial_latent_trajectories is None:
+            ieks_paths = compute_ieks_latent_paths(
+                model,
+                observations,
+                times,
+                positions=pilot_positions,
+                trace_key=trace_key,
+                reparam=reparam,
+                n_ieks_iters=n_ieks_iters,
+            )
             initial_latent_trajectories = ieks_paths
+        else:
+            ieks_paths = jnp.asarray(initial_latent_trajectories)
+            expected_shape = (num_chains, int(times.shape[0]), int(model.spec.n_latent))
+            if ieks_paths.shape != expected_shape:
+                raise ValueError(
+                    "initial_latent_trajectories must have shape "
+                    f"{expected_shape}; got {ieks_paths.shape}."
+                )
         pilot_means = jnp.mean(ieks_paths, axis=0)
         temporal_var = jnp.var(pilot_means, axis=0)
         cross_chain_var = jnp.var(ieks_paths, axis=0)
@@ -345,7 +354,7 @@ def fit_marginal_particle_gibbs(
         num_samples=num_samples,
         backend="marginal_particle_gibbs",
     )
-    diagnostic_likelihood_backend = model.make_laplace_backend(n_ieks_iters)
+    diagnostic_likelihood_backend = get_laplace_backend(model, n_ieks_iters)
     chain_extra_fields = run_result["chain_extra_fields"]
     summary_extra_fields = (
         chain_extra_fields if num_samples > 0 else run_result["warmup_chain_extra_fields"]
@@ -472,7 +481,6 @@ def fit_marginal_particle_gibbs(
         diagnostics["warmup_latent_paths"] = run_result["warmup_latent_paths"]
     if run_result["all_latent_paths"] is not None:
         diagnostics["all_latent_paths"] = run_result["all_latent_paths"]
-
     logger.info(
         "phase 4/4: posterior extraction complete in %.1fs. marginal_particle_gibbs total: %.1fs",
         _mpg_phase_elapsed(phase_t0),

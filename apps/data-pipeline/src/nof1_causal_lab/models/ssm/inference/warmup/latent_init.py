@@ -16,6 +16,8 @@ from typing import Any
 
 import jax.numpy as jnp
 
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+
 
 def compute_ieks_latent_paths(
     model: Any,
@@ -38,7 +40,7 @@ def compute_ieks_latent_paths(
     """
     from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 
-    backend = model.make_laplace_backend(n_ieks_iters)
+    backend = get_laplace_backend(model, n_ieks_iters)
     bundle = _build_map_laplace_bundle(model, observations, times, trace_key, backend, reparam)
     aux_fn = bundle["neg_log_posterior_with_aux_fn"]
     dtype = bundle["flat_example"].dtype

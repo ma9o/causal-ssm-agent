@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 SUPPORTED_SUMMARY_OPERATORS: tuple[str, ...] = ("first", "last", "sum", "count", "mean", "std")
 _POINT_START_OPERATORS = frozenset({"first"})
 _POINT_END_OPERATORS = frozenset({"last"})
@@ -135,7 +137,9 @@ def derive_indicator_observation_semantics(
     )
 
 
-def get_observation_semantics(indicator: dict) -> IndicatorObservationSemantics:
+def get_observation_semantics(
+    indicator: UncheckedJsonObject,
+) -> IndicatorObservationSemantics:
     """Derive canonical observation semantics for an indicator dict."""
     return derive_indicator_observation_semantics(
         indicator["aggregation"],

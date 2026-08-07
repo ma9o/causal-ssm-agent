@@ -135,7 +135,7 @@ Use domain reasoning to propose a weakly informative prior:
 
 
 def format_literature_for_parameter(
-    sources: list[dict],
+    sources: list[dict[str, str]],
 ) -> str:
     """Format literature sources for a single parameter.
 

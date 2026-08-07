@@ -188,7 +188,14 @@ def _simultaneous_envelope(
     return at(0.5 * (glo + ghi))
 
 
-_BAND_CACHE: dict[tuple, tuple] = {}
+_HIST_BAND_CACHE: dict[
+    tuple[str, int, int, int],
+    tuple[np.ndarray, np.ndarray, np.ndarray],
+] = {}
+_ECDF_BAND_CACHE: dict[
+    tuple[str, int, int],
+    tuple[np.ndarray, np.ndarray],
+] = {}
 
 
 def _null_ranks(S: int, L: int, seed: int) -> np.ndarray:
@@ -199,7 +206,7 @@ def _null_ranks(S: int, L: int, seed: int) -> np.ndarray:
 def hist_band(S: int, L: int, bins: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Simultaneous band for the per-bin counts of a uniform rank histogram."""
     key = ("hist", S, L, bins)
-    if key not in _BAND_CACHE:
+    if key not in _HIST_BAND_CACHE:
         null = _null_ranks(S, L, 20240601)
         idx = np.minimum((null * bins) // (L + 1), bins - 1)
         counts = np.zeros((NSIM_BAND, bins), dtype=int)
@@ -207,21 +214,21 @@ def hist_band(S: int, L: int, bins: int) -> tuple[np.ndarray, np.ndarray, np.nda
         np.add.at(counts, (rows, idx.ravel()), 1)
         lo, hi = _simultaneous_envelope(counts)
         edges = np.linspace(-0.5, L + 0.5, bins + 1)
-        _BAND_CACHE[key] = (lo, hi, edges)
-    return _BAND_CACHE[key]
+        _HIST_BAND_CACHE[key] = (lo, hi, edges)
+    return _HIST_BAND_CACHE[key]
 
 
 def ecdf_band(S: int, L: int) -> tuple[np.ndarray, np.ndarray]:
     """Simultaneous band for the ECDF of normalised ranks, evaluated on the support."""
     key = ("ecdf", S, L)
-    if key not in _BAND_CACHE:
+    if key not in _ECDF_BAND_CACHE:
         null = _null_ranks(S, L, 20240602)
         counts = np.zeros((NSIM_BAND, L + 1), dtype=int)
         rows = np.repeat(np.arange(NSIM_BAND), S)
         np.add.at(counts, (rows, null.ravel()), 1)
         cdf = np.cumsum(counts, axis=1) / S  # ECDF at support points k/L
-        _BAND_CACHE[key] = _simultaneous_envelope(cdf)
-    return _BAND_CACHE[key]
+        _ECDF_BAND_CACHE[key] = _simultaneous_envelope(cdf)
+    return _ECDF_BAND_CACHE[key]
 
 
 def ecdf_diff(
@@ -312,7 +319,16 @@ def _add_rank_hist(
 
 
 # ── Figure 1: one SBC run, unpacked ────────────────────────────────────────────
-def one_run(seed: int, n: int) -> dict:
+class OneRun(TypedDict):
+    theta: float
+    y: np.ndarray
+    m: float
+    v: float
+    draws: np.ndarray
+    rank: int
+
+
+def one_run(seed: int, n: int) -> OneRun:
     """A single simulation, materialised with real data points (not just ȳ)."""
     rng = np.random.default_rng(1000 + seed)
     theta = float(rng.normal(MU0, TAU0))

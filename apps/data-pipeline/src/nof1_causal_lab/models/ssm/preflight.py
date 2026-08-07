@@ -30,14 +30,14 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.distributions import get_real_runtime_kind_from_index
 from nof1_causal_lab.models.ssm.priors import (
     PriorDistributionFamily,
     PriorSpec,
-    default_prior_for_descriptor,
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.execution.contracts import ExecutableSSM
 
 LOCATION_REACH_SIGMAS = 6.0
 STANDARDIZED_MEAN_SD_RATIO = 0.5
@@ -54,15 +54,27 @@ class ObservationPreflightError(ValueError):
     """Observed data is inconsistent with the spec/prior configuration."""
 
 
-def _resolve_site_prior(model: SSMModel, site_name: str) -> PriorSpec | None:
-    if model.priors is not None:
-        prior = model.priors.get(site_name)
-        if prior is not None:
-            return prior
-    for site in model.spec.iter_sample_sites():
-        if site.name == site_name:
-            return default_prior_for_descriptor(site)
-    return None
+def _resolve_site_prior(model: ExecutableSSM, site_name: str) -> PriorSpec | None:
+    """Read the prior actually sampled by the executable runtime."""
+    bundle = model.get_prior_runtime_bundle()
+    site = next(
+        (candidate for candidate in bundle.site_runtime.registry if candidate.name == site_name),
+        None,
+    )
+    if site is None:
+        return None
+    params = bundle.prior_state[site_name]
+    family_values = np.asarray(params["family"], dtype=int).ravel()
+    if family_values.size == 0 or not np.all(family_values == family_values[0]):
+        return None
+    family = get_real_runtime_kind_from_index(int(family_values[0]))
+    return PriorSpec(
+        family,
+        {
+            "mu": np.asarray(params["loc"], dtype=np.float64),
+            "sigma": np.asarray(params["scale"], dtype=np.float64),
+        },
+    )
 
 
 def _prior_loc_scale(prior: PriorSpec, n_free: int, free_idx: int) -> tuple[float, float]:
@@ -71,7 +83,7 @@ def _prior_loc_scale(prior: PriorSpec, n_free: int, free_idx: int) -> tuple[floa
     return float(mu[free_idx]), float(sigma[free_idx])
 
 
-def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
+def validate_observations_for_fit(model: ExecutableSSM, observations: Any) -> None:
     """Validate (spec, priors, observations) consistency before fitting.
 
     Raises:

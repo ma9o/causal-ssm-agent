@@ -14,7 +14,7 @@ are retried by policy without the navigator ever seeing them.
 
 from __future__ import annotations
 
-from typing import Any
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 class TransitionExecutionError(Exception):
@@ -30,7 +30,7 @@ class TransitionExecutionError(Exception):
         message: str,
         *,
         transition_id: str,
-        diagnostics: dict[str, Any] | None = None,
+        diagnostics: UncheckedJsonObject | None = None,
     ) -> None:
         super().__init__(message)
         self.transition_id = transition_id

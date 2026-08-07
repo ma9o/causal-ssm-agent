@@ -104,6 +104,7 @@ def test_registry_descriptions_are_json_ready():
     edit = next(entry for entry in action_payload if entry["action_id"] == "specify.edit")
     assert edit["derives"] == [
         "causal_design",
+        "structural_plan",
         "identification_report",
         "validation_report",
         "compiled_ssm",

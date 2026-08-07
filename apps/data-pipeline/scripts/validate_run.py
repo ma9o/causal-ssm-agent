@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId
 
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS
 from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
@@ -55,7 +56,7 @@ class LineageIssue:
 @dataclass(frozen=True)
 class RunContext:
     workspace_id: str
-    artifacts: dict[str, dict[str, Any]]
+    artifacts: dict[str, UncheckedJsonObject]
     artifact_paths: dict[str, str]
     model_indicators: set[str] | None
     raw_input_columns: set[str] | None
@@ -124,7 +125,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
     if up_to is not None:
         artifact_order = artifact_order[: artifact_order.index(cast("ArtifactId", up_to)) + 1]
 
-    artifacts: dict[str, dict[str, Any]] = {}
+    artifacts: dict[str, UncheckedJsonObject] = {}
     artifact_paths: dict[str, str] = {}
     state = derive_current_state(workspace_id)
     store = ArtifactStore(workspace_id)
@@ -182,29 +183,31 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
 # ---------------------------------------------------------------------------
 
 
-def _construct_names(latent: dict[str, Any]) -> list[str]:
+def _construct_names(latent: UncheckedJsonObject) -> list[str]:
     return [c["name"] for c in latent.get("constructs", []) if isinstance(c, dict) and "name" in c]
 
 
-def _construct_map(latent: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _construct_map(latent: UncheckedJsonObject) -> dict[str, UncheckedJsonObject]:
     return {
         c["name"]: c for c in latent.get("constructs", []) if isinstance(c, dict) and "name" in c
     }
 
 
-def _outcome_name(latent: dict[str, Any]) -> str | None:
+def _outcome_name(latent: UncheckedJsonObject) -> str | None:
     for construct in latent.get("constructs", []):
         if isinstance(construct, dict) and construct.get("is_outcome"):
             return construct.get("name")
     return None
 
 
-def _causal_design_indicators(causal_design: dict[str, Any]) -> list[dict[str, Any]]:
+def _causal_design_indicators(
+    causal_design: UncheckedJsonObject,
+) -> list[UncheckedJsonObject]:
     indicators = causal_design.get("causal_design", {}).get("measurement", {}).get("indicators", [])
     return [i for i in indicators if isinstance(i, dict)]
 
 
-def _causal_design_indicator_names(causal_design: dict[str, Any]) -> set[str]:
+def _causal_design_indicator_names(causal_design: UncheckedJsonObject) -> set[str]:
     return {i["name"] for i in _causal_design_indicators(causal_design) if "name" in i}
 
 
@@ -357,7 +360,7 @@ def rule_outcome_stable(ctx: RunContext) -> list[LineageIssue]:
     return []
 
 
-def _edge_tuples(edges: list[dict[str, Any]]) -> set[tuple[str, str, bool]]:
+def _edge_tuples(edges: list[UncheckedJsonObject]) -> set[tuple[str, str, bool]]:
     return {
         (e["cause"], e["effect"], bool(e.get("lagged", True)))
         for e in edges

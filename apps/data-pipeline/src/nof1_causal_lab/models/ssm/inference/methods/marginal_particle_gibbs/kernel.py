@@ -41,6 +41,7 @@ import jax.numpy as jnp
 import jax.random as random
 from blackjax.adaptation.step_size import dual_averaging_adaptation
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.inference import _profiling
 from nof1_causal_lab.models.ssm.inference.mcmc_state import (
     TrajectoryMCMCState,
@@ -76,6 +77,9 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smooth
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.flip import (
+        SignFlipSpec,
+    )
 
 _DEFAULT_MIN_SCALE = 1e-6
 _DEFAULT_MAX_SCALE = 1e3
@@ -168,7 +172,7 @@ def build_marginal_particle_gibbs_kernel(
     pilot_means: jnp.ndarray | None = None,
     pilot_vars: jnp.ndarray | None = None,
     pilot_wide_vars: jnp.ndarray | None = None,
-    sign_flip_spec: Any | None = None,
+    sign_flip_spec: SignFlipSpec | None = None,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
 ) -> MarginalParticleGibbsKernel:
@@ -322,6 +326,7 @@ def build_marginal_particle_gibbs_kernel(
                 grad_ref = _theta_logpost_grad(current_position, latent_trajectory)
                 drift = (jnp.asarray(2.0, dtype=step.dtype) * step) * (chol @ (chol.T @ grad_ref))
         else:
+            grad_ref = jnp.zeros_like(current_position)
             drift = jnp.zeros_like(current_position)
 
         u = (
@@ -394,8 +399,10 @@ def build_marginal_particle_gibbs_kernel(
     def _step_fn(state: TrajectoryMCMCState, key: jnp.ndarray):
         if sign_flip_spec is not None:
             param_key, block_key, label_key, flip_choice_key, flip_accept_key = random.split(key, 5)
+            flip_keys = (flip_choice_key, flip_accept_key)
         else:
             param_key, block_key, label_key = random.split(key, 3)
+            flip_keys = None
         x_ref = state.latent_trajectory
         traj_dtype = state.trajectory_log_prob.dtype
         complete_dtype = state.complete_log_posterior.dtype
@@ -446,14 +453,16 @@ def build_marginal_particle_gibbs_kernel(
             )
             next_complete = jnp.asarray(log_prior_unc_fn(next_position), dtype=complete_dtype)
             next_complete = next_complete + next_traj_lp.astype(complete_dtype)
+            sign_flip_diagnostics: dict[str, jnp.ndarray] = {}
 
-            if sign_flip_spec is not None:
+            if sign_flip_spec is not None and flip_keys is not None:
                 # Joint (latent coordinate, loading column) sign-flip MH move composed
                 # after the smoother sweep: the flip is a state-independent involution,
                 # so the acceptance is the exact joint posterior ratio — which prices
                 # the sign-asymmetric loading prior and any drift coupling. This is
                 # the escape route between the factor-sign mirror basins that the
                 # alternating conditionals cannot cross on their own.
+                flip_choice_key, flip_accept_key = flip_keys
                 n_flippable = int(sign_flip_spec.coords.shape[0])
                 flip_idx = random.randint(flip_choice_key, (), 0, n_flippable)
                 flip_coord = sign_flip_spec.coords[flip_idx]
@@ -494,6 +503,10 @@ def build_marginal_particle_gibbs_kernel(
                     flipped_context,
                     next_context,
                 )
+                sign_flip_diagnostics = {
+                    "sign_flip_accepted": flip_accepted.astype(state.position.dtype),
+                    "sign_flip_delta": flip_delta.astype(jnp.float32),
+                }
 
             latent_move = latent_path - x_ref
             latent_move_rms_per_t = jnp.sqrt(jnp.mean(latent_move * latent_move, axis=-1))
@@ -525,9 +538,7 @@ def build_marginal_particle_gibbs_kernel(
                 "amala_grad_norm_mean": amala_grad_norm_mean.astype(jnp.float32),
                 "amala_grad_norm_max": amala_grad_norm_max.astype(jnp.float32),
             }
-            if sign_flip_spec is not None:
-                step_info["sign_flip_accepted"] = flip_accepted.astype(state.position.dtype)
-                step_info["sign_flip_delta"] = flip_delta.astype(jnp.float32)
+            step_info.update(sign_flip_diagnostics)
             if diagnostic_flags.parameter_movement:
                 parameter_jump = next_position - state.position
                 step_info["parameter_jump_rms"] = jnp.sqrt(
@@ -691,7 +702,7 @@ def run_marginal_particle_gibbs(
     profile_runtime_trace: bool = True,
     profile_trace_start_step: int = 0,
     profile_trace_steps: int = 3,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Run marginalized Particle Gibbs chains."""
     if adaptation_scheme not in {"simple", "dual_averaging"}:
         raise ValueError(
@@ -810,6 +821,7 @@ def run_marginal_particle_gibbs(
         diagnostic_metrics=kernel.diagnostic_metrics,
     )
     public_latent_fn = bundle.cached.public_latent_trajectory_runtime_fn
+    latent_moments: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None
     if compute_latent_posterior_summary:
         public_example = _sample_public_latent_batch(
             states,
@@ -817,9 +829,11 @@ def run_marginal_particle_gibbs(
             observations,
             public_latent_fn=public_latent_fn,
         )
-        latent_sum = jnp.zeros_like(public_example)
-        latent_sumsq = jnp.zeros_like(public_example)
-        sample_count = jnp.asarray(0, dtype=jnp.int32)
+        latent_moments = (
+            jnp.zeros_like(public_example),
+            jnp.zeros_like(public_example),
+            jnp.asarray(0, dtype=jnp.int32),
+        )
 
     position_history: list[jnp.ndarray] = []
     parameter_accept_history: list[jnp.ndarray] = []
@@ -959,10 +973,13 @@ def run_marginal_particle_gibbs(
                     observations,
                     public_latent_fn=public_latent_fn,
                 )
-                if step_idx >= num_warmup and compute_latent_posterior_summary:
-                    latent_sum = latent_sum + public_latent
-                    latent_sumsq = latent_sumsq + public_latent * public_latent
-                    sample_count = sample_count + 1
+                if step_idx >= num_warmup and latent_moments is not None:
+                    latent_sum, latent_sumsq, sample_count = latent_moments
+                    latent_moments = (
+                        latent_sum + public_latent,
+                        latent_sumsq + public_latent * public_latent,
+                        sample_count + 1,
+                    )
                 if retain_latent_paths:
                     latent_paths_history.append(public_latent)
 
@@ -1221,7 +1238,8 @@ def run_marginal_particle_gibbs(
     warmup_complete_log_posterior_history = all_complete_log_posterior_history[:, :num_warmup]
 
     latent_summary = None
-    if compute_latent_posterior_summary:
+    if latent_moments is not None:
+        latent_sum, latent_sumsq, sample_count = latent_moments
         denom = jnp.maximum(sample_count, 1).astype(latent_sum.dtype)
         chain_mean = latent_sum / denom
         chain_var = jnp.maximum(latent_sumsq / denom - chain_mean * chain_mean, 0.0)

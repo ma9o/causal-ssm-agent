@@ -14,7 +14,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from artifact_contract_catalog import ARTIFACT_CONTRACTS
 
@@ -40,6 +40,7 @@ from nof1_causal_lab.flows.transitions.analysis.contracts import (
     SimulateScenarioToolResultContract,
     ToolErrorContract,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.parameterization import SiteKind
 from nof1_causal_lab.utils.llm import LLMTrace
 
@@ -72,8 +73,7 @@ INTERACTIVE_CONTEXTS = frozenset(
     {"latent-structure", "measurement-structure", "statistical-model-spec", "ranking"}
 )
 
-
-def _make_defaults_required(schema: dict) -> dict:
+def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
     """Make all properties with defaults required in serialization schema.
 
     Pydantic marks fields with defaults as optional in JSON Schema, but in
@@ -130,7 +130,7 @@ def _make_defaults_required(schema: dict) -> dict:
     return schema
 
 
-def _is_nullable(prop_schema: dict) -> bool:
+def _is_nullable(prop_schema: UncheckedJsonObject) -> bool:
     """Check if a property schema allows null (e.g., anyOf with null type)."""
     if not isinstance(prop_schema, dict):
         return False
@@ -148,7 +148,9 @@ def _is_nullable(prop_schema: dict) -> bool:
     return any(isinstance(item, dict) and item.get("type") == "null" for item in any_of)
 
 
-def _collect_model_schema(model_cls: type[BaseModel], all_defs: dict[str, Any]) -> dict[str, str]:
+def _collect_model_schema(
+    model_cls: type[BaseModel], all_defs: UncheckedJsonObject
+) -> dict[str, str]:
     schema = model_cls.model_json_schema(mode="serialization")
     defs = schema.pop("$defs", {})
     all_defs.update(defs)
@@ -157,10 +159,10 @@ def _collect_model_schema(model_cls: type[BaseModel], all_defs: dict[str, Any]) 
     return {"$ref": f"#/$defs/{model_name}"}
 
 
-def export_schemas() -> dict:
+def export_schemas() -> UncheckedJsonObject:
     """Build a combined JSON Schema with exported Python models in $defs."""
-    all_defs: dict = {}
-    artifact_refs: dict[str, dict] = {}
+    all_defs: UncheckedJsonObject = {}
+    artifact_refs: dict[str, dict[str, str]] = {}
 
     for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
         artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs)
@@ -181,9 +183,9 @@ def export_schemas() -> dict:
     return _make_defaults_required(combined)
 
 
-def export_tool_result_schemas() -> dict:
+def export_tool_result_schemas() -> UncheckedJsonObject:
     """Build a JSON Schema dedicated to tool result contracts."""
-    all_defs: dict[str, Any] = {}
+    all_defs: UncheckedJsonObject = {}
     refs: list[dict[str, str]] = []
 
     for model_cls in EXPORTED_TOOL_RESULT_MODELS:
@@ -204,7 +206,7 @@ def export_tool_result_schemas() -> dict:
     return _make_defaults_required(combined)
 
 
-def export_tool_schemas() -> dict:
+def export_tool_schemas() -> UncheckedJsonObject:
     """Build a JSON document describing all context tools for TypeScript codegen.
 
     Output structure::
@@ -217,7 +219,7 @@ def export_tool_schemas() -> dict:
           "_interactive": ["latent-structure", "measurement-structure", ...]
         }
     """
-    result: dict[str, Any] = {}
+    result: UncheckedJsonObject = {}
     for context_id, tools in CONTEXT_TOOLS.items():
         result[context_id] = [
             {
@@ -232,7 +234,7 @@ def export_tool_schemas() -> dict:
     return result
 
 
-def export_metadata() -> dict:
+def export_metadata() -> UncheckedJsonObject:
     """Export distribution catalog metadata for TypeScript type-safe rendering maps."""
     site_kind_values = {sk.value for sk in SiteKind if sk.name.startswith("OBS_")}
     catalog_hypers = {h for spec in OBSERVATION_FAMILY_SPECS for h in spec.hyperparameters}
@@ -251,7 +253,11 @@ def export_metadata() -> dict:
 
 
 def _write_or_check_json(
-    path: Path, payload: dict, *, check: bool, changed_paths: list[Path]
+    path: Path,
+    payload: UncheckedJsonObject,
+    *,
+    check: bool,
+    changed_paths: list[Path],
 ) -> None:
     rendered = json.dumps(payload, indent=2) + "\n"
     if check:
@@ -298,7 +304,7 @@ def main(*, check: bool = False) -> bool:
         print(f"Exported metadata to {metadata_path}")
 
     if check and changed_paths:
-        print("Schema exports are out of date. Run `bun run docs:codegen`.", file=sys.stderr)
+        print("Schema exports are out of date. Run `bun run codegen`.", file=sys.stderr)
         for path in changed_paths:
             print(f"  {path}", file=sys.stderr)
         return True

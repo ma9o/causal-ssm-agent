@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
 from nof1_causal_lab.machine.graph import transition_spec
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
 
 
-def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:
+def _filter_to_contract(cls: type[BaseModel], data: UncheckedJsonObject) -> UncheckedJsonObject:
     fields = set(cls.model_fields.keys())
     return {key: value for key, value in data.items() if key in fields}
 
@@ -62,10 +63,12 @@ async def _run_posterior(
     )
     panel = _panel_df(store, pins)
     compiled_meta = store.read_meta("compiled_ssm", pins["compiled_ssm"])
+    structural_plan_version = compiled_meta.derived_from["structural_plan"]
+    structural_plan_meta = store.read_meta("structural_plan", structural_plan_version)
     provenance = PosteriorProvenance(
         causal_design=CausalDesignRef(
             workspace_id=workspace_id,
-            version=compiled_meta.derived_from["causal_design"],
+            version=structural_plan_meta.derived_from["causal_design"],
         ),
         compiled_ssm_version=pins["compiled_ssm"],
         panel_version=pins["panel"],

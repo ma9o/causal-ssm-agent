@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import jax
 import jax.numpy as jnp
@@ -45,10 +45,12 @@ class TransformedTarget(Target):
     base: Base
     bijector: Bijector
 
+    @override
     def log_prob(self, x: Array) -> Array:
         u = self.bijector.inverse(x)
         return self.base.log_prob(u) + self.bijector.inverse_log_det_jac(x)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         return self.bijector.forward(self.base.sample(key, n))
 
@@ -67,11 +69,13 @@ class Mixture(Target):
             log_w = jnp.zeros(len(self.components))
         return log_w - jax.scipy.special.logsumexp(log_w)
 
+    @override
     def log_prob(self, x: Array) -> Array:
         lps = jnp.stack([c.log_prob(x) for c in self.components], axis=0)
         lw = self._log_weights().reshape((-1,) + (1,) * (lps.ndim - 1))
         return jax.scipy.special.logsumexp(lps + lw, axis=0)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         keys = jax.random.split(key, len(self.components) + 1)
         idx = jax.random.categorical(keys[0], self._log_weights(), shape=(n,))
@@ -96,11 +100,13 @@ class Mirror(Target):
         ).reshape(-1, k)
         return jnp.ones((patterns.shape[0], dim)).at[:, jnp.array(self.flip_axes)].set(patterns)
 
+    @override
     def log_prob(self, x: Array) -> Array:
         signs = self._signs(x.shape[-1])
         lps = jnp.stack([self.base.log_prob(x * s) for s in signs], axis=0)
         return jax.scipy.special.logsumexp(lps, axis=0) - jnp.log(signs.shape[0])
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         key_base, key_flip = jax.random.split(key)
         samples = self.base.sample(key_base, n)
@@ -120,6 +126,7 @@ class SoftConstraint(Target):
     penalty: Callable[[Array], Array]
     weight: float = 1.0
 
+    @override
     def log_prob(self, x: Array) -> Array:
         return self.base.log_prob(x) - self.weight * self.penalty(x)
 

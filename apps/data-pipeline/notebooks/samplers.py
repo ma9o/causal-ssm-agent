@@ -240,14 +240,15 @@ def _psis_log_weights(log_w: Array) -> tuple[Array, float]:
     shape parameter (``khat``) — values ``> 0.7`` indicate that resampling is
     unreliable even after smoothing (tail too heavy).
     """
-    from arviz.stats import psislw
+    from arviz_stats.base import array_stats
 
     lw = np.asarray(log_w, dtype=np.float64)
     finite = np.isfinite(lw)
-    if finite.sum() < 5:
+    # arviz-stats uses one fifth of the draws as the tail and requires at least five.
+    if finite.sum() < 25:
         return jnp.asarray(lw), float("nan")
     lw_clean = np.where(finite, lw, -1e30)  # ArviZ rejects -inf directly
-    smoothed, k_hat = psislw(lw_clean)
+    smoothed, k_hat = array_stats.psislw(lw_clean)
     # Restore -inf at originally non-finite positions so they get zero weight.
     smoothed = np.where(finite, smoothed, -np.inf)
     return jnp.asarray(smoothed), float(k_hat)
@@ -274,7 +275,7 @@ def run_multipath_pathfinder(
     paths_elbo: list[Array] = []
     best_iters: list[int] = []
     best_elbos: list[float] = []
-    states: list = []
+    states: list[pathfinder.PathfinderState] = []
     draws_list: list[Array] = []
 
     for k in range(cfg.num_paths):

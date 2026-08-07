@@ -1,10 +1,10 @@
 # Estimation Pipeline
 
-This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-5-runtime-preparation-compileartifactpy-runtimepy-observation_supportpy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
+This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-5-runtime-preparation-runtimepy-serializationpy-observation_supportpy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
 **Reader guide:**
 
-- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives using IEKS/Laplace likelihoods.
+- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how the exact execution layer discretizes it per observation interval, and how inference targets that executable model.
 - **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `ParticleMCMCPosterior`.
 
 ## 1. CT-SDE Formulation
@@ -17,7 +17,7 @@ d eta(t) = f(eta(t), t; theta) dt + G dW(t)
 
 where:
 
-- `f` is the **drift vector field**, assembled as a sum of components: per-construct baseline decay and intercepts plus per-edge effects. Edges are drawn from a small vocabulary — **linear** (baseline coupling), **Hill** (saturating dose-response), and **multiplicative** (bilinear interaction) — so the dynamics are non-linear in general. The affine CT-SEM form `f(eta) = A * eta + c`[^sarkka2019] is the constant-Jacobian special case (a single dense-linear component), recovered exactly when every edge is linear. The continuous-discrete filtering and smoothing machinery[^sarkka2013] (§2–§3) then operates on the locally-linearized system.
+- `f` is the **drift vector field**, assembled as a sum of components: per-construct baseline decay and intercepts plus per-edge effects. Edges are drawn from a small vocabulary — **linear** (baseline coupling), **Hill** (saturating dose-response), and **multiplicative** (bilinear interaction) — so the dynamics are non-linear in general. The affine CT-SEM form `f(eta) = A * eta + c`[^sarkka2019] is the constant-Jacobian special case (a single dense-linear component), recovered exactly when every edge is linear.
 - In the affine case `A` is the `n_latent x n_latent` **drift matrix** controlling auto- and cross-regressive dynamics: off-diagonal entries (cross-effects) are sampled on allowed edges, and diagonal entries are derived from baseline decay plus incoming row mass so each dynamic row is strictly damped. For non-linear edges the relevant first-order object is the **Jacobian** `∂f/∂eta`, which drives discretization (§2) and the local stability check.
 - `c` is the `n_latent x 1` **continuous intercept** (CINT), shifting the asymptotic mean away from zero (the affine intercept; the local intercept `f(x_lin) - (∂f/∂eta) x_lin` in general).
 - `G` is the `n_latent x n_latent` **diffusion Cholesky factor**, so `G G'` is the process noise covariance; diffusion is additive Gaussian regardless of the drift.
@@ -36,35 +36,36 @@ where:
 - `R` is the `n_manifest x n_manifest` **measurement error covariance** (Cholesky-parameterized internally).
 - `F` is the [observation noise family](statistical-model-spec/likelihoods.md#distribution-families) with its associated [link function](statistical-model-spec/likelihoods.md#link-functions). Gaussian (identity link) by default; see the [dtype-to-distribution mapping](statistical-model-spec/likelihoods.md#dtype-to-distribution-mapping) for all supported families.
 
-## 2. Discretization (CT to DT)
+## 2. Exact Execution (CT to DT)
 
-Observations arrive at discrete (possibly irregular) times. Before filtering, the continuous-time system is discretized for each inter-observation interval `dt`. Because the drift `f` is non-linear in general, discretization operates on the **local linearization**: at a reference state `x_lin` (the filter mean, or the current trajectory sample at the start of the interval) the field is approximated as `f(eta) ≈ F * eta + b` with Jacobian `F = ∂f/∂eta` (via `jax.jacfwd`) and intercept `b = f(x_lin) - F * x_lin`, and that affine system is discretized exactly. Constant-Jacobian (dense-linear) fields skip the per-interval linearization and take the exact affine fast path; trajectory-dependent fields (Hill / multiplicative edges) linearize once per interval.
+Observations arrive at discrete, potentially irregular times. The reported posterior uses Euler–Maruyama transitions evaluated against the true nonlinear vector field at each path state:
 
-### Core equations
+```text
+eta_t = eta_(t-1) + dt_t * f(eta_(t-1), t; theta)
+        + G * sqrt(dt_t) * epsilon_t
+epsilon_t ~ Normal(0, I)
+```
 
-Given the local Jacobian `F`, diffusion covariance `Q_c = G G'`, and local intercept `b`:
+For additive diffusion covariance `Q_c = G G'`, the transition density is therefore:
 
-| Discrete quantity | Method |
-|---|---|
-| Discrete drift | `A_d = exp(F * dt)` (matrix exponential) |
-| Discrete process noise | `Q_d` from the **Van Loan block exponential** of `[[F, Q_c], [0, -F']] * dt` |
-| Discrete intercept | `c_d` from the **augmented matrix exponential** of `[[F, b], [0, 0]] * dt` |
+```text
+eta_t | eta_(t-1) ~ Normal(
+    eta_(t-1) + dt_t * f(eta_(t-1), t; theta),
+    Q_c * dt_t,
+)
+```
 
-The Van Loan and augmented-exponential forms are used rather than the textbook closed forms (`Q_d = Q_inf - A_d Q_inf A_d'` and `c_d = F^{-1} (A_d - I) b`), because a local linearization far from equilibrium can be unstable (Jacobian eigenvalues with positive real part) or singular, which breaks both closed forms. Van Loan stays exact for any `F`, including singular or defective drift matrices.
+This is the only latent transition target exposed by `SSMModel.trajectory_target()`. Its implementation lives in `models/ssm/execution/`, independent of sampler algorithms. The particle methods consume that contract and evaluate the true emission density; the remaining approximation is the controllable time-discretization error from `dt`, not a linearized model substitution.
 
-### Stationary initial covariance
+### Initialization-only linearization
 
-The Lyapunov equation `A Q_inf + Q_inf A' = -Q_c` supplies the **stationary initial-state covariance** under `initialization_policy="stationary"` (used by prior-predictive sampling) — not the per-interval process noise above. It is solved via Kronecker vectorization, `(I ⊗ A + A ⊗ I) vec(X) = vec(-Q_c)`: O(n^6) but fully differentiable and GPU-compatible, with the Bartels-Stewart / Sylvester route (O(n^3)) avoided because its Schur decomposition has no CUDA XLA implementation. `solve_lyapunov` carries a custom JVP (`@jax.custom_jvp`) that differentiates implicitly through the equation and solves the tangent system with the same Kronecker solver.
-
-### Batched discretization
-
-For a time series with T observations and potentially irregular intervals, the discretization is vmapped over the `dt` dimension to produce batched `(T, n, n)` discrete drift and noise matrices. For a constant-Jacobian (affine) field the matrix exponentials are identical across particles and are computed once per timestep rather than once per particle; a trajectory-dependent field discretizes at each particle's own per-interval linearization state.
+IEKS/Laplace and local affine discretization are confined to warmup: initial parameter positions, proposal preconditioning, and the cSMC reference trajectory. Exact MCMC/SMC correction prevents those initializers from replacing the stationary target. `test_linearization_init_only.py` statically guards this ownership.
 
 **Note on `edge_lag_days`:** The per-edge lag in days, computed during [spec translation in the compilation pipeline](compilation.md#stage-1-spec-translation-compilespec_translationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
 
 ## 3. State-Side Objectives
 
-The IEKS/Laplace machinery supplies initialization, corrected proposal components, and diagnostic objectives. It does not replace the reported posterior target. The `marginal_particle_gibbs` method updates latent trajectories with dSMC against the true nonlinear drift and emission density. The routing details live in [inference-routing.md](inference-routing.md).
+The IEKS/Laplace machinery supplies initialization and corrected proposal components. It does not replace the reported posterior target. The `marginal_particle_gibbs` method updates latent trajectories with dSMC against the true nonlinear drift and emission density. The routing details live in [inference-routing.md](inference-routing.md).
 
 ### IEKS/Laplace backend
 
@@ -98,7 +99,7 @@ The estimation pipeline composes three main libraries:
 
 ```mermaid
 flowchart LR
-    A["CompiledSSMArtifact"] --> B["build_model_from_compiled_artifact()"]
+    A["CompiledSSMArtifact"] --> B["hydrate_compiled_model()"]
     B --> C["prepare_model_runtime()"]
     C --> D["SSMModel"]
     C --> E["observations + times + support"]
@@ -108,9 +109,8 @@ flowchart LR
     G --> H["ParticleMCMCPosterior"]
 ```
 
-A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-compileartifactpy) arrives from the compilation pipeline. `build_model_from_compiled_artifact()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. Inside the NumPyro model function, `SSMModel.model()` samples from the runtime prior bundle, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `fit_prepared_model()` passes the prepared model and arrays to `inference.fit()`, which returns a `ParticleMCMCPosterior` with production-engine evidence, posterior samples, and diagnostics. Laplace/IEKS fitting returns the distinct `WarmupProposal` type and therefore cannot enter reported-posterior APIs.
+A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-compileartifactpy) arrives from the compilation pipeline. `hydrate_compiled_model()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. `fit_prepared_model()` passes the executable model and arrays to `inference.fit()`, which requests the model-owned Euler–Maruyama trajectory target and returns a `ParticleMCMCPosterior` with production-engine evidence, posterior samples, and diagnostics. Laplace/IEKS returns the distinct `WarmupProposal` type and therefore cannot enter reported-posterior APIs.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [`baseline_report` transition](../pipeline/analysis.md).
 
 [^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)
-[^sarkka2013]: Särkkä, S. (2013). *Bayesian Filtering and Smoothing*. Cambridge University Press. [Bibliography entry](bibliography.md)

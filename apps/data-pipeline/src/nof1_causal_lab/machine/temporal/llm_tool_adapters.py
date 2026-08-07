@@ -17,6 +17,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
     write_subroutine_json,
@@ -26,6 +27,8 @@ from nof1_causal_lab.utils import storage
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    import polars as pl
+
     from nof1_causal_lab.machine.temporal.messages import (
         HarnessToolRequest,
         LLMToolExecutionInput,
@@ -63,8 +66,8 @@ def _validate_tool_payload(
     *,
     context_kind: str,
     context_ref: str,
-    data: dict,
-) -> tuple[dict | None, str]:
+    data: UncheckedJsonObject,
+) -> tuple[UncheckedJsonObject | None, str]:
     if context_kind == "measurement_extraction":
         from nof1_causal_lab.workers.schemas import validate_worker_output
 
@@ -98,7 +101,7 @@ def _validate_tool_payload(
     raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")
 
 
-def _raw_data_context(context_ref: str) -> dict[str, Any]:
+def _raw_data_context(context_ref: str) -> UncheckedJsonObject:
     return read_subroutine_json(context_ref)
 
 
@@ -121,7 +124,7 @@ def _raw_python_output_prefix(stdout: str, stderr: str) -> str:
     return "\n".join(parts) + "\n\n"
 
 
-def _execute_python_locally(extract_dir: Path, code: str) -> tuple[str, Any | None]:
+def _execute_python_locally(extract_dir: Path, code: str) -> tuple[str, pl.DataFrame | None]:
     import polars as pl
 
     stdout_buffer = io.StringIO()
@@ -182,7 +185,9 @@ def _execute_python_locally(extract_dir: Path, code: str) -> tuple[str, Any | No
     return f"{prefix}Success!\n\n" + "\n".join(lines), result_df
 
 
-def _execute_raw_data_list_files(context_ref: str, args: dict[str, Any]) -> tuple[str, str | None]:
+def _execute_raw_data_list_files(
+    context_ref: str, args: UncheckedJsonObject
+) -> tuple[str, str | None]:
     from nof1_causal_lab.flows.transitions.ingestion.tools import _safe_resolve
 
     context = _raw_data_context(context_ref)
@@ -220,7 +225,7 @@ def _execute_raw_data_list_files(context_ref: str, args: dict[str, Any]) -> tupl
 
 
 def _execute_raw_data_read_file_sample(
-    context_ref: str, args: dict[str, Any]
+    context_ref: str, args: UncheckedJsonObject
 ) -> tuple[str, str | None]:
     from nof1_causal_lab.flows.transitions.ingestion.tools import _safe_resolve
 
@@ -266,7 +271,7 @@ def _execute_raw_data_read_file_sample(
     return f"Could not read file {path} with utf-8 or latin-1 encoding", None
 
 
-def _execute_raw_data_python(context_ref: str, args: dict[str, Any]) -> tuple[str, str | None]:
+def _execute_raw_data_python(context_ref: str, args: UncheckedJsonObject) -> tuple[str, str | None]:
     context = _raw_data_context(context_ref)
     code = str(args["code"])
     output, result_df = _execute_python_locally(Path(context["extract_dir"]).resolve(), code)
@@ -278,7 +283,7 @@ def _execute_raw_data_python(context_ref: str, args: dict[str, Any]) -> tuple[st
 def _execute_raw_data_submit_table(
     context_ref: str,
     result_ref: str,
-    args: dict[str, Any],
+    args: UncheckedJsonObject,
 ) -> tuple[str, str | None]:
     import polars as pl
 
@@ -338,7 +343,7 @@ def _execute_raw_data_submit_table(
 
 async def _execute_model_spec_search_literature(
     context_ref: str,
-    args: dict[str, Any],
+    args: UncheckedJsonObject,
 ) -> tuple[str, str | None]:
     from nof1_causal_lab.flows.transitions.model_spec.tools import search_literature
 
@@ -361,7 +366,7 @@ async def _execute_model_spec_search_literature(
 
 def _execute_model_spec_submit_construct(
     context_ref: str,
-    args: dict[str, Any],
+    args: UncheckedJsonObject,
     submission_id: str,
 ) -> tuple[str, str | None]:
     from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
@@ -429,7 +434,8 @@ def _execute_model_spec_submit_construct(
     state.search_queries = dict(search_state["search_queries"])
     state.search_cache = dict(search_state["search_cache"])
     evaluation_key = model_spec_admission_evaluation_key(
-        parent,
+        input_identity={"artifact_pins": parent.input_pins},
+        accepted_constructs=parent.accepted_constructs,
         ancestor_constructs=set(state.admitted_contributions),
         construct_name=construct,
         indicators=indicators,
@@ -520,7 +526,7 @@ def _execute_model_spec_submit_construct(
     admitted = state.current_construct != construct
     outcome = report.outcome if report is not None and report.name == construct else feedback
     annotations: list[str] = []
-    results: list[dict[str, Any]] = []
+    results: list[UncheckedJsonObject] = []
     if report is not None and report.name == construct:
         from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
             _check_result_payload,
@@ -556,7 +562,7 @@ async def execute_subroutine_tool(
     *,
     input: LLMToolExecutionInput | HarnessToolRequest,
     tool: LLMToolSpec,
-    args: dict[str, Any],
+    args: UncheckedJsonObject,
     result_ref: str,
     request_id: str | None = None,
 ) -> tuple[str, str | None]:

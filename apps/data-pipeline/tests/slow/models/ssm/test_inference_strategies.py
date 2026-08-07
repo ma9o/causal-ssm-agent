@@ -17,15 +17,16 @@ from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     InitialStateParams,
     MeasurementParams,
     RuntimeDynamics,
 )
-from nof1_causal_lab.models.ssm.inference.targets.emissions import (
+from nof1_causal_lab.models.ssm.execution.emissions import (
     get_mean_param_log_prob_fn,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
 )
@@ -363,7 +364,7 @@ class TestPureJaxLikelihoodEvaluator:
     @staticmethod
     def _assert_log_likelihood_match(reparam) -> None:
         model, observations, times = TestPureJaxLikelihoodEvaluator._build_poisson_case()
-        backend = model.make_laplace_backend(6)
+        backend = get_laplace_backend(model, 6)
         site_info = _discover_sites(
             model,
             observations,

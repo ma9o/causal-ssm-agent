@@ -67,7 +67,7 @@ class CheckResult:
     passed: bool
     note: str
     diagnosis: tuple[str, ...] = ()
-    evidence: dict | None = None
+    evidence: dict[str, np.ndarray | float] | None = None
 
 
 def _robust_scale(values: np.ndarray, *, axis: int | tuple[int, ...] | None = None) -> np.ndarray:

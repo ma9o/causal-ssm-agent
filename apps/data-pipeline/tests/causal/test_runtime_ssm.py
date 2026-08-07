@@ -85,7 +85,7 @@ class TestSSMModelDynamicsDispatch:
         from numpyro import handlers
 
         from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
-        from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+        from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             ManifestCholBlockSpec,

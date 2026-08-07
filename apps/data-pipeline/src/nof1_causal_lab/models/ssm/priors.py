@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -221,7 +223,7 @@ def prior_spec_from_normalized_params(
             if "family" in normalized
             else PriorDistributionFamily.HALF_NORMAL
         )
-        params: dict[str, Any] = {}
+        params: UncheckedJsonObject = {}
         if family == PriorDistributionFamily.HALF_NORMAL:
             params["sigma"] = normalized.get("sigma", 1.0)
         elif family == PriorDistributionFamily.GAMMA:
@@ -270,7 +272,7 @@ def prior_spec_from_normalized_params(
 
 def prior_spec_to_normalized_params(
     prior: PriorSpec,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Convert a canonical prior into compiler-normalized parameter names."""
     params = dict(prior.params)
     if prior.family == PriorDistributionFamily.LOG_NORMAL and "mu" in params:

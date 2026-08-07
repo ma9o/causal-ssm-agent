@@ -8,10 +8,11 @@ import logging
 import os
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from typing_extensions import TypeIs
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -32,7 +33,7 @@ def _metadata_path(workspace_id: str) -> str:
     return storage.join(data_module.cache_dir(workspace_id), "model-spec-jax-cache-metadata.json")
 
 
-def load_model_spec_compile_cache_metadata(workspace_id: str) -> dict[str, Any] | None:
+def load_model_spec_compile_cache_metadata(workspace_id: str) -> UncheckedJsonObject | None:
     """Load model-spec compile-cache metadata, if present."""
     path = _metadata_path(workspace_id)
     if not storage.exists(path):
@@ -50,8 +51,8 @@ def compiled_ssm_topology_fingerprint(compiled_ssm: CompiledSSMArtifact) -> str:
 
 
 def _metadata_matches(
-    metadata: dict[str, Any] | None, topology_fingerprint: str
-) -> TypeIs[dict[str, Any]]:
+    metadata: UncheckedJsonObject | None, topology_fingerprint: str
+) -> TypeIs[UncheckedJsonObject]:
     return (
         isinstance(metadata, dict)
         and metadata.get("topology_fingerprint") == topology_fingerprint
@@ -84,7 +85,7 @@ def _restore_cache_archive(workspace_id: str) -> bool:
     return True
 
 
-def _wait_for_pending_compile_cache(metadata: dict[str, Any]) -> bool:
+def _wait_for_pending_compile_cache(metadata: UncheckedJsonObject) -> bool:
     function_call_id = metadata.get("function_call_id")
     if not isinstance(function_call_id, str) or not function_call_id:
         return False

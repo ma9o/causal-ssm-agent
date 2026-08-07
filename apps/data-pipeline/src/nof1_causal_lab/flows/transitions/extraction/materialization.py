@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import polars as pl
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 
 def materialize_extraction_outputs(
-    extraction_result: dict,
-    measurement_structure: dict,
-) -> dict[str, Any]:
+    extraction_result: UncheckedJsonObject,
+    measurement_structure: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     """Materialize the extraction observation table from a serialized extraction result."""
     from nof1_causal_lab.utils.aggregations import _encode_non_continuous
     from nof1_causal_lab.utils.data import ObservationRecord, observation_row_schema

@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | [`MeasurementStructure`](#measurementstructure), authored [`KnownInput`](#knowninput) declarations; derives [`CausalDesign`](#causaldesign) and [`IdentificationReport`](#identificationreport) when positive |
+| Semantic | Yes | [`MeasurementStructure`](#measurementstructure), executable-disposition declarations; derives [`CausalDesign`](#causaldesign), [`StructuralPlan`](#structuralplan), and [`IdentificationReport`](#identificationreport) when positive |
 
 Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
 
@@ -24,8 +24,9 @@ Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) ag
 flowchart LR
     P[Propose] --> V1{Validator} -- errors --> P
     V1 -- VALID --> R[Review] --> V2{Validator} -- errors --> R
-    V2 -- VALID --> M([MeasurementStructure + KnownInputs])
+    V2 -- VALID --> M([MeasurementStructure + dispositions])
     M -->|derive| C([CausalDesign])
+    C -->|compile| S([StructuralPlan])
     C -->|derive when positive| I([IdentificationReport])
 ```
 
@@ -39,7 +40,7 @@ flowchart LR
 - *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
 - *Computed-rule validity:* computed indicators have valid rule expressions
 - *Known-input integrity:* declarations reference an existing construct and an indicator that measures that same construct
-- *Estimation projection:* removing known inputs from the state vector still satisfies compiler-owned state coverage and loading-rank constraints
+- *Structural compilation:* every construct, edge, and indicator receives an explicit disposition; retained states satisfy coverage and loading-rank constraints; unsupported static-target edges are rejected
 
 After the authored artifact validates, the machine derives the complete causal design and checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair.
 
@@ -55,7 +56,9 @@ For a study of developer workload and code quality, `measurement_structure` tran
 |---|---|---|
 | `measurement_structure` | [`MeasurementStructure`](#measurementstructure) | Authored indicator mapping and model clock |
 | `known_inputs` | `list[KnownInput]` | Authored declarations of observed trajectories compiled as transition inputs |
-| `causal_design` | [`CausalDesign`](#causaldesign) | Machine-derived composition, identification status, and estimation projection |
+| `scientific_only_constructs` | `list[ScientificOnlyConstruct]` | Measured constructs retained in the scientific DAG but explicitly excluded from the executable state |
+| `causal_design` | [`CausalDesign`](#causaldesign) | Machine-derived scientific composition and identification status |
+| `structural_plan` | [`StructuralPlan`](#structuralplan) | Versioned executable projection with stable source IDs, semantic metadata, and explicit source-item dispositions |
 | `identification_report` | [`IdentificationReport`](#identificationreport) | Machine-derived positive identification gate, present only when at least one treatment effect is explicitly identifiable |
 
 ### `MeasurementStructure`
@@ -78,6 +81,7 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `aggregation` | `str` | Summary operator applied within each realized support window |
 | `observation_window` | `str` | Window width such as `"1d"` or `"1w"` over which one indicator value is defined |
 | `ordinal_levels` | `list[str]` \| `null` | Ordered labels when `measurement_dtype="ordinal"` |
+| `categorical_levels` | `list[str]` \| `null` | Exhaustive labels when `measurement_dtype="categorical"` |
 | `source_columns` | `list[str]` | Raw columns needed to compute or interpret the indicator |
 | `extraction_mode` | `str` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
 
@@ -89,6 +93,13 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `source_indicator` | `str` | Indicator for the same construct that supplies the input trajectory |
 | `scale` | `float` | Positive divisor applied to the source values before inference |
 | `missing_policy` | `str` | Whether missing grid values become zero or carry the last observed value forward |
+
+### `ScientificOnlyConstruct`
+
+| Field | Type | Description |
+|---|---|---|
+| `construct` | `str` | Measured scientific-DAG construct excluded from the executable state vector |
+| `reason` | `str` | Explicit scientific or identification rationale for the exclusion |
 
 ### `observation_window` and `model_clock`
 
@@ -126,16 +137,22 @@ The `MeasurementStructure` does not store row timestamps itself, but it fully de
 | `latent` | [`LatentStructure`](latent-structure.md#latent-structure) | The validated `latent_structure` transition construct-level graph |
 | `measurement` | [`MeasurementStructure`](#measurementstructure) | The indicator mapping and model clock introduced here |
 | `identifiability` | [`IdentifiabilityStatus`](#identifiabilitystatus) \| `null` | Treatment-level identifiability results from the `measurement_structure` transition checker |
-| `estimation` | [`EstimationSpec`](#estimationspec) \| `null` | Executable state-space projection derived from the authored structures and known inputs |
+| `known_inputs` | `list[KnownInput]` | Authored observed transition drivers |
+| `scientific_only_constructs` | `list[ScientificOnlyConstruct]` | Authored exclusions from the executable SSM |
 
-### `EstimationSpec`
+### `StructuralPlan`
 
 | Field | Type | Description |
 |---|---|---|
-| `state_order` | `list[str]` | Retained latent states in canonical compiler order |
-| `edges` | `list[CausalEdge]` | Directed transition edges into retained states, including edges from known inputs |
-| `induced_dependencies` | `list[InducedDependency]` | Covariance dependencies induced by marginalized latent root confounders |
-| `known_inputs` | `list[KnownInput]` | Validated authored input declarations copied into the executable projection |
+| `schema_version` | `int` | Persisted structural-plan contract version |
+| `semantics` | `StructuralSemanticCatalog` | Construct, edge, and indicator semantics keyed by stable source IDs |
+| `state_order` | `list[str]` | Retained construct source IDs in canonical compiler order |
+| `edges` | `list[StructuralEdge]` | Retained directed edges keyed back to their source edge IDs |
+| `manifest_indicator_order` | `list[str]` | Retained indicator source IDs in canonical likelihood order |
+| `reference_indicator_ids` | `dict[str, str]` | Retained state source IDs mapped to their compiler-authoritative reference manifest source IDs |
+| `known_inputs` | `list[StructuralKnownInput]` | Observed transition inputs with source construct and indicator IDs |
+| `induced_dependencies` | `list[StructuralInducedDependency]` | Covariance dependencies induced by marginalized explicit latent root confounders |
+| `dispositions` | `list[StructuralItemDisposition]` | Total retained, projected, marginalized, input, manifest, or scientific-only decision for every source item |
 
 ### `IdentifiabilityStatus`
 

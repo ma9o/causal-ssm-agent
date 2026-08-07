@@ -35,11 +35,7 @@ function densityPoints(points: PriorRow["density_points"]): DensityPoint[] {
 function DensitySparkline({ prior }: { prior: PriorRow }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const data = useMemo(
-    () =>
-      densityPoints(
-        prior.density_points ??
-          evaluatePdf(prior.distribution, prior.params as Record<string, number>, 60),
-      ),
+    () => densityPoints(prior.density_points ?? evaluatePdf(prior.distribution, prior.params, 60)),
     [prior],
   );
 
@@ -154,7 +150,7 @@ const baseColumns = [
     id: "params",
     header: "Params",
     cell: ({ row }) => {
-      const params = row.original.params as Record<string, number>;
+      const params = row.original.params;
       return (
         <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
           {Object.entries(params).map(([k, v]) => (

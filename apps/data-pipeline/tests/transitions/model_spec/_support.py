@@ -15,13 +15,13 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.prior import PriorValidationResult
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_ssm_inputs_from_statistical_model_spec,
 )
-from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 
 def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:
@@ -71,7 +71,7 @@ def _make_polars_data() -> pl.DataFrame:
 
 
 @pytest.fixture
-def simple_statistical_model_spec() -> dict:
+def simple_statistical_model_spec() -> dict[str, Any]:
     """Minimal model-spec statistical model spec used by SSM-validation tests."""
     return {
         "likelihoods": [
@@ -100,7 +100,7 @@ def simple_statistical_model_spec() -> dict:
 
 
 @pytest.fixture
-def simple_priors() -> dict:
+def simple_priors() -> dict[str, Any]:
     """Priors matching ``simple_statistical_model_spec``."""
     return {
         "rho_mood": {

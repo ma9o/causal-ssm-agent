@@ -19,6 +19,7 @@ from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
     DynamicsSpec,
+    Fixed,
     HillEdge,
     Intervention,
     LinearEdge,
@@ -89,7 +90,16 @@ class TestDynamicsSpecFromDict:
                     "target": C_P,
                 },
                 {"kind": "LinearEdge", "source": C_P, "target": C_E},
-                {"kind": "HillEdge", "source": C_E, "target": AFFECTIVE},
+                {
+                    "kind": "HillEdge",
+                    "source": C_E,
+                    "target": AFFECTIVE,
+                    "parameters": {
+                        "emax": {"kind": "free"},
+                        "ec50": {"kind": "free"},
+                        "n": {"kind": "free"},
+                    },
+                },
             ],
         }
         compiled = compile_dynamics(dynamics_spec_from_dict(config))
@@ -295,7 +305,16 @@ class TestDynamicsSpecRoundTrip:
                     "target": C_P,
                 },
                 {"kind": "LinearEdge", "source": C_P, "target": C_E},
-                {"kind": "HillEdge", "source": C_E, "target": AFFECTIVE},
+                {
+                    "kind": "HillEdge",
+                    "source": C_E,
+                    "target": AFFECTIVE,
+                    "parameters": {
+                        "emax": {"kind": "free"},
+                        "ec50": {"kind": "free"},
+                        "n": {"kind": "free"},
+                    },
+                },
             ],
         }
         spec = dynamics_spec_from_dict(config)
@@ -350,8 +369,8 @@ class TestDynamicsSpecRoundTrip:
                 HillEdgeSpec(
                     source=0,
                     target=1,
-                    fixed_ec50=1.2,
-                    fixed_n=2.0,
+                    ec50=Fixed(1.2),
+                    n=Fixed(2.0),
                 ),
             ),
         )
@@ -360,8 +379,11 @@ class TestDynamicsSpecRoundTrip:
             "kind": "HillEdge",
             "source": 0,
             "target": 1,
-            "fixed_ec50": 1.2,
-            "fixed_n": 2.0,
+            "parameters": {
+                "emax": {"kind": "free"},
+                "ec50": {"kind": "fixed", "value": 1.2},
+                "n": {"kind": "fixed", "value": 2.0},
+            },
         }
 
         restored = dynamics_spec_from_dict(payload)
@@ -383,14 +405,12 @@ class TestDynamicsSpecRoundTrip:
         import jax.numpy as jnp
 
         from nof1_causal_lab.models.ssm import SSMSpec
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            deserialize_ssm_spec,
-            serialize_ssm_spec,
-        )
+        from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
         from nof1_causal_lab.models.ssm.dynamics import (
             DiagonalDecaySpec,
             DynamicsSpec,
         )
+        from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
         from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
         )
@@ -425,6 +445,9 @@ class TestDynamicsSpecRoundTrip:
             static_state_sd_block=default_static_state_sd_block(),
         )
         payload = serialize_ssm_spec(spec)
+        serialized_fields = payload.model_dump()
+        assert "initialization_policy" not in serialized_fields
+        assert "observation_intercept_policy" not in serialized_fields
         assert isinstance(payload.dynamics_spec, dict)
         assert payload.dynamics_spec["n_latent"] == 2
         components = payload.dynamics_spec["components"]

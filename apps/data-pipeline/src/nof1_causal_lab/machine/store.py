@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import cloudpickle
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import (
     ArtifactId,
     ArtifactVersionInfo,
@@ -104,9 +105,9 @@ class ArtifactStore:
         provenance: Provenance,
         derived_from: dict[ArtifactId, int],
         produced_by: str | None,
-        json_files: dict[str, Any] | None = None,
+        json_files: UncheckedJsonObject | None = None,
         parquet_files: dict[str, pl.DataFrame] | None = None,
-        pickle_files: dict[str, Any] | None = None,
+        pickle_files: UncheckedJsonObject | None = None,
     ) -> ArtifactVersionInfo:
         """Persist one immutable artifact version and return its stamp."""
         version = self.next_version(artifact_id)
@@ -199,7 +200,7 @@ class TransitionRecord(BaseModel):
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
-    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: UncheckedJsonObject = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
     trace_ids: list[str]

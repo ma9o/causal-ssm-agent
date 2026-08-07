@@ -7,7 +7,7 @@ Defines the parameter roles, prior vocabulary, and default guidance for [`Parame
 
 ## Parameter Roles
 
-The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly the following parameters from a [`CausalDesign`](../../pipeline/measurement-structure.md#causaldesign):
+The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly the following parameters from a [`StructuralPlan`](../../pipeline/measurement-structure.md#structuralplan):
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|
@@ -71,8 +71,8 @@ The `Use When` column is the authoritative short guidance reused by the model-sp
 | obs_shape (Gamma shape) | Gamma(2, 1) | [0.5, 10] | Observation overdispersion/shape for Gamma-family emissions |
 | obs_r (negative-binomial dispersion) | Gamma(2, 0.5) | [0.5, 20] | Observation overdispersion; smaller values imply heavier count overdispersion |
 | obs_concentration (Beta concentration) | Gamma(5, 0.5) | [1, 50] | Observation concentration around the latent mean on (0, 1) |
-| obs_ordered_base (ordered thresholds) | Normal(0, 1) | [-3, 3] | Ordered-logistic threshold location on the latent predictor scale |
-| obs_ordered_gaps (ordered threshold gaps) | HalfNormal(1) | [0, 3] | Positive spacing between adjacent ordered-logistic thresholds |
+| obs_ordered_base_<indicator> (ordered thresholds) | Normal(0, 1) | [-3, 3] | Indicator-specific ordered-logistic threshold location on the latent predictor scale |
+| obs_ordered_gaps_<indicator> (ordered threshold gaps) | HalfNormal(1) | [0, 3] | Indicator-specific positive spacing between adjacent ordered-logistic thresholds |
 | obs_cat_intercepts (categorical logits) | Normal(0, 1) | [-4, 4] | Baseline category-logit offsets on the latent predictor scale |
 | obs_cat_slopes (categorical logits) | Normal(0, 1) | [-4, 4] | Category-specific slope adjustments on the latent predictor scale; when every indicator of a construct is categorical, the reference channel's first non-baseline slope is compiler-pinned to +1 as the scale/sign anchor and the prior applies to the remaining slopes |
 | cor (correlation) | Uniform(-1, 1) or TruncatedNormal(0, 0.3, -1, 1) | [-1, 1] | Innovation correlation |

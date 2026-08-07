@@ -18,13 +18,13 @@ to return only nonparametric do-calculus identifications.
 
 import logging
 import re
-from typing import Any
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
@@ -35,11 +35,11 @@ logger = logging.getLogger(__name__)
 
 
 def check_identifiability(
-    latent_structure: dict,
-    measurement_structure: dict,
+    latent_structure: UncheckedJsonObject,
+    measurement_structure: UncheckedJsonObject,
     *,
     iv_allowed: bool = True,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
     Uses 2-timestep unrolling (per A3a and arXiv:2504.20172) to correctly
@@ -82,8 +82,8 @@ def check_identifiability(
     outcome_is_time_varying = _is_time_varying(latent_structure, outcome)
 
     # Check each treatment
-    identifiable_treatments: dict[str, dict[str, Any]] = {}
-    non_identifiable_treatments: dict[str, dict[str, Any]] = {}
+    identifiable_treatments: dict[str, UncheckedJsonObject] = {}
+    non_identifiable_treatments: dict[str, UncheckedJsonObject] = {}
 
     # If outcome itself is unobserved, no effects are identifiable
     if outcome not in observed_constructs:
@@ -185,7 +185,7 @@ def check_identifiability(
     }
 
 
-def _is_time_varying(latent_structure: dict, construct_name: str) -> bool:
+def _is_time_varying(latent_structure: UncheckedJsonObject, construct_name: str) -> bool:
     """Check if a construct is time-varying (vs time-invariant)."""
     for construct in latent_structure["constructs"]:
         if construct["name"] == construct_name:
@@ -193,7 +193,7 @@ def _is_time_varying(latent_structure: dict, construct_name: str) -> bool:
     raise ValueError(f"Construct '{construct_name}' not found in latent structure")
 
 
-def get_observed_constructs(measurement_structure: dict) -> set[str]:
+def get_observed_constructs(measurement_structure: UncheckedJsonObject) -> set[str]:
     """Get set of constructs that have at least one measurement indicator."""
     observed = set()
     for indicator in measurement_structure.get("indicators", []):
@@ -220,7 +220,7 @@ def _canonicalize_estimand_string(estimand: str) -> str:
 
 
 def _uses_lagged_first_step_to_outcome(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     treatment: str,
     outcome: str,
 ) -> bool:
@@ -248,7 +248,7 @@ def _uses_lagged_first_step_to_outcome(
 
 
 def _get_treatment_query_node(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     treatment: str,
     outcome: str,
 ) -> str:
@@ -261,7 +261,7 @@ def _get_treatment_query_node(
 
 
 def unroll_temporal_dag(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     observed_constructs: set[str],
 ) -> nx.DiGraph:
     """Unroll a temporal causal graph to a 2-timestep DAG for identification.
@@ -365,7 +365,7 @@ def unroll_temporal_dag(
     return dag
 
 
-def _validate_max_lag_one(latent_structure: dict) -> None:
+def _validate_max_lag_one(latent_structure: UncheckedJsonObject) -> None:
     """Validate that all edges have lag ≤ 1 (assumption A3a).
 
     Under assumption A3a (latent confounders have bounded temporal reach),
@@ -388,7 +388,7 @@ def _validate_max_lag_one(latent_structure: dict) -> None:
 
 
 def dag_to_admg(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     observed_constructs: set[str],
 ) -> tuple[NxMixedGraph, set[str]]:
     """Convert a temporal DAG to ADMG via 2-timestep unrolling.
@@ -441,7 +441,7 @@ def dag_to_admg(
 
 
 def find_blocking_confounders(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     observed_constructs: set[str],
     treatment: str,
     outcome: str,
@@ -504,7 +504,7 @@ def find_blocking_confounders(
 
 
 def find_blocking_confounders_for_query(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     observed_constructs: set[str],
     *,
     treatment_node: str,
@@ -548,7 +548,7 @@ def find_blocking_confounders_for_query(
 
 
 def find_instruments(
-    latent_structure: dict,
+    latent_structure: UncheckedJsonObject,
     observed_constructs: set[str],
     treatment: str,
     outcome: str,
@@ -612,10 +612,10 @@ def find_instruments(
 
 
 def analyze_unobserved_constructs(
-    latent_structure: dict,
-    measurement_structure: dict,
-    identifiability_result: dict,
-) -> dict[str, Any]:
+    latent_structure: UncheckedJsonObject,
+    measurement_structure: UncheckedJsonObject,
+    identifiability_result: UncheckedJsonObject,
+) -> UncheckedJsonObject:
     """Analyze which unobserved constructs can be marginalized in statistical model specification.
 
     When y0 identifies an effect despite unobserved confounding, it means the

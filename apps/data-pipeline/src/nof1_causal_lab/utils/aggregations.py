@@ -10,6 +10,7 @@ import logging
 import numpy as np
 import polars as pl
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
 
 logger = logging.getLogger(__name__)
@@ -391,7 +392,7 @@ def _build_map_groups_fn(agg_name: str):
 
 def compute_indicators(
     raw_df: pl.DataFrame,
-    indicators: list[dict],
+    indicators: list[UncheckedJsonObject],
     model_clock: str,
     time_col: str,
 ) -> pl.DataFrame:

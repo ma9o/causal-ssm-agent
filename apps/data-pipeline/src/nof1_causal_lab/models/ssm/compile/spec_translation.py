@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 import numpy as np
 
@@ -14,7 +16,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterRole,
     StatisticalModelSpec,
 )
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import (
     indicator_requires_observation_intercept,
     should_auto_standardize_indicator,
@@ -26,7 +28,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     NodePotentialSpec,
     StateInterceptSpec,
 )
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     supported_distribution_families,
 )
 from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -36,23 +38,30 @@ from nof1_causal_lab.models.ssm.parameter_names import (
 )
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
+    Fixed,
+    Free,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.utils.causal_design import (
-    build_reference_indicator_lookup,
-    get_constructs,
-    get_estimation_edges,
-    get_estimation_state_order,
-    get_indicator_polarity,
-    get_indicators,
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
+    get_induced_dependencies,
     get_known_inputs,
     get_marginalized_scales,
+    get_model_clock,
+    get_plan_constructs,
+    get_plan_indicators,
+    get_reference_indicator_lookup,
+    get_reference_indicator_polarities,
+    get_state_names,
 )
-from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 
 
 class SpecTranslationError(AggregatedCompileError):
@@ -85,48 +94,43 @@ def _zero_square_support(n: int) -> np.ndarray:
     return np.zeros((n, n), dtype=bool)
 
 
-def get_construct_dt_days(causal_design: dict | None, _construct_name: str = "") -> float:
+def get_construct_dt_days(
+    structural_plan: StructuralPlan | None,
+    _construct_name: str = "",
+) -> float:
     """Get the model clock interval in fractional days."""
-    if causal_design is None:
-        return 1.0
-
-    model_clock = (
-        causal_design.get("measurement", {}).get("model_clock")
-        if isinstance(causal_design, dict)
-        else getattr(getattr(causal_design, "measurement", None), "model_clock", None)
-    )
-    if not model_clock:
+    if structural_plan is None:
         return 1.0
 
     try:
-        return parse_duration_to_hours(model_clock) / 24.0
+        return parse_duration_to_hours(get_model_clock(structural_plan)) / 24.0
     except ValueError:
         return 1.0
 
 
-def get_estimation_latent_layout(
-    causal_design: dict | None,
+def get_structural_latent_layout(
+    structural_plan: StructuralPlan | None,
 ) -> tuple[list[str], np.ndarray | None] | None:
     """Build the canonical latent ordering from the retained estimation states."""
-    if causal_design is None:
+    if structural_plan is None:
         return None
 
     try:
-        state_order = get_estimation_state_order(causal_design)
+        state_order = get_state_names(structural_plan)
     except ValueError as exc:
         raise SpecTranslationError([str(exc)]) from exc
     errors: list[str] = []
     if not state_order:
-        errors.append("causal_design.estimation.state_order is empty")
+        errors.append("structural_plan.state_order is empty")
         raise SpecTranslationError(errors)
 
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_constructs(causal_design)
+        construct["name"]: construct for construct in get_plan_constructs(structural_plan)
     }
     unknown_states = [name for name in state_order if name not in latent_construct_lookup]
     if unknown_states:
         errors.append(
-            "causal_design.estimation.state_order references constructs absent from latent.constructs: "
+            "structural_plan.state_order references constructs absent from its semantic catalog: "
             f"{sorted(unknown_states)}"
         )
         raise SpecTranslationError(errors)
@@ -143,8 +147,8 @@ def get_estimation_latent_layout(
     return state_order, time_invariant_mask
 
 
-def get_estimation_input_layout(
-    causal_design: dict | None,
+def get_structural_input_layout(
+    structural_plan: StructuralPlan | None,
 ) -> tuple[
     list[str],
     list[str],
@@ -153,10 +157,10 @@ def get_estimation_input_layout(
     list[bool],
 ]:
     """Build canonical known-input ordering and source metadata."""
-    if causal_design is None:
+    if structural_plan is None:
         return [], [], [], [], []
-    known_inputs = get_known_inputs(causal_design)
-    estimation_edges = get_estimation_edges(causal_design)
+    known_inputs = get_known_inputs(structural_plan)
+    estimation_edges = get_edges(structural_plan)
     input_lagged: list[bool] = []
     for item in known_inputs:
         name = str(item["construct"])
@@ -220,14 +224,14 @@ def _mask_time_invariant_diffusion_support(
     return masked
 
 
-def build_structural_support_from_causal_design(
+def build_structural_support_from_plan(
     latent_names: list[str] | None,
     manifest_cols: list[str],
     n_latent: int,
     n_manifest: int,
     *,
     manifest_dists: list[DistributionFamily],
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -237,7 +241,7 @@ def build_structural_support_from_causal_design(
     dict[tuple[int, int], float],
 ]:
     """Build block/component support arrays and edge lag metadata from causal structure."""
-    if causal_design is None or latent_names is None:
+    if structural_plan is None or latent_names is None:
         return (
             np.eye(n_latent, dtype=bool),
             np.zeros((n_latent, 0), dtype=bool),
@@ -248,13 +252,13 @@ def build_structural_support_from_causal_design(
         )
 
     try:
-        edges = get_estimation_edges(causal_design)
+        edges = get_edges(structural_plan)
     except ValueError as exc:
         raise SpecTranslationError([str(exc)]) from exc
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_constructs(causal_design)
+        construct["name"]: construct for construct in get_plan_constructs(structural_plan)
     }
-    indicators = get_indicators(causal_design)
+    indicators = get_plan_indicators(structural_plan)
     errors: list[str] = []
 
     indicator_names = {
@@ -264,13 +268,13 @@ def build_structural_support_from_causal_design(
     unknown_likelihoods = sorted(set(manifest_cols) - indicator_names)
     if unknown_likelihoods:
         errors.append(
-            "StatisticalModelSpec likelihoods reference indicators absent from causal_design measurement: "
+            "StatisticalModelSpec likelihoods reference indicators absent from structural_plan measurement: "
             f"{unknown_likelihoods}"
         )
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
     input_names, _input_sources, _input_scales, _input_policies, _input_lagged = (
-        get_estimation_input_layout(causal_design)
+        get_structural_input_layout(structural_plan)
     )
     input_idx = {name: idx for idx, name in enumerate(input_names)}
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
@@ -280,7 +284,7 @@ def build_structural_support_from_causal_design(
         if construct.get("temporal_status") != "time_invariant":
             state_dynamics_support[latent_idx_value, latent_idx_value] = True
     edge_lag_days: dict[tuple[int, int], float] = {}
-    model_dt_days = get_construct_dt_days(causal_design)
+    model_dt_days = get_construct_dt_days(structural_plan)
 
     for edge in edges:
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
@@ -288,6 +292,10 @@ def build_structural_support_from_causal_design(
         if effect not in latent_idx:
             continue
         if latent_construct_lookup.get(effect, {}).get("temporal_status") == "time_invariant":
+            errors.append(
+                "StructuralPlan contains an unsupported static-target edge that should "
+                f"have failed planning: {edge.get('source_id')!r} ({cause!r} -> {effect!r})."
+            )
             continue
         effect_idx = latent_idx[effect]
         if cause in input_idx:
@@ -306,7 +314,8 @@ def build_structural_support_from_causal_design(
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     lambda_mat_np = np.zeros((n_manifest, n_latent), dtype=np.float64)
     lambda_support = np.zeros((n_manifest, n_latent), dtype=bool)
-    reference_indicator_lookup = build_reference_indicator_lookup(indicators)
+    reference_indicator_lookup = get_reference_indicator_lookup(structural_plan)
+    reference_indicator_polarities = get_reference_indicator_polarities(structural_plan)
     matched_manifests: set[str] = set()
     invalid_construct_manifests: set[str] = set()
     construct_channels: dict[str, list[int]] = {}
@@ -322,7 +331,7 @@ def build_structural_support_from_causal_design(
             continue
         if construct_name not in latent_idx:
             errors.append(
-                "CausalDesign measurement indicator references unknown construct: "
+                "StructuralPlan manifest indicator references unknown retained construct: "
                 f"{ind_name!r} -> {construct_name!r}"
             )
             invalid_construct_manifests.add(ind_name)
@@ -342,7 +351,7 @@ def build_structural_support_from_causal_design(
             lambda_mat_np[manifest_idx_value, latent_idx_value] = 1.0
         elif ind_name == reference_indicator_lookup.get(construct_name):
             lambda_mat_np[manifest_idx_value, latent_idx_value] = (
-                1.0 if get_indicator_polarity(indicator) == "positive" else -1.0
+                1.0 if reference_indicator_polarities[construct_name] == "positive" else -1.0
             )
         else:
             lambda_support[manifest_idx_value, latent_idx_value] = True
@@ -372,7 +381,7 @@ def build_structural_support_from_causal_design(
     )
     if unmatched_manifests:
         errors.append(
-            "StatisticalModelSpec likelihoods could not be mapped to causal_design measurement indicators: "
+            "StatisticalModelSpec likelihoods could not be mapped to structural_plan measurement indicators: "
             f"{unmatched_manifests}"
         )
 
@@ -389,12 +398,12 @@ def build_structural_support_from_causal_design(
     )
 
 
-def build_manifest_variance_from_causal_design(
+def build_manifest_variance_from_plan(
     latent_names: list[str] | None,
     manifest_cols: list[str],
     manifest_dists: list[DistributionFamily],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> tuple[jnp.ndarray, np.ndarray]:
     """Build manifest-noise structure from the retained measurement structure.
 
@@ -415,10 +424,10 @@ def build_manifest_variance_from_causal_design(
         dtype=bool,
     )
 
-    if causal_design is None or latent_names is None:
+    if structural_plan is None or latent_names is None:
         return empty_variance, family_noise_mask
 
-    indicators = get_indicators(causal_design)
+    indicators = get_plan_indicators(structural_plan)
     latent_name_set = set(latent_names)
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     manifest_to_construct: dict[str, str] = {}
@@ -454,14 +463,14 @@ def build_manifest_variance_from_causal_design(
     return jnp.array(manifest_var), manifest_var_mask
 
 
-def build_manifest_level_counts_from_causal_design(
+def build_manifest_level_counts_from_plan(
     manifest_cols: list[str],
     manifest_dists: list[DistributionFamily],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> list[int] | None:
     """Build per-manifest discrete level counts from causal-design metadata."""
-    if causal_design is None:
+    if structural_plan is None:
         return None
 
     needs_level_metadata = any(
@@ -473,7 +482,7 @@ def build_manifest_level_counts_from_causal_design(
 
     indicator_lookup = {
         (indicator.get("name") if isinstance(indicator, dict) else indicator.name): indicator
-        for indicator in get_indicators(causal_design)
+        for indicator in get_plan_indicators(structural_plan)
     }
     level_counts = [0] * len(manifest_cols)
     errors: list[str] = []
@@ -498,7 +507,7 @@ def build_manifest_level_counts_from_causal_design(
         )
         if not levels or len(levels) < 2:
             errors.append(
-                f"Indicator '{manifest_name}' uses {dist.value} but causal_design is missing "
+                f"Indicator '{manifest_name}' uses {dist.value} but structural_plan is missing "
                 f"{levels_field} with at least 2 levels"
             )
             continue
@@ -561,17 +570,19 @@ def _build_manifest_standardized_flags(
     statistical_model_spec: StatisticalModelSpec,
     manifest_cols: list[str],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> list[bool]:
     """Return deterministic standardization tags for each manifest channel."""
     likelihood_lookup = {
         likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
     }
     indicator_lookup = {}
-    if causal_design is not None:
+    if structural_plan is not None:
         indicator_lookup = {
             indicator["name"]: indicator
-            for indicator in (get_indicators(causal_design) if causal_design is not None else [])
+            for indicator in (
+                get_plan_indicators(structural_plan) if structural_plan is not None else []
+            )
         }
 
     standardized: list[bool] = []
@@ -607,7 +618,7 @@ def _build_manifest_intercept_support(
     manifest_cols: list[str],
     manifest_standardized: list[bool],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> tuple[np.ndarray, list[str]]:
     """Bind only observation intercepts active for the locked likelihood semantics."""
     requested = _build_role_index_lookup(
@@ -621,7 +632,9 @@ def _build_manifest_intercept_support(
     else:
         indicator_lookup = {
             indicator["name"]: indicator
-            for indicator in (get_indicators(causal_design) if causal_design is not None else [])
+            for indicator in (
+                get_plan_indicators(structural_plan) if structural_plan is not None else []
+            )
         }
         likelihood_lookup = {
             likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
@@ -641,8 +654,6 @@ def _build_manifest_intercept_support(
             eligible[index] = indicator_requires_observation_intercept(
                 likelihood.distribution,
                 likelihood.link,
-                support_kind if isinstance(support_kind, str) else None,
-                summary_operator if isinstance(summary_operator, str) else None,
                 standardized=manifest_standardized[index],
             )
 
@@ -663,16 +674,16 @@ def _latent_standardized_anchor_mask(
     manifest_cols: list[str],
     manifest_standardized: list[bool],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> np.ndarray:
     """Mark latents whose location is pinned by a standardized manifest channel."""
     mask = np.zeros(len(latent_names), dtype=bool)
-    if causal_design is None:
+    if structural_plan is None:
         return mask
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
     standardized_lookup = dict(zip(manifest_cols, manifest_standardized, strict=True))
-    for indicator in get_indicators(causal_design):
+    for indicator in get_plan_indicators(structural_plan):
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
         construct_name = (
             indicator.get("construct_name")
@@ -685,107 +696,11 @@ def _latent_standardized_anchor_mask(
     return mask
 
 
-def _audit_identification_anchors(
-    latent_names: list[str],
-    manifest_cols: list[str],
-    manifest_dists: list[DistributionFamily],
-    manifest_standardized: list[bool],
-    manifest_cat_anchor: np.ndarray,
-    lambda_mat: jnp.ndarray,
-    lambda_support: np.ndarray,
-    state_intercept_support: np.ndarray,
-    t0_means_support: np.ndarray,
-    time_invariant_mask: np.ndarray | None,
-    *,
-    causal_design: dict | None,
-) -> list[str]:
-    """Verify every retained construct has a location anchor and a scale anchor.
-
-    Invariant (docs/reference/statistical-model-spec/identification.md): each
-    construct's location is pinned by a standardized channel or by its dynamics
-    (potential well at zero, or fixed t0 mean for time-invariant states), and
-    its scale by a fixed loading on a fixed-link-scale channel or by a pinned
-    categorical anchor slope. A free latent-side location parameter
-    (equilibrium center, static t0 mean) requires the standardized-channel
-    anchor. Violations are exact likelihood ridges, so they fail compilation.
-    """
-    if causal_design is None:
-        return []
-
-    errors: list[str] = []
-    latent_idx = {name: idx for idx, name in enumerate(latent_names)}
-    manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
-    construct_channels: dict[str, list[int]] = {}
-    for indicator in get_indicators(causal_design):
-        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = (
-            indicator.get("construct_name")
-            if isinstance(indicator, dict)
-            else indicator.construct_name
-        )
-        if ind_name in manifest_idx and construct_name in latent_idx:
-            construct_channels.setdefault(construct_name, []).append(manifest_idx[ind_name])
-
-    time_inv = (
-        np.zeros(len(latent_names), dtype=bool)
-        if time_invariant_mask is None
-        else np.asarray(time_invariant_mask, dtype=bool)
-    )
-
-    for name, latent_index in latent_idx.items():
-        channels = construct_channels.get(name, [])
-        if not channels:
-            errors.append(
-                f"Construct {name!r} retains no indicators; its latent location and scale "
-                "are unidentified (marginalize or drop it instead)."
-            )
-            continue
-
-        has_standardized = any(manifest_standardized[channel] for channel in channels)
-        free_latent_location = (
-            bool(t0_means_support[latent_index])
-            if time_inv[latent_index]
-            else bool(state_intercept_support[latent_index])
-        )
-        if free_latent_location and not has_standardized:
-            location_parameter = "t0 mean" if time_inv[latent_index] else "equilibrium center"
-            errors.append(
-                f"Construct {name!r} has no location anchor: its free {location_parameter} "
-                "rides an exact additive ridge with the channel-side location parameters. "
-                "Add a standardized channel or fix the latent-side location."
-            )
-
-        has_fixed_link_scale_anchor = any(
-            manifest_dists[channel] != DistributionFamily.CATEGORICAL
-            and float(lambda_mat[channel, latent_index]) != 0.0
-            and not lambda_support[channel, latent_index]
-            for channel in channels
-        )
-        has_cat_anchor = any(manifest_cat_anchor[channel] for channel in channels)
-        if not (has_fixed_link_scale_anchor or has_cat_anchor):
-            errors.append(
-                f"Construct {name!r} has no scale anchor: no non-categorical channel carries "
-                "a fixed loading and no categorical anchor slope is pinned."
-            )
-
-        for channel in channels:
-            if (
-                manifest_dists[channel] == DistributionFamily.CATEGORICAL
-                and lambda_support[channel, latent_index]
-            ):
-                errors.append(
-                    f"Categorical channel {manifest_cols[channel]!r} has a free loading; "
-                    "it is exactly redundant with the free class slopes."
-                )
-
-    return errors
-
-
 def _build_static_factor_structure(
     statistical_model_spec: StatisticalModelSpec,
     latent_names: list[str],
     *,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
 ) -> tuple[np.ndarray, jnp.ndarray, jnp.ndarray, list[str]]:
     """Compile deterministic baseline-factor loadings from marginalized scales."""
     factor_names = [
@@ -801,17 +716,17 @@ def _build_static_factor_structure(
             [],
         )
 
-    if causal_design is None:
+    if structural_plan is None:
         raise SpecTranslationError(
             [
-                "STATIC_STATE_SD parameters require causal_design so baseline factors can be "
+                "STATIC_STATE_SD parameters require structural_plan so baseline factors can be "
                 "compiled from induced time-invariant confounders."
             ]
         )
 
     scales_by_name = {
         scale["parameter"]: scale
-        for scale in get_marginalized_scales(causal_design)
+        for scale in get_marginalized_scales(structural_plan)
         if scale["kind"] == "initial_state_correlation"
     }
 
@@ -844,24 +759,21 @@ def _build_static_factor_structure(
 
 
 def translate_spec(
-    statistical_model_spec: StatisticalModelSpec | dict,
-    causal_design: dict | None = None,
+    statistical_model_spec: StatisticalModelSpec,
+    structural_plan: StructuralPlan | None = None,
 ) -> tuple[SSMSpec, dict[tuple[int, int], float]]:
     """Translate ``StatisticalModelSpec`` into ``SSMSpec`` with explicit edge-lag metadata.
 
     Assumes the caller has already validated ``statistical_model_spec``. This function
     is a pure translation stage — it does not re-validate.
     """
-    if isinstance(statistical_model_spec, dict):
-        statistical_model_spec = StatisticalModelSpec.model_validate(statistical_model_spec)
-
     manifest_cols = [lik.variable for lik in statistical_model_spec.likelihoods]
     n_manifest = len(manifest_cols)
     errors: list[str] = []
 
     layout_failed = False
     try:
-        structural_layout = get_estimation_latent_layout(causal_design)
+        structural_layout = get_structural_latent_layout(structural_plan)
     except SpecTranslationError as exc:
         structural_layout = None
         layout_failed = True
@@ -870,7 +782,7 @@ def translate_spec(
         latent_names, time_invariant_mask = structural_layout
         n_latent = len(latent_names)
     else:
-        if causal_design is not None and layout_failed:
+        if structural_plan is not None and layout_failed:
             latent_names = []
             time_invariant_mask = None
             n_latent = 0
@@ -883,7 +795,7 @@ def translate_spec(
             if not ar_params:
                 errors.append(
                     "No AR_COEFFICIENT parameters found in StatisticalModelSpec; "
-                    "cannot infer latent dimensionality without causal_design."
+                    "cannot infer latent dimensionality without structural_plan."
                 )
                 raise SpecTranslationError(errors)
             n_latent = len(ar_params)
@@ -902,7 +814,7 @@ def translate_spec(
             )
         manifest_dists.append(dist)
 
-    if causal_design is not None and layout_failed:
+    if structural_plan is not None and layout_failed:
         raise SpecTranslationError(errors)
 
     manifest_links: list[LinkFunction] = [
@@ -917,13 +829,13 @@ def translate_spec(
             lambda_support,
             manifest_cat_anchor,
             edge_lag_days,
-        ) = build_structural_support_from_causal_design(
+        ) = build_structural_support_from_plan(
             latent_names,
             manifest_cols,
             n_latent,
             n_manifest,
             manifest_dists=manifest_dists,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
@@ -934,7 +846,7 @@ def translate_spec(
         manifest_cat_anchor = np.zeros(n_manifest, dtype=bool)
         edge_lag_days = {}
 
-    if causal_design is None:
+    if structural_plan is None:
         latent_name_set = set(latent_names)
         latent_idx = {name: idx for idx, name in enumerate(latent_names)}
         for parameter in statistical_model_spec.parameters:
@@ -959,27 +871,23 @@ def translate_spec(
         time_invariant_mask,
     )
 
-    manifest_chol, manifest_chol_diag_support = build_manifest_variance_from_causal_design(
+    manifest_chol, manifest_chol_diag_support = build_manifest_variance_from_plan(
         latent_names,
         manifest_cols,
         manifest_dists,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
     )
     try:
-        manifest_level_counts = build_manifest_level_counts_from_causal_design(
+        manifest_level_counts = build_manifest_level_counts_from_plan(
             manifest_cols,
             manifest_dists,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
         manifest_level_counts = None
 
-    has_innovation_correlation = any(
-        parameter.role == ParameterRole.CORRELATION
-        for parameter in statistical_model_spec.parameters
-    )
-    if causal_design is not None and any(
+    if structural_plan is not None and any(
         parameter.role == ParameterRole.INITIAL_STATE_CORRELATION
         for parameter in statistical_model_spec.parameters
     ):
@@ -988,7 +896,7 @@ def translate_spec(
             "use compiled STATIC_STATE_SD baseline factors instead."
         )
     try:
-        if causal_design is None:
+        if structural_plan is None:
             t0_correlation_support = build_initial_state_correlation_support(
                 latent_names, statistical_model_spec
             )
@@ -997,11 +905,24 @@ def translate_spec(
     except ValueError as exc:
         errors.append(str(exc))
         t0_correlation_support = _zero_square_support(n_latent)
-    diffusion_chol_support = (
-        _full_cholesky_support(n_latent)
-        if has_innovation_correlation
-        else np.diag(_full_diagonal_support(n_latent))
-    )
+    if structural_plan is None:
+        has_innovation_correlation = any(
+            parameter.role == ParameterRole.CORRELATION
+            for parameter in statistical_model_spec.parameters
+        )
+        diffusion_chol_support = (
+            _full_cholesky_support(n_latent)
+            if has_innovation_correlation
+            else np.diag(_full_diagonal_support(n_latent))
+        )
+    else:
+        diffusion_chol_support = np.diag(_full_diagonal_support(n_latent))
+        latent_idx = {name: index for index, name in enumerate(latent_names)}
+        for dependency in get_induced_dependencies(structural_plan):
+            if dependency["kind"] != "innovation_correlation":
+                continue
+            first, second = (latent_idx[name] for name in dependency["between"])
+            diffusion_chol_support[max(first, second), min(first, second)] = True
     diffusion_chol_support = _mask_time_invariant_diffusion_support(
         diffusion_chol_support,
         time_invariant_mask,
@@ -1026,16 +947,13 @@ def translate_spec(
     manifest_standardized = _build_manifest_standardized_flags(
         statistical_model_spec,
         manifest_cols,
-        causal_design=causal_design,
-    )
-    observation_intercept_policy = ObservationInterceptPolicy(
-        statistical_model_spec.observation_intercept_policy
+        structural_plan=structural_plan,
     )
     manifest_means_support, manifest_intercept_errors = _build_manifest_intercept_support(
         statistical_model_spec,
         manifest_cols,
         manifest_standardized,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
     )
     errors.extend(manifest_intercept_errors)
     if statistical_model_spec.equilibrium_forcing:
@@ -1051,11 +969,11 @@ def translate_spec(
         _build_static_factor_structure(
             statistical_model_spec,
             latent_names,
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
     )
     input_names, input_sources, input_scales, input_policies, input_lagged = (
-        get_estimation_input_layout(causal_design)
+        get_structural_input_layout(structural_plan)
     )
     # Time-invariant constructs have no dynamics anchor (no potential well),
     # so a free t0 mean rides an exact additive ridge with the channel-side
@@ -1065,28 +983,11 @@ def translate_spec(
         latent_names,
         manifest_cols,
         manifest_standardized,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
     )
     if time_invariant_mask is not None:
         static_mask = np.asarray(time_invariant_mask, dtype=bool)
         t0_means_support[static_mask & ~latent_standardized_anchor] = False
-
-    if not errors:
-        errors.extend(
-            _audit_identification_anchors(
-                latent_names,
-                manifest_cols,
-                manifest_dists,
-                manifest_standardized,
-                manifest_cat_anchor,
-                lambda_mat,
-                lambda_support,
-                state_intercept_support,
-                t0_means_support,
-                time_invariant_mask,
-                causal_design=causal_design,
-            )
-        )
 
     if errors:
         raise SpecTranslationError(errors)
@@ -1115,9 +1016,9 @@ def translate_spec(
             dynamics_components.append(
                 NodePotentialSpec(
                     target=latent_idx,
-                    fixed_center=None if has_setpoint else 0.0,
-                    fixed_stiffness=None,
-                    fixed_quartic=None if bool(self_limit_support[latent_idx]) else 0.0,
+                    center=Free() if has_setpoint else Fixed(0.0),
+                    stiffness=Free(),
+                    quartic=(Free() if bool(self_limit_support[latent_idx]) else Fixed(0.0)),
                 )
             )
         elif has_setpoint:
@@ -1235,7 +1136,11 @@ def translate_spec(
         input_missing_policies=input_policies,
         input_lagged=input_lagged,
         static_factor_names=static_factor_names,
-        initialization_policy=initialization_policy.value,
-        observation_intercept_policy=observation_intercept_policy.value,
     )
+    if structural_plan is not None:
+        from nof1_causal_lab.models.ssm.compile.structural import (
+            compile_anchor_certificates,
+        )
+
+        compile_anchor_certificates(spec, structural_plan)
     return spec, edge_lag_days

@@ -54,6 +54,7 @@ class VectorFieldComponent(Protocol):
         eta_per_edge: Array,
         t: Array,
         params: dict[str, Array],
+        /,
     ) -> Array: ...
 
 

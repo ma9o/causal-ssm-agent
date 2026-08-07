@@ -7,8 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
-def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
+
+def _inline_refs(schema: UncheckedJsonObject) -> UncheckedJsonObject:
     """Inline ``$ref`` pointers so tool schemas are self-contained."""
     defs = schema.get("$defs", {})
     if not defs:
@@ -38,12 +40,12 @@ class ToolContract:
     input_schema: type[BaseModel]
     output_schema: type[BaseModel] | None = None
 
-    def parameters_json_schema(self) -> dict[str, Any]:
+    def parameters_json_schema(self) -> UncheckedJsonObject:
         schema = self.input_schema.model_json_schema()
         schema["additionalProperties"] = False
         return _inline_refs(schema)
 
-    def result_json_schema(self) -> dict[str, Any] | None:
+    def result_json_schema(self) -> UncheckedJsonObject | None:
         if self.output_schema is None:
             return None
         schema = self.output_schema.model_json_schema(mode="serialization")

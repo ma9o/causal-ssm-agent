@@ -12,6 +12,7 @@ from nof1_causal_lab.flows.transitions.validation.rules import (
     no_data_validation_result,
     run_rules,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Task
@@ -19,9 +20,9 @@ from nof1_causal_lab.flows.transitions.validation.rules import (
 
 
 def validate_extraction(
-    causal_design: dict,
+    causal_design: UncheckedJsonObject,
     dataframes: list[pl.DataFrame],
-) -> dict:
+) -> UncheckedJsonObject:
     """Validate semantic properties of extracted data.
 
     Runs all ``RULES`` against the extracted data and reduces findings

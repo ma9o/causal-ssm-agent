@@ -9,7 +9,7 @@ const gaussianLikelihood = {
   variable: "sleep",
   distribution: "gaussian",
   link: "identity",
-  centered: false,
+  standardized: false,
   reasoning: "",
   sources: [],
 } satisfies LikelihoodSpec;
@@ -18,7 +18,7 @@ const betaLikelihood = {
   variable: "appointment_attendance",
   distribution: "beta",
   link: "logit",
-  centered: false,
+  standardized: false,
   reasoning: "",
   sources: [],
 } satisfies LikelihoodSpec;
@@ -55,7 +55,7 @@ describe("ObsPriorList", () => {
             prior: {
               parameter: "obs_concentration",
               distribution: "Gamma",
-              params: { alpha: 5, beta: 0.5 },
+              params: { concentration: 5, rate: 0.5 },
               sources: [],
               reasoning: "",
             },

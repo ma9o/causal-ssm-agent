@@ -68,6 +68,20 @@ Each known input needs:
 
 Do not declare a construct as a known input when its measurement uncertainty should be modeled as a latent state. Every submission must include `known_inputs`; use an empty list when no construct qualifies.
 
+The executable N-of-1 SSM has no baseline structural-equation block for edges
+whose target is time-invariant. When a measured time-invariant construct is a
+realized subject attribute (for example genotype, age, or baseline history),
+declare it as a known input. Otherwise list it under
+`scientific_only_constructs`, leave it unmeasured, or revise the latent structure;
+the structural compiler rejects an
+unresolved retained static-target edge instead of dropping it.
+
+Use `scientific_only_constructs` for measured constructs whose evidence should
+remain available for scientific interpretation or identification but which
+must not create a latent state or transition input. Each entry requires the
+construct name and a substantive reason. A construct cannot appear in both
+`known_inputs` and `scientific_only_constructs`.
+
 ### measurement_dtype
 
 | Type | Description | Example |
@@ -202,6 +216,7 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 3. You CANNOT add new causal edges-only operationalize existing constructs
 4. No direct causal edges between indicators (pure indicators assumption)
 5. Every known input must reference an indicator for the same construct
+6. Every scientific-only construct must exist in the latent structure and must not also be a known input
 
 ## Refinement Rule
 
@@ -251,6 +266,12 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "scale": 1.0,
       "missing_policy": "zero" | "forward_fill"
     }
+  ],
+  "scientific_only_constructs": [
+    {
+      "construct": "baseline_context_construct",
+      "reason": "Measured baseline context retained for identification, not an estimable N-of-1 state."
+    }
   ]
 }
 ```
@@ -259,7 +280,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 You have access to `validate_measurement_structure` tool. It checks:
 1. Schema and compiler-level measurement constraints
-2. Known-input references and the resulting estimation projection
+2. Known-input/scientific-only references and the resulting structural plan
 
 Keep validating until you get "VALID".
 
@@ -297,10 +318,12 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - When relevant, make clear whether workers should aggregate event-level evidence across the window or extract a one-off summary mention within the window
 - For `"semantic"` indicators, make `0` versus `null` explicit in `how_to_measure`
 - For time-invariant constructs, only add indicators when there is explicit stable proxy evidence in the data
+- Compile directly observed time-invariant subject attributes as known inputs; retained static-target edges are rejected
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 - If cleanup leaves a construct with zero viable indicators, remove the construct instead of keeping an unmeasured latent
 - Include `known_inputs` explicitly, using `[]` when every measured construct should remain latent
+- Include `scientific_only_constructs` explicitly, using `[]` when none are excluded
 
 Think very hard.
 """

@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
+from nof1_causal_lab.json_types import UncheckedJsonObject
+
 MIN_OBSERVATIONS = 10
 MIN_COVERAGE_PERIODS = 10
 MAX_GAP_MULTIPLIER = 5
@@ -14,6 +16,9 @@ OUTLIER_IQR_MULTIPLIER = 3.0
 MIN_ALIGNED_FOR_CFA = 10
 HALLUCINATION_DUPLICATE_THRESHOLD = 0.5
 OBSERVATION_TIME_COLUMN = "anchor_time"
+
+type ArtifactRecord = UncheckedJsonObject
+type RawIssue = UncheckedJsonObject
 
 TIMESTAMP_FORMATS: tuple[tuple[str | None, bool], ...] = (
     ("%Y-%m-%d %H:%M:%S", False),
@@ -59,8 +64,12 @@ def timestamp_issue_specs(
     return []
 
 
-def check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[list[dict], int]:
-    issues: list[dict] = []
+def check_dtype_range(
+    values: pl.Series,
+    dtype: str,
+    ind_name: str,
+) -> tuple[list[RawIssue], int]:
+    issues: list[RawIssue] = []
     violation_count = 0
 
     if dtype == "binary":
@@ -133,8 +142,8 @@ def check_time_coverage(
     parsed_ts: pl.Series,
     model_clock_hours: float,
     ind_name: str,
-) -> tuple[list[dict], float | None]:
-    issues: list[dict] = []
+) -> tuple[list[RawIssue], float | None]:
+    issues: list[RawIssue] = []
     if len(parsed_ts) < 2:
         return issues, None
 
@@ -166,8 +175,8 @@ def check_timestamp_gaps(
     parsed_ts: pl.Series,
     model_clock_hours: float,
     ind_name: str,
-) -> tuple[list[dict], float | None]:
-    issues: list[dict] = []
+) -> tuple[list[RawIssue], float | None]:
+    issues: list[RawIssue] = []
     if len(parsed_ts) < 3:
         return issues, None
 
@@ -196,8 +205,8 @@ def check_timestamp_gaps(
 
 def check_hallucination_signals(
     values: pl.Series, dtype: str, ind_name: str
-) -> tuple[list[dict], float, bool]:
-    issues: list[dict] = []
+) -> tuple[list[RawIssue], float, bool]:
+    issues: list[RawIssue] = []
     n = len(values)
     duplicate_pct = 0.0
     arithmetic_sequence_detected = False
@@ -249,9 +258,9 @@ def check_hallucination_signals(
 
 def check_construct_correlations(
     combined: pl.DataFrame,
-    indicators: list[dict],
-) -> list[dict]:
-    issues: list[dict] = []
+    indicators: list[ArtifactRecord],
+) -> list[RawIssue]:
+    issues: list[RawIssue] = []
 
     construct_indicators: dict[str, list[str]] = {}
     for indicator in indicators:

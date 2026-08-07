@@ -36,7 +36,7 @@ from nof1_causal_lab.models.ssm.preflight import (
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
-    from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.execution.contracts import ExecutableSSM
     from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
@@ -52,7 +52,7 @@ def _resolve_reparam(reparam, method: InferenceMethod):
 
 
 def fit(
-    model: SSMModel,
+    model: ExecutableSSM,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     method: InferenceMethod = "marginal_particle_gibbs",
@@ -89,7 +89,7 @@ def fit(
 
 
 def prior_predictive(
-    model: SSMModel,
+    model: ExecutableSSM,
     times: jnp.ndarray,
     num_samples: int = 100,
     seed: int = 0,

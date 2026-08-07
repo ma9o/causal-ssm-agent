@@ -10,13 +10,17 @@ import numpy as np
 import scipy.linalg
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.artifacts.statistical_model_spec import ParameterRole, StatisticalModelSpec
+from nof1_causal_lab.artifacts.prior import (
+    PriorPathologyCertificate,
+    PriorValidationResult,
+)
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
     get_real_runtime_family_index,
 )
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
     normalize_prior_params,
@@ -28,7 +32,7 @@ from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     empty_prior_bindings,
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
-from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameterization import SupportClass, build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
     PriorRegistry,
@@ -44,14 +48,16 @@ from nof1_causal_lab.models.ssm.structure.sites import (
     SiteKind,
     site_size,
 )
-from nof1_causal_lab.workers.schemas_prior import (
-    PriorPathologyCertificate,
-    PriorValidationResult,
-)
+from nof1_causal_lab.utils.structural_plan import get_model_clock
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from nof1_causal_lab.artifacts.statistical_model_spec import (
+        ParameterRole,
+        StatisticalModelSpec,
+    )
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
@@ -83,7 +89,7 @@ _DEGENERATE_PRIOR_PREAMBLE = (
 def _validate_nondegenerate_prior(
     parameter: str,
     distribution: PriorDistributionFamily | str,
-    raw_params: dict[str, Any],
+    raw_params: UncheckedJsonObject,
 ) -> list[str]:
     """Reject Stage-4-authored priors with zero variance or explicit point masses.
 
@@ -255,30 +261,24 @@ def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | 
     return None
 
 
-def _resolve_model_clock_interval_days(causal_design: dict | None) -> float | None:
+def _resolve_model_clock_interval_days(
+    structural_plan: StructuralPlan | None,
+) -> float | None:
     """Resolve the declared model clock interval without silently defaulting to 1 day."""
-    if causal_design is None:
-        return None
-
-    model_clock = (
-        causal_design.get("measurement", {}).get("model_clock")
-        if isinstance(causal_design, dict)
-        else getattr(getattr(causal_design, "measurement", None), "model_clock", None)
-    )
-    if not model_clock:
+    if structural_plan is None:
         return None
 
     try:
-        interval_days = parse_duration_to_hours(model_clock) / 24.0
+        interval_days = parse_duration_to_hours(get_model_clock(structural_plan)) / 24.0
     except ValueError as exc:
         raise ValueError(
-            "causal_design.measurement.model_clock must parse to a positive interval to "
+            "structural_plan.semantics.model_clock must parse to a positive interval to "
             "compile cross-lag priors without explicit reference_interval_days."
         ) from exc
 
     if interval_days <= 0:
         raise ValueError(
-            "causal_design.measurement.model_clock must resolve to a positive interval to "
+            "structural_plan.semantics.model_clock must resolve to a positive interval to "
             "compile cross-lag priors."
         )
     return interval_days
@@ -287,10 +287,10 @@ def _resolve_model_clock_interval_days(causal_design: dict | None) -> float | No
 def _resolve_cross_lag_interval_days(
     *,
     param_name: str,
-    prior_spec: dict[str, Any],
+    prior_spec: UncheckedJsonObject,
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
-    causal_design: dict | None,
+    structural_plan: StructuralPlan | None,
     effect_idx: int,
     cause_idx: int,
 ) -> float:
@@ -320,14 +320,14 @@ def _resolve_cross_lag_interval_days(
             "SSMSpec.latent_names is empty."
         )
     effect_name = ssm_spec.latent_names[effect_idx]
-    interval_days = _resolve_model_clock_interval_days(causal_design)
+    interval_days = _resolve_model_clock_interval_days(structural_plan)
     if interval_days is not None:
         return interval_days
 
     raise ValueError(
         f"Cross-lag prior '{param_name}' could not resolve an authoring interval. "
         "Set reference_interval_days explicitly, or compile with edge_lag_days / "
-        f"causal_design model_clock metadata for effect '{effect_name}'."
+        f"structural_plan model_clock metadata for effect '{effect_name}'."
     )
 
 
@@ -336,7 +336,7 @@ def _format_interval_days(days: float) -> str:
     return f"{float(days):.1f}d"
 
 
-def _collect_source_intervals(prior_spec: dict[str, Any]) -> list[float]:
+def _collect_source_intervals(prior_spec: UncheckedJsonObject) -> list[float]:
     """Extract positive `study_interval_days` metadata from prior sources."""
     intervals: list[float] = []
     for source in prior_spec.get("sources") or []:
@@ -389,7 +389,7 @@ def collect_interval_provenance_warnings(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    raw_priors: dict[str, dict] | None = None,
+    raw_priors: dict[str, UncheckedJsonObject] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect deterministic interval-authoring diagnostics for lagged dynamics priors."""
     edge_lags = edge_lag_days or {}
@@ -490,7 +490,7 @@ def collect_compile_diagnostics(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    raw_priors: dict[str, dict] | None = None,
+    raw_priors: dict[str, UncheckedJsonObject] | None = None,
     prior_registry: PriorRegistry | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
@@ -795,19 +795,13 @@ def matrix_log_diagnostic_drift(
 
 
 def _collect_role_lookup(
-    statistical_model_spec: StatisticalModelSpec | dict | None,
+    statistical_model_spec: StatisticalModelSpec | None,
 ) -> dict[str, ParameterRole]:
     role_by_name: dict[str, ParameterRole] = {}
-    spec_obj: StatisticalModelSpec | None = None
-    if isinstance(statistical_model_spec, dict) and statistical_model_spec.get("parameters"):
-        spec_obj = StatisticalModelSpec.model_validate(statistical_model_spec)
-    elif isinstance(statistical_model_spec, StatisticalModelSpec):
-        spec_obj = statistical_model_spec
-
-    if spec_obj is None:
+    if statistical_model_spec is None:
         return role_by_name
 
-    for parameter in spec_obj.parameters:
+    for parameter in statistical_model_spec.parameters:
         role_by_name[parameter.name] = parameter.role
     return role_by_name
 
@@ -825,7 +819,7 @@ def _build_site_prior_payload(
     site: SiteDescriptor,
     entries: list[tuple[int, dict[str, float | int]]],
     current: dict[str, float | int],
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Build an array-valued prior payload keyed by one unique sample site."""
     if not entries:
         raise ValueError(
@@ -917,28 +911,30 @@ def _build_site_prior_payload(
         if "value" in normalized and value_arr is not None:
             value_arr[idx] = float(normalized["value"])
 
-    def _scalar_or_vector(values: list[Any]) -> Any:
-        return values[0] if site.shape == () else values
+    def _scalar_or_site_shape(values: list[Any]) -> Any:
+        if site.shape == ():
+            return values[0]
+        return np.asarray(values).reshape(site.shape).tolist()
 
-    result: dict[str, Any] = {}
+    result: UncheckedJsonObject = {}
     if mu_arr is not None:
-        result["mu"] = _scalar_or_vector(mu_arr)
+        result["mu"] = _scalar_or_site_shape(mu_arr)
     if sigma_arr is not None:
-        result["sigma"] = _scalar_or_vector(sigma_arr)
+        result["sigma"] = _scalar_or_site_shape(sigma_arr)
     if loc_arr is not None:
-        result["loc"] = _scalar_or_vector(loc_arr)
+        result["loc"] = _scalar_or_site_shape(loc_arr)
     if family_arr is not None:
-        result["family"] = _scalar_or_vector(family_arr)
+        result["family"] = _scalar_or_site_shape(family_arr)
     if lower_arr is not None:
-        result["lower"] = _scalar_or_vector(lower_arr)
+        result["lower"] = _scalar_or_site_shape(lower_arr)
     if upper_arr is not None:
-        result["upper"] = _scalar_or_vector(upper_arr)
+        result["upper"] = _scalar_or_site_shape(upper_arr)
     if concentration_arr is not None:
-        result["concentration"] = _scalar_or_vector(concentration_arr)
+        result["concentration"] = _scalar_or_site_shape(concentration_arr)
     if rate_arr is not None:
-        result["rate"] = _scalar_or_vector(rate_arr)
+        result["rate"] = _scalar_or_site_shape(rate_arr)
     if value_arr is not None:
-        result["value"] = _scalar_or_vector(value_arr)
+        result["value"] = _scalar_or_site_shape(value_arr)
     return result
 
 
@@ -967,7 +963,7 @@ def _normalized_params_for_site_prior(support: SupportClass, prior: PriorSpec):
 
 def _site_prior_from_normalized(
     support: SupportClass,
-    normalized: dict[str, Any],
+    normalized: UncheckedJsonObject,
 ) -> PriorSpec:
     return prior_spec_from_normalized_params(normalized, support=_support_name(support))
 
@@ -994,11 +990,11 @@ def _coerce_initial_state_correlation_prior(
 
 
 def compile_priors(
-    raw_priors: dict[str, dict],
-    statistical_model_spec: StatisticalModelSpec | dict | None,
+    raw_priors: dict[str, UncheckedJsonObject],
+    statistical_model_spec: StatisticalModelSpec | None,
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    causal_design: dict | None = None,
+    structural_plan: StructuralPlan | None = None,
 ) -> tuple[PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
@@ -1008,17 +1004,13 @@ def compile_priors(
     site_by_name = {site.name: site for site in active_sites}
     role_by_name = _collect_role_lookup(statistical_model_spec)
     per_site: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
-    has_statistical_model_spec = statistical_model_spec is not None and (
-        not isinstance(statistical_model_spec, dict) or bool(statistical_model_spec)
-    )
-    resolved_statistical_model_spec = statistical_model_spec if has_statistical_model_spec else None
-    if resolved_statistical_model_spec is not None and ssm_spec is not None:
+    if statistical_model_spec is not None and ssm_spec is not None:
         bindings = build_semantic_prior_bindings(
             ssm_spec,
-            resolved_statistical_model_spec,
-            causal_design=causal_design,
+            statistical_model_spec,
+            structural_plan=structural_plan,
         )
-    elif raw_priors and not has_statistical_model_spec:
+    elif raw_priors and statistical_model_spec is None:
         raise ValueError(
             "compile_priors() requires statistical_model_spec when compiling semantic prior proposals."
         )
@@ -1071,6 +1063,33 @@ def compile_priors(
                 )
                 continue
 
+            if binding.transform == PriorAuthoringTransform.SITE_ROW:
+                site = site_by_name.get(binding.site_name)
+                if site is None:
+                    raise ValueError(
+                        f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."
+                    )
+                if len(site.shape) != 2:
+                    raise ValueError(
+                        f"Prior {param_name!r} requires a matrix-valued site, "
+                        f"but {binding.site_name!r} has shape {site.shape}."
+                    )
+                row_idx = binding.flat_index
+                n_rows, n_cols = site.shape
+                if row_idx >= n_rows:
+                    raise ValueError(
+                        f"Prior {param_name!r} maps to row {row_idx} of "
+                        f"{binding.site_name!r}, which has {n_rows} rows."
+                    )
+                for col_idx in range(n_cols):
+                    _append_structured_prior(
+                        per_site,
+                        binding.site_name,
+                        row_idx * n_cols + col_idx,
+                        normalized,
+                    )
+                continue
+
             if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
                 construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
                 ref_days = prior_spec.get("reference_interval_days")
@@ -1084,7 +1103,7 @@ def compile_priors(
                 dt = (
                     resolved_ref_days
                     if resolved_ref_days is not None
-                    else get_construct_dt_days(causal_design, construct_name)
+                    else get_construct_dt_days(structural_plan, construct_name)
                 )
                 param_errors: list[str] = []
                 lower = normalized.get("lower")
@@ -1151,7 +1170,7 @@ def compile_priors(
                     dt = (
                         resolved_ref_days
                         if resolved_ref_days is not None
-                        else get_construct_dt_days(causal_design)
+                        else get_construct_dt_days(structural_plan)
                     )
                 elif binding.effect_idx is not None and binding.cause_idx is not None:
                     dt = _resolve_cross_lag_interval_days(
@@ -1159,7 +1178,7 @@ def compile_priors(
                         prior_spec=prior_spec,
                         ssm_spec=ssm_spec,
                         edge_lag_days=edge_lag_days,
-                        causal_design=causal_design,
+                        structural_plan=structural_plan,
                         effect_idx=binding.effect_idx,
                         cause_idx=binding.cause_idx,
                     )

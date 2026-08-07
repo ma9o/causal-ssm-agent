@@ -1,4 +1,4 @@
-"""Tests for get_default_prior fallback logic in prior_research."""
+"""Tests for explicit compiler-independent prior defaults."""
 
 import pytest
 from pydantic import ValidationError
@@ -8,9 +8,10 @@ from nof1_causal_lab.artifacts import (
     ParameterRole,
     ParameterSpec,
 )
+from nof1_causal_lab.artifacts.prior import ExecutablePrior, ScalePriorParams
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.workers.prior_research import get_default_prior
-from nof1_causal_lab.workers.schemas_prior import PriorProposal, ScalePriorParams
+from nof1_causal_lab.models.prior_planning import default_executable_prior
+from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 
 def _make_param(
@@ -26,7 +27,7 @@ def _make_param(
     )
 
 
-class TestGetDefaultPrior:
+class TestDefaultExecutablePrior:
     @pytest.mark.parametrize(
         (
             "role",
@@ -77,6 +78,18 @@ class TestGetDefaultPrior:
                 PriorDistributionFamily.BETA,
                 {"alpha": 2.0, "beta": 2.0},
             ),
+            (
+                ParameterRole.LOADING,
+                ParameterConstraint.POSITIVE,
+                PriorDistributionFamily.NORMAL,
+                {"mu": 0.5, "sigma": 0.5},
+            ),
+            (
+                ParameterRole.LOADING,
+                ParameterConstraint.NEGATIVE,
+                PriorDistributionFamily.NORMAL,
+                {"mu": -0.5, "sigma": 0.5},
+            ),
         ],
         ids=[
             "unconstrained-normal",
@@ -86,6 +99,8 @@ class TestGetDefaultPrior:
             "residual-sd-role",
             "static-state-sd-role",
             "ar-role",
+            "positive-loading-pooled-family",
+            "negative-loading-pooled-family",
         ],
     )
     def test_distribution_selection(
@@ -96,19 +111,19 @@ class TestGetDefaultPrior:
         expected_params: dict[str, float],
     ):
         p = _make_param(role=role, constraint=constraint)
-        result = get_default_prior(p)
+        result = default_executable_prior(p)
         assert result.distribution == expected_distribution
         assert result.params.model_dump() == expected_params
 
     def test_parameter_name_propagated(self):
         p = _make_param(name="sigma_residual")
-        result = get_default_prior(p)
+        result = default_executable_prior(p)
         assert result.parameter == "sigma_residual"
 
-    def test_sources_empty(self):
+    def test_returns_compiler_facing_prior(self):
         p = _make_param()
-        result = get_default_prior(p)
-        assert result.sources == []
+        result = default_executable_prior(p)
+        assert isinstance(result, ExecutablePrior)
 
     def test_prior_parameters_must_match_the_declared_family(self):
         with pytest.raises(ValidationError, match="LocationScalePriorParams"):
@@ -118,8 +133,3 @@ class TestGetDefaultPrior:
                 params=ScalePriorParams(sigma=1.0),
                 reasoning="invalid family/parameter pairing",
             )
-
-    def test_reasoning_includes_role(self):
-        p = _make_param(role=ParameterRole.AR_COEFFICIENT)
-        result = get_default_prior(p)
-        assert "ar_coefficient" in result.reasoning

@@ -53,6 +53,7 @@
             "latent_structure",
             "measurement_structure",
             "causal_design",
+            "structural_plan",
             "identification_report",
             "measurements",
             "panel",
@@ -74,9 +75,7 @@
           "$ref": "#/$defs/ArtifactVersionInfo"
         },
         "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
+          "$ref": "#/$defs/UncheckedJsonObject"
         },
         "binary_files": {
           "items": {
@@ -108,6 +107,7 @@
             "latent_structure",
             "measurement_structure",
             "causal_design",
+            "structural_plan",
             "identification_report",
             "measurements",
             "panel",
@@ -145,6 +145,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -620,6 +621,22 @@
           "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
           "title": "Ordinal Levels"
         },
+        "categorical_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+          "title": "Categorical Levels"
+        },
         "source_columns": {
           "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
           "items": {
@@ -1025,7 +1042,7 @@
       "type": "string"
     },
     "KnownInput": {
-      "description": "Observed input trajectory used as a deterministic transition driver.",
+      "description": "Authored declaration of an observed transition driver.",
       "properties": {
         "construct": {
           "description": "Construct removed from the latent state vector",
@@ -1559,11 +1576,20 @@
           },
           "title": "Known Inputs",
           "type": "array"
+        },
+        "scientific_only_constructs": {
+          "description": "Measured scientific-context constructs explicitly excluded from the executable N-of-1 state vector",
+          "items": {
+            "$ref": "#/$defs/ScientificOnlyConstruct"
+          },
+          "title": "Scientific Only Constructs",
+          "type": "array"
         }
       },
       "required": [
         "known_inputs",
-        "measurement_structure"
+        "measurement_structure",
+        "scientific_only_constructs"
       ],
       "title": "MeasurementStructureContract",
       "type": "object"
@@ -2487,6 +2513,28 @@
       "title": "ScalePriorParams",
       "type": "object"
     },
+    "ScientificOnlyConstruct": {
+      "description": "Authored exclusion from the executable SSM projection.",
+      "properties": {
+        "construct": {
+          "description": "Measured construct retained for scientific context but not executable state",
+          "title": "Construct",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the construct is excluded from the executable N-of-1 model",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "construct",
+        "reason"
+      ],
+      "title": "ScientificOnlyConstruct",
+      "type": "object"
+    },
     "StatisticalModelSpec": {
       "description": "Complete statistical model specification.",
       "properties": {
@@ -2754,8 +2802,7 @@
           "anyOf": [
             {
               "items": {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/$defs/UncheckedJsonObject"
               },
               "type": "array"
             },
@@ -2933,6 +2980,10 @@
         "upper"
       ],
       "title": "TruncatedNormalPriorParams",
+      "type": "object"
+    },
+    "UncheckedJsonObject": {
+      "additionalProperties": true,
       "type": "object"
     },
     "UploadResponse": {

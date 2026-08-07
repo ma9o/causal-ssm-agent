@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.workers.prompts.extraction import SYSTEM, USER
 
 
-def _format_indicators(measurement_structure: dict) -> str:
+def _format_indicators(measurement_structure: UncheckedJsonObject) -> str:
     """Format indicators and their observation semantics for a worker prompt."""
     lines = []
     model_clock = measurement_structure.get("model_clock", "")
@@ -38,11 +39,11 @@ class WorkerMessages:
     """Build the prompt messages for one measurement-extraction chunk."""
 
     question: str
-    measurement_structure: dict
+    measurement_structure: UncheckedJsonObject
     window_text: str
     n_windows: int
 
-    def extraction_messages(self) -> list[dict]:
+    def extraction_messages(self) -> list[dict[str, str]]:
         indicators_text = _format_indicators(self.measurement_structure)
         return [
             {"role": "system", "content": SYSTEM},

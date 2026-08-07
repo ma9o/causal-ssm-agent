@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.machine.moves import RunArtifact
 from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
@@ -20,6 +21,7 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     write_initial_model_spec_checkpoint,
     write_model_spec_admission_evaluation,
 )
+from tests.helpers import make_structural_plan
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactId
@@ -36,7 +38,7 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
     pins: dict[ArtifactId, int] = {
         "question": 1,
-        "causal_design": 2,
+        "structural_plan": 2,
         "identification_report": 2,
         "panel": 3,
         "validation_report": 3,
@@ -120,7 +122,7 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         run_id="seq-000001",
         seq=1,
         checkpoint_index=2,
-        input_pins={"causal_design": 2, "panel": 3},
+        input_pins={"structural_plan": 2, "panel": 3},
         accepted_constructs=[accepted_a, accepted_b],
         created_at="2026-07-13T00:00:00+00:00",
     )
@@ -134,7 +136,11 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         "seed": 0,
     }
 
-    key = model_spec_admission_evaluation_key(checkpoint, **proposal)
+    key = model_spec_admission_evaluation_key(
+        input_identity={"artifact_pins": checkpoint.input_pins},
+        accepted_constructs=checkpoint.accepted_constructs,
+        **proposal,
+    )
     changed_sibling = checkpoint.model_copy(
         update={
             "accepted_constructs": [
@@ -170,8 +176,22 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         }
     )
 
-    assert model_spec_admission_evaluation_key(changed_sibling, **proposal) == key
-    assert model_spec_admission_evaluation_key(changed_ancestor, **proposal) != key
+    assert (
+        model_spec_admission_evaluation_key(
+            input_identity={"artifact_pins": changed_sibling.input_pins},
+            accepted_constructs=changed_sibling.accepted_constructs,
+            **proposal,
+        )
+        == key
+    )
+    assert (
+        model_spec_admission_evaluation_key(
+            input_identity={"artifact_pins": changed_ancestor.input_pins},
+            accepted_constructs=changed_ancestor.accepted_constructs,
+            **proposal,
+        )
+        != key
+    )
 
     path = model_spec_admission_evaluation_path(workspace_id, key)
     evaluation = ModelSpecAdmissionEvaluation(
@@ -255,7 +275,6 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         def __init__(self, *, order, **_kwargs):
             self.order = order
             self.cursor = 0
-            self.catalog = object()
             self.admission = AdmissionState()
             self.admitted_contributions = {}
             self.search_queries = {}
@@ -265,6 +284,9 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         @property
         def current_construct(self):
             return self.order[self.cursor]
+
+        def parameter_inventory_for(self, _construct):
+            return SimpleNamespace(catalog=object())
 
     monkeypatch.setattr(construct_flow, "ConstructBuildState", FakeState)
     monkeypatch.setattr(
@@ -294,16 +316,16 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         ],
         created_at="2026-07-11T00:00:00+00:00",
     )
-    causal_design = {
-        "estimation": {
-            "state_order": ["A", "B", "X"],
-            "edges": [{"cause": "A", "effect": "X"}],
-        }
-    }
+    structural_plan = StructuralPlan.model_validate(
+        make_structural_plan(
+            ["A", "B", "X"],
+            [("A", "X")],
+        )
+    )
 
     state = restore_construct_state(
         checkpoint,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         data_for_model=object(),
         workspace_id=None,
         target_construct="X",
@@ -346,12 +368,12 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
     monkeypatch.setattr(
         construct_admission,
         "build_construct_order",
-        lambda _causal_design: ["stress", "sleep", "mood"],
+        lambda _structural_plan: ["stress", "sleep", "mood"],
     )
     monkeypatch.setattr(
         construct_admission,
         "build_construct_units",
-        lambda _causal_design: [
+        lambda _structural_plan: [
             SimpleNamespace(unit_id="stress", constructs=("stress",), predecessors=()),
             SimpleNamespace(unit_id="sleep", constructs=("sleep",), predecessors=()),
             SimpleNamespace(unit_id="mood", constructs=("mood",), predecessors=("stress",)),
@@ -378,7 +400,7 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
         checkpoint_index=3,
         input_pins={
             "question": 1,
-            "causal_design": 1,
+            "structural_plan": 1,
             "identification_report": 1,
             "panel": 1,
             "validation_report": 1,
@@ -389,7 +411,7 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
 
     _state, retained, reopened, reason = rebase_accepted_constructs(
         source,
-        causal_design={},
+        structural_plan=StructuralPlan.model_validate(make_structural_plan(["stress"], [])),
         data_for_model=object(),
     )
 

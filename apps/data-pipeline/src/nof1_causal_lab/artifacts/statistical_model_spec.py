@@ -12,6 +12,7 @@ from nof1_causal_lab.distributions import (
     VALID_LIKELIHOODS_FOR_DTYPE,
     DistributionFamily,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 class LinkFunction(StrEnum):
@@ -157,8 +158,8 @@ class StatisticalModelSpec(BaseModel):
 
 
 def validate_statistical_model_spec_dict(
-    data: dict,
-    indicators: list[dict] | None = None,
+    data: UncheckedJsonObject,
+    indicators: list[UncheckedJsonObject] | None = None,
 ) -> tuple[StatisticalModelSpec | None, list[str]]:
     """Validate a statistical model spec dict, collecting all errors in one pass."""
     errors: list[str] = []

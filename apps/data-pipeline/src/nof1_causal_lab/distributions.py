@@ -494,16 +494,16 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "Observation concentration around the latent mean on (0, 1)",
     ),
     PriorParameterGuidanceRow(
-        "obs_ordered_base (ordered thresholds)",
+        "obs_ordered_base_<indicator> (ordered thresholds)",
         "Normal(0, 1)",
         "[-3, 3]",
-        "Ordered-logistic threshold location on the latent predictor scale",
+        "Indicator-specific ordered-logistic threshold location on the latent predictor scale",
     ),
     PriorParameterGuidanceRow(
-        "obs_ordered_gaps (ordered threshold gaps)",
+        "obs_ordered_gaps_<indicator> (ordered threshold gaps)",
         "HalfNormal(1)",
         "[0, 3]",
-        "Positive spacing between adjacent ordered-logistic thresholds",
+        "Indicator-specific positive spacing between adjacent ordered-logistic thresholds",
     ),
     PriorParameterGuidanceRow(
         "obs_cat_intercepts (categorical logits)",

@@ -6,6 +6,7 @@ This module tests:
 """
 
 from datetime import datetime
+from typing import Any
 
 import polars as pl
 import pytest
@@ -45,7 +46,7 @@ def simple_causal_design():
     }
 
 
-def _create_worker_dfs(records: list[dict]) -> list[pl.DataFrame]:
+def _create_worker_dfs(records: list[dict[str, Any]]) -> list[pl.DataFrame]:
     """Create DataFrames for validate_extraction from records."""
     df = pl.DataFrame(
         records,
@@ -54,7 +55,7 @@ def _create_worker_dfs(records: list[dict]) -> list[pl.DataFrame]:
     return [df]
 
 
-def _all_issues(result: dict) -> list[dict]:
+def _all_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
     indicator_issues = [
         issue
         for audit in result.get("indicators", {}).values()
@@ -63,7 +64,10 @@ def _all_issues(result: dict) -> list[dict]:
     return [*indicator_issues, *result.get("dataset_issues", [])]
 
 
-def _issues_for_indicator(result: dict, indicator: str) -> list[dict]:
+def _issues_for_indicator(
+    result: dict[str, Any],
+    indicator: str,
+) -> list[dict[str, Any]]:
     return result["indicators"][indicator]["validation"]["issues"]
 
 
@@ -107,7 +111,7 @@ def _make_spec(
                     }
                 )
 
-    measurement: dict = {"indicators": indicators}
+    measurement: dict[str, Any] = {"indicators": indicators}
     if model_clock is not None:
         measurement["model_clock"] = model_clock
 

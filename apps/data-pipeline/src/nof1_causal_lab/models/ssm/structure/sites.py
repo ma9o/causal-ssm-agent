@@ -71,6 +71,10 @@ class PriorAuthoringTransform(StrEnum):
     DT_EFFECT_TO_CT_RATE = "dt_effect_to_ct_rate"
     INITIAL_STATE_CORRELATION = "initial_state_correlation"
     SITE_WIDE = "site_wide"
+    SITE_ROW = "site_row"
+
+
+type SitePosition = int | tuple[int, int] | tuple[int, int, int]
 
 
 @dataclass(frozen=True)
@@ -89,7 +93,7 @@ class SiteDescriptor:
     assembly_group: str
     site_kind: SiteKind
     transform_kind: TransformKind
-    positions: tuple = ()
+    positions: tuple[SitePosition, ...] = ()
     deterministic_name: str | None = None
     fixed_spec_field: str | None = None
     priors_field: str | None = None
@@ -99,7 +103,7 @@ class SiteDescriptor:
 
 @dataclass(frozen=True)
 class SemanticBinding:
-    """One semantic model parameter bound to one runtime sample-site scalar."""
+    """One semantic model parameter bound to a runtime sample-site component."""
 
     parameter_name: str
     site_name: str
@@ -129,7 +133,7 @@ def make_site(
     assembly_group: str,
     site_kind: SiteKind,
     *,
-    positions: tuple = (),
+    positions: tuple[SitePosition, ...] = (),
     deterministic_name: str | None = None,
     fixed_spec_field: str | None = None,
     priors_field: str | None = None,

@@ -29,6 +29,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -158,7 +159,7 @@ class ClaudeHarnessSession:
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
         session_id: str | None = None,
-        initial_events: list[dict] | None = None,
+        initial_events: list[UncheckedJsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
@@ -190,7 +191,7 @@ class ClaudeHarnessSession:
         return self._session_id
 
     @property
-    def raw_events(self) -> list[dict]:
+    def raw_events(self) -> list[UncheckedJsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -284,7 +285,7 @@ class ClaudeHarnessSession:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_claude_event(self._state, event)
 
-    def _build_turn_result(self, turn_events: list[dict]) -> TurnResult:
+    def _build_turn_result(self, turn_events: list[UncheckedJsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
         for event in turn_events:
@@ -321,7 +322,7 @@ class ClaudeHarnessSession:
         self,
         tool_calls_fired: list[str],
         result_text: str,
-        block: dict,
+        block: UncheckedJsonObject,
     ) -> tuple[str, str] | None:
         """Match a tool-result block against stop_on_success tool metadata."""
         # Claude's MCP tool names arrive as ``mcp__<server>__<name>``. Strip
@@ -390,7 +391,7 @@ async def open_claude_harness_session(
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
     session_id: str | None = None,
-    initial_events: list[dict] | None = None,
+    initial_events: list[UncheckedJsonObject] | None = None,
     turn_index: int = 0,
 ) -> AsyncIterator[ClaudeHarnessSession]:
     """Open a Claude-backed agent session scoped to an ``async with`` block.

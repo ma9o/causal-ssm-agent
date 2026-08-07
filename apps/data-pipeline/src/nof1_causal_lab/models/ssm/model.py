@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-    from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
+    from nof1_causal_lab.models.ssm.execution.contracts import TrajectoryTarget
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.structure import (
@@ -42,15 +42,13 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     stabilize_covariance_for_cholesky,
     symmetrize,
 )
-from nof1_causal_lab.models.ssm.inference.backend_factory import (
-    build_laplace_backend,
-)
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     InitialStateParams,
+    LikelihoodExtraParams,
     MeasurementParams,
     RuntimeDynamics,
 )
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
 )
 from nof1_causal_lab.models.ssm.likelihood_extra_params import (
@@ -158,8 +156,6 @@ class SSMSpec:
     input_missing_policies: list[str] | None = None
     input_lagged: list[bool] = field(default_factory=list)
     static_factor_names: list[str] | None = None
-    initialization_policy: str = "stationary"
-    observation_intercept_policy: str = "free"
 
     def __post_init__(self) -> None:
         """Validate block-spec shape agreement and canonicalize metadata."""
@@ -380,7 +376,7 @@ class SSMSpec:
                 "manifest_links length must match n_manifest: "
                 f"{len(self.manifest_links)} vs {self.n_manifest}"
             )
-        from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+        from nof1_causal_lab.models.ssm.execution.observation_families import (
             resolve_manifest_families_and_links,
         )
 
@@ -535,7 +531,7 @@ class SSMModel:
         warmup backend that initialises the particle samplers, never their
         transition density.
         """
-        from nof1_causal_lab.models.ssm.inference.targets.trajectory import (
+        from nof1_causal_lab.models.ssm.execution.trajectory import (
             EulerMaruyamaTarget,
         )
 
@@ -573,23 +569,7 @@ class SSMModel:
     # loop below. Every sample site resolves its prior from the canonical
     # site-prior runtime bundle.
 
-    def make_laplace_backend(self, n_ieks_iters: int):
-        """Construct or reuse the Laplace likelihood backend for this model."""
-        return self.get_cached_artifact(
-            (
-                "backend",
-                "laplace",
-                n_ieks_iters,
-                id(self.observation_support),
-            ),
-            lambda: build_laplace_backend(
-                self.spec,
-                n_ieks_iters,
-                observation_support=self.observation_support,
-            ),
-        )
-
-    def _sample_likelihood_extra_params(self, spec: SSMSpec) -> dict[str, jnp.ndarray]:
+    def _sample_likelihood_extra_params(self, spec: SSMSpec) -> LikelihoodExtraParams:
         """Sample likelihood hyperparameters and assemble backend-ready extras."""
         sampled_values: dict[str, jnp.ndarray] = {}
         manifest_dist_set = set(spec.manifest_dists)
@@ -646,7 +626,7 @@ class SSMModel:
                     self._prior_distribution("obs_cat_slopes"),
                 )
 
-        from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import (
+        from nof1_causal_lab.models.ssm.spec_metadata import (
             has_student_t_diffusion,
         )
 
@@ -746,12 +726,11 @@ class SSMModel:
             observations: (N, n_manifest) observed data
             times: (N,) observation times
             likelihood_backend: Laplace likelihood backend instance. Required —
-                use model.make_laplace_backend(6) for the standard initializer.
+                construct it in the inference warmup layer.
         """
         if likelihood_backend is None:
             raise ValueError(
-                "likelihood_backend is required. "
-                "Use model.make_laplace_backend(6) for the standard initializer."
+                "likelihood_backend is required. Construct it in the inference warmup layer."
             )
 
         spec = self.spec

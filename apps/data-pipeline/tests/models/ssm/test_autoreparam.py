@@ -24,6 +24,19 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
+from nof1_causal_lab.models.ssm.dynamics.spec import (
+    DiagonalDecaySpec,
+    DynamicsSpec,
+    HillEdgeSpec,
+)
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
+from nof1_causal_lab.models.ssm.priors import (
+    PriorDistributionFamily,
+    PriorRegistry,
+    PriorSpec,
+)
+from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 from tests.models.ssm._support import simple_normal_model
 from tests.ssm_spec_fixtures import (
     MinimalReparam,
@@ -490,7 +503,7 @@ class TestAutoReparamSSM:
         model = self._make_simple_ssm()
         strategy = AutoReparam(centered=0.0)
 
-        model_fn = functools.partial(model.model, likelihood_backend=model.make_laplace_backend(6))
+        model_fn = functools.partial(model.model, likelihood_backend=get_laplace_backend(model, 6))
         reparam_model = handlers.reparam(model_fn, config=strategy)
 
         T = 10
@@ -534,7 +547,7 @@ class TestAutoReparamSSM:
         strategy = AutoReparam(centered=0.0)
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
-        backend = model.make_laplace_backend(6)
+        backend = get_laplace_backend(model, 6)
         site_info = _discover_sites(
             model,
             observations,
@@ -565,3 +578,52 @@ class TestAutoReparamSSM:
         assert all("_decentered" not in name for name in samples)
         assert samples["vf_0_decay"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
+
+    def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
+        """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
+        from nof1_causal_lab.models.ssm.model import SSMModel
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            dynamics_spec=DynamicsSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(),
+                    HillEdgeSpec(source=0, target=1),
+                ),
+            ),
+            diffusion_block=default_diffusion_block(2),
+            lambda_block=default_lambda_block(2, 2),
+            manifest_means_block=default_manifest_means_block(2),
+            manifest_chol_block=default_manifest_chol_block(2),
+            t0_means_block=default_t0_means_block(2),
+            t0_chol_block=default_t0_chol_block(2),
+            input_effect_block=default_input_effect_block(2),
+            static_state_sd_block=default_static_state_sd_block(),
+        )
+        priors = PriorRegistry(
+            {
+                "vf_1_Emax": PriorSpec(
+                    PriorDistributionFamily.LOG_NORMAL,
+                    {"mu": -0.2, "sigma": 0.3},
+                )
+            }
+        )
+        model = SSMModel(spec, priors)
+        observations = jnp.zeros((3, 2))
+        times = jnp.arange(3, dtype=jnp.float32)
+
+        bundle = build_particle_runtime_bundle(
+            model,
+            observations,
+            times,
+            scheme=LATENT_TRANSITION_EULER_MARUYAMA,
+            trace_key=jax.random.PRNGKey(0),
+            reparam=AutoReparam(centered=0.0),
+        )
+        context = bundle.latent_context_fn(bundle.cached.flat_example)
+
+        assert "vf_1_Emax_base_decentered" in bundle.cached.site_info
+        assert set(context.vf_params[1]) == {"Emax", "EC50", "n"}
+        assert bool(jnp.all(jnp.isfinite(jnp.stack(tuple(context.vf_params[1].values())))))

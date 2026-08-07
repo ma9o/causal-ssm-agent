@@ -9,6 +9,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 with workflow.unsafe.imports_passed_through():
     # Temporal resolves workflow result annotations when registering the class.
     from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
@@ -73,7 +75,9 @@ async def _emit_single_llm_transition_event(
     )
 
 
-def _single_llm_failure_details(exc: BaseException) -> tuple[str, str, dict]:
+def _single_llm_failure_details(
+    exc: BaseException,
+) -> tuple[str, str, UncheckedJsonObject]:
     cause = exc
     while not isinstance(cause, ApplicationError):
         next_cause = getattr(cause, "cause", None)

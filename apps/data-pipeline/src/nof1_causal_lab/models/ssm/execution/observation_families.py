@@ -1,4 +1,4 @@
-"""ObservationFamilySpec registry — single source of truth for per-family dispatch.
+"""ObservationFamilySpec registry shared by exact execution consumers.
 
 Replaces ~11 if/elif chains across emissions.py, kernels.py, and ssm.runtime
 with a flat dict keyed by DistributionFamily.
@@ -23,19 +23,24 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core as jax_core
 
-import nof1_causal_lab.models.ssm.inference.targets.emissions as emission_math
+import nof1_causal_lab.models.ssm.execution.emissions as emission_math
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
 )
-from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.execution.contracts import (
+    NUMERICAL_EPSILON,
+    LikelihoodExtraParams,
+)
 
 from .emissions import (
     categorical_probabilities,
     ordered_logistic_probabilities,
 )
 from .observation_kernel_helpers import (
+    ResponseFn,
+    VarianceFn,
     _make_discrete_response_categorical,
     _make_discrete_response_ordered_logistic,
     _make_discrete_variance_from_moments,
@@ -49,6 +54,20 @@ from .observation_kernel_helpers import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+type EmissionLogProbFn = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    jnp.ndarray,
+]
+type EmissionFactory = Callable[[LikelihoodExtraParams], EmissionLogProbFn]
+type ScoreWeightFn = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    tuple[jnp.ndarray, jnp.ndarray],
+]
+type ScoreWeightFactory = Callable[[LikelihoodExtraParams], ScoreWeightFn | None]
+type VarianceFactory = Callable[[LikelihoodExtraParams, jnp.ndarray | None], VarianceFn]
+type ResponseFactory = Callable[[LikelihoodExtraParams], ResponseFn]
+type PosteriorPredictiveFn = Callable[..., jnp.ndarray]
 
 
 @dataclass(frozen=True)
@@ -69,19 +88,19 @@ class ObservationFamilySpec:
     """Whether this family requires hydrated manifest_level_counts."""
 
     # --- emissions.py concerns ---
-    emission_fns: dict[str, Callable]
+    emission_fns: dict[str, EmissionFactory]
     """link_str -> factory(extra_params) -> log_prob(y, eta, R, mask)."""
-    score_weight_fns: dict[str, Callable]
+    score_weight_fns: dict[str, ScoreWeightFactory]
     """link_str -> factory(extra_params) -> score_weight_fn | None."""
 
     # --- kernels.py concerns ---
-    make_variance_fn: Callable
+    make_variance_fn: VarianceFactory
     """(extra_params, manifest_cov) -> variance_fn."""
     grad_hess_strategy: str
     """One of 'gaussian', 'student_t', or 'glm'."""
-    make_response_fn: Callable | None
+    make_response_fn: ResponseFactory | None
     """(extra_params) -> response_fn, or None to use _RESPONSE_FNS[link]."""
-    posterior_predictive_fns: dict[str, Callable]
+    posterior_predictive_fns: dict[str, PosteriorPredictiveFn]
     """link_str -> posterior predictive branch used by lax.switch."""
 
 
@@ -90,7 +109,11 @@ class ObservationFamilySpec:
 # ---------------------------------------------------------------------------
 
 
-def _positive_param(params: dict, key: str, default: float) -> float:
+def _positive_param(
+    params: LikelihoodExtraParams,
+    key: str,
+    default: float,
+) -> float | jnp.ndarray:
     """Extract a parameter that must be strictly positive, raising early on violation."""
     val = params.get(key, default)
     # Likelihood kernels are built inside JAX-transformed code paths during
@@ -172,15 +195,15 @@ def _ordered_links(
     return (default_link, *remaining)
 
 
-def _build_link_dispatch_map(
+def _build_link_dispatch_map[T: Callable[..., object]](
     dist: DistributionFamily,
     default_link: LinkFunction,
-    default_fn: Callable,
+    default_fn: T,
     *,
-    overrides: dict[LinkFunction | str, Callable] | None = None,
+    overrides: dict[LinkFunction | str, T] | None = None,
     include_default_key: bool,
-) -> dict[str, Callable]:
-    mapping: dict[str, Callable] = {}
+) -> dict[str, T]:
+    mapping: dict[str, T] = {}
     if include_default_key:
         mapping["default"] = default_fn
     for link in _ordered_links(dist, default_link):
@@ -195,60 +218,60 @@ def _build_link_dispatch_map(
 # ---------------------------------------------------------------------------
 
 
-def _emission_factory_gaussian(_params: dict):
+def _emission_factory_gaussian(_params: LikelihoodExtraParams):
     return emission_math.emission_log_prob_gaussian
 
 
-def _emission_factory_poisson(_params: dict):
+def _emission_factory_poisson(_params: LikelihoodExtraParams):
     return emission_math.emission_log_prob_poisson
 
 
-def _emission_factory_student_t(params: dict):
+def _emission_factory_student_t(params: LikelihoodExtraParams):
     df = _positive_param(params, "obs_df", 5.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_student_t(y, eta, R, m, df)
 
 
-def _emission_factory_gamma_log(params: dict):
+def _emission_factory_gamma_log(params: LikelihoodExtraParams):
     shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_gamma(y, eta, R, m, shape)
 
 
-def _emission_factory_gamma_inverse(params: dict):
+def _emission_factory_gamma_inverse(params: LikelihoodExtraParams):
     shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_gamma_inverse(y, eta, R, m, shape)
 
 
-def _emission_factory_bernoulli_logit(_params: dict):
+def _emission_factory_bernoulli_logit(_params: LikelihoodExtraParams):
     return emission_math.emission_log_prob_bernoulli
 
 
-def _emission_factory_bernoulli_probit(_params: dict):
+def _emission_factory_bernoulli_probit(_params: LikelihoodExtraParams):
     return emission_math.emission_log_prob_bernoulli_probit
 
 
-def _emission_factory_negbin(params: dict):
+def _emission_factory_negbin(params: LikelihoodExtraParams):
     r = _positive_param(params, "obs_r", 5.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_negative_binomial(y, eta, R, m, r)
 
 
-def _emission_factory_beta_logit(params: dict):
+def _emission_factory_beta_logit(params: LikelihoodExtraParams):
     conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_beta(y, eta, R, m, conc)
 
 
-def _emission_factory_beta_probit(params: dict):
+def _emission_factory_beta_probit(params: LikelihoodExtraParams):
     conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, R, m: emission_math.emission_log_prob_beta_probit(y, eta, R, m, conc)
 
 
-def _emission_factory_ordered_logistic(params: dict):
+def _emission_factory_ordered_logistic(params: LikelihoodExtraParams):
     level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
     return lambda y, eta, R, m: emission_math.emission_log_prob_ordered_logistic(
         y, eta, R, m, cutpoints, level_counts
     )
 
 
-def _emission_factory_categorical(params: dict):
+def _emission_factory_categorical(params: LikelihoodExtraParams):
     level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
     return lambda y, eta, R, m: emission_math.emission_log_prob_categorical(
         y, eta, R, m, intercepts, slopes, level_counts
@@ -260,55 +283,55 @@ def _emission_factory_categorical(params: dict):
 # ---------------------------------------------------------------------------
 
 
-def _sw_factory_none(_params: dict):
+def _sw_factory_none(_params: LikelihoodExtraParams):
     return None
 
 
-def _sw_factory_poisson(_params: dict):
+def _sw_factory_poisson(_params: LikelihoodExtraParams):
     return emission_math._score_weight_poisson
 
 
-def _sw_factory_bernoulli_logit(_params: dict):
+def _sw_factory_bernoulli_logit(_params: LikelihoodExtraParams):
     return emission_math._score_weight_bernoulli_logit
 
 
-def _sw_factory_bernoulli_probit(_params: dict):
+def _sw_factory_bernoulli_probit(_params: LikelihoodExtraParams):
     return emission_math._score_weight_bernoulli_probit
 
 
-def _sw_factory_beta_logit(params: dict):
+def _sw_factory_beta_logit(params: LikelihoodExtraParams):
     conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, m: emission_math._score_weight_beta_logit(y, eta, m, conc)
 
 
-def _sw_factory_beta_probit(params: dict):
+def _sw_factory_beta_probit(params: LikelihoodExtraParams):
     conc = _positive_param(params, "obs_concentration", 10.0)
     return lambda y, eta, m: emission_math._score_weight_beta_probit(y, eta, m, conc)
 
 
-def _sw_factory_gamma_log(params: dict):
+def _sw_factory_gamma_log(params: LikelihoodExtraParams):
     shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, m: emission_math._score_weight_gamma_log(y, eta, m, shape)
 
 
-def _sw_factory_gamma_inverse(params: dict):
+def _sw_factory_gamma_inverse(params: LikelihoodExtraParams):
     shape = _positive_param(params, "obs_shape", 1.0)
     return lambda y, eta, m: emission_math._score_weight_gamma_inverse(y, eta, m, shape)
 
 
-def _sw_factory_negbin(params: dict):
+def _sw_factory_negbin(params: LikelihoodExtraParams):
     r = _positive_param(params, "obs_r", 5.0)
     return lambda y, eta, m: emission_math._score_weight_negative_binomial(y, eta, m, r)
 
 
-def _sw_factory_ordered_logistic(params: dict):
+def _sw_factory_ordered_logistic(params: LikelihoodExtraParams):
     level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
     return lambda y, eta, m: emission_math._score_weight_ordered_logistic(
         y, eta, m, cutpoints, level_counts
     )
 
 
-def _sw_factory_categorical(params: dict):
+def _sw_factory_categorical(params: LikelihoodExtraParams):
     level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
     return lambda y, eta, m: emission_math._score_weight_categorical(
         y, eta, m, intercepts, slopes, level_counts
@@ -320,7 +343,10 @@ def _sw_factory_categorical(params: dict):
 # ---------------------------------------------------------------------------
 
 
-def _variance_factory_gaussian_like(_params: dict, manifest_cov):
+def _variance_factory_gaussian_like(
+    _params: LikelihoodExtraParams,
+    manifest_cov: jnp.ndarray | None,
+):
     if manifest_cov is not None:
         return _make_variance_identity(manifest_cov)
 
@@ -333,37 +359,58 @@ def _variance_factory_gaussian_like(_params: dict, manifest_cov):
     return _lazy_error
 
 
-def _variance_factory_poisson(_params: dict, _manifest_cov):
+def _variance_factory_poisson(
+    _params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     return _make_variance_poisson()
 
 
-def _variance_factory_negbin(params: dict, _manifest_cov):
+def _variance_factory_negbin(
+    params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     r = _positive_param(params, "obs_r", 5.0)
     return _make_variance_negative_binomial(r)
 
 
-def _variance_factory_gamma(params: dict, _manifest_cov):
+def _variance_factory_gamma(
+    params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     shape = _positive_param(params, "obs_shape", 1.0)
     return _make_variance_gamma(shape)
 
 
-def _variance_factory_bernoulli(_params: dict, _manifest_cov):
+def _variance_factory_bernoulli(
+    _params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     return _make_variance_bernoulli()
 
 
-def _variance_factory_beta(params: dict, _manifest_cov):
+def _variance_factory_beta(
+    params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     conc = _positive_param(params, "obs_concentration", 10.0)
     return _make_variance_beta(conc)
 
 
-def _variance_factory_ordered_logistic(params: dict, _manifest_cov):
+def _variance_factory_ordered_logistic(
+    params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
     return _make_discrete_variance_from_moments(
         lambda eta: emission_math.ordered_logistic_moments(eta, cutpoints, level_counts)
     )
 
 
-def _variance_factory_categorical(params: dict, _manifest_cov):
+def _variance_factory_categorical(
+    params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
     level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
     return _make_discrete_variance_from_moments(
         lambda eta: emission_math.categorical_moments(eta, intercepts, slopes, level_counts)
@@ -375,12 +422,12 @@ def _variance_factory_categorical(params: dict, _manifest_cov):
 # ---------------------------------------------------------------------------
 
 
-def _response_factory_ordered_logistic(params: dict):
+def _response_factory_ordered_logistic(params: LikelihoodExtraParams):
     level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
     return _make_discrete_response_ordered_logistic(cutpoints, level_counts)
 
 
-def _response_factory_categorical(params: dict):
+def _response_factory_categorical(params: LikelihoodExtraParams):
     level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
     return _make_discrete_response_categorical(intercepts, slopes, level_counts)
 

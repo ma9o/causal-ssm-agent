@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.machine.temporal.messages import (
     LLMBackendConfig,
     StatisticalModelSpecAdmissionUnit,
@@ -28,29 +29,29 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     build_construct_units,
     validate_full_admission_state,
 )
-from tests.helpers import run_async
+from tests.helpers import make_structural_plan, run_async
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.construct_admission import DesignInfo
 
 
-def _causal_design() -> dict:
-    return {
-        "estimation": {
-            "state_order": ["A", "B", "X", "Y", "Z"],
-            "edges": [
-                {"cause": "A", "effect": "X"},
-                {"cause": "B", "effect": "X"},
-                {"cause": "X", "effect": "Y"},
-                {"cause": "Y", "effect": "X"},
-                {"cause": "Y", "effect": "Z"},
+def _structural_plan() -> StructuralPlan:
+    return StructuralPlan.model_validate(
+        make_structural_plan(
+            ["A", "B", "X", "Y", "Z"],
+            [
+                ("A", "X"),
+                ("B", "X"),
+                ("X", "Y"),
+                ("Y", "X"),
+                ("Y", "Z"),
             ],
-        }
-    }
+        )
+    )
 
 
 def _plan() -> StatisticalModelSpecPlan:
-    units = build_construct_units(_causal_design())
+    units = build_construct_units(_structural_plan())
     return StatisticalModelSpecPlan(
         workspace_id="workspace",
         run_id="seq-000001",
@@ -105,7 +106,7 @@ def test_completed_path_can_advance_while_unrelated_root_remains_in_flight():
 
 
 def test_barrier_reopens_failed_feedback_suffix_and_descendants():
-    units = build_construct_units(_causal_design())
+    units = build_construct_units(_structural_plan())
 
     assert _barrier_reopen_constructs(units, ["Y"]) == {"Y", "Z"}
     assert _barrier_reopen_constructs(units, ["X"]) == {"X", "Y", "Z"}
@@ -140,7 +141,7 @@ def test_full_barrier_shares_one_exact_simulation(monkeypatch):
     validation = validate_full_admission_state(
         AdmissionState(names=("A", "B")),
         (ConstructContribution(name="A"), ConstructContribution(name="B")),
-        {},
+        _structural_plan(),
         cast("DesignInfo", object()),
     )
 

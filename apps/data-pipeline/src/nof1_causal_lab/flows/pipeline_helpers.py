@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     import polars as pl
 
@@ -43,7 +45,7 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
     return "\n".join(lines)
 
 
-def build_raw_data_payload(ingestion_result: IngestionResult) -> dict:
+def build_raw_data_payload(ingestion_result: IngestionResult) -> UncheckedJsonObject:
     """Build the web-serializable stage 0 payload from an IngestionResult."""
     return {
         "column_descriptions": [

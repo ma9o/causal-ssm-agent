@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import Derivation, topological_derivation_order
 from nof1_causal_lab.machine.moves import (
@@ -16,6 +17,7 @@ from nof1_causal_lab.machine.moves import (
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore
 
@@ -120,6 +122,8 @@ def _derive_one(
 ) -> ArtifactVersionInfo | None:
     if spec.produces == "causal_design":
         return _derive_causal_design(store, pins)
+    if spec.produces == "structural_plan":
+        return _derive_structural_plan(store, pins)
     if spec.produces == "identification_report":
         return _derive_identification_report(store, pins)
     if spec.produces == "validation_report":
@@ -129,7 +133,7 @@ def _derive_one(
     raise AssertionError(f"No derivation body for {spec.produces}")
 
 
-def _read_latent_structure(store: ArtifactStore, version: int) -> dict[str, Any]:
+def _read_latent_structure(store: ArtifactStore, version: int) -> UncheckedJsonObject:
     payload = store.read_json_file(
         "latent_structure",
         version,
@@ -141,7 +145,7 @@ def _read_latent_structure(store: ArtifactStore, version: int) -> dict[str, Any]
 def _read_measurement_structure_contract(
     store: ArtifactStore,
     version: int,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     return store.read_json_file(
         "measurement_structure",
         version,
@@ -149,13 +153,24 @@ def _read_measurement_structure_contract(
     )
 
 
-def _read_causal_design(store: ArtifactStore, version: int) -> dict[str, Any]:
+def _read_causal_design(store: ArtifactStore, version: int) -> UncheckedJsonObject:
     payload = store.read_json_file(
         "causal_design",
         version,
         json_filename("causal_design", "causal_design"),
     )
     return payload["causal_design"]
+
+
+def _read_structural_plan(store: ArtifactStore, version: int) -> StructuralPlan:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+
+    payload = store.read_json_file(
+        "structural_plan",
+        version,
+        json_filename("structural_plan", "structural_plan"),
+    )
+    return StructuralPlan.model_validate(payload["structural_plan"])
 
 
 def _read_panel(store: ArtifactStore, version: int) -> pl.DataFrame:
@@ -167,9 +182,6 @@ def _derive_causal_design(
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
     from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
-    from nof1_causal_lab.models.ssm.compile.artifact import (
-        collect_estimation_projection_compile_errors,
-    )
     from nof1_causal_lab.utils.identifiability import check_identifiability
 
     latent_structure = _read_latent_structure(store, pins["latent_structure"])
@@ -179,6 +191,7 @@ def _derive_causal_design(
     )
     measurement_structure = measurement_contract["measurement_structure"]
     known_inputs = measurement_contract["known_inputs"]
+    scientific_only_constructs = measurement_contract["scientific_only_constructs"]
     id_result = check_identifiability(latent_structure, measurement_structure)
     id_status = {
         "identifiable_treatments": id_result.get("identifiable_treatments", {}),
@@ -189,19 +202,39 @@ def _derive_causal_design(
         measurement_structure,
         id_status,
         known_inputs=known_inputs,
+        scientific_only_constructs=scientific_only_constructs,
     )
-    estimation_errors = collect_estimation_projection_compile_errors(causal_design)
-    if estimation_errors:
-        raise ValueError(
-            "CausalDesign derivation failed compiler validation:\n" + "\n".join(estimation_errors)
-        )
     return store.write_version(
         "causal_design",
         provenance="computed",
         derived_from=pins,
         produced_by="derive:causal_design",
         json_files={
-            json_filename("causal_design", "causal_design"): {"causal_design": causal_design}
+            json_filename("causal_design", "causal_design"): {
+                "causal_design": causal_design.model_dump(mode="json")
+            }
+        },
+    )
+
+
+def _derive_structural_plan(
+    store: ArtifactStore,
+    pins: dict[ArtifactId, int],
+) -> ArtifactVersionInfo:
+    from nof1_causal_lab.artifacts.causal_design import CausalDesign
+    from nof1_causal_lab.models.structural import build_structural_plan
+
+    causal_design = CausalDesign.model_validate(_read_causal_design(store, pins["causal_design"]))
+    structural_plan = build_structural_plan(causal_design)
+    return store.write_version(
+        "structural_plan",
+        provenance="computed",
+        derived_from=pins,
+        produced_by="derive:structural_plan",
+        json_files={
+            json_filename("structural_plan", "structural_plan"): {
+                "structural_plan": structural_plan.model_dump(mode="json")
+            }
         },
     )
 
@@ -273,18 +306,24 @@ def _derive_compiled_ssm(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
 
-    causal_design = _read_causal_design(store, pins["causal_design"])
+    structural_plan = _read_structural_plan(store, pins["structural_plan"])
     report = store.read_json_file(
         "statistical_model_spec",
         pins["statistical_model_spec"],
         json_filename("statistical_model_spec", "statistical_model_spec"),
     )
+    statistical_model_spec = StatisticalModelSpec.model_validate(report["statistical_model_spec"])
     compiled_ssm = compile_ssm_artifact(
-        report["statistical_model_spec"],
-        report["authored_priors"],
-        causal_design=causal_design,
+        statistical_model_spec,
+        build_prior_plan_from_payloads(
+            statistical_model_spec,
+            report["authored_priors"],
+        ),
+        structural_plan=structural_plan,
     )
     return store.write_version(
         "compiled_ssm",

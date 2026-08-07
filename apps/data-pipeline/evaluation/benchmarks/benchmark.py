@@ -25,6 +25,7 @@ from typing import Any, Literal, cast
 
 LeafProposal = Literal["amala_exact", "paid_mix"]
 LEAF_PROPOSALS: tuple[LeafProposal, ...] = ("amala_exact", "paid_mix")
+type BenchmarkRecord = dict[str, Any]
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _json_ready(value: Any) -> Any:
     return array.tolist()
 
 
-def _diagnostic_summary(result: Any) -> dict[str, Any]:
+def _diagnostic_summary(result: Any) -> BenchmarkRecord:
     diagnostics = result.diagnostics["marginal_particle_gibbs"]
     fields = (
         "latent_kernel",
@@ -126,7 +127,7 @@ def _run_one(
     observations: Any,
     times: Any,
     args: argparse.Namespace,
-) -> dict[str, Any]:
+) -> BenchmarkRecord:
     from evaluation.recovery.extraction import parameter_recovery, scalar_posterior_ess
 
     from nof1_causal_lab.models.ssm.inference import fit

@@ -21,7 +21,11 @@ function edge(cause: string, effect: string, lagged = false): CausalEdge {
   return { cause, effect, description: `${cause} → ${effect}`, lagged, sources: [] };
 }
 
-function indicator(name: string, constructName: string, dtype: string): Indicator {
+function indicator(
+  name: string,
+  constructName: string,
+  dtype: Indicator["measurement_dtype"],
+): Indicator {
   return {
     name,
     construct_name: constructName,

@@ -16,10 +16,11 @@ from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
     sample_predictive_observations_from_linear_predictors,
 )
-from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from tests.models.ssm._support import complex_mixed_runtime_spec
 
 
 def get_relevant_manifest_variables(
@@ -223,6 +224,60 @@ class TestForwardSimulation:
         assert jnp.all(jnp.isfinite(y_sim))
         assert jnp.all((y_sim[:, :, 0] >= 0) & (y_sim[:, :, 0] <= 2))
         assert jnp.all((y_sim[:, :, 1] >= 0) & (y_sim[:, :, 1] <= 3))
+
+    def test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites(self, monkeypatch):
+        """Posterior PPC derives cutpoints from sampled threshold bases and gaps."""
+        from nof1_causal_lab.models.ssm.predictive import registry_runtime
+
+        spec = complex_mixed_runtime_spec()
+        n_draws = 2
+        ordered_base = jnp.zeros((n_draws, 10), dtype=jnp.float32)
+        ordered_base = ordered_base.at[:, 6].set(-1.0)
+        samples = {
+            "obs_df": jnp.full((n_draws,), 6.0),
+            "obs_shape": jnp.full((n_draws,), 3.0),
+            "obs_r": jnp.full((n_draws,), 8.0),
+            "obs_concentration": jnp.full((n_draws,), 14.0),
+            "obs_ordered_base": ordered_base,
+            "obs_ordered_gaps": jnp.ones((n_draws, 10, 2), dtype=jnp.float32),
+            "obs_cat_intercepts": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
+            "obs_cat_slopes": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
+        }
+        captured = {}
+
+        def _fake_latents(_spec, _samples, times, **_kwargs):
+            return (
+                jnp.zeros((n_draws, times.shape[0], spec.n_latent)),
+                jnp.zeros((n_draws, times.shape[0], spec.n_manifest)),
+            )
+
+        def _fake_observations(linear_predictors, runtime_samples, *_args, **_kwargs):
+            captured.update(runtime_samples)
+            shape = linear_predictors.shape
+            return jnp.zeros(shape), jnp.ones(shape, dtype=bool), jnp.zeros(shape)
+
+        monkeypatch.setattr(
+            registry_runtime,
+            "_simulate_vector_field_predictive_latents",
+            _fake_latents,
+        )
+        monkeypatch.setattr(
+            registry_runtime,
+            "sample_predictive_observations_from_linear_predictors",
+            _fake_observations,
+        )
+
+        registry_runtime.simulate_posterior_predictive_observations(
+            spec,
+            samples,
+            jnp.arange(3, dtype=jnp.float32),
+            n_subsample=n_draws,
+        )
+
+        np.testing.assert_allclose(
+            np.asarray(captured["obs_ordered_cutpoints"][:, 6]),
+            np.array([[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]]),
+        )
 
     def test_forward_simulate_categorical(self):
         """Categorical simulation returns encoded category indices."""

@@ -352,6 +352,7 @@ class TestIndicator:
             how_to_measure="Use the first observed care_setting value directly",
             measurement_dtype="categorical",
             aggregation="first",
+            categorical_levels=["home", "clinic"],
             source_columns=["care_setting"],
             extraction_mode="computed",
         )
@@ -561,24 +562,15 @@ class TestCausalDesign:
         assert len(causal_design.latent.constructs) == 2
         assert len(causal_design.measurement.indicators) == 1
 
-    def test_confounder_kind_inconsistency_in_estimation_spec_rejected(
-        self, construct_factory, indicator_factory
-    ):
-        """A single confounder cannot project to more than one covariance block."""
+    def test_known_input_cannot_also_be_scientific_only(self, construct_factory, indicator_factory):
+        """An authored construct must have exactly one executable disposition."""
         latent = LatentStructure(
             constructs=[
-                construct_factory("x", Role.ENDOGENOUS),
-                construct_factory("y", Role.ENDOGENOUS),
-                construct_factory("z", Role.ENDOGENOUS, is_outcome=True),
-                construct_factory(
-                    "c", Role.EXOGENOUS, temporal_status=TemporalStatus.TIME_INVARIANT
-                ),
+                construct_factory("x", Role.EXOGENOUS),
+                construct_factory("y", Role.ENDOGENOUS, is_outcome=True),
             ],
             edges=[
-                CausalEdge(cause="c", effect="x", description="Latent fork"),
-                CausalEdge(cause="c", effect="y", description="Latent fork"),
-                CausalEdge(cause="c", effect="z", description="Latent fork"),
-                CausalEdge(cause="x", effect="z", description="Treatment path"),
+                CausalEdge(cause="x", effect="y", description="Treatment path"),
             ],
         )
         measurement = MeasurementStructure(
@@ -586,31 +578,15 @@ class TestCausalDesign:
             indicators=[
                 indicator_factory("x_obs", "x"),
                 indicator_factory("y_obs", "y"),
-                indicator_factory("z_obs", "z"),
             ],
         )
-        estimation = {
-            "state_order": ["x", "y", "z"],
-            "edges": [{"cause": "x", "effect": "z", "description": "Treatment path"}],
-            "induced_dependencies": [
-                {
-                    "between": ["x", "y"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["c"],
-                },
-                {
-                    "between": ["y", "z"],
-                    "kind": "innovation_correlation",
-                    "source_confounders": ["c"],
-                },
-            ],
-        }
-        with pytest.raises(ValueError, match="inconsistent kinds"):
+        with pytest.raises(ValueError, match="both known inputs and scientific-only"):
             CausalDesign.model_validate(
                 {
                     "latent": latent.model_dump(),
                     "measurement": measurement.model_dump(),
-                    "estimation": estimation,
+                    "known_inputs": [{"construct": "x", "source_indicator": "x_obs"}],
+                    "scientific_only_constructs": [{"construct": "x", "reason": "context only"}],
                 }
             )
 

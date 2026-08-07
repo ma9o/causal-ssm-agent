@@ -8,13 +8,19 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.artifacts.statistical_model_spec import (
+    StatisticalModelSpec,
+    validate_statistical_model_spec_dict,
+)
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.json_types import UncheckedJsonObject
 
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.prior import PriorValidationResult
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
-    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
     AggregatedCompileError,
@@ -22,12 +28,15 @@ _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
     ValueError,
 )
 
+type Payload = UncheckedJsonObject
+type PriorPayloads = dict[str, Payload]
+
 
 @dataclass
 class AssemblyValidation:
     """Result of compile-only assembly validation."""
 
-    normalized_statistical_model_spec: dict[str, Any] | None = None
+    normalized_statistical_model_spec: UncheckedJsonObject | None = None
     compile_ok: bool = True
     compile_error: str | None = None
     compiled_ssm: CompiledSSMArtifact | None = None
@@ -43,25 +52,29 @@ class AssemblyValidation:
 
 
 def validate_assembly(
-    statistical_model_spec: dict,
-    authored_priors: dict | None,
-    causal_design: dict | None,
+    statistical_model_spec: Payload,
+    authored_priors: PriorPayloads | None,
+    structural_plan: StructuralPlan,
 ) -> AssemblyValidation:
     """Compile authored inputs and retain compiler-owned diagnostics.
 
     Construct admission and the full-model barrier own statistical validation.
     Assembly intentionally cannot invoke the removed legacy whole-model PPC suite.
     """
-    from nof1_causal_lab.models.ssm.compile.artifact import (
-        compile_ssm_artifact,
+    from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
         trial_compile_statistical_model_spec,
     )
+    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
 
-    candidate = _prepare_statistical_model_spec(statistical_model_spec)
+    candidate_model = _prepare_statistical_model_spec(statistical_model_spec)
+    candidate = candidate_model.model_dump(mode="json")
     if authored_priors:
         try:
             compiled_ssm = compile_ssm_artifact(
-                candidate, authored_priors, causal_design=causal_design
+                candidate_model,
+                build_prior_plan_from_payloads(candidate_model, authored_priors),
+                structural_plan=structural_plan,
             )
         except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
             return AssemblyValidation(
@@ -72,7 +85,7 @@ def validate_assembly(
             )
         compile_diagnostics = _collect_compile_diagnostics(compiled_ssm)
     else:
-        compile_error = trial_compile_statistical_model_spec(candidate, causal_design)
+        compile_error = trial_compile_statistical_model_spec(candidate_model, structural_plan)
         if compile_error:
             return AssemblyValidation(
                 normalized_statistical_model_spec=candidate,
@@ -92,7 +105,7 @@ def validate_assembly(
 
 def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationResult]:
     """Best-effort extraction of structured diagnostics from a compile failure payload."""
-    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
+    from nof1_causal_lab.artifacts.prior import PriorValidationResult
 
     pending: list[Any] = [failure]
     seen_ids: set[int] = set()
@@ -138,9 +151,14 @@ def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationRe
     return typed
 
 
-def _prepare_statistical_model_spec(statistical_model_spec: dict) -> dict[str, Any]:
+def _prepare_statistical_model_spec(
+    statistical_model_spec: Payload,
+) -> StatisticalModelSpec:
     """Normalize a model-spec statistical model spec before any compile-time work."""
-    return deepcopy(statistical_model_spec)
+    candidate, errors = validate_statistical_model_spec_dict(deepcopy(statistical_model_spec))
+    if candidate is None:
+        raise ValueError("StatisticalModelSpec validation failed:\n" + "\n".join(errors))
+    return candidate
 
 
 def _collect_compile_diagnostics(
@@ -191,21 +209,23 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
 
 
 def compile_model_artifact(
-    statistical_model_spec: dict,
-    authored_priors: dict[str, dict],
+    statistical_model_spec: Payload,
+    authored_priors: PriorPayloads,
     data_for_model: pl.DataFrame,
-    causal_design: dict | None = None,
+    structural_plan: StructuralPlan,
     compiled_ssm: CompiledSSMArtifact | None = None,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Compile and verify the executable SSM artifact for model-spec output."""
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
+    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
 
     try:
+        candidate = _prepare_statistical_model_spec(statistical_model_spec)
         artifact = compiled_ssm or compile_ssm_artifact(
-            _prepare_statistical_model_spec(statistical_model_spec),
-            authored_priors,
-            causal_design=causal_design,
+            candidate,
+            build_prior_plan_from_payloads(candidate, authored_priors),
+            structural_plan=structural_plan,
         )
     except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
         return {
@@ -236,22 +256,24 @@ def compile_model_artifact(
 
 def materialize_model_spec_result(
     *,
-    statistical_model_spec: dict[str, Any],
-    authored_priors: dict[str, dict],
+    statistical_model_spec: UncheckedJsonObject,
+    authored_priors: PriorPayloads,
     data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict[str, Any]] | None,
-    causal_design: dict | None,
+    indicator_audits: dict[str, UncheckedJsonObject] | None,
+    structural_plan: StructuralPlan,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
     skip_ppc: bool = True,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Build the persisted result from construct-admitted authored inputs.
 
     ``skip_ppc`` remains as a compatibility guard for the Temporal caller. The
     removed whole-model PPC suite cannot be requested; construct admission and the
     exact full-model barrier own validation.
     """
-    from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
+    from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
+        resolve_prior_proposals,
+    )
 
     if not skip_ppc:
         raise ValueError("Legacy whole-model prior-predictive validation has been removed.")
@@ -259,7 +281,7 @@ def materialize_model_spec_result(
     validation = validation or validate_assembly(
         statistical_model_spec,
         authored_priors,
-        causal_design,
+        structural_plan,
     )
     del indicator_audits
     normalized_statistical_model_spec = (
@@ -269,12 +291,15 @@ def materialize_model_spec_result(
         normalized_statistical_model_spec,
         authored_priors,
         data_for_model,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
         compiled_ssm=validation.compiled_ssm,
     )
     compiled_ssm = model_result.pop("compiled_ssm", None)
     resolved_priors = (
-        resolve_prior_proposals(compiled_ssm, authored_priors=authored_priors)
+        resolve_prior_proposals(
+            compiled_ssm,
+            authored_priors=authored_priors,
+        )
         if compiled_ssm
         else []
     )
@@ -291,7 +316,7 @@ def materialize_model_spec_result(
         "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
         "validation_warnings": _collect_validation_warning_messages(validation) or None,
-        "_causal_design": causal_design,
+        "_structural_plan": structural_plan.model_dump(mode="json"),
         "prior_predictive_samples": prior_predictive_samples,
         "prior_predictive_diagnostics": [],
     }

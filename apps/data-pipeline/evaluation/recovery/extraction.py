@@ -20,6 +20,10 @@ from evaluation.fixtures.synthetic_nonlinear import (
     TRUE_MANIFEST_SD,
 )
 
+type PosteriorSampleMap = dict[str, Any]
+type RecoveryRow = dict[str, Any]
+type RecoverySummary = dict[str, Any]
+
 
 def autocorrelation_ess_1d(draws: np.ndarray) -> float:
     values = np.asarray(draws, dtype=np.float64).reshape(-1)
@@ -88,7 +92,7 @@ def _recovery_target_scale(label: str, target: Any, true_value: float) -> float:
     return max(abs(float(true_value)), 1.0)
 
 
-def _target_draws(grouped_samples: dict[str, Any], site: str, index: tuple[int, ...]):
+def _target_draws(grouped_samples: PosteriorSampleMap, site: str, index: tuple[int, ...]):
     if site not in grouped_samples:
         return None
     draws = np.asarray(jax.device_get(grouped_samples[site]))
@@ -97,7 +101,7 @@ def _target_draws(grouped_samples: dict[str, Any], site: str, index: tuple[int, 
     return draws
 
 
-def _summarize_recovery_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _summarize_recovery_rows(rows: list[RecoveryRow]) -> RecoverySummary:
     if not rows:
         return {
             "target_count": 0,
@@ -134,11 +138,11 @@ def _summarize_recovery_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def parameter_recovery(result, *, elapsed_seconds: float) -> dict[str, Any]:
+def parameter_recovery(result, *, elapsed_seconds: float) -> RecoverySummary:
     grouped_samples = result.diagnostics["mcmc"].get_samples(group_by_chain=True)
-    site_rows: dict[str, Any] = {}
-    missing_targets: dict[str, Any] = {}
-    by_family_rows: dict[str, list[dict[str, Any]]] = {}
+    site_rows: dict[str, RecoveryRow] = {}
+    missing_targets: RecoverySummary = {}
+    by_family_rows: dict[str, list[RecoveryRow]] = {}
     for label, target in RECOVERY_TARGETS.items():
         site, index, true_value = _recovery_target_location(label, target)
         draws = _target_draws(grouped_samples, site, index)
@@ -203,9 +207,9 @@ def scalar_posterior_ess(
     *,
     max_sites: int,
     elapsed_seconds: float,
-) -> dict[str, Any]:
+) -> RecoverySummary:
     grouped_samples = result.diagnostics["mcmc"].get_samples(group_by_chain=True)
-    site_rows: dict[str, Any] = {}
+    site_rows: dict[str, RecoveryRow] = {}
     for label, target in list(RECOVERY_TARGETS.items())[:max_sites]:
         if isinstance(target, dict):
             site = str(target["site"])

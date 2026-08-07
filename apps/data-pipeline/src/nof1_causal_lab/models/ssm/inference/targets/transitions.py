@@ -13,8 +13,8 @@ from nof1_causal_lab.models.ssm.discretization import (
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
+from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
-from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
 from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 

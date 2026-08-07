@@ -280,6 +280,10 @@ export interface MeasurementStructureContract {
    * Authored declarations of observed construct trajectories compiled as transition inputs rather than latent states
    */
   known_inputs: KnownInput[];
+  /**
+   * Measured scientific-context constructs explicitly excluded from the executable N-of-1 state vector
+   */
+  scientific_only_constructs: ScientificOnlyConstruct[];
 }
 /**
  * Operationalization of constructs into observed indicators.
@@ -358,6 +362,10 @@ export interface Indicator {
    */
   ordinal_levels?: string[] | null;
   /**
+   * Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+   */
+  categorical_levels?: string[] | null;
+  /**
    * Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
    */
   source_columns: string[];
@@ -386,7 +394,7 @@ export interface ComputedRule {
   window_expr: string;
 }
 /**
- * Observed input trajectory used as a deterministic transition driver.
+ * Authored declaration of an observed transition driver.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "KnownInput".
@@ -408,6 +416,22 @@ export interface KnownInput {
    * How to fill missing input values on the model time grid
    */
   missing_policy: "zero" | "forward_fill";
+}
+/**
+ * Authored exclusion from the executable SSM projection.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ScientificOnlyConstruct".
+ */
+export interface ScientificOnlyConstruct {
+  /**
+   * Measured construct retained for scientific context but not executable state
+   */
+  construct: string;
+  /**
+   * Why the construct is excluded from the executable N-of-1 model
+   */
+  reason: string;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -1053,6 +1077,7 @@ export interface ArtifactEnvelope {
     | "latent_structure"
     | "measurement_structure"
     | "causal_design"
+    | "structural_plan"
     | "identification_report"
     | "measurements"
     | "panel"
@@ -1064,9 +1089,7 @@ export interface ArtifactEnvelope {
     | "saved_scenarios";
   version: number;
   meta: ArtifactVersionInfo;
-  payload: {
-    [k: string]: any | undefined;
-  };
+  payload: UncheckedJsonObject;
   binary_files: string[];
 }
 /**
@@ -1087,6 +1110,7 @@ export interface ArtifactVersionInfo {
     | "latent_structure"
     | "measurement_structure"
     | "causal_design"
+    | "structural_plan"
     | "identification_report"
     | "measurements"
     | "panel"
@@ -1103,6 +1127,13 @@ export interface ArtifactVersionInfo {
   };
   produced_by?: string | null;
   created_at: string;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "UncheckedJsonObject".
+ */
+export interface UncheckedJsonObject {
+  [k: string]: any | undefined;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -1133,11 +1164,7 @@ export interface TraceMessage {
   role: string;
   content: string;
   reasoning?: string | null;
-  tool_calls?:
-    | {
-        [k: string]: any | undefined;
-      }[]
-    | null;
+  tool_calls?: UncheckedJsonObject[] | null;
   tool_call_id?: string | null;
   tool_name?: string | null;
   tool_result?: string | null;

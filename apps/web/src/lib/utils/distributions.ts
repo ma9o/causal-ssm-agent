@@ -1,8 +1,14 @@
 /** Evaluate PDF for chart rendering — visualization only, not analytical logic. */
 
 import jStat from "jstat";
+import type { PriorProposal } from "@nof1-causal-lab/api-types";
 
-type DistParams = Record<string, number>;
+type PriorParams = PriorProposal["params"];
+
+function priorParam(params: PriorParams, name: string, defaultValue: number): number {
+  const entry = Object.entries(params).find(([key]) => key === name);
+  return typeof entry?.[1] === "number" ? entry[1] : defaultValue;
+}
 
 function halfNormalPdf(x: number, sigma: number): number {
   if (x < 0) return 0;
@@ -39,7 +45,7 @@ function truncatedNormalPdf(
 
 export function evaluatePdf(
   distribution: string,
-  params: DistParams,
+  params: PriorParams,
   nPoints = 200,
 ): Array<{ x: number; y: number }> {
   let xMin = -4;
@@ -47,31 +53,31 @@ export function evaluatePdf(
 
   // Set range based on distribution
   if (distribution === "Normal") {
-    const mu = params.mu ?? 0;
-    const sigma = params.sigma ?? 1;
+    const mu = priorParam(params, "mu", 0);
+    const sigma = priorParam(params, "sigma", 1);
     xMin = mu - 4 * sigma;
     xMax = mu + 4 * sigma;
   } else if (distribution === "HalfNormal") {
     xMin = 0;
-    xMax = (params.sigma ?? 1) * 4;
+    xMax = priorParam(params, "sigma", 1) * 4;
   } else if (distribution === "TruncatedNormal") {
-    xMin = params.lower ?? -1;
-    xMax = params.upper ?? 1;
+    xMin = priorParam(params, "lower", -1);
+    xMax = priorParam(params, "upper", 1);
   } else if (distribution === "Gamma") {
     xMin = 0;
-    xMax = ((params.concentration ?? 2) / (params.rate ?? 1)) * 3;
+    xMax = (priorParam(params, "concentration", 2) / priorParam(params, "rate", 1)) * 3;
   } else if (distribution === "LogNormal") {
     xMin = 0;
-    xMax = Math.exp((params.mu ?? 0) + 4 * (params.sigma ?? 1));
+    xMax = Math.exp(priorParam(params, "mu", 0) + 4 * priorParam(params, "sigma", 1));
   } else if (distribution === "Exponential") {
     xMin = 0;
-    xMax = 5 / (params.rate ?? 1);
+    xMax = 5 / priorParam(params, "rate", 1);
   } else if (distribution === "Beta") {
     xMin = 0.001;
     xMax = 0.999;
   } else if (distribution === "Uniform") {
-    xMin = params.lower ?? 0;
-    xMax = params.upper ?? 1;
+    xMin = priorParam(params, "lower", 0);
+    xMax = priorParam(params, "upper", 1);
   }
 
   const step = (xMax - xMin) / nPoints;
@@ -82,28 +88,32 @@ export function evaluatePdf(
     let y = 0;
 
     if (distribution === "Normal") {
-      y = jStat.normal.pdf(x, params.mu ?? 0, params.sigma ?? 1);
+      y = jStat.normal.pdf(x, priorParam(params, "mu", 0), priorParam(params, "sigma", 1));
     } else if (distribution === "HalfNormal") {
-      y = halfNormalPdf(x, params.sigma ?? 1);
+      y = halfNormalPdf(x, priorParam(params, "sigma", 1));
     } else if (distribution === "TruncatedNormal") {
       y = truncatedNormalPdf(
         x,
-        params.mu ?? 0,
-        params.sigma ?? 1,
-        params.lower ?? -1,
-        params.upper ?? 1,
+        priorParam(params, "mu", 0),
+        priorParam(params, "sigma", 1),
+        priorParam(params, "lower", -1),
+        priorParam(params, "upper", 1),
       );
     } else if (distribution === "Gamma") {
-      y = jStat.gamma.pdf(x, params.concentration ?? 2, 1 / (params.rate ?? 1));
+      y = jStat.gamma.pdf(
+        x,
+        priorParam(params, "concentration", 2),
+        1 / priorParam(params, "rate", 1),
+      );
     } else if (distribution === "LogNormal") {
-      y = logNormalPdf(x, params.mu ?? 0, params.sigma ?? 1);
+      y = logNormalPdf(x, priorParam(params, "mu", 0), priorParam(params, "sigma", 1));
     } else if (distribution === "Exponential") {
-      y = exponentialPdf(x, params.rate ?? 1);
+      y = exponentialPdf(x, priorParam(params, "rate", 1));
     } else if (distribution === "Beta") {
-      y = jStat.beta.pdf(x, params.alpha ?? 2, params.beta ?? 2);
+      y = jStat.beta.pdf(x, priorParam(params, "alpha", 2), priorParam(params, "beta", 2));
     } else if (distribution === "Uniform") {
-      const uLow = params.lower ?? 0;
-      const uHigh = params.upper ?? 1;
+      const uLow = priorParam(params, "lower", 0);
+      const uHigh = priorParam(params, "upper", 1);
       const uRange = uHigh - uLow;
       y = uRange > 0 && x >= uLow && x <= uHigh ? 1 / uRange : 0;
     }

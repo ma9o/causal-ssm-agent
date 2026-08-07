@@ -1,10 +1,12 @@
 """Runner/write executors: optional outputs and derivation cascade."""
 
 import json
+from typing import Any
 
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
     derive_identification_report,
 )
@@ -24,7 +26,11 @@ def workspace(monkeypatch, tmp_path):
     return "test_workspace"
 
 
-def _valid_causal_design(*, include_identifiability=True, non_identifiable=None) -> dict:
+def _valid_causal_design(
+    *,
+    include_identifiability=True,
+    non_identifiable=None,
+) -> dict[str, Any]:
     spec = {
         "latent": _latent_structure(),
         "measurement": _measurement_structure(),
@@ -39,6 +45,7 @@ def _valid_causal_design(*, include_identifiability=True, non_identifiable=None)
                 }
             ],
             "known_inputs": [],
+            "scientific_only_constructs": [],
         },
     }
     if include_identifiability:
@@ -61,7 +68,7 @@ def _valid_causal_design(*, include_identifiability=True, non_identifiable=None)
     return spec
 
 
-def _latent_structure() -> dict:
+def _latent_structure() -> dict[str, Any]:
     return {
         "constructs": [
             {
@@ -90,7 +97,7 @@ def _latent_structure() -> dict:
     }
 
 
-def _measurement_structure() -> dict:
+def _measurement_structure() -> dict[str, Any]:
     return {
         "model_clock": "1d",
         "indicators": [
@@ -167,6 +174,7 @@ class TestStage2Gate:
                         "measurement_structure.json": {
                             "measurement_structure": _measurement_structure(),
                             "known_inputs": [],
+                            "scientific_only_constructs": [],
                         }
                     },
                 ),
@@ -238,7 +246,11 @@ class TestMeasurementStructureArtifactWrite:
         effects = execute_write(
             workspace,
             "measurement_structure",
-            {"measurement_structure": _measurement_structure(), "known_inputs": []},
+            {
+                "measurement_structure": _measurement_structure(),
+                "known_inputs": [],
+                "scientific_only_constructs": [],
+            },
             "human",
             state,
         )
@@ -247,6 +259,7 @@ class TestMeasurementStructureArtifactWrite:
         assert produced == {
             "measurement_structure",
             "causal_design",
+            "structural_plan",
             "identification_report",
         }
         assert effects.retracted == []
@@ -266,8 +279,9 @@ class TestMeasurementStructureArtifactWrite:
 
     def test_write_routes_known_input_into_derived_causal_design(self, workspace):
         from nof1_causal_lab.models.ssm.compile.spec_translation import (
-            get_estimation_input_layout,
+            get_structural_input_layout,
         )
+        from nof1_causal_lab.utils.structural_plan import get_edges, get_state_names
 
         store = ArtifactStore(workspace)
         state = self._state_with_latent(store)
@@ -285,6 +299,7 @@ class TestMeasurementStructureArtifactWrite:
                         "missing_policy": "forward_fill",
                     }
                 ],
+                "scientific_only_constructs": [],
             },
             "human",
             state,
@@ -298,8 +313,7 @@ class TestMeasurementStructureArtifactWrite:
             causal_design_info.version,
             "causal_design.json",
         )["causal_design"]
-        assert causal_design["estimation"]["state_order"] == ["Perf"]
-        assert causal_design["estimation"]["known_inputs"] == [
+        assert causal_design["known_inputs"] == [
             {
                 "construct": "Stress",
                 "source_indicator": "stress_score",
@@ -307,10 +321,21 @@ class TestMeasurementStructureArtifactWrite:
                 "missing_policy": "forward_fill",
             }
         ]
-        assert [
-            (edge["cause"], edge["effect"]) for edge in causal_design["estimation"]["edges"]
-        ] == [("Stress", "Perf")]
-        assert get_estimation_input_layout(causal_design) == (
+        structural_plan_info = next(
+            info for info in effects.produced if info.artifact_id == "structural_plan"
+        )
+        structural_plan = StructuralPlan.model_validate(
+            store.read_json_file(
+                "structural_plan",
+                structural_plan_info.version,
+                "structural-plan.json",
+            )["structural_plan"]
+        )
+        assert get_state_names(structural_plan) == ["Perf"]
+        assert [(edge["cause"], edge["effect"]) for edge in get_edges(structural_plan)] == [
+            ("Stress", "Perf")
+        ]
+        assert get_structural_input_layout(structural_plan) == (
             ["Stress"],
             ["stress_score"],
             [2.0],
@@ -364,6 +389,7 @@ class TestMeasurementStructureArtifactWrite:
                             "missing_policy": "forward_fill",
                         }
                     ],
+                    "scientific_only_constructs": [],
                 }
             ),
         )
@@ -405,8 +431,7 @@ class TestMeasurementStructureArtifactWrite:
             causal_design_info.version,
             "causal_design.json",
         )["causal_design"]
-        assert causal_design["estimation"]["state_order"] == ["Perf"]
-        assert causal_design["estimation"]["known_inputs"] == measurement_payload["known_inputs"]
+        assert causal_design["known_inputs"] == measurement_payload["known_inputs"]
 
     def test_write_retracts_derivations_with_stale_non_cascading_parents(self, workspace):
         store = ArtifactStore(workspace)
@@ -445,6 +470,7 @@ class TestMeasurementStructureArtifactWrite:
                 "measurement_structure.json": {
                     "measurement_structure": _measurement_structure(),
                     "known_inputs": [],
+                    "scientific_only_constructs": [],
                 }
             },
         )
@@ -551,7 +577,11 @@ class TestMeasurementStructureArtifactWrite:
         effects = execute_write(
             workspace,
             "measurement_structure",
-            {"measurement_structure": _measurement_structure(), "known_inputs": []},
+            {
+                "measurement_structure": _measurement_structure(),
+                "known_inputs": [],
+                "scientific_only_constructs": [],
+            },
             "human",
             state,
         )
@@ -561,6 +591,7 @@ class TestMeasurementStructureArtifactWrite:
         assert produced == {
             "measurement_structure",
             "causal_design",
+            "structural_plan",
             "identification_report",
         }
         assert retracted == {
@@ -586,7 +617,11 @@ class TestMeasurementStructureArtifactWrite:
             execute_write(
                 workspace,
                 "measurement_structure",
-                {"measurement_structure": _measurement_structure(), "known_inputs": []},
+                {
+                    "measurement_structure": _measurement_structure(),
+                    "known_inputs": [],
+                    "scientific_only_constructs": [],
+                },
                 "human",
                 state,
             )
@@ -599,7 +634,11 @@ class TestMeasurementStructureArtifactWrite:
             execute_write(
                 workspace,
                 "measurement_structure",
-                {"measurement_structure": {"nope": True}, "known_inputs": []},
+                {
+                    "measurement_structure": {"nope": True},
+                    "known_inputs": [],
+                    "scientific_only_constructs": [],
+                },
                 "human",
                 EpisodeState(),
             )

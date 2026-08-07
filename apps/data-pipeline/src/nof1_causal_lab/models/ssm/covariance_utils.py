@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar, Shaped
 
-# Defined locally to avoid circular import with inference.targets.base.
+# Defined locally so the covariance core does not depend on execution contracts.
 CHOL_JITTER = 1e-8
 
 INITIAL_STATE_COV_MIN_EIGENVALUE = 1e-6
@@ -40,7 +40,7 @@ def inflate_missing_variance(
         mask_float: Observation mask (observed = 1.0/True, missing = 0.0/False);
             consumed as ``1.0 - mask_float``, so bool or float is accepted.
     """
-    from nof1_causal_lab.models.ssm.inference.targets.base import MISSING_DATA_LARGE_VAR
+    from nof1_causal_lab.models.ssm.execution.contracts import MISSING_DATA_LARGE_VAR
 
     return cov + jnp.diag((1.0 - mask_float) * MISSING_DATA_LARGE_VAR)
 

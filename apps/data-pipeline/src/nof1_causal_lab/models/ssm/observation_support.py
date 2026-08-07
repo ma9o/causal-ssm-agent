@@ -412,8 +412,8 @@ def augment_wide_data_with_support_boundaries(
 
     filler_columns = [
         pl.lit(None, dtype=wide_data.schema.get(name, pl.Float64)).alias(name)
-        for name in manifest_names
-        if name in wide_data.columns
+        for name in wide_data.columns
+        if name != "time"
     ]
     missing_rows = missing_times.with_columns(filler_columns).select(wide_data.columns)
     return pl.concat([wide_data, missing_rows], how="vertical_relaxed").sort("time")
@@ -462,7 +462,7 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
     panel contains only a subset of those levels. Counts are inferred from the
     data only for channels whose compiled specification has no declaration.
     """
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
         any_family_needs_level_metadata,
         get_family_spec,
     )
@@ -532,7 +532,7 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
 
 def validate_observation_support(spec: SSMSpec, X: Any) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import get_family_spec
+    from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 
     manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
 

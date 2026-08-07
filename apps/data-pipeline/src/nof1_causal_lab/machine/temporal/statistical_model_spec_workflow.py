@@ -9,6 +9,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
     from nof1_causal_lab.machine.temporal.client import MODEL_SPEC_SIMULATION_TASK_QUEUE
@@ -66,7 +68,9 @@ async def _emit_model_spec_transition_event(
     )
 
 
-def _model_spec_failure_details(exc: BaseException) -> tuple[str, str, dict]:
+def _model_spec_failure_details(
+    exc: BaseException,
+) -> tuple[str, str, UncheckedJsonObject]:
     cause = exc
     while not isinstance(cause, ApplicationError):
         next_cause = getattr(cause, "cause", None)

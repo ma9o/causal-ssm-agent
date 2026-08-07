@@ -26,6 +26,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
 
 
@@ -40,7 +41,7 @@ class ClaudeStreamState:
     total_time_seconds: float = 0.0
     stop_reason: str | None = None
     final_text: str = ""
-    raw_events: list[dict[str, Any]] = field(default_factory=list)
+    raw_events: list[UncheckedJsonObject] = field(default_factory=list)
 
 
 def _coerce_content_text(content: Any) -> str:
@@ -60,11 +61,11 @@ def _coerce_content_text(content: Any) -> str:
     return "".join(parts)
 
 
-def _claude_assistant_message(message: dict[str, Any]) -> TraceMessage:
+def _claude_assistant_message(message: UncheckedJsonObject) -> TraceMessage:
     """Build a TraceMessage from a Claude assistant stream-json message."""
     content = message.get("content", [])
     text = _coerce_content_text(content)
-    tool_calls: list[dict[str, Any]] = []
+    tool_calls: list[UncheckedJsonObject] = []
     if isinstance(content, list):
         for block in content:
             if not isinstance(block, dict):
@@ -87,7 +88,7 @@ def _claude_assistant_message(message: dict[str, Any]) -> TraceMessage:
     )
 
 
-def _claude_tool_result_messages(message: dict[str, Any]) -> list[TraceMessage]:
+def _claude_tool_result_messages(message: UncheckedJsonObject) -> list[TraceMessage]:
     """Extract tool-result blocks from a Claude user stream-json message."""
     content = message.get("content")
     if not isinstance(content, list):
@@ -117,7 +118,7 @@ def _claude_tool_result_messages(message: dict[str, Any]) -> list[TraceMessage]:
     return out
 
 
-def _claude_user_prompt_message(message: dict[str, Any]) -> TraceMessage | None:
+def _claude_user_prompt_message(message: UncheckedJsonObject) -> TraceMessage | None:
     """Handle a pure user prompt (string content, not tool_result blocks)."""
     content = message.get("content")
     if isinstance(content, str):
@@ -160,7 +161,7 @@ def _extract_usage(usage_raw: Any) -> TraceUsage:
     )
 
 
-def apply_claude_event(state: ClaudeStreamState, event: dict[str, Any]) -> None:
+def apply_claude_event(state: ClaudeStreamState, event: UncheckedJsonObject) -> None:
     """Fold one Claude stream-json event into the accumulator."""
     state.raw_events.append(event)
     etype = event.get("type")
@@ -231,7 +232,7 @@ def _format_usage(usage: Any) -> str:
     return " ".join(parts)
 
 
-def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
+def format_codex_event_for_log(event: UncheckedJsonObject) -> str | None:
     """Return a single human-readable line for one codex ``--json`` event.
 
     Returns ``None`` for events that are not useful to surface live —
@@ -378,7 +379,7 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
     return None
 
 
-def format_claude_event_for_log(event: dict[str, Any]) -> str | None:
+def format_claude_event_for_log(event: UncheckedJsonObject) -> str | None:
     """Return a single human-readable line for one claude-code event."""
     etype = event.get("type")
     if etype == "system" and event.get("subtype") == "init":
@@ -470,11 +471,11 @@ class CodexStreamState:
     total_time_seconds: float = 0.0
     stop_reason: str | None = None
     final_text: str = ""
-    raw_events: list[dict[str, Any]] = field(default_factory=list)
-    _open_tool_calls: dict[str, dict[str, Any]] = field(default_factory=dict)
+    raw_events: list[UncheckedJsonObject] = field(default_factory=list)
+    _open_tool_calls: dict[str, UncheckedJsonObject] = field(default_factory=dict)
 
 
-def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
+def apply_codex_event(state: CodexStreamState, event: UncheckedJsonObject) -> None:
     """Fold one Codex ``--json`` event into the accumulator.
 
     Codex's event schema is less stable than Claude's; this handler
@@ -604,7 +605,7 @@ class PiStreamState:
     total_time_seconds: float = 0.0
     stop_reason: str | None = None
     final_text: str = ""
-    raw_events: list[dict[str, Any]] = field(default_factory=list)
+    raw_events: list[UncheckedJsonObject] = field(default_factory=list)
 
 
 def _pi_content_text(content: Any) -> str:
@@ -619,10 +620,10 @@ def _pi_content_text(content: Any) -> str:
     )
 
 
-def _pi_tool_calls(content: Any) -> list[dict[str, Any]]:
+def _pi_tool_calls(content: Any) -> list[UncheckedJsonObject]:
     if not isinstance(content, list):
         return []
-    calls: list[dict[str, Any]] = []
+    calls: list[UncheckedJsonObject] = []
     for block in content:
         if not isinstance(block, dict) or block.get("type") != "toolCall":
             continue
@@ -658,7 +659,7 @@ def _add_usage(total: TraceUsage, usage_raw: Any) -> TraceUsage:
     )
 
 
-def apply_pi_event(state: PiStreamState, event: dict[str, Any]) -> None:
+def apply_pi_event(state: PiStreamState, event: UncheckedJsonObject) -> None:
     """Fold one Pi JSON event into ``state``."""
     state.raw_events.append(event)
     etype = event.get("type")
@@ -717,7 +718,7 @@ def apply_pi_event(state: PiStreamState, event: dict[str, Any]) -> None:
         )
 
 
-def format_pi_event_for_log(event: dict[str, Any]) -> str | None:
+def format_pi_event_for_log(event: UncheckedJsonObject) -> str | None:
     """Return a concise live-log line for a Pi JSON event."""
     etype = event.get("type")
     if etype == "session":

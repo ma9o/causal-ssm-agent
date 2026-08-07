@@ -239,7 +239,7 @@ def dag_diagram(EDGES, ORDER, UNOBSERVED, mo, plt):
 
 
 @app.cell
-def causal_design(EDGES, INDICATORS, ORDER):
+def causal_design(EDGES, INDICATORS, ORDER, build_structural_plan):
     _edges = [
         {"cause": _c, "effect": _e, "description": f"{_c} -> {_e}", "lagged": True}
         for _c, _e in EDGES
@@ -253,6 +253,7 @@ def causal_design(EDGES, INDICATORS, ORDER):
                     "role": "exogenous"
                     if _n in {"CaffeineIntake", "AutonomicArousal"}
                     else "endogenous",
+                    "is_outcome": _n == ORDER[-1],
                     "temporal_status": "time_varying",
                 }
                 for _n in ORDER
@@ -273,13 +274,9 @@ def causal_design(EDGES, INDICATORS, ORDER):
                 for _ind, _c, _dtype, _f, _l, _tau in INDICATORS
             ],
         },
-        "estimation": {
-            "state_order": ORDER,
-            "edges": _edges,
-            "induced_dependencies": [],
-        },
     }
-    return (CAUSAL_SPEC,)
+    STRUCTURAL_PLAN = build_structural_plan(CAUSAL_SPEC).model_dump(mode="json")
+    return CAUSAL_SPEC, STRUCTURAL_PLAN
 
 
 @app.cell(hide_code=True)
@@ -394,11 +391,12 @@ def elicitation(
     LinkFunction,
     ParamCatalog,
     ParameterSpec,
+    STRUCTURAL_PLAN,
     TAU,
     math,
     np,
 ):
-    _catalog = ParamCatalog.from_causal_design(CAUSAL_SPEC)
+    _catalog = ParamCatalog.from_structural_plan(STRUCTURAL_PLAN)
     _emission = {c: (ind, fam, link) for ind, c, _d, fam, link, _t in INDICATORS}
     _parents = {c["name"]: [] for c in CAUSAL_SPEC["latent"]["constructs"]}
     for _e in CAUSAL_SPEC["latent"]["edges"]:
@@ -506,7 +504,7 @@ def build_md(mo):
 @app.cell
 def run_build(
     AdmissionState,
-    CAUSAL_SPEC,
+    STRUCTURAL_PLAN,
     admit_construct,
     build_construct_order,
     contribution,
@@ -544,9 +542,13 @@ def run_build(
 
     _state = AdmissionState()
     reports = {}
-    for _c in build_construct_order(CAUSAL_SPEC):
+    for _c in build_construct_order(STRUCTURAL_PLAN):
         _state, _report = admit_construct(
-            _state, contribution(_c, data), CAUSAL_SPEC, design, accepted=_accept_for(_c)
+            _state,
+            contribution(_c, data),
+            STRUCTURAL_PLAN,
+            design,
+            accepted=_accept_for(_c),
         )
         reports[_c] = _report
     final_state = _state
@@ -559,12 +561,15 @@ def r_caffeine(cs, reports):
     return
 
 
-@app.cell
-def r_arousal(cs, reports):
-    cs.render_report(
-        "AutonomicArousal — UNOBSERVED confounder (no emission ⇒ C1–C4 only)",
-        reports["AutonomicArousal"],
-    )
+@app.cell(hide_code=True)
+def r_arousal(mo):
+    mo.md(r"""
+    ### AutonomicArousal — unobserved confounder
+
+    The structural compiler marginalizes this explicit scientific-DAG root instead of admitting
+    an unanchored latent state. Its shared-child dependence is represented by the compiled
+    innovation structure, so it has no standalone admission report.
+    """)
     return
 
 
@@ -637,6 +642,9 @@ def summary_md(mo):
 def summary_table(ORDER, mo, reports):
     _rows = []
     for _nm in ORDER:
+        if _nm not in reports:
+            _rows.append(f"| {_nm} | — | marginalized | structural compiler |")
+            continue
         _r = reports[_nm]
         _reds = [c.check for c in _r.results if not c.passed]
         _outcome = _r.outcome.split("—")[0].strip()
@@ -649,10 +657,12 @@ def summary_table(ORDER, mo, reports):
 def closing(final_state, mo):
     mo.md(
         "## 6. What this run demonstrates\n\n"
-        "- **The production Stage-4 engine scales to a blind D = 10 build.** The same "
+        "- **The production Stage-4 engine scales to a blind ten-construct scientific DAG.** "
+        "The structural compiler marginalizes its unobserved root into induced dependence, "
+        "then the same "
         "construct-admission loop, exact prior predictive, and C1–C5c battery that the pipeline "
-        "runs drove a build with heterogeneous emissions (Gaussian identity, Beta/logit slider, "
-        "Poisson count) and an unobserved confounder — no engine changes, only elicitation.\n"
+        "runs drove the nine-state executable build with heterogeneous emissions (Gaussian "
+        "identity, Beta/logit slider, Poisson count) — no engine changes, only elicitation.\n"
         "- **The gate is honest about what it certifies.** Every green is a statement about the "
         "*prior*: on-scale, dynamics visible at cadence, edges detectable but not overwhelming, "
         "links informative — all before a single fit. Accepted soft consequences (recorded on "

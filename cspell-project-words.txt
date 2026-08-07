@@ -28,6 +28,7 @@ hessmc
 Langevin
 Lyapunov
 Megaprompt
+Maruyama
 Mokhov
 nondegenerate
 Oura

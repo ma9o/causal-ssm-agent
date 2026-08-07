@@ -13,11 +13,13 @@ Run alongside the Temporal dev server and episode worker::
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -42,6 +44,7 @@ from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
 from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
     execute_public_search_literature as _execute_search_literature,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.models.causal_proofs import (
     CausalDesignRef,
@@ -62,13 +65,22 @@ from nof1_causal_lab.models.ssm.dynamics import (
     posterior_dynamics_from_result,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
-from nof1_causal_lab.utils.causal_design import (
-    get_estimation_constructs,
-    get_estimation_state_order,
-    get_indicators,
+from nof1_causal_lab.utils.structural_plan import (
+    get_manifest_indicators,
+    get_model_clock,
+    get_plan_constructs,
+    get_state_names,
 )
 
 logger = logging.getLogger(__name__)
+
+type ToolImplementation = Callable[
+    [UncheckedJsonObject, UncheckedJsonObject],
+    UncheckedJsonObject | Awaitable[UncheckedJsonObject],
+]
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.flows.contracts_base import ToolContract
 
 _API_DESCRIPTION = """\
 The episode machine is the single interface to an N-of-1 causal analysis. An
@@ -186,7 +198,7 @@ def _extract_observation_timestamps(observation_data: Any) -> list[datetime]:
 
 
 def _analysis_time_config(
-    causal_design: dict[str, Any],
+    causal_design: UncheckedJsonObject,
     times: Any,
     horizon_days: int,
 ) -> tuple[float, int]:
@@ -205,7 +217,7 @@ def _analysis_time_config(
 
 
 def _manifest_effects(
-    samples: dict[str, Any],
+    samples: UncheckedJsonObject,
     outcome_idx: int,
     effect_mean: float,
     manifest_names: list[str],
@@ -283,11 +295,11 @@ def _fitted_latent_paths_from_result(result: Any) -> jnp.ndarray | None:
 
 
 def _resolve_counterfactual_start(
-    ctx: dict[str, Any],
-    start: dict[str, Any],
+    ctx: UncheckedJsonObject,
+    start: UncheckedJsonObject,
     *,
     n_timepoints: int,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, UncheckedJsonObject]:
     if n_timepoints <= 0:
         raise HTTPException(400, "Persisted fitted latent paths contain no timepoints.")
 
@@ -331,7 +343,7 @@ def _resolve_counterfactual_start(
     )
 
 
-def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
+def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
     """Query-plane context: pinned artifact versions + provenance freshness.
 
     Everything is read from the versioned store at the episode's *current*
@@ -366,6 +378,14 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
         raise HTTPException(404, f"No causal_design for workspace {workspace_id}")
     causal_design_payload = store.read_json_file(
         "causal_design", spec_info.version, json_filename("causal_design", "causal_design")
+    )
+    structural_plan_info = state.get("structural_plan")
+    if structural_plan_info is None:
+        raise HTTPException(404, f"No structural_plan for workspace {workspace_id}")
+    structural_plan_payload = store.read_json_file(
+        "structural_plan",
+        structural_plan_info.version,
+        json_filename("structural_plan", "structural_plan"),
     )
 
     compiled_info = state.get("compiled_ssm")
@@ -432,6 +452,7 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
         "posterior",
         "baseline_report",
         "causal_design",
+        "structural_plan",
         "identification_report",
         "compiled_ssm",
     )
@@ -444,6 +465,7 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
     return {
         "_workspace_id": workspace_id,
         "causal_design": causal_design_payload,
+        "structural_plan": structural_plan_payload,
         "compiled_ssm": compiled_report,
         "posterior": posterior_payload,
         "baseline_report": baseline_report,
@@ -461,9 +483,9 @@ def _build_ranking_context(workspace_id: str) -> dict[str, Any]:
 class AnalysisSimulationSetup:
     causal_analysis: CertifiedCausalAnalysis
     runtime: Any
-    samples: dict[str, Any]
-    causal_design: dict[str, Any]
-    query: dict[str, Any]
+    samples: UncheckedJsonObject
+    causal_design: UncheckedJsonObject
+    query: UncheckedJsonObject
     clamps: list[ClampSpec]
     outcome: str
     spec: Any
@@ -476,14 +498,14 @@ class AnalysisSimulationSetup:
     vector_field: VectorField
     # ``param_samples`` is the canonical per-draw component-shape
     # parameter list rebuilt from ``SSMSpec`` and posterior sample sites.
-    param_samples: list[tuple[dict[str, Any], ...]] | None = None
+    param_samples: list[tuple[UncheckedJsonObject, ...]] | None = None
 
 
 @dataclass(frozen=True)
 class AnalysisEffectOutputs:
     summary: dict[str, float]
     effect_trajectory: list[dict[str, float]] | None
-    visualization: dict[str, Any] | None
+    visualization: UncheckedJsonObject | None
     manifest_effects: dict[str, float] | None
 
 
@@ -491,17 +513,17 @@ def _tool_error_result(
     message: str,
     *,
     identifiable_treatments: list[str] | None = None,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {"error": message}
+) -> UncheckedJsonObject:
+    result: UncheckedJsonObject = {"error": message}
     if identifiable_treatments is not None:
         result["identifiable_treatments"] = identifiable_treatments
     return {"result": result}
 
 
 def _prepare_analysis_simulation(
-    ctx: dict[str, Any],
-    args: dict[str, Any],
-) -> tuple[AnalysisSimulationSetup | None, dict[str, Any] | None]:
+    ctx: UncheckedJsonObject,
+    args: UncheckedJsonObject,
+) -> tuple[AnalysisSimulationSetup | None, UncheckedJsonObject | None]:
     causal_analysis: CertifiedCausalAnalysis = ctx["_causal_analysis"]
     fitted_artifact = causal_analysis.posterior.artifact
     runtime = ctx["_prepared_runtime"]
@@ -595,7 +617,7 @@ def _build_visualization_payload(
     action_node_paths: jnp.ndarray | None = None,
     node_effect_paths: jnp.ndarray | None = None,
     start_state: dict[str, float] | None = None,
-) -> dict[str, Any] | None:
+) -> UncheckedJsonObject | None:
     reference_node_trajectories = (
         _serialize_node_trajectories(reference_node_paths[:, 1:], latent_names)
         if reference_node_paths is not None
@@ -673,7 +695,7 @@ def _build_effect_outputs(
 
 
 def _collect_analysis_warnings(
-    ctx: dict[str, Any],
+    ctx: UncheckedJsonObject,
     *,
     treatments: list[str] | None = None,
     include_diagnostic_warnings: bool = False,
@@ -707,10 +729,10 @@ def _collect_analysis_warnings(
 
 
 def _run_compute(
-    args: dict[str, Any],
+    args: UncheckedJsonObject,
     param_name: str,
     compute_fn: Any,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Parse JSON arg, run compute function, return result + context_output."""
     raw = args.get(param_name, "")
     try:
@@ -723,14 +745,14 @@ def _run_compute(
 
 
 def _execute_validate_latent_structure(
-    _ctx: dict[str, Any], args: dict[str, Any]
-) -> dict[str, Any]:
+    _ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
     return _run_compute(args, "structure_json", latent_structure_grounding)
 
 
 def _execute_validate_measurement_structure(
-    ctx: dict[str, Any], args: dict[str, Any]
-) -> dict[str, Any]:
+    ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
     latent_structure_payload = ctx.get("latent_structure", {})
     latent_structure = latent_structure_payload["latent_structure"]
     return _run_compute(
@@ -740,7 +762,9 @@ def _execute_validate_measurement_structure(
     )
 
 
-def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
+def _execute_validate_extractions(
+    ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
     from nof1_causal_lab.utils.llm import _validate_json_and_format
     from nof1_causal_lab.workers.schemas import validate_worker_output
 
@@ -752,23 +776,27 @@ def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> 
     return {"result": result}
 
 
-def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _build_model_info_payload(
+    ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+
     sections = list(args.get("sections") or ["overview", "variables", "capabilities"])
     focused = {str(name) for name in (args.get("names") or [])}
     causal_design_payload = ctx["causal_design"]
+    structural_plan = StructuralPlan.model_validate(ctx["structural_plan"]["structural_plan"])
     posterior = ctx.get("posterior", {})
     baseline_report = ctx.get("baseline_report", {})
     runtime = ctx["_prepared_runtime"]
     fitted_artifact = ctx["_fitted_artifact"]
     causal_design = causal_design_payload.get("causal_design", {})
-    measurement = causal_design.get("measurement") or {}
-    retained_state_names = set(get_estimation_state_order(causal_design))
-    constructs = get_estimation_constructs(causal_design)
-    indicators = [
-        indicator
-        for indicator in get_indicators(causal_design)
-        if indicator.get("construct_name") in retained_state_names
+    retained_state_names = set(get_state_names(structural_plan))
+    constructs = [
+        construct
+        for construct in get_plan_constructs(structural_plan)
+        if construct.get("name") in retained_state_names
     ]
+    indicators = get_manifest_indicators(structural_plan)
 
     if focused:
         constructs = [item for item in constructs if item.get("name") in focused]
@@ -778,7 +806,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
             if item.get("name") in focused or item.get("construct_name") in focused
         ]
 
-    payload: dict[str, Any] = {}
+    payload: UncheckedJsonObject = {}
     if "overview" in sections:
         payload["overview"] = {
             "outcome": ctx.get("_outcome_name"),
@@ -821,7 +849,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         }
     if "measurement" in sections:
         payload["measurement"] = {
-            "model_clock": measurement.get("model_clock"),
+            "model_clock": get_model_clock(structural_plan),
             "manifest_names": runtime.manifest_names,
         }
     if "identifiability" in sections:
@@ -869,11 +897,13 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     return payload
 
 
-def _execute_get_model_info(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _execute_get_model_info(
+    ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
     return {"result": _build_model_info_payload(ctx, args)}
 
 
-def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> UncheckedJsonObject:
     """Run a composable scenario: a start state + a list of timed latent clamps.
 
     The start is the population baseline steady state (interventional) or an abducted
@@ -939,7 +969,7 @@ def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, An
     outcome_effect = effect_state_paths[:, :, setup.outcome_idx]
     reference_mean = float(jnp.mean(baseline_state_paths[:, -1, setup.outcome_idx]))
 
-    common_viz: dict[str, Any] = {
+    common_viz: UncheckedJsonObject = {
         "reference_node_paths": baseline_state_paths,
         "action_node_paths": action_state_paths,
         "node_effect_paths": effect_state_paths,
@@ -973,7 +1003,7 @@ def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, An
 
 
 # Registry: (context_id, tool_name) -> implementation function
-_TOOL_IMPLS: dict[tuple[str, str], Any] = {
+_TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
     ("latent-structure", "validate_latent_structure"): _execute_validate_latent_structure,
     (
         "measurement-structure",
@@ -990,12 +1020,12 @@ _CONTEXT_DEPS: dict[str, list[str]] = {
     "latent-structure": [],
     "measurement-structure": ["latent_structure"],
     "measurement": [],
-    "statistical-model-spec": ["causal_design"],
+    "statistical-model-spec": ["structural_plan"],
     "ranking": [],
 }
 
 
-def _load_context_result(workspace_id: str, artifact_id: str) -> dict[str, Any]:
+def _load_context_result(workspace_id: str, artifact_id: str) -> UncheckedJsonObject:
     from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
     state = derive_current_state(workspace_id)
@@ -1018,20 +1048,29 @@ def _load_context_result(workspace_id: str, artifact_id: str) -> dict[str, Any]:
             info.version,
             json_filename("causal_design", "causal_design"),
         )
+    if artifact_id == "structural_plan":
+        info = state.get("structural_plan")
+        if info is None:
+            raise HTTPException(404, f"No structural_plan for workspace {workspace_id}")
+        return store.read_json_file(
+            "structural_plan",
+            info.version,
+            json_filename("structural_plan", "structural_plan"),
+        )
     raise KeyError(f"No canonical tool context loader for {artifact_id}")
 
 
-def _build_context(workspace_id: str, context_id: str) -> dict[str, Any]:
+def _build_context(workspace_id: str, context_id: str) -> UncheckedJsonObject:
     """Load upstream results needed for tool execution context."""
     if context_id == "ranking":
         return _build_ranking_context(workspace_id)
-    ctx: dict[str, Any] = {"_workspace_id": workspace_id}
+    ctx: UncheckedJsonObject = {"_workspace_id": workspace_id}
     for artifact_id in _CONTEXT_DEPS.get(context_id, []):
         ctx[artifact_id] = _load_context_result(workspace_id, artifact_id)
     return ctx
 
 
-def _get_tool_contract(context_id: str, tool_name: str) -> Any | None:
+def _get_tool_contract(context_id: str, tool_name: str) -> ToolContract | None:
     contracts = CONTEXT_TOOLS.get(context_id) or []
     return next((contract for contract in contracts if contract.name == tool_name), None)
 
@@ -1043,11 +1082,11 @@ def _get_tool_contract(context_id: str, tool_name: str) -> Any | None:
 
 class ToolCallRequest(BaseModel):
     workspace_id: str
-    input: dict[str, Any]
+    input: UncheckedJsonObject
 
 
 @app.get("/api/tools/{context_id}")
-def get_tool_schemas(context_id: str) -> list[dict[str, Any]]:
+def get_tool_schemas(context_id: str) -> list[UncheckedJsonObject]:
     """List a context's validation/query tools — the same tools the in-service LLM loops use.
 
     Each entry is `{name, description, parameters, result}` where `parameters`
@@ -1070,7 +1109,9 @@ def get_tool_schemas(context_id: str) -> list[dict[str, Any]]:
 
 
 @app.post("/api/tools/{context_id}/{tool_name}")
-async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest) -> dict[str, Any]:
+async def execute_tool(
+    context_id: str, tool_name: str, request: ToolCallRequest
+) -> UncheckedJsonObject:
     """Execute a context tool against the workspace's current artifact-store versions.
 
     Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
@@ -1099,12 +1140,11 @@ async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest
 
     try:
         ctx = _build_context(request.workspace_id, context_id)
-        import inspect
-
+        pending_payload = impl(ctx, validated_input)
         payload = (
-            await impl(ctx, validated_input)
-            if inspect.iscoroutinefunction(impl)
-            else impl(ctx, validated_input)
+            cast("UncheckedJsonObject", await pending_payload)
+            if inspect.isawaitable(pending_payload)
+            else pending_payload
         )
     except HTTPException:
         raise

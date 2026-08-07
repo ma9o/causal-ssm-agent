@@ -22,7 +22,6 @@ stage_outcome`; there is no status enum stored on any artifact.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass, field, replace
 from statistics import NormalDist
 from time import perf_counter_ns
@@ -33,6 +32,7 @@ import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 
+from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     LikelihoodSpec,
     LinkFunction,
@@ -65,14 +65,16 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_transmission,
     stage_outcome,
 )
-from nof1_causal_lab.utils.causal_design import (
-    get_estimation_edges,
-    get_estimation_state_order,
+from nof1_causal_lab.utils.structural_plan import (
+    get_edges,
+    get_state_names,
+    restrict_structural_plan,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
 
@@ -96,7 +98,7 @@ class ConstructContribution:
     name: str
     likelihoods: tuple[LikelihoodSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
-    priors: Mapping[str, dict] = field(default_factory=dict)
+    priors: Mapping[str, ExecutablePrior] = field(default_factory=dict)
     edge_parents: tuple[str, ...] = ()
     hill_parents: tuple[str, ...] = ()
 
@@ -108,7 +110,7 @@ class AdmissionState:
     names: tuple[str, ...] = ()
     likelihoods: tuple[LikelihoodSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
-    priors: Mapping[str, dict] = field(default_factory=dict)
+    priors: Mapping[str, ExecutablePrior] = field(default_factory=dict)
     annotations: tuple[str, ...] = ()
 
     def statistical_model_spec(self) -> StatisticalModelSpec:
@@ -162,16 +164,16 @@ class FullAdmissionValidation:
 
 
 # --------------------------------------------------------------------------- #
-# Planning + causal_design restriction
+# Planning + structural_plan restriction
 # --------------------------------------------------------------------------- #
 
 
-def build_construct_units(causal_design: dict) -> list[ConstructAdmissionUnit]:
+def build_construct_units(structural_plan: StructuralPlan) -> list[ConstructAdmissionUnit]:
     """Build the SCC-condensed fork/join plan for construct admission.
 
-    The universe is the estimation projection's ``state_order`` — constructs
+    The universe is the structural plan's ``state_order`` — constructs
     measurement-structure marginalized, anchored, or dropped out of estimation carry no
-    state, so there is nothing to admit for them (restricting the spec to one
+    state, so there is nothing to admit for them (restricting the plan to one
     would fail compilation with an empty state_order).
 
     Ties (independent roots) break by the state_order position for
@@ -179,14 +181,14 @@ def build_construct_units(causal_design: dict) -> list[ConstructAdmissionUnit]:
     first. Lagged feedback loops are legal latent structure (the latent-structure
     validator only forbids *contemporaneous* cycles), so the sort runs on the
     condensation: members of a feedback cycle are admitted back-to-back in
-    state_order, and restrict_causal_design defers the closing edge until
+    state_order, and restrict_structural_plan defers the closing edge until
     the whole cycle is admitted.
     """
-    constructs = get_estimation_state_order(causal_design)
+    constructs = get_state_names(structural_plan)
     order_index = {name: i for i, name in enumerate(constructs)}
     graph = nx.DiGraph()
     graph.add_nodes_from(constructs)
-    for edge in get_estimation_edges(causal_design):
+    for edge in get_edges(structural_plan):
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause in order_index and effect in order_index:
@@ -232,73 +234,13 @@ def build_construct_units(causal_design: dict) -> list[ConstructAdmissionUnit]:
     ]
 
 
-def build_construct_order(causal_design: dict) -> list[str]:
+def build_construct_order(structural_plan: StructuralPlan) -> list[str]:
     """Deterministic flattened order used for assembly and stable presentation."""
     return [
-        construct for unit in build_construct_units(causal_design) for construct in unit.constructs
+        construct
+        for unit in build_construct_units(structural_plan)
+        for construct in unit.constructs
     ]
-
-
-def restrict_causal_design(causal_design: dict, keep: set[str]) -> dict:
-    """Restrict a causal_design to the subset ``keep`` of constructs.
-
-    Every construct-indexed surface is filtered consistently so the partial model
-    compiles. Known inputs feeding a retained state are dependencies of that state,
-    not admission units, so their declaration, theoretical construct, source
-    indicator, and incoming edge remain in the restricted design.
-    """
-    spec = copy.deepcopy(causal_design)
-    estimation = spec.get("estimation", {})
-    all_known_inputs = list(estimation.get("known_inputs", []))
-    known_input_names = {
-        str(item.get("construct") or item.get("construct_name"))
-        for item in all_known_inputs
-        if item.get("construct") or item.get("construct_name")
-    }
-    relevant_estimation_edges = [
-        edge
-        for edge in estimation.get("edges", [])
-        if edge.get("effect") in keep and edge.get("cause") in (keep | known_input_names)
-    ]
-    relevant_input_names = {
-        str(edge.get("cause"))
-        for edge in relevant_estimation_edges
-        if edge.get("cause") in known_input_names
-    }
-    relevant_known_inputs = [
-        item
-        for item in all_known_inputs
-        if (item.get("construct") or item.get("construct_name")) in relevant_input_names
-    ]
-    input_source_indicators = {
-        str(item["source_indicator"])
-        for item in relevant_known_inputs
-        if item.get("source_indicator")
-    }
-
-    latent = spec.get("latent", {})
-    retained_construct_names = keep | relevant_input_names
-    latent["constructs"] = [
-        c for c in latent.get("constructs", []) if c["name"] in retained_construct_names
-    ]
-    latent["edges"] = [
-        e
-        for e in latent.get("edges", [])
-        if e.get("cause") in retained_construct_names and e.get("effect") in keep
-    ]
-    measurement = spec.get("measurement", {})
-    measurement["indicators"] = [
-        i
-        for i in measurement.get("indicators", [])
-        if i.get("construct_name") in keep or i.get("name") in input_source_indicators
-    ]
-    estimation["state_order"] = [n for n in estimation.get("state_order", []) if n in keep]
-    estimation["edges"] = relevant_estimation_edges
-    estimation["induced_dependencies"] = [
-        d for d in estimation.get("induced_dependencies", []) if set(d.get("between", [])) <= keep
-    ]
-    estimation["known_inputs"] = relevant_known_inputs
-    return spec
 
 
 # --------------------------------------------------------------------------- #
@@ -308,13 +250,15 @@ def restrict_causal_design(causal_design: dict, keep: set[str]) -> dict:
 
 def _compile_partial(
     state: AdmissionState,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
 ) -> tuple[SSMSpec, PriorRegistry]:
     """Compile the cumulative partial model to an SSMSpec + prior registry."""
-    restricted = restrict_causal_design(causal_design, set(state.names))
+    restricted = restrict_structural_plan(structural_plan, set(state.names))
     spec, registry, _bindings, _diagnostics, _edge_lag = (
         compile_ssm_inputs_from_statistical_model_spec(
-            state.statistical_model_spec(), dict(state.priors), causal_design=restricted
+            state.statistical_model_spec(),
+            PriorPlan(priors=dict(state.priors)),
+            structural_plan=restricted,
         )
     )
     return spec, registry
@@ -562,7 +506,7 @@ def trial_admission_state(
 def admit_construct(
     state: AdmissionState,
     contribution: ConstructContribution,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     design: DesignInfo,
     accepted: Mapping[tuple[str, str], str] | None = None,
 ) -> tuple[AdmissionState, AdmissionReport]:
@@ -570,7 +514,7 @@ def admit_construct(
     trial = trial_admission_state(state, contribution)
 
     started = perf_counter_ns()
-    spec, registry = _compile_partial(trial, causal_design)
+    spec, registry = _compile_partial(trial, structural_plan)
     timings = [
         AdmissionTiming(
             phase="model_compilation",
@@ -616,7 +560,11 @@ def admit_construct(
     return replace(trial, annotations=(*state.annotations, *annotations)), report
 
 
-def _sample_partial(spec: SSMSpec, registry: PriorRegistry, design: DesignInfo) -> dict:
+def _sample_partial(
+    spec: SSMSpec,
+    registry: PriorRegistry,
+    design: DesignInfo,
+) -> dict[str, jnp.ndarray]:
     """Exact prior-predictive draws for a compiled partial model on the design grid."""
     bundle = build_prior_runtime_bundle(spec, registry)
     return sample_prior_predictive_from_runtime(
@@ -635,7 +583,10 @@ def _elapsed_ms(started_ns: int) -> float:
 
 
 def _run_battery(
-    spec: SSMSpec, pred: dict, design: DesignInfo, target: ConstructContribution
+    spec: SSMSpec,
+    pred: Mapping[str, jax.Array | np.ndarray],
+    design: DesignInfo,
+    target: ConstructContribution,
 ) -> tuple[list[CheckResult], list[AdmissionTiming]]:
     """Run the reachability battery on ``target``'s latent trajectory in a compiled model.
 
@@ -831,7 +782,7 @@ def _run_battery(
 def recheck_member(
     state: AdmissionState,
     target: ConstructContribution,
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     design: DesignInfo,
 ) -> tuple[tuple[CheckResult, ...], tuple[AdmissionTiming, ...]]:
     """Re-run the battery on an already-admitted member against the closed-loop model.
@@ -842,7 +793,7 @@ def recheck_member(
     surfaces the results as a coupled recheck; they do not gate the admission.
     """
     started = perf_counter_ns()
-    spec, registry = _compile_partial(state, causal_design)
+    spec, registry = _compile_partial(state, structural_plan)
     timings = [
         AdmissionTiming(
             phase="model_compilation",
@@ -868,13 +819,13 @@ def recheck_member(
 def validate_full_admission_state(
     state: AdmissionState,
     targets: tuple[ConstructContribution, ...],
-    causal_design: dict,
+    structural_plan: StructuralPlan,
     design: DesignInfo,
     accepted: Mapping[str, Mapping[tuple[str, str], str]] | None = None,
 ) -> FullAdmissionValidation:
     """Gate publication with one exact full-model simulation and all construct batteries."""
     started = perf_counter_ns()
-    spec, registry = _compile_partial(state, causal_design)
+    spec, registry = _compile_partial(state, structural_plan)
     timings = [
         AdmissionTiming(
             phase="model_compilation",
@@ -941,7 +892,7 @@ def _incoming_edge_off_target(
 
 def _resimulate_edge_off(
     spec: SSMSpec,
-    pred: dict,
+    pred: Mapping[str, jax.Array | np.ndarray],
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
     seed: int,
@@ -958,7 +909,7 @@ def _resimulate_edge_off(
         _simulate_vector_field_predictive_latents,
     )
 
-    samples = dict(pred)
+    samples = {name: jnp.asarray(value) for name, value in pred.items()}
     for site in edge_target.vector_field_sites:
         if site in samples:
             samples[site] = jnp.zeros_like(jnp.asarray(samples[site]))

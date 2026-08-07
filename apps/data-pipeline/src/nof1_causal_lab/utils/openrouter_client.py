@@ -19,11 +19,15 @@ from typing import Any, Literal, cast
 from openai import AsyncOpenAI
 from pydantic import Field, create_model
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.config import get_secret
 
 logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
+
+type PydanticFieldDefinition = tuple[Any, Any]
+type PydanticFieldDefinitions = dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +123,7 @@ class Tool:
 
     name: str
     description: str
-    parameters: dict[str, Any]
+    parameters: UncheckedJsonObject
     execute: Any
     stop_on_success: bool = False
     success_output: str | None = None
@@ -170,12 +174,12 @@ def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
     return descriptions
 
 
-def _parameter_schema(handler: Any) -> dict[str, Any]:
+def _parameter_schema(handler: Any) -> UncheckedJsonObject:
     """Build a JSON schema from a tool handler signature."""
 
     signature = inspect.signature(handler)
     descriptions = _parse_arg_descriptions(inspect.getdoc(handler))
-    fields: dict[str, tuple[Any, Any]] = {}
+    fields: dict[str, PydanticFieldDefinition] = {}
 
     for name, param in signature.parameters.items():
         annotation = param.annotation if param.annotation is not inspect.Signature.empty else Any
@@ -196,7 +200,7 @@ def _parameter_schema(handler: Any) -> dict[str, Any]:
 
     model = create_model(
         f"{handler.__name__.title()}ToolParams",
-        **cast("dict[str, Any]", fields),
+        **cast("PydanticFieldDefinitions", fields),
     )
     schema = model.model_json_schema()
     schema["additionalProperties"] = False
@@ -222,7 +226,7 @@ def tool(factory: Any) -> Any:
     return wrapper
 
 
-def normalize_message(message: dict[str, Any]) -> dict[str, Any]:
+def normalize_message(message: UncheckedJsonObject) -> UncheckedJsonObject:
     """Normalize a message to the OpenAI chat/tool shape used at runtime."""
 
     normalized = {
@@ -236,7 +240,7 @@ def normalize_message(message: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _tool_schema(tool_obj: Tool) -> dict[str, Any]:
+def _tool_schema(tool_obj: Tool) -> UncheckedJsonObject:
     return {
         "type": "function",
         "function": {
@@ -270,9 +274,9 @@ def _message_content_parts(content: Any) -> tuple[str, str | None]:
     return "\n".join(text_parts), joined_reasoning
 
 
-def _assistant_message(message: Any) -> dict[str, Any]:
+def _assistant_message(message: Any) -> UncheckedJsonObject:
     content_text, content_reasoning = _message_content_parts(_get_attr(message, "content"))
-    assistant_message: dict[str, Any] = {
+    assistant_message: UncheckedJsonObject = {
         "role": "assistant",
         "content": content_text,
     }
@@ -332,7 +336,7 @@ def _usage_from_response(response: Any) -> dict[str, int | None] | None:
 def _log_response_details(
     *,
     log_label: str | None,
-    message: dict[str, Any],
+    message: UncheckedJsonObject,
     completion_text: str,
 ) -> None:
     """Log raw assistant outputs (completion, tool calls, reasoning)."""
@@ -370,11 +374,11 @@ def _log_response_details(
 
 async def call_model(
     model_name: str,
-    messages: list[dict[str, Any]],
+    messages: list[UncheckedJsonObject],
     tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
     log_label: str | None = None,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Call OpenRouter and normalize the first choice into a plain dict."""
 
     request = config or GenerateConfig()
@@ -382,7 +386,7 @@ async def call_model(
 
     await acquire_limiter("llm")
 
-    kwargs: dict[str, Any] = {
+    kwargs: UncheckedJsonObject = {
         "model": normalized_model_name,
         "messages": [normalize_message(message) for message in messages],
     }
@@ -390,7 +394,7 @@ async def call_model(
         kwargs["max_tokens"] = request.max_tokens
     if request.timeout is not None:
         kwargs["timeout"] = request.timeout
-    extra_body: dict[str, Any] = {
+    extra_body: UncheckedJsonObject = {
         "provider": {
             "sort": "throughput",
         }

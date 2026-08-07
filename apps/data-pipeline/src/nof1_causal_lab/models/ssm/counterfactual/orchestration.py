@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 from jax import Array
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
     VariableOverride,
@@ -88,17 +89,17 @@ def compute_interventions(
     treatments: list[str],
     outcome: str,
     latent_names: list[str],
-    causal_design: dict | None = None,
+    causal_design: UncheckedJsonObject | None = None,
     manifest_names: list[str] | None = None,
     times: jnp.ndarray | None = None,
     shift_size: float = 1.0,
     lambda_mean: Array | None = None,
-) -> list[dict[str, Any]]:
+) -> list[UncheckedJsonObject]:
     """Compute interventions from vector-field posterior parameter draws."""
     name_to_idx = {name: i for i, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
 
-    def _skeleton(treatment_name: str) -> dict[str, Any]:
+    def _skeleton(treatment_name: str) -> UncheckedJsonObject:
         return {"treatment": treatment_name}
 
     if outcome_idx is None:
@@ -111,7 +112,7 @@ def compute_interventions(
 
     time_grid = _build_horizon_grid(causal_design, times)
 
-    results: list[dict[str, Any]] = []
+    results: list[UncheckedJsonObject] = []
     for treatment_name in treatments:
         treat_idx = name_to_idx.get(treatment_name)
         if treat_idx is None:
@@ -128,7 +129,7 @@ def compute_interventions(
             ]
         )
         mean_effect = float(jnp.mean(effects))
-        entry: dict[str, Any] = {
+        entry: UncheckedJsonObject = {
             "treatment": treatment_name,
             "posterior_draws": effects.tolist(),
         }
@@ -164,7 +165,7 @@ def compute_interventions(
                 )
         results.append(entry)
 
-    def _abs_mean(entry: dict) -> float:
+    def _abs_mean(entry: UncheckedJsonObject) -> float:
         draws = entry.get("posterior_draws")
         return abs(sum(draws) / len(draws)) if draws else 0.0
 
@@ -173,7 +174,7 @@ def compute_interventions(
 
 
 def _build_horizon_grid(
-    causal_design: dict | None,
+    causal_design: UncheckedJsonObject | None,
     times: jnp.ndarray | None,
     horizon_days: float = 30.0,
 ) -> Array | None:

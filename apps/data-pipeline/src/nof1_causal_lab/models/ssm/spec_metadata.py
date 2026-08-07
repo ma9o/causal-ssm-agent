@@ -28,7 +28,7 @@ def get_per_channel_manifest(spec: SSMSpec) -> list[DistributionFamily]:
 
 def get_per_channel_links(spec: SSMSpec) -> list[LinkFunction]:
     """Resolve per-channel link functions."""
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
         resolve_manifest_families_and_links,
     )
 

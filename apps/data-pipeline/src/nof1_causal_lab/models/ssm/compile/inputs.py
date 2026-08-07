@@ -4,39 +4,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
 from nof1_causal_lab.models.ssm.compile.common import (
     normalize_prior_params,
 )
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     bind_parameters,
-    collect_compile_diagnostics,
     compile_priors,
 )
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
     build_semantic_prior_bindings,
     check_backward_closure,
-    empty_prior_bindings,
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import (
-    build_structural_support_from_causal_design,
+    build_structural_support_from_plan,
     get_construct_dt_days,
-    get_estimation_latent_layout,
+    get_structural_latent_layout,
     translate_spec,
 )
 from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
+from nof1_causal_lab.utils.structural_plan import get_manifest_indicators
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.prior import PriorPlan, PriorValidationResult
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
-    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 
-def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_design: dict | None) -> None:
+def _require_explicit_causal_structure(
+    ssm_spec: SSMSpec,
+    *,
+    structural_plan: StructuralPlan | None,
+) -> None:
     """Reject implicit structural degrees of freedom on causal-design code paths."""
-    if causal_design is None:
+    if structural_plan is None:
         return
 
     required_block_fields = (
@@ -75,8 +79,9 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_design: dict
         return
 
     raise ValueError(
-        "Causal-spec compilation requires an explicit compiled structure on SSMSpec. "
-        f"Missing block fields: {', '.join(missing_fields)}. Compile from StatisticalModelSpec + CausalDesign so "
+        "StructuralPlan compilation requires an explicit compiled structure on SSMSpec. "
+        f"Missing block fields: {', '.join(missing_fields)}. Compile from "
+        "StatisticalModelSpec + StructuralPlan so "
         "translate_spec() can derive the full structural payload, or supply an already "
         "translated SSMSpec with explicit block supports and templates."
     )
@@ -105,11 +110,34 @@ def _attach_compile_binding_provenance(
     return diagnostics
 
 
+def _order_likelihoods_by_structural_plan(
+    statistical_model_spec: StatisticalModelSpec,
+    structural_plan: StructuralPlan,
+) -> StatisticalModelSpec:
+    """Canonicalize manifest array order to the StructuralPlan contract."""
+    plan_order = [str(indicator["name"]) for indicator in get_manifest_indicators(structural_plan)]
+    likelihood_by_variable = {
+        likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
+    }
+    authored_names = [likelihood.variable for likelihood in statistical_model_spec.likelihoods]
+    if len(likelihood_by_variable) != len(authored_names):
+        raise ValueError("StatisticalModelSpec contains duplicate likelihood variables")
+    if set(authored_names) != set(plan_order):
+        raise ValueError(
+            "StatisticalModelSpec likelihoods do not exactly cover StructuralPlan manifests: "
+            f"missing={sorted(set(plan_order) - set(authored_names))}, "
+            f"unplanned={sorted(set(authored_names) - set(plan_order))}."
+        )
+    return statistical_model_spec.model_copy(
+        update={"likelihoods": [likelihood_by_variable[variable] for variable in plan_order]}
+    )
+
+
 def compile_ssm_inputs_from_statistical_model_spec(
-    statistical_model_spec: StatisticalModelSpec | dict,
-    priors: dict[str, dict] | None = None,
+    statistical_model_spec: StatisticalModelSpec,
+    prior_plan: PriorPlan,
     *,
-    causal_design: dict | None = None,
+    structural_plan: StructuralPlan | None = None,
 ) -> tuple[
     SSMSpec,
     PriorRegistry,
@@ -118,28 +146,38 @@ def compile_ssm_inputs_from_statistical_model_spec(
     dict[tuple[int, int], float],
 ]:
     """Compile executable SSM inputs from a validated semantic statistical model spec surface."""
-    resolved_statistical_model_spec = (
-        StatisticalModelSpec.model_validate(statistical_model_spec)
-        if isinstance(statistical_model_spec, dict)
-        else statistical_model_spec
+    ordered_statistical_model_spec = statistical_model_spec
+    if structural_plan is not None:
+        ordered_statistical_model_spec = _order_likelihoods_by_structural_plan(
+            ordered_statistical_model_spec,
+            structural_plan,
+        )
+    ssm_spec, edge_lag_days = translate_spec(
+        ordered_statistical_model_spec,
+        structural_plan,
     )
-    if resolved_statistical_model_spec is None:
+    _require_explicit_causal_structure(ssm_spec, structural_plan=structural_plan)
+
+    expected_parameters = {
+        parameter.name for parameter in ordered_statistical_model_spec.parameters
+    }
+    planned_parameters = set(prior_plan.priors)
+    if planned_parameters != expected_parameters:
         raise ValueError(
-            "compile_ssm_inputs_from_statistical_model_spec() requires statistical_model_spec"
+            "PriorPlan must exactly cover StatisticalModelSpec parameters: "
+            f"missing={sorted(expected_parameters - planned_parameters)}, "
+            f"unknown={sorted(planned_parameters - expected_parameters)}."
         )
 
-    ssm_spec, edge_lag_days = translate_spec(resolved_statistical_model_spec, causal_design)
-    _require_explicit_causal_structure(ssm_spec, causal_design=causal_design)
-
     prior_registry, index_maps, diagnostics = compile_priors(
-        priors or {},
-        resolved_statistical_model_spec,
+        prior_plan.compiler_payloads(),
+        ordered_statistical_model_spec,
         ssm_spec,
         edge_lag_days=edge_lag_days,
-        causal_design=causal_design,
+        structural_plan=structural_plan,
     )
 
-    if causal_design is not None:
+    if structural_plan is not None:
         backward_gaps = check_backward_closure(ssm_spec, index_maps)
         if backward_gaps:
             from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
@@ -151,98 +189,15 @@ def compile_ssm_inputs_from_statistical_model_spec(
     return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days
 
 
-def compile_ssm_inputs_from_spec(
-    ssm_spec: SSMSpec,
-    *,
-    priors: dict[str, dict] | None = None,
-    prior_registry: PriorRegistry | None = None,
-    statistical_model_spec: StatisticalModelSpec | dict | None = None,
-    causal_design: dict | None = None,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
-) -> tuple[
-    SSMSpec,
-    PriorRegistry,
-    list[CompiledParameterBinding],
-    list[PriorValidationResult],
-    dict[tuple[int, int], float],
-]:
-    """Finalize executable SSM inputs from an explicit translated SSMSpec surface."""
-    from nof1_causal_lab.models.ssm.parameterization import build_site_registry
-    from nof1_causal_lab.models.ssm.priors import default_prior_registry_for_sites
-
-    resolved_statistical_model_spec = (
-        StatisticalModelSpec.model_validate(statistical_model_spec)
-        if isinstance(statistical_model_spec, dict)
-        else statistical_model_spec
-    )
-
-    resolved_edge_lag_days = {} if edge_lag_days is None else dict(edge_lag_days)
-    _require_explicit_causal_structure(ssm_spec, causal_design=causal_design)
-    raw_priors = priors or {}
-
-    if resolved_statistical_model_spec is None:
-        if raw_priors:
-            raise ValueError(
-                "compile_ssm_inputs_from_spec() requires statistical_model_spec to compile semantic prior "
-                "proposals from a direct SSMSpec."
-            )
-        resolved_prior_registry = prior_registry or default_prior_registry_for_sites(
-            build_site_registry(ssm_spec)
-        )
-        index_maps = empty_prior_bindings()
-        diagnostics = collect_compile_diagnostics(
-            ssm_spec,
-            edge_lag_days=resolved_edge_lag_days,
-            raw_priors=raw_priors,
-            prior_registry=resolved_prior_registry,
-        )
-        bindings: list[CompiledParameterBinding] = []
-        diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-        return ssm_spec, resolved_prior_registry, bindings, diagnostics, resolved_edge_lag_days
-
-    if prior_registry is None:
-        prior_registry, index_maps, diagnostics = compile_priors(
-            raw_priors,
-            resolved_statistical_model_spec,
-            ssm_spec,
-            edge_lag_days=resolved_edge_lag_days,
-            causal_design=causal_design,
-        )
-    else:
-        index_maps = build_semantic_prior_bindings(
-            ssm_spec,
-            resolved_statistical_model_spec,
-            causal_design=causal_design,
-        )
-        diagnostics = collect_compile_diagnostics(
-            ssm_spec,
-            edge_lag_days=resolved_edge_lag_days,
-            raw_priors=raw_priors,
-            prior_registry=prior_registry,
-        )
-
-    if causal_design is not None:
-        backward_gaps = check_backward_closure(ssm_spec, index_maps)
-        if backward_gaps:
-            from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
-
-            raise PriorIndexingError(backward_gaps)
-
-    bindings = bind_parameters(index_maps)
-    diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, prior_registry, bindings, diagnostics, resolved_edge_lag_days
-
-
 __all__ = [
     "SemanticBindingRegistry",
     "bind_parameters",
-    "build_structural_support_from_causal_design",
+    "build_structural_support_from_plan",
     "build_semantic_prior_bindings",
     "compile_priors",
     "compile_ssm_inputs_from_statistical_model_spec",
-    "compile_ssm_inputs_from_spec",
     "get_construct_dt_days",
-    "get_estimation_latent_layout",
+    "get_structural_latent_layout",
     "normalize_prior_params",
     "split_compound_name",
     "translate_spec",

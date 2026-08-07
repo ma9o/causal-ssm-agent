@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 import jax.numpy as jnp
 import jax.random as random
@@ -33,7 +33,8 @@ from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 class MinimalReparam(Strategy):
     """Test-owned minimal reparameterization strategy."""
 
-    def configure(self, msg: dict):
+    @override
+    def configure(self, msg: dict[str, Any]):
         return _minimal_reparam(msg["fn"], msg.get("is_observed", False))
 
 

@@ -21,11 +21,15 @@ from nof1_causal_lab.flows.transitions.validation.checks import (
     parse_timestamp_series,
     timestamp_issue_specs,
 )
+from nof1_causal_lab.json_types import UncheckedJsonObject
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
+
+type ArtifactRecord = UncheckedJsonObject
+type RawIssue = UncheckedJsonObject
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,7 @@ class Issue:
 @dataclass
 class ValidationFindings:
     issues: list[Issue] = field(default_factory=list)
-    metrics: dict[str, Any] = field(default_factory=dict)
+    metrics: UncheckedJsonObject = field(default_factory=dict)
 
 
 @dataclass
@@ -68,10 +72,10 @@ class IndicatorRuleInput:
 @dataclass(frozen=True)
 class ValidationContext:
     combined: pl.DataFrame
-    indicators: list[dict]
+    indicators: list[ArtifactRecord]
     indicator_names: set[str]
-    indicator_lookup: dict[str, dict]
-    construct_lookup: dict[str, dict]
+    indicator_lookup: dict[str, ArtifactRecord]
+    construct_lookup: dict[str, ArtifactRecord]
     model_clock_hours: float | None
 
     def iter_indicators(self):
@@ -109,7 +113,7 @@ def issue_payload(issue: Issue) -> dict[str, str | None]:
     }
 
 
-def issue_from_raw(raw_issue: dict[str, Any], *, cell_key: str) -> Issue:
+def issue_from_raw(raw_issue: UncheckedJsonObject, *, cell_key: str) -> Issue:
     return Issue(
         raw_issue["indicator"],
         raw_issue["issue_type"],
@@ -120,9 +124,9 @@ def issue_from_raw(raw_issue: dict[str, Any], *, cell_key: str) -> Issue:
 
 
 def issues_from_raw(
-    raw_issues: list[dict[str, Any]],
+    raw_issues: list[UncheckedJsonObject],
     *,
-    cell_key: str | Callable[[dict[str, Any]], str],
+    cell_key: str | Callable[[UncheckedJsonObject], str],
 ) -> list[Issue]:
     issues: list[Issue] = []
     for raw_issue in raw_issues:
@@ -131,7 +135,7 @@ def issues_from_raw(
     return issues
 
 
-def derive_validation_status(issues: list[dict[str, Any]]) -> dict[str, bool]:
+def derive_validation_status(issues: list[UncheckedJsonObject]) -> dict[str, bool]:
     """Validation errors invalidate the report; warnings are diagnostics.
 
     ``is_valid`` is information for the navigator, never control flow —
@@ -142,7 +146,7 @@ def derive_validation_status(issues: list[dict[str, Any]]) -> dict[str, bool]:
     return {"is_valid": not has_error, "has_warnings": has_warning}
 
 
-def no_data_validation_result() -> dict[str, Any]:
+def no_data_validation_result() -> UncheckedJsonObject:
     return {
         "is_valid": False,
         "indicators": {},
@@ -307,7 +311,8 @@ def _rule_hallucination_signals(entry: IndicatorRuleInput) -> ValidationFindings
 
 
 def _rule_construct_correlations(
-    combined: pl.DataFrame, indicators: list[dict]
+    combined: pl.DataFrame,
+    indicators: list[ArtifactRecord],
 ) -> ValidationFindings:
     raw_issues = check_construct_correlations(combined, indicators)
     return ValidationFindings(issues=issues_from_raw(raw_issues, cell_key=""))
@@ -342,13 +347,13 @@ CELL_STATUS_KEYS = frozenset(
 
 def reduce_findings(
     indicator_findings: dict[str, list[ValidationFindings]],
-) -> tuple[list[dict], dict[str, dict[str, Any]]]:
-    all_issues: list[dict] = []
-    indicator_health: dict[str, dict[str, Any]] = {}
+) -> tuple[list[RawIssue], dict[str, UncheckedJsonObject]]:
+    all_issues: list[RawIssue] = []
+    indicator_health: dict[str, UncheckedJsonObject] = {}
 
     for indicator_name in sorted(indicator_findings):
         findings_list = indicator_findings[indicator_name]
-        merged_metrics: dict[str, Any] = {}
+        merged_metrics: UncheckedJsonObject = {}
         ind_issues: list[Issue] = []
         for findings in findings_list:
             ind_issues.extend(findings.issues)
@@ -375,8 +380,8 @@ def reduce_findings(
 def _build_indicator_context(
     indicator_name: str,
     ind_data: pl.DataFrame,
-    indicator_lookup: dict[str, dict],
-    construct_lookup: dict[str, dict],
+    indicator_lookup: dict[str, ArtifactRecord],
+    construct_lookup: dict[str, ArtifactRecord],
     model_clock_hours: float | None,
 ) -> IndicatorContext | None:
     values_df = ind_data.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
@@ -432,9 +437,9 @@ def _float_or_none(value: Any) -> float | None:
 def _compute_empirical_profile(
     indicator_name: str,
     model_data: pl.DataFrame,
-    indicator_lookup: dict[str, dict],
-    health_metrics: dict[str, Any],
-) -> dict[str, Any] | None:
+    indicator_lookup: dict[str, ArtifactRecord],
+    health_metrics: UncheckedJsonObject,
+) -> UncheckedJsonObject | None:
     ind_model = model_data.filter(pl.col("indicator") == indicator_name)
     values_df = ind_model.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
     n_obs = len(values_df)
@@ -493,18 +498,20 @@ def _compute_empirical_profile(
 def build_indicator_audits(
     *,
     indicator_names: set[str],
-    indicator_lookup: dict[str, dict],
+    indicator_lookup: dict[str, ArtifactRecord],
     model_data: pl.DataFrame,
-    indicator_issues: list[dict[str, Any]],
-    indicator_health: dict[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    issues_by_indicator: dict[str, list[dict[str, Any]]] = {name: [] for name in indicator_names}
+    indicator_issues: list[UncheckedJsonObject],
+    indicator_health: dict[str, UncheckedJsonObject],
+) -> dict[str, UncheckedJsonObject]:
+    issues_by_indicator: dict[str, list[UncheckedJsonObject]] = {
+        name: [] for name in indicator_names
+    }
     for issue in indicator_issues:
         issue_indicator = issue.get("indicator")
         if issue_indicator in issues_by_indicator:
             issues_by_indicator[issue_indicator].append(issue)
 
-    audits: dict[str, dict[str, Any]] = {}
+    audits: dict[str, UncheckedJsonObject] = {}
     for indicator_name in sorted(indicator_names):
         health_metrics = indicator_health.get(indicator_name, {})
         audits[indicator_name] = {
@@ -525,7 +532,7 @@ def build_indicator_audits(
 def run_rules(
     rules: list[ValidationRule],
     ctx: ValidationContext,
-) -> tuple[list[dict], dict[str, dict[str, Any]], list[dict]]:
+) -> tuple[list[RawIssue], dict[str, UncheckedJsonObject], list[RawIssue]]:
     indicator_rules = [rule for rule in rules if rule.scope == "indicator"]
     dataset_rules = [rule for rule in rules if rule.scope == "dataset"]
 
@@ -534,7 +541,7 @@ def run_rules(
         rule_input = IndicatorRuleInput(indicator_name, ind_data, indicator_ctx)
         indicator_findings[indicator_name] = [rule.check(rule_input) for rule in indicator_rules]
 
-    dataset_issues: list[dict] = []
+    dataset_issues: list[RawIssue] = []
     for rule in dataset_rules:
         findings = rule.check(ctx.combined, ctx.indicators)
         dataset_issues.extend(issue_payload(issue) for issue in findings.issues)

@@ -17,7 +17,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
     symmetrize,
 )
-from nof1_causal_lab.models.ssm.inference.targets.euler_maruyama import (
+from nof1_causal_lab.models.ssm.execution.euler_maruyama import (
     _log_prob_with_chol,
 )
 

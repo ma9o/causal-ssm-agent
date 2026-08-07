@@ -12,9 +12,13 @@ import numpy as np
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.statistical_model_spec import (
+    DistributionFamily,
+    LinkFunction,
+    StatisticalModelSpec,
+)
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors,
-    compile_ssm_inputs_from_spec,
     normalize_prior_params,
     split_compound_name,
 )
@@ -318,7 +322,11 @@ class TestBuilderPriorConversion:
         ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="DT persistence scale"):
-            compile_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
+            compile_priors(
+                priors,
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                ssm_spec=ssm_spec,
+            )
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
         """Initial-state correlations should compile to bounded correlation priors."""
@@ -369,7 +377,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, _index_maps, _diagnostics = compile_priors(
             priors,
-            statistical_model_spec,
+            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
@@ -455,7 +463,9 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            priors, statistical_model_spec, ssm_spec=ssm_spec
+            priors,
+            StatisticalModelSpec.model_validate(statistical_model_spec),
+            ssm_spec=ssm_spec,
         )
         t0_mean_prior = prior_registry.priors_by_site["t0_means_free"]
         t0_diag_prior = prior_registry.priors_by_site["t0_var_diag_free"]
@@ -537,7 +547,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, index_maps, _diagnostics = compile_priors(
             priors,
-            statistical_model_spec,
+            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
@@ -630,7 +640,7 @@ class TestBuilderPriorConversion:
 
         prior_registry, index_maps, _diagnostics = compile_priors(
             priors,
-            statistical_model_spec,
+            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
@@ -706,22 +716,11 @@ class TestBuilderPriorConversion:
         )
 
         with pytest.raises(ValueError, match="could not resolve an authoring interval"):
-            compile_priors(priors, statistical_model_spec, ssm_spec=ssm_spec)
-
-    def test_compile_inputs_from_spec_requires_statistical_model_spec_for_semantic_priors(self):
-        """Direct SSMSpec compilation should reject raw semantic priors without statistical_model_spec."""
-        ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
-        priors = {
-            "rho_mood": {
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-            }
-        }
-
-        with pytest.raises(
-            ValueError, match="requires statistical_model_spec to compile semantic prior"
-        ):
-            compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
+            compile_priors(
+                priors,
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                ssm_spec=ssm_spec,
+            )
 
     def test_prior_predictive_supports_hill_edge_spec(self):
         """The prior predictive path should accept nonlinear component dynamics."""
@@ -818,28 +817,18 @@ class TestBuilderPriorConversion:
 class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
-        statistical_model_spec = {
-            "likelihoods": [
-                {
-                    "variable": "screen_gap",
-                    "distribution": "gamma",
-                    "link": "log",
-                    "reasoning": "",
-                }
-            ],
-            "parameters": [
-                {
-                    "name": "rho_screen_gap",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                }
-            ],
-        }
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=1,
+            latent_names=["screen_gap"],
+            manifest_names=["screen_gap"],
+            manifest_dists=[DistributionFamily.GAMMA],
+            manifest_links=[LinkFunction.LOG],
+        )
 
         with pytest.raises(ValueError, match="Observation support check failed"):
-            build_ssm_model(X, statistical_model_spec=statistical_model_spec, priors={})
+            build_ssm_model(X, ssm_spec=spec)
 
 
 class TestPrepareFitInputs:
@@ -983,6 +972,81 @@ class TestPrepareFitInputs:
 
 
 class TestPrepareModelRuntime:
+    def test_support_boundary_rows_preserve_known_input_columns(self):
+        data_for_model = pl.DataFrame(
+            {
+                "indicator": ["stress_score", "dose_mg"],
+                "value": [1.0, 20.0],
+                "anchor_time": [
+                    "2024-02-01T00:00:00",
+                    "2024-02-01T00:00:00",
+                ],
+                "support_kind": ["interval", "point"],
+                "summary_operator": ["mean", "last"],
+                "anchor_policy": ["support_end", "support_end"],
+                "observation_window": ["1mo", None],
+                "support_start": [
+                    "2024-01-01T00:00:00",
+                    "2024-02-01T00:00:00",
+                ],
+                "support_end": [
+                    "2024-02-01T00:00:00",
+                    "2024-02-01T00:00:00",
+                ],
+            }
+        )
+
+        class StubModel:
+            def __init__(self):
+                self.spec = _make_spec(
+                    n_latent=1,
+                    n_manifest=1,
+                    manifest_names=["stress_score"],
+                    input_effect_block=SparseMatrixBlockSpec(
+                        n_rows=1,
+                        n_cols=1,
+                        free_support=np.array([[True]]),
+                        template=jnp.zeros((1, 1)),
+                        free_site_name="input_effect_free",
+                        det_site_name="input_effect",
+                        support=SupportClass.REAL,
+                        site_kind=SiteKind.INPUT_EFFECT,
+                        assembly_group="input_effect",
+                        fixed_spec_field="input_effect",
+                        priors_field="input_effect",
+                    ),
+                    input_names=["dose"],
+                    input_source_indicators=["dose_mg"],
+                    input_scales=[10.0],
+                    input_missing_policies=["forward_fill"],
+                    input_lagged=[False],
+                )
+                self.parameter_layout = object()
+
+            def set_observation_support(self, observation_support):
+                self.observation_support = observation_support
+
+            def set_transition_inputs(self, transition_inputs):
+                self.transition_inputs = transition_inputs
+
+        runtime = prepare_model_runtime(
+            data_for_model,
+            model=cast("SSMModel", StubModel()),
+            sampler_config=cast(
+                "SamplerConfigOverride",
+                {"method": "marginal_particle_gibbs"},
+            ),
+        )
+
+        assert runtime.wide_data.columns == ["time", "stress_score", "dose_mg"]
+        assert runtime.wide_data["time"].to_list() == [-31.0, 0.0]
+        assert runtime.wide_data["dose_mg"].to_list() == [None, 20.0]
+        assert runtime.transition_inputs is not None
+        np.testing.assert_allclose(
+            np.asarray(runtime.transition_inputs),
+            np.array([[0.0], [2.0]], dtype=np.float32),
+        )
+
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
         data_for_model = pl.DataFrame(
             {

@@ -9,6 +9,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
     from nof1_causal_lab.machine.temporal.messages import (
@@ -75,7 +77,7 @@ async def _emit_extraction_event(input: ExtractionProgressEventInput) -> None:
     )
 
 
-def _failure_details(exc: BaseException) -> tuple[str, str, dict]:
+def _failure_details(exc: BaseException) -> tuple[str, str, UncheckedJsonObject]:
     cause = exc
     while not isinstance(cause, ApplicationError):
         next_cause = getattr(cause, "cause", None)

@@ -16,7 +16,6 @@ from nof1_causal_lab.models.ssm.discretization import (
     discretize_system_with_inputs_batched,
     solve_lyapunov,
 )
-from nof1_causal_lab.models.ssm.inference import InferenceMethod, ParticleMCMCPosterior, fit
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMSpec,
@@ -41,10 +40,6 @@ __all__ = [
     "SSMSpec",
     "PriorRegistry",
     "PriorSpec",
-    # Inference
-    "InferenceMethod",
-    "ParticleMCMCPosterior",
-    "fit",
     # Reparameterization
     "AutoReparam",
     "Strategy",

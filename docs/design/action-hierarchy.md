@@ -81,7 +81,7 @@ An artifact enters the store exactly one of three ways — this is the whole rul
 |---|---|---|
 | **Root** | A caller supplies the payload directly (`write(artifact)`), schema-validated and provenance-stamped `human`/`llm`. `write_pins` stamp input versions so a written root participates in staleness. | `question`, `saved_scenarios` |
 | **Produced** | A `run(transition)` computes it from its inputs inside a delegated context. A transition is named by the primary artifact it produces. Judgment-class produced artifacts are also `writable`. | `raw_data`, `latent_structure`, `measurement_structure`, `measurements`, `statistical_model_spec`, `posterior`, `baseline_report` |
-| **Derived** | A deterministic, machine-maintained node recomputed **atomically in the same move** when its parents are fresh and one of them changed. It has no producer of its own, is never written, is never scheduled, and is **never stale** on the public surface: if any parent is absent or stale during a cascade, the current derivation is retracted instead of recomputed from stale inputs. An `optional` derivation is present only when its finding is nonempty; retraction is a finding, not a failure. | `causal_design`, `identification_report`, `validation_report`, `compiled_ssm` |
+| **Derived** | A deterministic, machine-maintained node recomputed **atomically in the same move** when its parents are fresh and one of them changed. It has no producer of its own, is never written, is never scheduled, and is **never stale** on the public surface: if any parent is absent or stale during a cascade, the current derivation is retracted instead of recomputed from stale inputs. An `optional` derivation is present only when its finding is nonempty; retraction is a finding, not a failure. | `causal_design`, `structural_plan`, `identification_report`, `validation_report`, `compiled_ssm` |
 
 Derivations are standalone nodes with **multiple parents**:
 
@@ -133,6 +133,7 @@ flowchart LR
 
     LS ==>|derive| CD["causal_design"]
     MS ==>|derive| CD
+    CD ==>|compile| SP["structural_plan"]
     CD ==>|"derive · optional"| IR["identification_report"]
 
     Q --> Mrun(("run · batch_llm"))
@@ -145,14 +146,14 @@ flowchart LR
     CD ==>|derive| VR
 
     Q --> SMSrun(("run · judgment"))
-    CD --> SMSrun
+    SP --> SMSrun
     IR --> SMSrun
     PD --> SMSrun
     VR --> SMSrun
     SMSrun --> SMS["statistical_model_spec"]
 
     SMS ==>|derive| CSSM["compiled_ssm"]
-    CD ==>|derive| CSSM
+    SP ==>|derive| CSSM
 
     CSSM --> Prun(("run · deterministic"))
     PD --> Prun
@@ -174,13 +175,14 @@ As a node table:
 | `raw_data` | produced | ∅ | batch_llm | ❌ | ingestion context; deliberately consumes nothing, so question edits never stale it |
 | `latent_structure` | produced | question | judgment | ✅ | theoretical constructs and causal edges |
 | `measurement_structure` | produced | question, raw_data, latent_structure | judgment | ✅ | **promoted out of `causal_design`**; indicators, operationalization, model clock, and known-input declarations |
-| `causal_design` | derived | latent_structure, measurement_structure | — | ❌ | composition + identification result + estimation projection; pure and total — the composing move is rejected if composition fails to validate |
+| `causal_design` | derived | latent_structure, measurement_structure | — | ❌ | scientific composition + identification status; pure and total — the composing move is rejected if composition fails to validate |
+| `structural_plan` | derived | causal_design | — | ❌ | typed executable projection with stable source IDs and total source-item dispositions; rejects unsupported retained semantics |
 | `identification_report` | derived · optional | causal_design | — | ❌ | present iff ≥ 1 treatment identifies — the epistemic gate |
 | `measurements` | produced | question, raw_data, measurement_structure | batch_llm | ❌ | extraction report + per-indicator audit (**one domain object**) |
 | `panel` | optional co-output of `measurements` | — | — | ❌ | the usable model-ready table; absence = negative finding, disables fit |
 | `validation_report` | derived | panel, causal_design | — | ❌ | measured-data checks (coverage, degeneracy, construct observability); deterministic, so no transition |
-| `statistical_model_spec` | produced | question, causal_design, identification_report, panel, validation_report | judgment | ✅ | likelihoods, parameters, priors — the declarative math model; the reducer is this run's lower context |
-| `compiled_ssm` | derived | statistical_model_spec, causal_design | — | ❌ | deterministic compile; the composing move is rejected if compilation fails |
+| `statistical_model_spec` | produced | question, structural_plan, identification_report, panel, validation_report | judgment | ✅ | likelihoods, parameters, priors — the declarative math model; the reducer is this run's lower context |
+| `compiled_ssm` | derived | statistical_model_spec, structural_plan | — | ❌ | deterministic compile with forward/backward structural closure and anchor certificates; the composing move is rejected if compilation fails |
 | `posterior` | produced | compiled_ssm, panel | deterministic | ❌ | exact nonlinear SSM engines; long-running job |
 | `baseline_report` | produced | posterior, causal_design, identification_report | judgment | ✅ | ranked identified effects; shares the `Scenario` value type with `saved_scenarios` |
 | `saved_scenarios` | root | pins posterior | — | ✅ | user/agent-saved simulation results |
@@ -218,7 +220,7 @@ splits a build into a *rebuilder* (what is out of date) and a *scheduler* (what 
 
 | Mechanism | Restriction |
 |---|---|
-| Guards on `run` | A transition runs only when every `consumes` artifact exists. `statistical_model_spec` is impossible until `question`, `causal_design`, `identification_report`, `panel`, and `validation_report` exist — so fitting is unreachable without an identification milestone and usable measured data. |
+| Guards on `run` | A transition runs only when every `consumes` artifact exists. `statistical_model_spec` is impossible until `question`, `structural_plan`, `identification_report`, `panel`, and `validation_report` exist — so fitting is unreachable without a compiled structure, an identification milestone, and usable measured data. |
 | `write` legality | A write must be schema-valid, provenance-stamped `human`/`llm`, and its derivation cascade must validate. It installs a new version and, for roots with `write_pins`, stamps the pinned inputs. |
 | Optional co-outputs | `produces_optional` artifacts appear only when the finding is nonempty; absence disables downstream consumers. |
 | Derivation cascade | On every install of a parent, the machine walks derivations in topological order inside the same move. It recomputes derivations whose parents exist and are fresh; it retracts a current derivation when any parent is absent or stale; and it retracts an `optional` derivation whose finding is empty. The parent and its derivations are never observable out of sync. |
@@ -338,7 +340,7 @@ a hard flag when the provenance chain is stale.
 |---|---|---|---|---|
 | `episode.ingest_data` | `run` → `raw_data` | Prepared input directory, sandbox, latest `result_df`, column descriptions | `list_files`, `read_file_sample`, `execute_python`, `submit_table` | `submit_table` validates a single timestamped Polars table, producing `raw_data` |
 | `specify.latent_structure` | `run` → `latent_structure` or `write(latent_structure)` | Question-focused latent-structure proposal context | propose constructs, revise descriptions, submit construct set | `latent_structure` exists; `causal_design` re-derives in the same move |
-| `specify.measurement` | `run` → `measurement_structure` or `write(measurement_structure)` | Indicator and known-input design against raw data columns and constructs | inspect columns, propose indicators, declare observed transition inputs, set aggregation and clock, submit | `measurement_structure` exists; `causal_design` + `identification_report` re-derive in the same move |
+| `specify.measurement` | `run` → `measurement_structure` or `write(measurement_structure)` | Indicator and executable-disposition design against raw data columns and constructs | inspect columns, propose indicators, declare observed transition inputs or scientific-only constructs, set aggregation and clock, submit | `measurement_structure` exists; `causal_design`, `structural_plan`, and `identification_report` re-derive in the same move |
 | `measure.extract` | `run` → `measurements` | Indicator extraction plan and worker fan-out | define extraction, run computed extraction, run semantic extraction, submit values | `measurements` exists; `panel` co-produced only if measurement yielded usable data; `validation_report` derives from the panel |
 | `fit.specify` | `run` → `statistical_model_spec` or `write(statistical_model_spec)` | Reducer skeleton, immutable plan, runtime cursor, accepted state, repair campaign | block submissions, model lock, prior authoring, deterministic repair routing, barrier validation | `statistical_model_spec` exists; `compiled_ssm` derives in the same move (compile-must-succeed is the derivation's totality) |
 | `fit.infer` | `run` → `posterior` | Long-running inference job | fit exact nonlinear SSM engines, emit progress | `posterior` exists |
@@ -361,9 +363,11 @@ The machine nodes map onto the domain models in
 - `LatentStructure`, `MeasurementStructure`, `StatisticalModelSpec` are already top-level pydantic
   models; this machine gives the latter two their own artifact lineages instead of nesting them inside
   composite payloads.
-- `CausalDesign` remains the composite (latent + measurement + identifiability + estimation
-  projection) and is machine-derived, never written. Its derivation composes latent and
-  measurement structures, runs identifiability, and validates the estimation projection.
+- `CausalDesign` remains the scientific composite (latent + measurement + identifiability +
+  authored executable dispositions) and is machine-derived, never written.
+- `StructuralPlan` is the structural front's executable projection. Its derivation assigns stable
+  source IDs, normalizes executable structure and semantics, records every source disposition,
+  and rejects unsupported retained structure.
 - **`Measurements`** is the one new composite: extraction report + per-indicator audit, with the
   usable panel as an optional co-output.
 - **`Scenario`** is the one new value type: intervention spec + simulated trajectories + summary,
@@ -371,8 +375,8 @@ The machine nodes map onto the domain models in
   root, pinned). They stay separate artifacts precisely because they differ in the dimension the
   machine cares about — creation kind and staleness behavior.
 
-Internal plumbing (`EstimationSpec`, indicator audits, traces) stays inside payloads and never
-becomes a machine node. Numeric query results (`simulate`, `ppc`) never enter the store except
+Internal plumbing (indicator audits and traces) stays inside payloads and never becomes a machine
+node. Numeric query results (`simulate`, `ppc`) never enter the store except
 via `write(saved_scenarios)`.
 
 ## Target Action Names
@@ -385,7 +389,7 @@ notebooks.
 |---|---|---|---|
 | `nav` | Observe state and history | `state`, `timeline`, `events`, `get`, `versions`, `diff` | Replay applied transition effects; read timeline/events from logs |
 | `episode` | Lifecycle and roots | `create`, `attach_data`, `ingest_data`, `refresh` | `write(question)`, staged upload, `run` → `raw_data`, scheduler policy |
-| `specify` | Design causal and measurement structure | `latent_structure`, `measurement`, `edit`, `identify` | `run`/`write` → `latent_structure`/`measurement_structure`; `causal_design` + `identification_report` derive automatically |
+| `specify` | Design causal and measurement structure | `latent_structure`, `measurement`, `edit`, `identify` | `run`/`write` → `latent_structure`/`measurement_structure`; `causal_design`, `structural_plan`, and `identification_report` derive automatically |
 | `measure` | Execute measurement | `extract` | `run` → `measurements` (+ `panel`, `validation_report` derivation) |
 | `fit` | Specify and estimate | `specify`, `infer`, `check` | `run`/`write` → `statistical_model_spec` (+ `compiled_ssm` derivation), `run` → `posterior`, derived diagnostics |
 | `analyze` | Query and persist | `rank`, `simulate`, `counterfactual`, `ppc`, `save` | `run` → `baseline_report`, derived tools, `write(saved_scenarios)` |
@@ -417,15 +421,16 @@ plus freshness warnings when the input provenance chain is not fresh.
    and `statistical_model_spec` present.
 2. `nav.get(validation_report)` shows the details.
 3. The navigator writes a revised `measurement_structure` (drop the degenerate indicators; one
-   construct thereby becomes unmeasured and stays latent).
+   construct thereby becomes unmeasured and is explicitly excluded from the executable plan).
 4. In the **same move**, the machine cascades: `causal_design` re-derives (recomposition +
-   identification + estimation projection); `identification_report` re-derives or is retracted
-   according to the new finding; nothing is ever observable half-updated.
+   identification), `structural_plan` recompiles, and `identification_report` re-derives or is
+   retracted according to the new finding; nothing is ever observable half-updated.
 5. Version pins make `measurements`, `panel`, and downstream produced artifacts such as
    `statistical_model_spec`, `posterior`, and `baseline_report` stale as applicable. Derived
    artifacts are recomputed or retracted, never reported stale.
 6. `nav.diff(measurement_structure, v1, v2)` shows the exact structural change;
-   `nav.diff(causal_design, v1, v2)` shows its derived consequence.
+   `nav.diff(causal_design, v1, v2)` shows its scientific consequence, while
+   `nav.diff(structural_plan, v1, v2)` shows the executable consequence.
 7. `measure.extract` is the next useful affordance; after it lands, `validation_report`
    re-derives from the new panel.
 8. `fit.specify` becomes useful only if its required inputs exist, including an

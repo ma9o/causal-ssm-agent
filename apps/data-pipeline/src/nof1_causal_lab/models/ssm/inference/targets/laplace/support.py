@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any
 import jax
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
+    LikelihoodExtraParams,
     build_likelihood_eval_aux,
 )
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
@@ -46,7 +47,7 @@ from .shared import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+    from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -1110,8 +1111,11 @@ def _support_aware_ieks_laplace_core(
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
-    build_measurement_objects: Callable[[jnp.ndarray, dict | None], tuple[Any, tuple[Any, ...]]],
-    extra_params: dict | None,
+    build_measurement_objects: Callable[
+        [jnp.ndarray, LikelihoodExtraParams | None],
+        tuple[Any, tuple[Any, ...]],
+    ],
+    extra_params: LikelihoodExtraParams | None,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
     final_factor_block_cholesky_fn=_factor_block_profile_cholesky,
@@ -1527,8 +1531,11 @@ def _support_aware_ieks_laplace(
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
-    build_measurement_objects: Callable[[jnp.ndarray, dict | None], tuple[Any, tuple[Any, ...]]],
-    extra_params: dict | None,
+    build_measurement_objects: Callable[
+        [jnp.ndarray, LikelihoodExtraParams | None],
+        tuple[Any, tuple[Any, ...]],
+    ],
+    extra_params: LikelihoodExtraParams | None,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:

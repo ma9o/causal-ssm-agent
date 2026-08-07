@@ -4,7 +4,7 @@
 |---|---|---|
 | Semantic | Yes | `StatisticalModelSpec`, `PriorProposal` per parameter |
 
-Translates the [`measurement_structure` transition `CausalDesign`](measurement-structure.md#causaldesign) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
+Translates the [`measurement_structure` transition `StructuralPlan`](measurement-structure.md#structuralplan) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
 
 For the high-level reducer flow, see the [`statistical_model_spec` construct-admission state machine](../reference/statistical-model-spec/state-machine.md). For its exact prompts, validation, checkpoint, and recovery semantics, see the [LLM-driven specification](../reference/statistical-model-spec/llm-driven-specification.md).
 
@@ -13,7 +13,7 @@ For the high-level reducer flow, see the [`statistical_model_spec` construct-adm
 | Input | Source | Description |
 |---|---|---|
 | `question` | User | Original research question, used to justify prior reasoning |
-| `causal_design` | [`measurement_structure` transition](measurement-structure.md) | [`CausalDesign`](measurement-structure.md#causaldesign) with constructs, edges, indicators, and `model_clock` |
+| `structural_plan` | [`measurement_structure` transition](measurement-structure.md) | [`StructuralPlan`](measurement-structure.md#structuralplan) with executable structure and compiler-aligned semantic metadata |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
 | `indicator_audits` | [`validation_report` derivation](extraction-validation.md) | Per-indicator [`EmpiricalProfile`](extraction-validation.md#empiricalprofile)s and validation summaries |
 | `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
@@ -41,7 +41,7 @@ flowchart LR
 
 **Skeleton:** Before any LLM judgment, deterministic code derives the compiler-authoritative parameter catalog, admissible [likelihoods](../reference/statistical-model-spec/likelihoods.md), loading orientations, and fixed structural policy. The LLM cannot invent parameters or causal edges.
 
-**Admission Topology:** Strongly connected components of the estimation graph form a deterministic condensation DAG. All ready singleton units may run concurrently. Members of a lagged feedback component remain adjacent and sequential, and the edge that closes a feedback loop is authored when its final endpoint is admitted.
+**Admission Topology:** Strongly connected components of the structural plan form a deterministic condensation DAG. All ready singleton units may run concurrently. Members of a lagged feedback component remain adjacent and sequential, and the edge that closes a feedback loop is authored when its final endpoint is admitted.
 
 **Construct Submission:** The active construct submission contains:
 
@@ -94,7 +94,7 @@ For a study of classroom engagement and academic performance, the transition cou
 | `statistical_model_spec` | `StatisticalModelSpec` | Complete statistical model specification |
 | `prior_predictive_diagnostics` | `list[PriorPredictiveDiagnostic]` | Compact accepted C1–C5 results, including feedback-component rechecks |
 | `prior_predictive_samples` | `dict[str, list[float]]` | Full-model exact prior-predictive observation samples for Data-vs-Prior inspection |
-| `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [`posterior` transition](inference.md); contains the flat `SSMSpec`, `edge_lag_days`, compiled prior semantics, parameter bindings, and compile diagnostics |
+| `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [`posterior` transition](inference.md); contains a nested compiled structure with total source bindings and anchor certificates, compiled prior semantics, parameter bindings, and compile diagnostics |
 
 ### StatisticalModelSpec.LikelihoodSpec
 

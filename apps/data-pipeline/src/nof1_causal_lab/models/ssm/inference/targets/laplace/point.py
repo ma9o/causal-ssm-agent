@@ -10,9 +10,10 @@ import jax.scipy.linalg as jla
 import numpy as np
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
+    LikelihoodExtraParams,
     build_likelihood_eval_aux,
 )
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
@@ -24,7 +25,7 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+    from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
 
 from .shared import (
     _POINT_IEKS_CONVERGENCE_RTOL,
@@ -515,7 +516,7 @@ def _point_ieks_laplace_core(
     obs_kernel,
     *,
     build_measurement_objects=None,
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
     solver_kind: int,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
@@ -1143,7 +1144,7 @@ def _ieks_smooth(
     n_ieks_iters=5,
     z_init: jnp.ndarray | None = None,
     build_measurement_objects=None,
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
 ):
     """Run the Iterated Extended Kalman Smoother to find the MAP state trajectory."""
     return _point_ieks_laplace_core(

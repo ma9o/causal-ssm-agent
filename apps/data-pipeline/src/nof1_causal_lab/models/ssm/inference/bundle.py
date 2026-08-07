@@ -23,7 +23,6 @@ from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_observation_model
-from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
@@ -37,9 +36,13 @@ from nof1_causal_lab.models.ssm.inference.utils import (
     build_unconstrained_site_transform,
 )
 from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeState, build_site_registry
+from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
+    from nof1_causal_lab.models.ssm.execution.contracts import (
+        LikelihoodExtraParams,
+        TrajectoryTarget,
+    )
     from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
         GaussianTrajectoryPriorTerms,
     )
@@ -61,7 +64,7 @@ class LatentContext(NamedTuple):
     H: jnp.ndarray
     d_meas: jnp.ndarray
     R: jnp.ndarray
-    extra_params: dict[str, jnp.ndarray] | None
+    extra_params: LikelihoodExtraParams | None
 
 
 type LatentContextFn = Callable[[jnp.ndarray], LatentContext]

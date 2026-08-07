@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Literal, cast
 import yaml
 from dotenv import load_dotenv
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfig
 
@@ -342,7 +344,7 @@ def _find_config_path() -> Path:
     raise FileNotFoundError("config.yaml not found in any parent directory")
 
 
-def _parse_profile_llm(raw: dict, context_name: str) -> LLMProfileConfig:
+def _parse_profile_llm(raw: UncheckedJsonObject, context_name: str) -> LLMProfileConfig:
     """Parse a per-context llm: block into a LLMProfileConfig."""
     if not isinstance(raw, dict):
         raise ValueError(f"{context_name}.llm must be a mapping")
@@ -353,7 +355,7 @@ def _parse_profile_llm(raw: dict, context_name: str) -> LLMProfileConfig:
     return LLMProfileConfig(**raw)
 
 
-def _parse_llm_defaults(raw: dict) -> LLMDefaults:
+def _parse_llm_defaults(raw: UncheckedJsonObject) -> LLMDefaults:
     """Parse the global llm: section into LLMDefaults."""
     embedded_raw = raw.get("embedded", {}) or {}
     claude_code_raw = raw.get("claude_code", {}) or {}
@@ -369,7 +371,7 @@ def _parse_llm_defaults(raw: dict) -> LLMDefaults:
     )
 
 
-def _parse_inference(raw: dict) -> InferenceConfig:
+def _parse_inference(raw: UncheckedJsonObject) -> InferenceConfig:
     """Parse the inference: section into InferenceConfig."""
     inference_raw = dict(raw)
     map_raw = inference_raw.pop("map", {}) or {}

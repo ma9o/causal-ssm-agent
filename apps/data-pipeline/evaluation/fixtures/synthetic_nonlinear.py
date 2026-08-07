@@ -24,6 +24,7 @@ from nof1_causal_lab.models.ssm.priors import (
 )
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
+    Fixed,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
@@ -254,26 +255,26 @@ def _synthetic_nonlinear_dynamics_spec() -> DynamicsSpec:
             HillEdgeSpec(
                 source=1,
                 target=0,
-                fixed_ec50=TRUE_HILL_BY_SITE["vf_3_EC50"],
-                fixed_n=TRUE_HILL_BY_SITE["vf_3_n"],
+                ec50=Fixed(TRUE_HILL_BY_SITE["vf_3_EC50"]),
+                n=Fixed(TRUE_HILL_BY_SITE["vf_3_n"]),
             ),
             HillEdgeSpec(
                 source=2,
                 target=0,
-                fixed_ec50=TRUE_HILL_BY_SITE["vf_4_EC50"],
-                fixed_n=TRUE_HILL_BY_SITE["vf_4_n"],
+                ec50=Fixed(TRUE_HILL_BY_SITE["vf_4_EC50"]),
+                n=Fixed(TRUE_HILL_BY_SITE["vf_4_n"]),
             ),
             HillEdgeSpec(
                 source=0,
                 target=1,
-                fixed_ec50=TRUE_HILL_BY_SITE["vf_5_EC50"],
-                fixed_n=TRUE_HILL_BY_SITE["vf_5_n"],
+                ec50=Fixed(TRUE_HILL_BY_SITE["vf_5_EC50"]),
+                n=Fixed(TRUE_HILL_BY_SITE["vf_5_n"]),
             ),
             HillEdgeSpec(
                 source=0,
                 target=2,
-                fixed_ec50=TRUE_HILL_BY_SITE["vf_6_EC50"],
-                fixed_n=TRUE_HILL_BY_SITE["vf_6_n"],
+                ec50=Fixed(TRUE_HILL_BY_SITE["vf_6_EC50"]),
+                n=Fixed(TRUE_HILL_BY_SITE["vf_6_n"]),
             ),
             MultiplicativeEdgeSpec(source_a=1, source_b=2, target=0),
             MultiplicativeEdgeSpec(source_a=0, source_b=1, target=2),

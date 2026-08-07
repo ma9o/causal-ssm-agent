@@ -12,22 +12,23 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.prior_planning import build_prior_plan
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
+from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
-from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.workers.schemas_prior import (
-    PriorProposal,
-    prior_params_model,
-)
+    from collections.abc import Mapping
+
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
 
 logger = logging.getLogger(__name__)
 
 
 async def search_parameter_literature(
     query: str,
-) -> list[dict]:
+) -> list[dict[str, str]]:
     """Search Exa for literature relevant to a query.
 
     This is separated from elicitation so results can be cached and reused
@@ -84,46 +85,30 @@ async def search_parameter_literature(
         return []
 
 
-def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
-    """Get a default prior when research fails.
+def build_prior_plan_from_proposals(
+    statistical_model_spec: StatisticalModelSpec,
+    proposals: Mapping[str, PriorProposal],
+) -> PriorPlan:
+    """Project evidence-rich worker proposals into a complete executable plan."""
+    entries = [
+        ExecutablePrior(
+            parameter=parameter,
+            distribution=proposal.distribution,
+            params=proposal.params,
+            reference_interval_days=proposal.reference_interval_days,
+        )
+        for parameter, proposal in proposals.items()
+    ]
+    return build_prior_plan(statistical_model_spec, entries)
 
-    Args:
-        parameter: The parameter spec
 
-    Returns:
-        Default PriorProposal based on parameter role/constraint
-    """
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterConstraint, ParameterRole
-
-    # AR priors live on the baseline DT persistence scale in (0, 1).
-    if parameter.role == ParameterRole.AR_COEFFICIENT:
-        distribution = PriorDistributionFamily.BETA
-        params = {"alpha": 2.0, "beta": 2.0}
-    elif parameter.constraint == ParameterConstraint.POSITIVE:
-        distribution = PriorDistributionFamily.HALF_NORMAL
-        params = {"sigma": 1.0}
-    elif parameter.constraint == ParameterConstraint.NEGATIVE:
-        distribution = PriorDistributionFamily.TRUNCATED_NORMAL
-        params = {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0}
-    elif parameter.constraint == ParameterConstraint.UNIT_INTERVAL:
-        distribution = PriorDistributionFamily.BETA
-        params = {"alpha": 2.0, "beta": 2.0}
-    elif parameter.constraint == ParameterConstraint.CORRELATION:
-        distribution = PriorDistributionFamily.UNIFORM
-        params = {"lower": -1.0, "upper": 1.0}
-    else:
-        distribution = PriorDistributionFamily.NORMAL
-        params = {"mu": 0.0, "sigma": 0.5}
-
-    # Adjust based on role
-    if parameter.role in (ParameterRole.RESIDUAL_SD, ParameterRole.STATIC_STATE_SD):
-        distribution = PriorDistributionFamily.HALF_NORMAL
-        params = {"sigma": 1.0}
-
-    return PriorProposal(
-        parameter=parameter.name,
-        distribution=distribution,
-        params=prior_params_model(distribution, params),
-        sources=[],
-        reasoning=f"Default prior for {parameter.role.value} parameter",
-    )
+def build_prior_plan_from_payloads(
+    statistical_model_spec: StatisticalModelSpec,
+    payloads: Mapping[str, UncheckedJsonObject],
+) -> PriorPlan:
+    """Validate persisted proposal payloads before projecting executable priors."""
+    proposals = {
+        parameter: PriorProposal.model_validate({**payload, "parameter": parameter})
+        for parameter, payload in payloads.items()
+    }
+    return build_prior_plan_from_proposals(statistical_model_spec, proposals)

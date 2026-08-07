@@ -28,9 +28,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Episode Api Episodes  Workspace Id  Get"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -126,9 +124,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Events Api Episodes  Workspace Id  Events Get"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -172,6 +168,7 @@
                 "latent_structure",
                 "measurement_structure",
                 "causal_design",
+                "structural_plan",
                 "identification_report",
                 "measurements",
                 "panel",
@@ -253,6 +250,7 @@
                 "latent_structure",
                 "measurement_structure",
                 "causal_design",
+                "structural_plan",
                 "identification_report",
                 "measurements",
                 "panel",
@@ -392,6 +390,7 @@
                 "latent_structure",
                 "measurement_structure",
                 "causal_design",
+                "structural_plan",
                 "identification_report",
                 "measurements",
                 "panel",
@@ -475,9 +474,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Start Episode Api Episodes Post"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -527,9 +524,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Propose Move Api Episodes  Workspace Id  Moves Post"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -579,9 +574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Auto Run Api Episodes  Workspace Id  Auto Post"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -687,9 +680,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Machine Api Machine Get"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -721,8 +712,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "$ref": "#/components/schemas/UncheckedJsonObject"
                   },
                   "title": "Response Get Tool Schemas Api Tools  Context Id  Get"
                 }
@@ -783,9 +773,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Execute Tool Api Tools  Context Id   Tool Name  Post"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 }
               }
             }
@@ -820,6 +808,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -840,9 +829,7 @@
             "$ref": "#/components/schemas/ArtifactVersionInfo"
           },
           "payload": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Payload"
+            "$ref": "#/components/schemas/UncheckedJsonObject"
           },
           "binary_files": {
             "items": {
@@ -874,6 +861,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -910,6 +898,7 @@
                 "latent_structure",
                 "measurement_structure",
                 "causal_design",
+                "structural_plan",
                 "identification_report",
                 "measurements",
                 "panel",
@@ -1098,14 +1087,12 @@
           "payload": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/UncheckedJsonObject"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Payload"
+            ]
           },
           "options": {
             "$ref": "#/components/schemas/ExecOptions"
@@ -1154,6 +1141,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -1196,6 +1184,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -1271,9 +1260,7 @@
             "title": "Workspace Id"
           },
           "input": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Input"
+            "$ref": "#/components/schemas/UncheckedJsonObject"
           }
         },
         "type": "object",
@@ -1308,8 +1295,7 @@
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
-                  "type": "object"
+                  "$ref": "#/components/schemas/UncheckedJsonObject"
                 },
                 "type": "array"
               },
@@ -1465,9 +1451,7 @@
             "title": "Error Message"
           },
           "diagnostics": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Diagnostics"
+            "$ref": "#/components/schemas/UncheckedJsonObject"
           },
           "produced": {
             "items": {
@@ -1528,6 +1512,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",
@@ -1567,6 +1552,10 @@
         ],
         "title": "TransitionTraceIndex",
         "description": "Promoted traces of the applied transition that produced an artifact version."
+      },
+      "UncheckedJsonObject": {
+        "additionalProperties": true,
+        "type": "object"
       },
       "UploadResponse": {
         "properties": {
@@ -1685,6 +1674,7 @@
               "latent_structure",
               "measurement_structure",
               "causal_design",
+              "structural_plan",
               "identification_report",
               "measurements",
               "panel",

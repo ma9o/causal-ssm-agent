@@ -22,11 +22,12 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
-
-from .emissions import (
+from nof1_causal_lab.models.ssm.execution.emissions import (
+    MeanLogProbFn,
     build_heterogeneous_mean_log_prob_fn,
     get_mean_param_log_prob_fn,
 )
+
 from .observation_dispatch import (
     PredictiveObservationSampler,
     build_predictive_observation_sampler,
@@ -39,10 +40,33 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
     from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         ObservationOperator,
     )
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+
+type ObservationLogProbFn = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    jnp.ndarray,
+]
+type ResponseFn = Callable[[jnp.ndarray], jnp.ndarray]
+type VarianceFn = Callable[[jnp.ndarray], jnp.ndarray]
+type ScoreWeightFn = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    tuple[jnp.ndarray, jnp.ndarray],
+]
+type LatentGradHessFn = Callable[
+    [
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ],
+    tuple[jnp.ndarray, jnp.ndarray],
+]
 
 # =============================================================================
 # Kernel dataclasses
@@ -65,11 +89,11 @@ class ObservationKernel:
         is_gaussian: Whether the observation family is Gaussian.
     """
 
-    log_prob_fn: Callable
-    response_fn: Callable
-    variance_fn: Callable
+    log_prob_fn: ObservationLogProbFn
+    response_fn: ResponseFn
+    variance_fn: VarianceFn
     is_gaussian: bool
-    latent_grad_hess_fn: Callable  # (y, z, H, d, R, mask) → (g_z: (D,), neg_H_z: (D,D))
+    latent_grad_hess_fn: LatentGradHessFn
 
 
 @dataclass(frozen=True)
@@ -79,7 +103,7 @@ class CompiledObservationModel:
     kernel: ObservationKernel
     point_sampler: PredictiveObservationSampler
     interval_summary_sampler: PredictiveObservationSampler | None
-    mean_log_prob_fn: Callable | None
+    mean_log_prob_fn: MeanLogProbFn | None
     observation_operator: ObservationOperator
     manifest_dists: tuple[DistributionFamily, ...]
     manifest_links: tuple[LinkFunction, ...]
@@ -117,7 +141,7 @@ def _response_inverse(eta: jnp.ndarray) -> jnp.ndarray:
     return jnp.where(valid_eta, response, jnp.nan)
 
 
-_RESPONSE_FNS: dict[LinkFunction, Callable] = {
+_RESPONSE_FNS: dict[LinkFunction, ResponseFn] = {
     LinkFunction.IDENTITY: _response_identity,
     LinkFunction.LOG: _response_exp,
     LinkFunction.LOGIT: _response_sigmoid,
@@ -127,23 +151,22 @@ _RESPONSE_FNS: dict[LinkFunction, Callable] = {
 
 
 def _slice_observation_extra_params(
-    extra_params: dict | None, ch_indices: list[int]
-) -> dict | None:
+    extra_params: LikelihoodExtraParams | None,
+    ch_indices: list[int],
+) -> LikelihoodExtraParams | None:
     if extra_params is None:
         return None
 
-    sliced: dict = {}
+    sliced: LikelihoodExtraParams = {}
     idx = jnp.array(ch_indices, dtype=jnp.int32)
     for key, value in extra_params.items():
-        if (
-            hasattr(value, "ndim")
-            and hasattr(value, "shape")
-            and value.ndim >= 1
-            and value.shape[0] == len(idx)
-        ):
+        if isinstance(value, (int, float)):
             sliced[key] = value
             continue
-        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
+        if value.ndim >= 1 and value.shape[0] == len(idx):
+            sliced[key] = value
+            continue
+        if value.ndim >= 1:
             try:
                 if value.shape[0] >= len(ch_indices):
                     sliced[key] = value[idx]
@@ -159,7 +182,7 @@ def _slice_observation_extra_params(
 # =============================================================================
 
 
-def _make_glm_grad_hess(score_weight_fn: Callable) -> Callable:
+def _make_glm_grad_hess(score_weight_fn: ScoreWeightFn) -> LatentGradHessFn:
     """Build emission_grad_hess_fn for GLM families (diagonal Hessian in η-space).
 
     For dist with element-wise log p(y_j | η_j), the chain rule gives:
@@ -177,7 +200,7 @@ def _make_glm_grad_hess(score_weight_fn: Callable) -> Callable:
     return emission_grad_hess_fn
 
 
-def _make_student_t_grad_hess(df: float) -> Callable:
+def _make_student_t_grad_hess(df: float | jnp.ndarray) -> LatentGradHessFn:
     """Build emission_grad_hess_fn for Student-t (scale extracted from diag(R))."""
 
     def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
@@ -195,9 +218,9 @@ def _make_student_t_grad_hess(df: float) -> Callable:
     return emission_grad_hess_fn
 
 
-def _make_gaussian_grad_hess() -> Callable:
+def _make_gaussian_grad_hess() -> LatentGradHessFn:
     """Build emission_grad_hess_fn for Gaussian (full R, exact analytical form)."""
-    from nof1_causal_lab.models.ssm.inference.targets.base import (
+    from nof1_causal_lab.models.ssm.execution.contracts import (
         MISSING_DATA_LARGE_VAR,
     )
 
@@ -221,7 +244,7 @@ def _make_gaussian_grad_hess() -> Callable:
 def build_observation_kernel(
     dist: DistributionFamily,
     link: LinkFunction,
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
     manifest_cov: jnp.ndarray | None = None,
 ) -> ObservationKernel:
     """Build an ObservationKernel from spec enums + sampled hyperparameters.
@@ -238,7 +261,7 @@ def build_observation_kernel(
             Gaussian/Student-t (used as EKF pseudo-covariance). Ignored
             for GLM families.
     """
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
         FAMILY_REGISTRY,
         resolve_family_link,
     )
@@ -291,7 +314,7 @@ def build_observation_kernel(
 def build_heterogeneous_observation_kernel(
     dists: list[DistributionFamily],
     links: list[LinkFunction],
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
     manifest_cov: jnp.ndarray | None = None,
 ) -> ObservationKernel:
     """Build an ObservationKernel that handles per-channel heterogeneous distributions.
@@ -400,12 +423,12 @@ def compile_observation_model(
     manifest_dists: Sequence[DistributionFamily | str],
     *,
     manifest_cov: jnp.ndarray,
-    extra_params: dict | None = None,
+    extra_params: LikelihoodExtraParams | None = None,
     manifest_links: Sequence[LinkFunction | str | None] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> CompiledObservationModel:
     """Compile likelihood, prediction, and support semantics through one pair resolution."""
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
         resolve_manifest_families_and_links,
     )
     from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (

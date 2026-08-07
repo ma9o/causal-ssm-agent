@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, Field
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
@@ -16,7 +18,8 @@ MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 class NamedTool(Protocol):
     """Minimal tool surface needed when constructing retry guidance."""
 
-    name: str
+    @property
+    def name(self) -> str: ...
 
 
 class TraceMessage(BaseModel):
@@ -25,7 +28,7 @@ class TraceMessage(BaseModel):
     role: str
     content: str
     reasoning: str | None = None
-    tool_calls: list[dict[str, Any]] | None = None
+    tool_calls: list[UncheckedJsonObject] | None = None
     tool_call_id: str | None = None
     tool_name: str | None = None
     tool_result: str | None = None
@@ -68,8 +71,8 @@ def _merge_trace(existing: LLMTrace, new_trace: LLMTrace) -> LLMTrace:
 
 def _validate_json_and_format(
     json_str: str,
-    validate_fn: Callable[[dict], tuple[Any, list[str]]],
-    capture: dict | None = None,
+    validate_fn: Callable[[UncheckedJsonObject], tuple[Any, list[str]]],
+    capture: UncheckedJsonObject | None = None,
     capture_key: str | None = None,
     capture_result: bool = False,
 ) -> str:

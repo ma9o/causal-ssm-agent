@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
 def run_interventions(
     analysis: CertifiedCausalAnalysis,
-) -> list[dict]:
+) -> list[UncheckedJsonObject]:
     """Run interventions only after identification and engine proofs are joined."""
     from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
     from nof1_causal_lab.models.ssm.dynamics import posterior_dynamics_from_result

@@ -14,6 +14,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -142,7 +143,7 @@ class PiHarnessSession:
         bin: str = "pi",
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
-        initial_events: list[dict[str, Any]] | None = None,
+        initial_events: list[UncheckedJsonObject] | None = None,
         initial_session_jsonl: str | None = None,
         session_id: str | None = None,
     ) -> None:
@@ -185,7 +186,7 @@ class PiHarnessSession:
         return files[0].read_text()
 
     @property
-    def raw_events(self) -> list[dict[str, Any]]:
+    def raw_events(self) -> list[UncheckedJsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -270,7 +271,7 @@ class PiHarnessSession:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_pi_event(self._state, event)
 
-    def _build_turn_result(self, events: list[dict[str, Any]]) -> TurnResult:
+    def _build_turn_result(self, events: list[UncheckedJsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
         for event in events:
@@ -332,7 +333,7 @@ async def open_pi_harness_session(
     bin: str = "pi",
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
-    initial_events: list[dict[str, Any]] | None = None,
+    initial_events: list[UncheckedJsonObject] | None = None,
     initial_session_jsonl: str | None = None,
     session_id: str | None = None,
 ) -> AsyncIterator[PiHarnessSession]:

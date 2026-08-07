@@ -46,7 +46,7 @@ def _assert_contract(
     artifact_id: ArtifactId,
     version: int,
     context_id: str,
-) -> dict:
+) -> dict[str, Any]:
     file_by_context = {
         "posterior": ("posterior", "diagnostics"),
     }[context_id]
@@ -65,10 +65,11 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
     import jax.numpy as jnp
 
     from nof1_causal_lab.flows.transitions.inference import fit as stage5_fit
-    from nof1_causal_lab.models.ssm.compile.artifact import deserialize_ssm_spec
     from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
 
+    fx.seed_structural_plan(artifact_store)
     compiled_ssm = fx.seed_compiled_ssm(artifact_store)
     panel = fx.seed_panel(artifact_store)
     compiled_payload = CompiledSSMArtifact.model_validate(fx.compiled_ssm())

@@ -45,7 +45,7 @@ function priorFor(name: string): ModelSpecAdmissionParameter {
     return { name, distribution: "Normal", params: { mu: 1, sigma: 0.5 } };
   if (name.startsWith("obs_sd_")) return { name, distribution: "HalfNormal", params: { sigma: 1 } };
   if (name.startsWith("obs_shape_"))
-    return { name, distribution: "Gamma", params: { alpha: 2, beta: 2 } };
+    return { name, distribution: "Gamma", params: { concentration: 2, rate: 2 } };
   return { name, distribution: "Normal", params: { mu: 0, sigma: 1 } };
 }
 

@@ -61,8 +61,9 @@ from .support import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
-    from nof1_causal_lab.models.ssm.inference.targets.base import (
+    from nof1_causal_lab.models.ssm.execution.contracts import (
         InitialStateParams,
+        LikelihoodExtraParams,
         MeasurementParams,
         RuntimeDynamics,
     )
@@ -155,7 +156,7 @@ class LaplaceLikelihood:
     def _get_support_window_derivatives(
         self,
         observation_model,
-        extra_params: dict | None,
+        extra_params: LikelihoodExtraParams | None,
         *,
         allow_cache: bool,
     ):
@@ -188,7 +189,7 @@ class LaplaceLikelihood:
         time_intervals: jnp.ndarray,
         *,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: dict | None = None,
+        extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
         transition_inputs: jnp.ndarray | None = None,
         include_aux: bool,
@@ -316,7 +317,7 @@ class LaplaceLikelihood:
 
             def _build_support_measurement_objects(
                 manifest_cov: jnp.ndarray,
-                runtime_extra_params: dict | None,
+                runtime_extra_params: LikelihoodExtraParams | None,
             ):
                 runtime_observation_model = compile_observation_model(
                     self.manifest_dists,
@@ -425,8 +426,6 @@ class LaplaceLikelihood:
             point_mode_init = self._point_mode_cache
 
         uses_dynamic_transitions = infer_linearisation(dynamics.vector_field) == "trajectory"
-        if not uses_dynamic_transitions:
-            Ad, Qd, cd = _discretize_base_system()
         T_obs = clean_obs.shape[0]
         H_rows = jnp.broadcast_to(
             measurement_params.lambda_mat[None, :, :],
@@ -439,7 +438,7 @@ class LaplaceLikelihood:
 
         def _build_point_measurement_objects(
             manifest_cov: jnp.ndarray,
-            runtime_extra_params: dict | None,
+            runtime_extra_params: LikelihoodExtraParams | None,
         ):
             return compile_observation_model(
                 self.manifest_dists,
@@ -467,6 +466,7 @@ class LaplaceLikelihood:
                     transition_inputs=transition_inputs,
                 )
             else:
+                Ad, Qd, cd = _discretize_base_system()
                 z_mode, log_lik, inner_eval_aux = _ieks_smooth(
                     clean_obs,
                     obs_mask,
@@ -497,7 +497,7 @@ class LaplaceLikelihood:
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: dict | None = None,
+        extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
         transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
@@ -529,7 +529,7 @@ class LaplaceLikelihood:
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: dict | None = None,
+        extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
         transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:

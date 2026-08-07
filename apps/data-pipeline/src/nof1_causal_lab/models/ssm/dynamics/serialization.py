@@ -16,7 +16,16 @@ Example::
         "n_latent": 5,
         "components": [
             {"kind": "DiagonalDecay"},
-            {"kind": "HillEdge", "source": 3, "target": 4}
+            {
+                "kind": "HillEdge",
+                "source": 3,
+                "target": 4,
+                "parameters": {
+                    "emax": {"kind": "free"},
+                    "ec50": {"kind": "free"},
+                    "n": {"kind": "fixed", "value": 2.0}
+                }
+            }
         ]
     }
 """
@@ -24,6 +33,9 @@ Example::
 from __future__ import annotations
 
 from typing import Any
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
 
 from .spec import (
     DiagonalDecaySpec,
@@ -37,6 +49,9 @@ from .spec import (
     StateInterceptSpec,
 )
 
+type ParameterSlotConfig = dict[str, Any]
+type ParameterizedComponentConfig = dict[str, Any]
+
 _COMPONENT_KIND_REGISTRY: dict[str, str] = {
     "StateDecay": "state_decay",
     "DiagonalDecay": "diagonal_decay",
@@ -49,12 +64,47 @@ _COMPONENT_KIND_REGISTRY: dict[str, str] = {
 }
 
 
-def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
+def _parameter_slot_to_dict(slot: ParameterSlot) -> ParameterSlotConfig:
+    """Serialize one explicit free-or-fixed parameter slot."""
+    if isinstance(slot, Fixed):
+        return {"kind": "fixed", "value": float(slot.value)}
+    return {"kind": "free"}
+
+
+def _parameter_slot_from_dict(payload: ParameterSlotConfig) -> ParameterSlot:
+    """Deserialize one explicit free-or-fixed parameter slot."""
+    kind = payload["kind"]
+    if kind == "free":
+        return Free()
+    if kind == "fixed":
+        return Fixed(float(payload["value"]))
+    raise ValueError(f"Unknown parameter slot kind {kind!r}; expected 'free' or 'fixed'.")
+
+
+def _component_parameter_slots(
+    component: ParameterizedComponentConfig,
+    names: tuple[str, ...],
+) -> dict[str, ParameterSlot]:
+    """Read the complete parameter-slot map for one serialized component."""
+    parameters = component["parameters"]
+    if not isinstance(parameters, dict):
+        raise ValueError("Dynamics component 'parameters' must be an object.")
+    actual = set(parameters)
+    expected = set(names)
+    if actual != expected:
+        raise ValueError(
+            "Dynamics component parameter slots must exactly match its vocabulary: "
+            f"missing={sorted(expected - actual)}, unknown={sorted(actual - expected)}."
+        )
+    return {name: _parameter_slot_from_dict(parameters[name]) for name in names}
+
+
+def dynamics_spec_to_dict(spec: DynamicsSpec) -> UncheckedJsonObject:
     """Inverse of :func:`dynamics_spec_from_dict`."""
-    components: list[dict[str, Any]] = []
+    components: list[UncheckedJsonObject] = []
     for component in spec.components:
         if isinstance(component, StateDecaySpec):
-            entry: dict[str, Any] = {
+            entry: UncheckedJsonObject = {
                 "kind": "StateDecay",
                 "target": int(component.target),
             }
@@ -75,13 +125,12 @@ def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
             entry = {
                 "kind": "NodePotential",
                 "target": int(component.target),
+                "parameters": {
+                    "center": _parameter_slot_to_dict(component.center),
+                    "stiffness": _parameter_slot_to_dict(component.stiffness),
+                    "quartic": _parameter_slot_to_dict(component.quartic),
+                },
             }
-            if component.fixed_center is not None:
-                entry["fixed_center"] = float(component.fixed_center)
-            if component.fixed_stiffness is not None:
-                entry["fixed_stiffness"] = float(component.fixed_stiffness)
-            if component.fixed_quartic is not None:
-                entry["fixed_quartic"] = float(component.fixed_quartic)
         elif isinstance(component, LinearEdgeSpec):
             entry = {
                 "kind": "LinearEdge",
@@ -93,13 +142,12 @@ def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
                 "kind": "HillEdge",
                 "source": int(component.source),
                 "target": int(component.target),
+                "parameters": {
+                    "emax": _parameter_slot_to_dict(component.emax),
+                    "ec50": _parameter_slot_to_dict(component.ec50),
+                    "n": _parameter_slot_to_dict(component.n),
+                },
             }
-            if component.fixed_emax is not None:
-                entry["fixed_emax"] = float(component.fixed_emax)
-            if component.fixed_ec50 is not None:
-                entry["fixed_ec50"] = float(component.fixed_ec50)
-            if component.fixed_n is not None:
-                entry["fixed_n"] = float(component.fixed_n)
         elif isinstance(component, MultiplicativeEdgeSpec):
             entry = {
                 "kind": "MultiplicativeEdge",
@@ -115,7 +163,7 @@ def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
     return {"n_latent": int(spec.n_latent), "components": components}
 
 
-def _spec_from_component_dict(component: dict[str, Any]) -> Any:
+def _spec_from_component_dict(component: UncheckedJsonObject) -> Any:
     """Build a component spec from a dict-config."""
     kind = component["kind"]
 
@@ -128,17 +176,12 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
     if kind == "Intercept":
         return InterceptSpec()
     if kind == "NodePotential":
+        slots = _component_parameter_slots(component, ("center", "stiffness", "quartic"))
         return NodePotentialSpec(
             target=int(component["target"]),
-            fixed_center=(
-                None if "fixed_center" not in component else float(component["fixed_center"])
-            ),
-            fixed_stiffness=(
-                None if "fixed_stiffness" not in component else float(component["fixed_stiffness"])
-            ),
-            fixed_quartic=(
-                None if "fixed_quartic" not in component else float(component["fixed_quartic"])
-            ),
+            center=slots["center"],
+            stiffness=slots["stiffness"],
+            quartic=slots["quartic"],
         )
     if kind == "LinearEdge":
         return LinearEdgeSpec(
@@ -146,12 +189,13 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             target=int(component["target"]),
         )
     if kind == "HillEdge":
+        slots = _component_parameter_slots(component, ("emax", "ec50", "n"))
         return HillEdgeSpec(
             source=int(component["source"]),
             target=int(component["target"]),
-            fixed_emax=(None if "fixed_emax" not in component else float(component["fixed_emax"])),
-            fixed_ec50=(None if "fixed_ec50" not in component else float(component["fixed_ec50"])),
-            fixed_n=None if "fixed_n" not in component else float(component["fixed_n"]),
+            emax=slots["emax"],
+            ec50=slots["ec50"],
+            n=slots["n"],
         )
     if kind == "MultiplicativeEdge":
         return MultiplicativeEdgeSpec(
@@ -164,7 +208,7 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
     )
 
 
-def dynamics_spec_from_dict(config: dict[str, Any]) -> DynamicsSpec:
+def dynamics_spec_from_dict(config: UncheckedJsonObject) -> DynamicsSpec:
     """Build a ``DynamicsSpec`` from a nested dict-config (see module docstring)."""
     if "n_latent" not in config:
         raise ValueError("dynamics_spec_from_dict requires 'n_latent'")

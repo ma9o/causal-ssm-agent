@@ -1,4 +1,4 @@
-"""Canonical predictor-space log-probability functions for observation families.
+"""Canonical exact predictor-space log probabilities for observation families.
 
 Each function computes log p(y_t | eta_t) for one time step from the already
 constructed linear predictor, observation parameters, and an observation mask.
@@ -6,7 +6,7 @@ constructed linear predictor, observation parameters, and an observation mask.
 Used by: MAP and blocked MCMC.
 """
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -14,19 +14,27 @@ import jax.scipy.linalg as jla
 import jax.scipy.special
 import jax.scipy.stats as jstats
 
+from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
     symmetrize_with_jitter,
 )
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     MISSING_DATA_LARGE_VAR,
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
+    LikelihoodExtraParams,
 )
 from nof1_causal_lab.models.ssm.shapes import Array, Bool, Float, FloatScalar, Int, Shaped
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+type MeanLogProbFn = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    jnp.ndarray,
+]
+type MeanSampleFn = Callable[
+    [jax.Array, jnp.ndarray, jnp.ndarray],
+    jnp.ndarray,
+]
 
 
 def _logistic_pdf(x: Float[Array, "*shape"]) -> Float[Array, "*shape"]:
@@ -171,7 +179,7 @@ def categorical_moments(
 
 
 def get_ordered_logistic_extra_params(
-    extra_params: dict,
+    extra_params: LikelihoodExtraParams,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
     cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
@@ -179,7 +187,7 @@ def get_ordered_logistic_extra_params(
 
 
 def get_categorical_extra_params(
-    extra_params: dict,
+    extra_params: LikelihoodExtraParams,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
     intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
@@ -582,7 +590,10 @@ def _score_weight_beta_probit(
     return g, w
 
 
-def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
+def get_mean_param_log_prob_fn(
+    manifest_dist: DistributionFamily | str,
+    extra_params: LikelihoodExtraParams | None = None,
+) -> MeanLogProbFn:
     """Return log-prob(y | mean-parameter) for one observation vector.
 
     Unlike ``get_emission_fn()``, this operates directly on the expected mean /
@@ -680,7 +691,10 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
     return mean_log_prob_fns[dist]
 
 
-def get_mean_param_sample_fn(manifest_dist, extra_params=None):
+def get_mean_param_sample_fn(
+    manifest_dist: DistributionFamily | str,
+    extra_params: LikelihoodExtraParams | None = None,
+) -> MeanSampleFn:
     """Return a sampler operating directly in observation mean-parameter space."""
     from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 
@@ -764,24 +778,22 @@ def get_mean_param_sample_fn(manifest_dist, extra_params=None):
 
 
 def _slice_per_channel_extra_params(
-    extra_params: dict | None,
+    extra_params: LikelihoodExtraParams | None,
     ch_indices: list[int],
-) -> dict | None:
+) -> LikelihoodExtraParams | None:
     if extra_params is None:
         return None
 
-    sliced: dict = {}
+    sliced: LikelihoodExtraParams = {}
     idx = jnp.array(ch_indices, dtype=jnp.int32)
     for key, value in extra_params.items():
-        if (
-            hasattr(value, "ndim")
-            and hasattr(value, "shape")
-            and value.ndim >= 1
-            and value.shape[0] == len(idx)
-        ):
+        if isinstance(value, (int, float)):
             sliced[key] = value
             continue
-        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
+        if value.ndim >= 1 and value.shape[0] == len(idx):
+            sliced[key] = value
+            continue
+        if value.ndim >= 1:
             try:
                 if value.shape[0] >= len(ch_indices):
                     sliced[key] = value[idx]
@@ -793,9 +805,9 @@ def _slice_per_channel_extra_params(
 
 
 def build_heterogeneous_mean_log_prob_fn(
-    manifest_dists,
-    extra_params: dict | None = None,
-):
+    manifest_dists: Sequence[DistributionFamily | str],
+    extra_params: LikelihoodExtraParams | None = None,
+) -> MeanLogProbFn:
     """Build an observation-space log-prob for heterogeneous manifest families."""
     from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 
@@ -809,7 +821,7 @@ def build_heterogeneous_mean_log_prob_fn(
     for ch_idx, dist in enumerate(dists):
         groups[dist].append(ch_idx)
 
-    group_fns: list[tuple[list[int], Callable]] = []
+    group_fns: list[tuple[list[int], MeanLogProbFn]] = []
     for dist, ch_indices in groups.items():
         group_fns.append(
             (
@@ -836,9 +848,9 @@ def build_heterogeneous_mean_log_prob_fn(
 
 
 def build_heterogeneous_mean_sample_fn(
-    manifest_dists,
-    extra_params: dict | None = None,
-):
+    manifest_dists: Sequence[DistributionFamily | str],
+    extra_params: LikelihoodExtraParams | None = None,
+) -> MeanSampleFn:
     """Build an observation-space sampler for heterogeneous manifest families."""
     from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 
@@ -852,7 +864,7 @@ def build_heterogeneous_mean_sample_fn(
     for ch_idx, dist in enumerate(dists):
         groups[dist].append(ch_idx)
 
-    group_fns: list[tuple[list[int], Callable]] = []
+    group_fns: list[tuple[list[int], MeanSampleFn]] = []
     for dist, ch_indices in groups.items():
         group_fns.append(
             (

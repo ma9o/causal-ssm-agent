@@ -29,8 +29,9 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 from nof1_causal_lab.models.ssm.dynamics.runtime import (
     build_vector_field_runtime_from_samples,
 )
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     InitialStateParams,
+    LikelihoodExtraParams,
     MeasurementParams,
     RuntimeDynamics,
 )
@@ -56,6 +57,7 @@ class SiteInfoEntry(TypedDict):
 
 
 type SiteInfo = dict[str, SiteInfoEntry]
+type UnravelFn = Callable[[jnp.ndarray], dict[str, jnp.ndarray]]
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +156,15 @@ def _build_original_sample_resolver(
 
     passthrough_sites: list[str] = []
     decentered_rules: list[tuple[str, str, jnp.ndarray, jnp.ndarray]] = []
+    transformed_rules: list[
+        tuple[
+            str,
+            str,
+            jnp.ndarray | None,
+            jnp.ndarray | None,
+            tuple[dist.transforms.Transform, ...],
+        ]
+    ] = []
     for site_name, site in public_trace.items():
         if (
             site["type"] != "sample"
@@ -176,6 +187,32 @@ def _build_original_sample_resolver(
             )
         elif site_name in site_info:
             passthrough_sites.append(site_name)
+        else:
+            d = _unwrap_base_distribution(site["fn"])
+            if not isinstance(d, dist.TransformedDistribution):
+                continue
+            base_name = f"{site_name}_base"
+            base_decentered_key = f"{base_name}_decentered"
+            if base_decentered_key in site_info:
+                base_dist = _unwrap_base_distribution(d.base_dist)
+                loc = getattr(base_dist, "loc", None)
+                scale = getattr(base_dist, "scale", None)
+                if loc is None or scale is None:
+                    raise ValueError(
+                        f"Decentered transformed site {site_name!r} must use a "
+                        "loc/scale base distribution"
+                    )
+                transformed_rules.append(
+                    (
+                        site_name,
+                        base_decentered_key,
+                        jnp.asarray(loc),
+                        jnp.asarray(scale),
+                        tuple(d.transforms),
+                    )
+                )
+            elif base_name in site_info:
+                transformed_rules.append((site_name, base_name, None, None, tuple(d.transforms)))
 
     def _resolve(samples: dict[str, jnp.ndarray]) -> dict[str, jnp.ndarray]:
         original_samples = {name: samples[name] for name in passthrough_sites}
@@ -186,6 +223,17 @@ def _build_original_sample_resolver(
             else:
                 delta = decentered_value - centered * loc
                 value = loc + jnp.power(scale, 1.0 - centered) * delta
+            original_samples[site_name] = value
+        for site_name, base_key, loc, scale, transforms in transformed_rules:
+            value = samples[base_key]
+            if loc is not None and scale is not None:
+                if centered == 0.0:
+                    value = loc + scale * value
+                else:
+                    delta = value - centered * loc
+                    value = loc + jnp.power(scale, 1.0 - centered) * delta
+            for transform in transforms:
+                value = transform(value)
             original_samples[site_name] = value
         return original_samples
 
@@ -352,7 +400,12 @@ def _assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
     registry=None,
-) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
+) -> tuple[
+    RuntimeDynamics,
+    MeasurementParams,
+    InitialStateParams,
+    LikelihoodExtraParams | None,
+]:
     """Build backend-ready parameter tuples from constrained sample sites."""
     det = _assemble_single_likelihood_deterministics(
         samples,
@@ -384,8 +437,8 @@ def _block_until_ready_tree(tree):
 
 def _constrain_particles_batched(
     particles: jnp.ndarray,
-    site_info: dict,
-    unravel_fn,
+    site_info: SiteInfo,
+    unravel_fn: UnravelFn,
 ) -> dict[str, jnp.ndarray]:
     """Map a batch of unconstrained particles to constrained site samples."""
     if not site_info:
@@ -398,8 +451,8 @@ def _constrain_particles_batched(
 
 def extract_constrained_samples(
     particles: jnp.ndarray,
-    site_info: dict,
-    unravel_fn,
+    site_info: SiteInfo,
+    unravel_fn: UnravelFn,
     spec: SSMSpec,
     *,
     reparam=None,

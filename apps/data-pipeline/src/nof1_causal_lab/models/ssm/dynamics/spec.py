@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import jax.numpy as jnp
 import numpyro
 
+from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
 from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
     SemanticBinding,
@@ -74,7 +75,7 @@ class ComponentSpec(Protocol):
 
     def build(self) -> VectorFieldComponent: ...
 
-    def iter_sites(self, prefix: str, *, n_latent: int | None = None) -> Iterator[SiteDescriptor]:
+    def iter_sites(self, prefix: str, *, n_latent: int) -> Iterator[SiteDescriptor]:
         """Yield canonical sample-site descriptors for this component."""
         ...
 
@@ -93,10 +94,26 @@ class ComponentSpec(Protocol):
         ...
 
 
-def _require_n_latent(component_name: str, n_latent: int | None) -> int:
-    if n_latent is None:
-        raise ValueError(f"{component_name}.iter_sites requires n_latent.")
-    return int(n_latent)
+def _sample_parameter_slot(
+    slot: ParameterSlot,
+    site_name: str,
+    prior_fn: PriorFn,
+) -> Array:
+    """Sample a free slot or return a fixed value without adding a trace site."""
+    if isinstance(slot, Fixed):
+        return jnp.asarray(slot.value)
+    return numpyro.sample(site_name, prior_fn(site_name))
+
+
+def _parameter_slot_from_samples(
+    slot: ParameterSlot,
+    site_name: str,
+    samples: dict[str, Array],
+) -> Array:
+    """Resolve a parameter slot from constrained posterior samples."""
+    if isinstance(slot, Fixed):
+        return jnp.asarray(slot.value)
+    return samples[site_name]
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +137,7 @@ class StateDecaySpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameter
+        n_latent: int,  # noqa: ARG002 - scalar target parameter
     ) -> Iterator[SiteDescriptor]:
         yield make_site(
             self.decay_site_name(prefix),
@@ -187,7 +204,7 @@ class StateInterceptSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameter
+        n_latent: int,  # noqa: ARG002 - scalar target parameter
     ) -> Iterator[SiteDescriptor]:
         yield make_site(
             self.cint_site_name(prefix),
@@ -233,22 +250,23 @@ class NodePotentialSpec:
     Builds :class:`NodePotential`. Subsumes ``StateDecaySpec`` (``stiffness`` =
     relaxation rate / well curvature) and the set-point role of
     ``StateInterceptSpec`` (``center`` = well minimum), and adds opt-in
-    nonlinear self-limitation (``quartic``). Any parameter may be structurally
-    fixed; free ``stiffness``/``quartic`` use positive supports. ``quartic``
-    defaults to fixed ``0.0`` (pure quadratic = linear relaxation drift, exactly
-    reproducing ``StateDecay`` + ``StateIntercept``).
+    nonlinear self-limitation (``quartic``). Each parameter is an explicit
+    :class:`Fixed` or :class:`Free` slot. Free ``stiffness``/``quartic`` slots
+    use positive supports. ``quartic`` defaults to ``Fixed(0.0)`` (pure
+    quadratic = linear relaxation drift, exactly reproducing ``StateDecay`` +
+    ``StateIntercept``).
     """
 
     target: int
-    fixed_center: float | None = None
-    fixed_stiffness: float | None = None
-    fixed_quartic: float | None = 0.0
+    center: ParameterSlot = field(default_factory=Free)
+    stiffness: ParameterSlot = field(default_factory=Free)
+    quartic: ParameterSlot = field(default_factory=lambda: Fixed(0.0))
 
     def __post_init__(self) -> None:
-        if self.fixed_stiffness is not None and self.fixed_stiffness <= 0.0:
-            raise ValueError(f"fixed_stiffness must be positive; got {self.fixed_stiffness}.")
-        if self.fixed_quartic is not None and self.fixed_quartic < 0.0:
-            raise ValueError(f"fixed_quartic must be non-negative; got {self.fixed_quartic}.")
+        if isinstance(self.stiffness, Fixed) and self.stiffness.value <= 0.0:
+            raise ValueError(f"stiffness must be positive; got {self.stiffness.value}.")
+        if isinstance(self.quartic, Fixed) and self.quartic.value < 0.0:
+            raise ValueError(f"quartic must be non-negative; got {self.quartic.value}.")
 
     def build(self) -> NodePotential:
         return NodePotential(target=self.target)
@@ -269,10 +287,10 @@ class NodePotentialSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameters
+        n_latent: int,  # noqa: ARG002 - scalar target parameters
     ) -> Iterator[SiteDescriptor]:
         positions = (self.target,)
-        if self.fixed_center is None:
+        if isinstance(self.center, Free):
             yield make_site(
                 self.center_site_name(prefix),
                 (),
@@ -282,7 +300,7 @@ class NodePotentialSpec:
                 positions=positions,
                 priors_field="dynamics_potential_center",
             )
-        if self.fixed_stiffness is None:
+        if isinstance(self.stiffness, Free):
             # Stiffness is the relaxation rate, i.e. the decay: reuse the decay
             # site-kind and prior so it shares StateDecay's authoring contract.
             yield make_site(
@@ -294,7 +312,7 @@ class NodePotentialSpec:
                 positions=positions,
                 priors_field="dynamics_decay",
             )
-        if self.fixed_quartic is None:
+        if isinstance(self.quartic, Free):
             yield make_site(
                 self.quartic_site_name(prefix),
                 (),
@@ -313,7 +331,7 @@ class NodePotentialSpec:
         component_index: int,
     ) -> Iterator[SemanticBinding]:
         latent_name = latent_names[self.target]
-        if self.fixed_center is None:
+        if isinstance(self.center, Free):
             yield SemanticBinding(
                 parameter_name=f"setpoint_{latent_name}",
                 site_name=self.center_site_name(prefix),
@@ -324,7 +342,7 @@ class NodePotentialSpec:
                 construct_names=(latent_name,),
                 component_index=component_index,
             )
-        if self.fixed_stiffness is None:
+        if isinstance(self.stiffness, Free):
             # Stiffness is the relaxation rate (the decay): expose it through the
             # same persistence (``rho_``) / decay (``decay_``) authoring contract
             # as StateDecay, so causal-design priors resolve identically.
@@ -349,7 +367,7 @@ class NodePotentialSpec:
                 construct_names=(latent_name,),
                 component_index=component_index,
             )
-        if self.fixed_quartic is None:
+        if isinstance(self.quartic, Free):
             yield SemanticBinding(
                 parameter_name=f"self_limit_{latent_name}",
                 site_name=self.quartic_site_name(prefix),
@@ -362,15 +380,22 @@ class NodePotentialSpec:
             )
 
     def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
-        def draw(fixed: float | None, name: str) -> Array:
-            if fixed is not None:
-                return jnp.asarray(fixed)
-            return numpyro.sample(name, prior_fn(name))
-
         return {
-            "center": draw(self.fixed_center, self.center_site_name(prefix)),
-            "stiffness": draw(self.fixed_stiffness, self.decay_site_name(prefix)),
-            "quartic": draw(self.fixed_quartic, self.quartic_site_name(prefix)),
+            "center": _sample_parameter_slot(
+                self.center,
+                self.center_site_name(prefix),
+                prior_fn,
+            ),
+            "stiffness": _sample_parameter_slot(
+                self.stiffness,
+                self.decay_site_name(prefix),
+                prior_fn,
+            ),
+            "quartic": _sample_parameter_slot(
+                self.quartic,
+                self.quartic_site_name(prefix),
+                prior_fn,
+            ),
         }
 
 
@@ -394,9 +419,9 @@ class DiagonalDecaySpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,
+        n_latent: int,
     ) -> Iterator[SiteDescriptor]:
-        n = _require_n_latent(type(self).__name__, n_latent)
+        n = n_latent
         yield make_site(
             self.decay_site_name(prefix),
             (n,),
@@ -459,9 +484,9 @@ class InterceptSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,
+        n_latent: int,
     ) -> Iterator[SiteDescriptor]:
-        n = _require_n_latent(type(self).__name__, n_latent)
+        n = n_latent
         yield make_site(
             self.cint_site_name(prefix),
             (n,),
@@ -521,7 +546,7 @@ class LinearEdgeSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar edge parameter
+        n_latent: int,  # noqa: ARG002 - scalar edge parameter
     ) -> Iterator[SiteDescriptor]:
         yield make_site(
             self.weight_site_name(prefix),
@@ -580,25 +605,22 @@ class LinearEdgeSpec:
 class HillEdgeSpec:
     """``HillEdge`` component spec. Priors over ``Emax``, ``EC50``, ``n``.
 
-    Any parameter can be structurally fixed; free parameters should use
-    positive supports — typical choices are ``LogNormal`` for ``Emax`` and
-    ``EC50``, ``TruncatedNormal`` for ``n`` (Hill coefficient, biologically
-    ≥ 1, rarely > 4).
+    Each parameter is an explicit :class:`Fixed` or :class:`Free` slot. Free
+    parameters use positive supports where required — typical choices are
+    ``LogNormal`` for ``Emax`` and ``EC50``, ``TruncatedNormal`` for ``n``
+    (Hill coefficient, biologically ≥ 1, rarely > 4).
     """
 
     source: int
     target: int
-    fixed_emax: float | None = None
-    fixed_ec50: float | None = None
-    fixed_n: float | None = None
+    emax: ParameterSlot = field(default_factory=Free)
+    ec50: ParameterSlot = field(default_factory=Free)
+    n: ParameterSlot = field(default_factory=Free)
 
     def __post_init__(self) -> None:
-        if self.fixed_emax is not None and self.fixed_emax <= 0.0:
-            raise ValueError(f"fixed_emax must be positive; got {self.fixed_emax}.")
-        if self.fixed_ec50 is not None and self.fixed_ec50 <= 0.0:
-            raise ValueError(f"fixed_ec50 must be positive; got {self.fixed_ec50}.")
-        if self.fixed_n is not None and self.fixed_n <= 0.0:
-            raise ValueError(f"fixed_n must be positive; got {self.fixed_n}.")
+        for name, slot in (("emax", self.emax), ("ec50", self.ec50), ("n", self.n)):
+            if isinstance(slot, Fixed) and slot.value <= 0.0:
+                raise ValueError(f"{name} must be positive; got {slot.value}.")
 
     def build(self) -> HillEdge:
         return HillEdge(source=self.source, target=self.target)
@@ -616,10 +638,10 @@ class HillEdgeSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar edge parameters
+        n_latent: int,  # noqa: ARG002 - scalar edge parameters
     ) -> Iterator[SiteDescriptor]:
         positions = ((self.target, self.source),)
-        if self.fixed_emax is None:
+        if isinstance(self.emax, Free):
             yield make_site(
                 self.emax_site_name(prefix),
                 (),
@@ -629,7 +651,7 @@ class HillEdgeSpec:
                 positions=positions,
                 priors_field="hill_emax",
             )
-        if self.fixed_ec50 is None:
+        if isinstance(self.ec50, Free):
             yield make_site(
                 self.ec50_site_name(prefix),
                 (),
@@ -639,7 +661,7 @@ class HillEdgeSpec:
                 positions=positions,
                 priors_field="hill_ec50",
             )
-        if self.fixed_n is None:
+        if isinstance(self.n, Free):
             yield make_site(
                 self.n_site_name(prefix),
                 (),
@@ -659,30 +681,30 @@ class HillEdgeSpec:
     ) -> Iterator[SemanticBinding]:
         cause_name = latent_names[self.source]
         effect_name = latent_names[self.target]
-        for parameter_prefix, site_name, site_kind, transform, fixed_value in (
+        for parameter_prefix, site_name, site_kind, transform, slot in (
             (
                 "hill_emax",
                 self.emax_site_name(prefix),
                 SiteKind.HILL_EMAX,
                 PriorAuthoringTransform.POSITIVE_IDENTITY,
-                self.fixed_emax,
+                self.emax,
             ),
             (
                 "hill_ec50",
                 self.ec50_site_name(prefix),
                 SiteKind.HILL_EC50,
                 PriorAuthoringTransform.POSITIVE_IDENTITY,
-                self.fixed_ec50,
+                self.ec50,
             ),
             (
                 "hill_n",
                 self.n_site_name(prefix),
                 SiteKind.HILL_N,
                 PriorAuthoringTransform.IDENTITY,
-                self.fixed_n,
+                self.n,
             ),
         ):
-            if fixed_value is not None:
+            if isinstance(slot, Fixed):
                 continue
             yield SemanticBinding(
                 parameter_name=f"{parameter_prefix}_{cause_name}_{effect_name}",
@@ -699,29 +721,20 @@ class HillEdgeSpec:
 
     def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
-            "Emax": (
-                jnp.asarray(self.fixed_emax)
-                if self.fixed_emax is not None
-                else numpyro.sample(
-                    self.emax_site_name(prefix),
-                    prior_fn(self.emax_site_name(prefix)),
-                )
+            "Emax": _sample_parameter_slot(
+                self.emax,
+                self.emax_site_name(prefix),
+                prior_fn,
             ),
-            "EC50": (
-                jnp.asarray(self.fixed_ec50)
-                if self.fixed_ec50 is not None
-                else numpyro.sample(
-                    self.ec50_site_name(prefix),
-                    prior_fn(self.ec50_site_name(prefix)),
-                )
+            "EC50": _sample_parameter_slot(
+                self.ec50,
+                self.ec50_site_name(prefix),
+                prior_fn,
             ),
-            "n": (
-                jnp.asarray(self.fixed_n)
-                if self.fixed_n is not None
-                else numpyro.sample(
-                    self.n_site_name(prefix),
-                    prior_fn(self.n_site_name(prefix)),
-                )
+            "n": _sample_parameter_slot(
+                self.n,
+                self.n_site_name(prefix),
+                prior_fn,
             ),
         }
 
@@ -746,7 +759,7 @@ class MultiplicativeEdgeSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,  # noqa: ARG002 - scalar edge parameter
+        n_latent: int,  # noqa: ARG002 - scalar edge parameter
     ) -> Iterator[SiteDescriptor]:
         yield make_site(
             self.weight_site_name(prefix),
@@ -885,20 +898,20 @@ def pack_component_params_from_samples(
         elif isinstance(component_spec, NodePotentialSpec):
             packed.append(
                 {
-                    "center": (
-                        jnp.asarray(component_spec.fixed_center)
-                        if component_spec.fixed_center is not None
-                        else samples[component_spec.center_site_name(site_prefix)]
+                    "center": _parameter_slot_from_samples(
+                        component_spec.center,
+                        component_spec.center_site_name(site_prefix),
+                        samples,
                     ),
-                    "stiffness": (
-                        jnp.asarray(component_spec.fixed_stiffness)
-                        if component_spec.fixed_stiffness is not None
-                        else samples[component_spec.decay_site_name(site_prefix)]
+                    "stiffness": _parameter_slot_from_samples(
+                        component_spec.stiffness,
+                        component_spec.decay_site_name(site_prefix),
+                        samples,
                     ),
-                    "quartic": (
-                        jnp.asarray(component_spec.fixed_quartic)
-                        if component_spec.fixed_quartic is not None
-                        else samples[component_spec.quartic_site_name(site_prefix)]
+                    "quartic": _parameter_slot_from_samples(
+                        component_spec.quartic,
+                        component_spec.quartic_site_name(site_prefix),
+                        samples,
                     ),
                 }
             )
@@ -911,20 +924,20 @@ def pack_component_params_from_samples(
         elif isinstance(component_spec, HillEdgeSpec):
             packed.append(
                 {
-                    "Emax": (
-                        jnp.asarray(component_spec.fixed_emax)
-                        if component_spec.fixed_emax is not None
-                        else samples[component_spec.emax_site_name(site_prefix)]
+                    "Emax": _parameter_slot_from_samples(
+                        component_spec.emax,
+                        component_spec.emax_site_name(site_prefix),
+                        samples,
                     ),
-                    "EC50": (
-                        jnp.asarray(component_spec.fixed_ec50)
-                        if component_spec.fixed_ec50 is not None
-                        else samples[component_spec.ec50_site_name(site_prefix)]
+                    "EC50": _parameter_slot_from_samples(
+                        component_spec.ec50,
+                        component_spec.ec50_site_name(site_prefix),
+                        samples,
                     ),
-                    "n": (
-                        jnp.asarray(component_spec.fixed_n)
-                        if component_spec.fixed_n is not None
-                        else samples[component_spec.n_site_name(site_prefix)]
+                    "n": _parameter_slot_from_samples(
+                        component_spec.n,
+                        component_spec.n_site_name(site_prefix),
+                        samples,
                     ),
                 }
             )

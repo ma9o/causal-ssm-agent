@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Required, TypedDict
+from typing import TYPE_CHECKING, Literal, Required, TypedDict, override
 
 import jax.numpy as jnp
 import jax.random as random
@@ -185,7 +185,7 @@ class ParticleMCMCPosterior:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
         def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
-            import arviz as az
+            import arviz_base as az_base
             import numpy as np
 
             posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
@@ -194,7 +194,7 @@ class ParticleMCMCPosterior:
                 kwargs["log_likelihood"] = {
                     name: np.asarray(values) for name, values in log_likelihood.items()
                 }
-            return az.from_dict(**kwargs)
+            return az_base.from_dict(kwargs)
 
         summ = numpyro_summary(chain_samples)
         per_param: list[MCMCParameterDiagnostic] = []
@@ -209,7 +209,8 @@ class ParticleMCMCPosterior:
             per_param.append(entry)
         result["per_parameter"] = per_param
 
-        import arviz as az
+        import arviz_base as az_base
+        from arviz_stats.sampling_diagnostics import ess, mcse
 
         if getattr(mcmc, "backend", None) in {
             "aux_kalman_mcmc",
@@ -218,9 +219,9 @@ class ParticleMCMCPosterior:
         }:
             idata = _arviz_idata_from_posterior(chain_samples)
         else:
-            idata = az.from_numpyro(mcmc)
-        ess_tail = az.ess(idata, method="tail")
-        mcse_mean = az.mcse(idata, method="mean")
+            idata = az_base.from_numpyro(mcmc)
+        ess_tail = ess(idata, method="tail")
+        mcse_mean = mcse(idata, method="mean")
 
         for entry in per_param:
             name = entry["parameter"]
@@ -293,8 +294,10 @@ class ParticleMCMCPosterior:
         if mcmc is None and not self._samples:
             return None
 
-        import arviz as az
+        import arviz_base as az_base
+        from arviz_stats.loo import loo, loo_pit
 
+        public_sites: list[str] | None = None
         if mcmc is not None:
             flat_samples = mcmc.get_samples()
             public_sites = self.diagnostics.get("public_sites")
@@ -312,7 +315,7 @@ class ParticleMCMCPosterior:
         pred_result = pred(random.PRNGKey(0), observations, times)
 
         def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
-            import arviz as az
+            import arviz_base as az_base
             import numpy as np
 
             posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
@@ -321,7 +324,7 @@ class ParticleMCMCPosterior:
                 kwargs["log_likelihood"] = {
                     name: np.asarray(values) for name, values in log_likelihood.items()
                 }
-            return az.from_dict(**kwargs)
+            return az_base.from_dict(kwargs)
 
         if "ll_per_timestep" in pred_result:
             ll_per_t = pred_result["ll_per_timestep"]
@@ -335,23 +338,13 @@ class ParticleMCMCPosterior:
                 n_chains, n_per_chain, n_timesteps
             )
             if mcmc is not None:
-                if getattr(mcmc, "backend", None) in {
-                    "aux_kalman_mcmc",
-                    "pit_particle_mgrad",
-                    "marginal_particle_gibbs",
-                }:
-                    chain_samples = mcmc.get_samples(group_by_chain=True)
-                    if public_sites is not None:
-                        chain_samples = _filter_public_samples(chain_samples, set(public_sites))
-                    idata = _arviz_idata_from_posterior(
-                        chain_samples,
-                        log_likelihood={"ll_per_timestep": ll_chained},
-                    )
-                else:
-                    idata = az.from_numpyro(
-                        mcmc,
-                        log_likelihood={"ll_per_timestep": ll_chained},
-                    )
+                chain_samples = mcmc.get_samples(group_by_chain=True)
+                if public_sites is not None:
+                    chain_samples = _filter_public_samples(chain_samples, set(public_sites))
+                idata = _arviz_idata_from_posterior(
+                    chain_samples,
+                    log_likelihood={"ll_per_timestep": ll_chained},
+                )
             else:
                 import numpy as np
 
@@ -360,9 +353,11 @@ class ParticleMCMCPosterior:
                 for name, vals in flat_samples.items():
                     v = np.asarray(vals[:n_used])
                     posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
-                idata = az.from_dict(
-                    posterior=posterior_dict,
-                    log_likelihood={"ll_per_timestep": np.asarray(ll_chained)},
+                idata = az_base.from_dict(
+                    {
+                        "posterior": posterior_dict,
+                        "log_likelihood": {"ll_per_timestep": np.asarray(ll_chained)},
+                    }
                 )
             ll_per_timestep_found = True
         elif mcmc is not None:
@@ -376,31 +371,31 @@ class ParticleMCMCPosterior:
                     chain_samples = _filter_public_samples(chain_samples, set(public_sites))
                 idata = _arviz_idata_from_posterior(chain_samples)
             else:
-                idata = az.from_numpyro(mcmc)
+                idata = az_base.from_numpyro(mcmc)
             if not hasattr(idata, "log_likelihood"):
                 return None
             ll_per_timestep_found = False
         else:
             return None
 
-        loo_result = az.loo(idata)
+        loo_result = loo(idata)
 
         result: JsonObject = {
-            "elpd_loo": float(loo_result.elpd_loo),
-            "p_loo": float(loo_result.p_loo),
+            "elpd_loo": float(loo_result.elpd),
+            "p_loo": float(loo_result.p),
             "se": float(loo_result.se),
             "n_data_points": int(loo_result.n_data_points),
             "observation_unit": "timestep" if ll_per_timestep_found else "observation",
         }
 
-        if hasattr(loo_result, "pareto_k"):
+        if loo_result.pareto_k is not None:
             pk = loo_result.pareto_k
             pk_vals = pk.values if hasattr(pk, "values") else jnp.array(pk)
             result["pareto_k"] = [float(v) for v in pk_vals]
             result["n_bad_k"] = int((pk_vals > 0.7).sum())
 
         if ll_per_timestep_found and hasattr(idata, "observed_data"):
-            pit_vals = az.loo_pit(idata, y="ll_per_timestep")
+            pit_vals = loo_pit(idata, var_names="ll_per_timestep")
             if hasattr(pit_vals, "values"):
                 result["loo_pit"] = [float(v) for v in pit_vals.values.flat]
             else:
@@ -452,6 +447,7 @@ class FittedArtifact:
     observation_support: ObservationSupportRuntime | None = None
     ppc_result: JsonObject | None = None
 
+    @override
     def __getstate__(self) -> FittedArtifactState:
         """Persist only the analysis inputs, never live inference caches/backends."""
         return {

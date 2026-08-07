@@ -23,12 +23,14 @@ import numpy as np
 import scipy.optimize as spo
 from jax.flatten_util import ravel_pytree
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, WarmupProposal
 from nof1_causal_lab.models.ssm.inference.utils import (
     _build_eval_fns,
@@ -123,7 +125,7 @@ def _solver_label(kind: int) -> str:
     return _SOLVER_KIND_LABELS.get(kind, f"solver_{kind}")
 
 
-def _hostify_inner_eval_diagnostics(aux: dict[str, Any]) -> dict[str, Any]:
+def _hostify_inner_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonObject:
     host = jax.device_get(aux)
     return {
         "solver_kind": _scalar_int(host["solver_kind"]),
@@ -140,7 +142,7 @@ def _hostify_inner_eval_diagnostics(aux: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _hostify_outer_eval_diagnostics(aux: dict[str, Any]) -> dict[str, Any]:
+def _hostify_outer_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonObject:
     host = jax.device_get(aux)
     return {
         "log_posterior": _scalar_float(host["log_posterior"]),
@@ -150,7 +152,7 @@ def _hostify_outer_eval_diagnostics(aux: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _inner_log_joint_gain(inner: dict[str, Any]) -> float | None:
+def _inner_log_joint_gain(inner: UncheckedJsonObject) -> float | None:
     init_log_joint = inner["init_log_joint"]
     final_log_joint = inner["final_log_joint"]
     if not np.isfinite(init_log_joint) or not np.isfinite(final_log_joint):
@@ -168,7 +170,7 @@ def _log_outer_eval(
     delta_objective: float | None,
     grad_norm: float,
     step_norm: float | None,
-    outer_diag: dict[str, Any],
+    outer_diag: UncheckedJsonObject,
 ) -> None:
     logger.info(
         "MAP outer %s: elapsed=%.1fs evals=%d objective=%.6f best=%.6f "
@@ -219,9 +221,9 @@ class LaplaceModeOptimizationResult:
     success: bool
     optimizer: str
     init_log_posterior_best: float
-    optimizer_hess_inv: Any | None = None
+    optimizer_hess_inv: object | None = None
     final_grad_norm: float | None = None
-    final_eval_diagnostics: dict[str, Any] | None = None
+    final_eval_diagnostics: UncheckedJsonObject | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +238,7 @@ def _build_map_laplace_bundle(
     trace_key: jnp.ndarray,
     likelihood_backend,
     reparam,
-) -> dict[str, Any]:
+) -> UncheckedJsonObject:
     """Build the traced/JITed artifacts for optimizer-backed MAP."""
     site_info = _discover_sites(
         model,
@@ -257,7 +259,7 @@ def _build_map_laplace_bundle(
         _map_shape_dtype_signature(times),
     )
 
-    def _build_runtime_bundle() -> dict[str, Any]:
+    def _build_runtime_bundle() -> UncheckedJsonObject:
         log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn = _build_eval_fns(
             model,
             observations,
@@ -306,7 +308,7 @@ def _build_map_laplace_bundle(
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
             latent_mode_init=None,
-        ) -> tuple[jnp.ndarray, dict[str, Any]]:
+        ) -> tuple[jnp.ndarray, UncheckedJsonObject]:
             log_lik, inner_eval_aux = log_lik_with_aux_fn(
                 z,
                 runtime_observations,
@@ -358,7 +360,7 @@ def _build_map_laplace_bundle(
 
 def _draw_laplace_init_candidates(
     rng_key: jnp.ndarray,
-    site_info: dict[str, Any],
+    site_info: UncheckedJsonObject,
     *,
     dim: int,
     n_candidates: int,
@@ -401,7 +403,7 @@ def _optimize_laplace_parameter_mode(
     init_key: jnp.ndarray,
     dim: int,
     flat_example: jnp.ndarray,
-    site_info: dict[str, Any],
+    site_info: UncheckedJsonObject,
     runtime_log_posterior_fn,
     runtime_neg_log_posterior_with_aux_fn,
     observations: jnp.ndarray,
@@ -474,7 +476,7 @@ def _optimize_laplace_parameter_mode(
     cached_x: np.ndarray | None = None
     cached_fun: float | None = None
     cached_grad: np.ndarray | None = None
-    cached_aux: dict[str, Any] | None = None
+    cached_aux: UncheckedJsonObject | None = None
     eval_count = 0
     optimize_started_at = time.monotonic()
     latent_mode_init: np.ndarray | None = None
@@ -490,7 +492,7 @@ def _optimize_laplace_parameter_mode(
             latent_mode_init = np.asarray(jax.device_get(seed_aux["latent_mode"])).copy()
             logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
 
-    def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, dict[str, Any]]:
+    def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, UncheckedJsonObject]:
         nonlocal cached_x, cached_fun, cached_grad, cached_aux, eval_count, latent_mode_init
         z_host = np.asarray(z_np, dtype=np.float64)
         if cached_x is not None and np.array_equal(z_host, cached_x):
@@ -757,7 +759,7 @@ def fit_map(
     phase_started_at = time.monotonic()
     logger.info("MAP phase start: phase=build_likelihood_backend")
     with jax.profiler.TraceAnnotation("map/build_likelihood_backend"):
-        backend = model.make_laplace_backend(n_ieks_iters)
+        backend = get_laplace_backend(model, n_ieks_iters)
     logger.info(
         "MAP phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
         _elapsed_seconds(phase_started_at),

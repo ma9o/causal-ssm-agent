@@ -49,9 +49,11 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import modal
+
+type BenchmarkRecord = dict[str, Any]
 
 DEFAULT_GPU = "H100"
 # Modal 1.3 binds gpu= at decoration time, so the card is chosen at import via env var
@@ -173,7 +175,7 @@ def _run_benchmark(
     warmup_steps: int,
     sample_steps: int,
     num_parameter_particles: int,
-) -> dict:
+) -> BenchmarkRecord:
     """Build the fixture, time steady-state ms/step, dump profiling to ``profile_dir``.
 
     Backend-agnostic: the GPU worker (``run_config``) and the local-CPU ``__main__``
@@ -280,7 +282,7 @@ def run_config(
     profile_trace_start_step: int,
     profile_trace_steps: int,
     cuda_graphs: bool = False,
-) -> dict:
+) -> BenchmarkRecord:
     """Modal GPU worker: profile the headline config to the Volume; time the rest."""
     import os
     import traceback
@@ -337,7 +339,7 @@ def run_config(
 
 
 def _result_ms(
-    results: list[dict],
+    results: list[BenchmarkRecord],
     method: MethodSpec,
     n_particles: int,
     t_steps: int,
@@ -354,7 +356,7 @@ def _result_ms(
     return None
 
 
-def _scaling(results: list[dict], method: MethodSpec) -> None:
+def _scaling(results: list[BenchmarkRecord], method: MethodSpec) -> None:
     lines = []
     if len(N_GRID) > 1:
         n_low = min(N_GRID)

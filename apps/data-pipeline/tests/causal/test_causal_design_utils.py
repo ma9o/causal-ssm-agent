@@ -6,19 +6,25 @@ the helpers with real transformation or graph logic:
 - ``build_digraph``
 - ``get_outcome_name``
 - ``get_all_treatments``
-- ``get_estimation_constructs``
+- StructuralPlan state and marginalized-scale accessors
 """
+
+from typing import Any
 
 import pytest
 
+from nof1_causal_lab.artifacts import StructuralPlan
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
-    get_estimation_constructs,
-    get_marginalized_scales,
     get_outcome_name,
     make_measurement_extraction_context,
 )
+from nof1_causal_lab.utils.structural_plan import (
+    get_marginalized_scales,
+    get_state_names,
+)
+from tests.helpers import make_structural_plan
 
 
 def _full_spec():
@@ -43,6 +49,7 @@ def _full_spec():
                 {
                     "name": "pss_score",
                     "construct_name": "stress",
+                    "construct_polarity": "positive",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Extract PSS score",
                     "aggregation": "mean",
@@ -50,6 +57,7 @@ def _full_spec():
                 {
                     "name": "mood_rating",
                     "construct_name": "mood",
+                    "construct_polarity": "positive",
                     "measurement_dtype": "ordinal",
                     "how_to_measure": "Rate mood 1-5",
                     "aggregation": "last",
@@ -294,39 +302,60 @@ class TestGetAllTreatments:
         )
 
 
-class TestEstimationAccessors:
-    def test_get_estimation_constructs_preserves_retained_state_order(self):
-        constructs = get_estimation_constructs(_full_spec())
-        assert [construct["name"] for construct in constructs] == ["stress", "mood"]
-
-    def test_get_estimable_treatments_ignores_theoretical_only_nodes(self):
-        spec = _full_spec()
-        spec["latent"]["constructs"].append(
-            {
-                "name": "baseline_trait",
-                "role": "exogenous",
-                "description": "Theoretical but marginalized cause",
-            }
-        )
-        spec["latent"]["edges"].append(
-            {
-                "cause": "baseline_trait",
-                "effect": "mood",
-                "description": "Theoretical-only path",
-            }
-        )
+class TestStructuralPlanAccessors:
+    def test_get_state_names_preserves_compiled_order(self):
+        plan = make_structural_plan(["stress", "mood"], [("stress", "mood")])
+        assert get_state_names(StructuralPlan.model_validate(plan)) == ["stress", "mood"]
 
 
 class TestGetMarginalizedScales:
     @staticmethod
-    def _spec(induced_dependencies: list[dict]) -> dict:
-        return {
-            "estimation": {
-                "state_order": [],
-                "edges": [],
-                "induced_dependencies": induced_dependencies,
+    def _spec(induced_dependencies: list[dict[str, Any]]) -> StructuralPlan:
+        state_names = sorted(
+            {str(state) for dependency in induced_dependencies for state in dependency["between"]}
+        )
+        source_names = sorted(
+            {
+                str(source)
+                for dependency in induced_dependencies
+                for source in dependency["source_confounders"]
             }
+        )
+        plan = make_structural_plan(state_names, [])
+        construct_id_by_name = {
+            construct["name"]: source_id
+            for source_id, construct in plan["semantics"]["constructs"].items()
         }
+        for source_name in source_names:
+            source_id = f"construct:{len(construct_id_by_name):04d}"
+            construct_id_by_name[source_name] = source_id
+            plan["semantics"]["constructs"][source_id] = {
+                "name": source_name,
+                "description": source_name,
+                "role": "exogenous",
+                "is_outcome": False,
+                "temporal_status": "time_invariant",
+            }
+            plan["dispositions"].append(
+                {
+                    "source_id": source_id,
+                    "source_kind": "construct",
+                    "disposition": "marginalized",
+                    "reason": "test confounder",
+                }
+            )
+        plan["induced_dependencies"] = [
+            {
+                "source_id": f"dependency:{index:04d}",
+                "between": [construct_id_by_name[name] for name in dependency["between"]],
+                "kind": dependency["kind"],
+                "source_confounder_ids": [
+                    construct_id_by_name[name] for name in dependency["source_confounders"]
+                ],
+            }
+            for index, dependency in enumerate(induced_dependencies)
+        ]
+        return StructuralPlan.model_validate(plan)
 
     def test_golden_like_three_plus_one_confounders_yield_two_scales(self):
         spec = self._spec(
@@ -405,7 +434,7 @@ class TestGetMarginalizedScales:
                 },
             ]
         )
-        with pytest.raises(ValueError, match="inconsistent kinds"):
+        with pytest.raises(ValueError, match="inconsistent dependency kinds"):
             get_marginalized_scales(spec)
 
     def test_empty_dependencies_yield_empty_scales(self):

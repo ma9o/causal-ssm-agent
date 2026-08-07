@@ -6,6 +6,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+
 
 class Role(StrEnum):
     """Whether a variable is modeled or treated as given."""
@@ -178,7 +180,9 @@ class LatentStructure(BaseModel):
         return self
 
 
-def validate_latent_structure(data: dict) -> tuple[LatentStructure | None, list[str]]:
+def validate_latent_structure(
+    data: UncheckedJsonObject,
+) -> tuple[LatentStructure | None, list[str]]:
     """Validate a latent structure dict, collecting all errors."""
     errors: list[str] = []
 

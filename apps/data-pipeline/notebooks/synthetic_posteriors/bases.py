@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import override
 
 import jax
 from jax.scipy.stats import cauchy, laplace, norm
@@ -30,9 +31,11 @@ class Gaussian(Base):
     loc: float = 0.0
     scale: float = 1.0
 
+    @override
     def log_prob(self, x: Array) -> Array:
         return norm.logpdf(x, loc=self.loc, scale=self.scale).sum(axis=-1)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         return self.loc + self.scale * jax.random.normal(key, (n, self.dim))
 
@@ -44,9 +47,11 @@ class StudentT(Base):
     loc: float = 0.0
     scale: float = 1.0
 
+    @override
     def log_prob(self, x: Array) -> Array:
         return student_t.logpdf(x, df=self.df, loc=self.loc, scale=self.scale).sum(axis=-1)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         return self.loc + self.scale * jax.random.t(key, self.df, (n, self.dim))
 
@@ -57,9 +62,11 @@ class Laplace(Base):
     loc: float = 0.0
     scale: float = 1.0
 
+    @override
     def log_prob(self, x: Array) -> Array:
         return laplace.logpdf(x, loc=self.loc, scale=self.scale).sum(axis=-1)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         return self.loc + self.scale * jax.random.laplace(key, (n, self.dim))
 
@@ -70,8 +77,10 @@ class Cauchy(Base):
     loc: float = 0.0
     scale: float = 1.0
 
+    @override
     def log_prob(self, x: Array) -> Array:
         return cauchy.logpdf(x, loc=self.loc, scale=self.scale).sum(axis=-1)
 
+    @override
     def sample(self, key: PRNGKey, n: int) -> Array:
         return self.loc + self.scale * jax.random.cauchy(key, (n, self.dim))

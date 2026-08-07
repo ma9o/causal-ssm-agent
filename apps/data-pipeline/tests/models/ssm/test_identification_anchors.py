@@ -6,9 +6,12 @@ enumerate the family/policy combinations so that any future eligibility change
 that reopens an exact likelihood ridge fails loudly at compile time.
 """
 
+from typing import Any
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts import DistributionFamily, LikelihoodSpec, LinkFunction
 from nof1_causal_lab.artifacts.statistical_model_spec import (
@@ -17,6 +20,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterSpec,
     StatisticalModelSpec,
 )
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.flows.transitions.model_spec.agentic.parameter_surfaces import (
     parameter_is_active_for_statistical_model_spec,
 )
@@ -24,8 +28,11 @@ from nof1_causal_lab.models.ssm.compile.spec_translation import (
     SpecTranslationError,
     translate_spec,
 )
+from nof1_causal_lab.models.ssm.compile.structural import StructuralClosureError
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
+from nof1_causal_lab.utils.causal_design import build_reference_indicator_lookup
+from tests.helpers import make_structural_plan
 from tests.ssm_spec_fixtures import block_ssm_spec
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -39,7 +46,7 @@ def _indicator(
     dtype: str,
     *,
     polarity: str = "positive",
-) -> dict:
+) -> dict[str, Any]:
     indicator = {
         "name": name,
         "construct_name": construct_name,
@@ -55,37 +62,51 @@ def _indicator(
     return indicator
 
 
-def _causal_design(
+def _structural_plan(
     construct_names: list[str],
-    indicators: list[dict],
+    indicators: list[dict[str, Any]],
     *,
     time_invariant: set[str] | None = None,
-) -> dict:
+) -> StructuralPlan:
     time_invariant = time_invariant or set()
-    return {
-        "latent": {
-            "constructs": [
-                {
-                    "name": name,
-                    "description": name,
-                    "temporal_status": (
-                        "time_invariant" if name in time_invariant else "time_varying"
-                    ),
-                }
-                for name in construct_names
-            ],
-            "edges": [],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": indicators,
-        },
-        "estimation": {
-            "state_order": list(construct_names),
-            "edges": [],
-            "induced_dependencies": [],
-        },
+    plan = make_structural_plan(construct_names, [])
+    for construct in plan["semantics"]["constructs"].values():
+        construct["temporal_status"] = (
+            "time_invariant" if construct["name"] in time_invariant else "time_varying"
+        )
+
+    indicator_items = {
+        f"indicator:{index:04d}": indicator for index, indicator in enumerate(indicators)
     }
+    plan["semantics"]["indicators"] = indicator_items
+    plan["manifest_indicator_order"] = list(indicator_items)
+    reference_names = build_reference_indicator_lookup(indicators)
+    construct_ids = {
+        construct["name"]: source_id
+        for source_id, construct in plan["semantics"]["constructs"].items()
+    }
+    indicator_ids = {
+        indicator["name"]: source_id for source_id, indicator in indicator_items.items()
+    }
+    plan["reference_indicator_ids"] = {
+        construct_ids[construct_name]: indicator_ids[indicator_name]
+        for construct_name, indicator_name in reference_names.items()
+    }
+    plan["dispositions"] = [
+        disposition
+        for disposition in plan["dispositions"]
+        if disposition["source_kind"] != "indicator"
+    ]
+    plan["dispositions"].extend(
+        {
+            "source_id": source_id,
+            "source_kind": "indicator",
+            "disposition": "manifest",
+            "reason": "test manifest",
+        }
+        for source_id in indicator_items
+    )
+    return StructuralPlan.model_validate(plan)
 
 
 _LIKELIHOOD_BY_DTYPE = {
@@ -156,24 +177,25 @@ class TestOrderedThresholds:
 
     def test_ordinal_only_construct_compiles(self):
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
-        causal_design = _causal_design(["mood"], [_indicator("mood_level", "mood", "ordinal")])
+        structural_plan = _structural_plan(["mood"], [_indicator("mood_level", "mood", "ordinal")])
         spec, _ = translate_spec(
             _model_spec([_likelihood("mood_level", "ordinal")]),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.manifest_cat_anchor is not None
         assert not any(spec.manifest_cat_anchor)
         assert float(spec.lambda_block.template[0, 0]) == 1.0
         assert not spec.lambda_block.free_support[0, 0]
 
     def test_manifest_intercept_is_rejected_for_threshold_channel(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_level", "mood", "ordinal")])
+        structural_plan = _structural_plan(["mood"], [_indicator("mood_level", "mood", "ordinal")])
         with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
             translate_spec(
                 _model_spec(
                     [_likelihood("mood_level", "ordinal")],
                     [_manifest_mean("mood_level")],
                 ),
-                causal_design=causal_design,
+                structural_plan=structural_plan,
             )
 
 
@@ -184,29 +206,46 @@ class TestOrderedThresholds:
 
 class TestLocationAnchors:
     def test_manifest_intercept_is_rejected_for_standardized_channel(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_rating", "mood", "continuous")])
+        structural_plan = _structural_plan(
+            ["mood"], [_indicator("mood_rating", "mood", "continuous")]
+        )
         with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
             translate_spec(
                 _model_spec(
                     [_likelihood("mood_rating", "continuous")],
                     [_manifest_mean("mood_rating")],
                 ),
-                causal_design=causal_design,
+                structural_plan=structural_plan,
             )
 
+    def test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel(self):
+        indicator = _indicator("fill_quantity", "dose", "continuous")
+        indicator["aggregation"] = "sum"
+        structural_plan = _structural_plan(["dose"], [indicator])
+        spec, _ = translate_spec(
+            _model_spec(
+                [_likelihood("fill_quantity", "continuous")],
+                [_manifest_mean("fill_quantity")],
+            ),
+            structural_plan=structural_plan,
+        )
+
+        assert spec.manifest_standardized == [False]
+        assert spec.manifest_means_block.free_support.tolist() == [True]
+
     def test_manifest_intercept_remains_free_for_binary_channel(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_flag", "mood", "binary")])
+        structural_plan = _structural_plan(["mood"], [_indicator("mood_flag", "mood", "binary")])
         spec, _ = translate_spec(
             _model_spec(
                 [_likelihood("mood_flag", "binary")],
                 [_manifest_mean("mood_flag")],
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
         assert spec.manifest_means_block.free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_flag", "mood", "binary")])
+        structural_plan = _structural_plan(["mood"], [_indicator("mood_flag", "mood", "binary")])
         spec = _model_spec(
             [_likelihood("mood_flag", "binary")],
             [
@@ -219,11 +258,11 @@ class TestLocationAnchors:
             ],
             equilibrium_forcing=True,
         )
-        with pytest.raises(SpecTranslationError, match="no location anchor"):
-            translate_spec(spec, causal_design=causal_design)
+        with pytest.raises(StructuralClosureError, match="no location anchor"):
+            translate_spec(spec, structural_plan=structural_plan)
 
     def test_free_center_with_standardized_channel_compiles(self):
-        causal_design = _causal_design(
+        structural_plan = _structural_plan(
             ["mood"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -246,12 +285,13 @@ class TestLocationAnchors:
                 ],
                 equilibrium_forcing=True,
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.manifest_standardized is not None
         assert spec.manifest_standardized[0]
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
-        causal_design = _causal_design(
+        structural_plan = _structural_plan(
             ["mood", "trait"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -266,13 +306,14 @@ class TestLocationAnchors:
                     _likelihood("trait_flag", "binary"),
                 ]
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.latent_names is not None
         trait_index = spec.latent_names.index("trait")
         assert not spec.t0_means_block.free_support[trait_index]
 
     def test_static_t0_mean_free_with_standardized_channel(self):
-        causal_design = _causal_design(
+        structural_plan = _structural_plan(
             ["mood", "trait"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -287,19 +328,20 @@ class TestLocationAnchors:
                     _likelihood("trait_score", "continuous"),
                 ]
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.latent_names is not None
         trait_index = spec.latent_names.index("trait")
         assert spec.t0_means_block.free_support[trait_index]
 
     def test_construct_without_indicators_fails(self):
-        causal_design = _causal_design(
-            ["mood", "ghost"], [_indicator("mood_rating", "mood", "continuous")]
-        )
-        with pytest.raises(SpecTranslationError, match="retains no indicators"):
-            translate_spec(
-                _model_spec([_likelihood("mood_rating", "continuous")]),
-                causal_design=causal_design,
+        with pytest.raises(
+            ValidationError,
+            match="retained states lack manifest indicators",
+        ):
+            _structural_plan(
+                ["mood", "ghost"],
+                [_indicator("mood_rating", "mood", "continuous")],
             )
 
 
@@ -310,7 +352,7 @@ class TestLocationAnchors:
 
 class TestCategoricalAnchors:
     def test_categorical_loading_pinned_in_mixed_construct(self):
-        causal_design = _causal_design(
+        structural_plan = _structural_plan(
             ["mood"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -324,18 +366,22 @@ class TestCategoricalAnchors:
                     _likelihood("mood_kind", "categorical"),
                 ]
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.manifest_names is not None
+        assert spec.manifest_cat_anchor is not None
         cat_row = spec.manifest_names.index("mood_kind")
         assert float(spec.lambda_block.template[cat_row, 0]) == 1.0
         assert not spec.lambda_block.free_support[cat_row, 0]
         assert not spec.manifest_cat_anchor[cat_row]
 
     def test_all_categorical_construct_gets_anchor_slope(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_kind", "mood", "categorical")])
+        structural_plan = _structural_plan(
+            ["mood"], [_indicator("mood_kind", "mood", "categorical")]
+        )
         spec, _ = translate_spec(
             _model_spec([_likelihood("mood_kind", "categorical")]),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
         assert spec.manifest_cat_anchor == [True]
         assert spec.manifest_level_counts == [3]
@@ -350,14 +396,16 @@ class TestCategoricalAnchors:
         np.testing.assert_allclose(np.asarray(extra["obs_cat_slopes"]), np.array([[1.0, 2.0]]))
 
     def test_manifest_intercept_is_rejected_for_categorical_channel(self):
-        causal_design = _causal_design(["mood"], [_indicator("mood_kind", "mood", "categorical")])
+        structural_plan = _structural_plan(
+            ["mood"], [_indicator("mood_kind", "mood", "categorical")]
+        )
         with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
             translate_spec(
                 _model_spec(
                     [_likelihood("mood_kind", "categorical")],
                     [_manifest_mean("mood_kind")],
                 ),
-                causal_design=causal_design,
+                structural_plan=structural_plan,
             )
 
 
@@ -368,7 +416,7 @@ class TestCategoricalAnchors:
 
 class TestAnchorSurfaces:
     def test_reference_prefers_continuous_over_ordinal(self):
-        causal_design = _causal_design(
+        structural_plan = _structural_plan(
             ["mood"],
             [
                 _indicator("mood_level", "mood", "ordinal"),
@@ -382,8 +430,9 @@ class TestAnchorSurfaces:
                     _likelihood("mood_rating", "continuous"),
                 ]
             ),
-            causal_design=causal_design,
+            structural_plan=structural_plan,
         )
+        assert spec.manifest_names is not None
         continuous_row = spec.manifest_names.index("mood_rating")
         ordinal_row = spec.manifest_names.index("mood_level")
         assert float(spec.lambda_block.template[continuous_row, 0]) == 1.0
@@ -408,6 +457,32 @@ class TestAnchorSurfaces:
         )
         chosen["mood_kind"]["distribution"] = "ordered_logistic"
         chosen["mood_kind"]["link"] = "cumulative_logit"
+        assert parameter_is_active_for_statistical_model_spec(
+            parameter,
+            chosen,
+            initialization_policy="stationary",
+            observation_intercept_policy="free",
+            equilibrium_forcing=False,
+        )
+
+    def test_raw_gaussian_sum_surface_activates_manifest_intercept(self):
+        parameter = {
+            "name": "manifest_mean_fill_quantity",
+            "role": "observation_intercept",
+            "indicator": "fill_quantity",
+        }
+        chosen = {
+            "fill_quantity": {
+                "variable": "fill_quantity",
+                "distribution": "gaussian",
+                "link": "identity",
+                "construct_name": "dose",
+                "support_kind": "interval",
+                "summary_operator": "sum",
+                "standardized": False,
+            }
+        }
+
         assert parameter_is_active_for_statistical_model_spec(
             parameter,
             chosen,

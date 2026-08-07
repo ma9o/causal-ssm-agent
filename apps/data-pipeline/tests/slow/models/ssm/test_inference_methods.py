@@ -4,6 +4,8 @@ These tests verify parameter recovery within 90% intervals on larger synthetic
 benchmarks than the smoke tests.
 """
 
+from typing import Any
+
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
@@ -43,7 +45,10 @@ from tests.ssm_test_utils import assert_recovery_ci
 pytestmark = pytest.mark.slow
 
 
-def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], data: dict) -> None:
+def _assert_lgss_recovery(
+    samples: dict[str, jnp.ndarray],
+    data: dict[str, Any],
+) -> None:
     assert_recovery_ci(
         samples["vf_0_decay"][:, 0],
         data["true_decay_diag"],
@@ -62,7 +67,7 @@ def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], data: dict) -> None:
     )
 
 
-def _make_map_recovery_data() -> dict:
+def _make_map_recovery_data() -> dict[str, Any]:
     """1D LGSS tuned for MAP: longer series and higher SNR than defaults.
 
     The longer T and tighter noise make mode-finding and the local Gaussian
@@ -224,7 +229,7 @@ def _simulate_mixed_continuous_observations(
     return jnp.stack(draws)
 
 
-def _make_map_mixed_support_recovery_data() -> dict:
+def _make_map_mixed_support_recovery_data() -> dict[str, Any]:
     """Build a recoverable mixed-support mixed-family 10-latent benchmark."""
     n_latent, T = 10, 40
     n_manifest = 2 * n_latent
@@ -349,7 +354,8 @@ def _make_map_mixed_support_recovery_data() -> dict:
 
 
 def _summarize_family_recovery(
-    samples: dict[str, jnp.ndarray], data: dict
+    samples: dict[str, jnp.ndarray],
+    data: dict[str, Any],
 ) -> dict[str, dict[str, float]]:
     """Summarize mean error, interval width, and empirical coverage by parameter family."""
     families = [

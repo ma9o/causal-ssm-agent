@@ -61,8 +61,6 @@ def should_auto_standardize_indicator(
 def indicator_requires_observation_intercept(
     distribution: DistributionFamily | str,
     link: LinkFunction | str,
-    support_kind: str | None,
-    summary_operator: str | None,
     *,
     standardized: bool,
 ) -> bool:
@@ -77,8 +75,6 @@ def indicator_requires_observation_intercept(
         return True
 
     if family in _LOCATION_FAMILIES and resolved_link == LinkFunction.IDENTITY:
-        return indicator_has_additive_location_support(support_kind, summary_operator) and (
-            not standardized
-        )
+        return not standardized
 
     return False

@@ -20,6 +20,8 @@ import pytest
 from numpyro.handlers import seed, trace
 
 from nof1_causal_lab.models.ssm.dynamics import (
+    Fixed,
+    Free,
     NodePotential,
     StateDecay,
     StateIntercept,
@@ -42,11 +44,15 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind
 
 
-def _args(params: tuple[dict, ...]) -> VectorFieldArgs:
+def _args(params: tuple[dict[str, jnp.ndarray], ...]) -> VectorFieldArgs:
     return VectorFieldArgs(params=params, intervention=Intervention.none())
 
 
-def _params(center: float, stiffness: float, quartic: float = 0.0) -> dict:
+def _params(
+    center: float,
+    stiffness: float,
+    quartic: float = 0.0,
+) -> dict[str, jnp.ndarray]:
     return {
         "center": jnp.asarray(center),
         "stiffness": jnp.asarray(stiffness),
@@ -128,7 +134,7 @@ class TestNodePotentialSpec:
 
     def test_free_quartic_emits_site(self):
         compiled = compile_dynamics(
-            DynamicsSpec(n_latent=1, components=(NodePotentialSpec(target=0, fixed_quartic=None),))
+            DynamicsSpec(n_latent=1, components=(NodePotentialSpec(target=0, quartic=Free()),))
         )
         assert any(s.name.endswith("_quartic") for s in compiled.site_registry)
 
@@ -150,38 +156,51 @@ class TestNodePotentialSpec:
         assert float(packed[0]["center"]) == pytest.approx(float(samples[center_site]))
 
     def test_fixed_stiffness_must_be_positive(self):
-        with pytest.raises(ValueError, match="fixed_stiffness"):
-            NodePotentialSpec(target=0, fixed_stiffness=0.0)
+        with pytest.raises(ValueError, match="stiffness"):
+            NodePotentialSpec(target=0, stiffness=Fixed(0.0))
 
     def test_fixed_quartic_must_be_nonnegative(self):
-        with pytest.raises(ValueError, match="fixed_quartic"):
-            NodePotentialSpec(target=0, fixed_quartic=-1.0)
+        with pytest.raises(ValueError, match="quartic"):
+            NodePotentialSpec(target=0, quartic=Fixed(-1.0))
 
 
 class TestSerializationRoundTrip:
     def test_default_roundtrip(self):
         spec = DynamicsSpec(n_latent=2, components=(NodePotentialSpec(target=1),))
-        comp = dynamics_spec_from_dict(dynamics_spec_to_dict(spec)).components[0]
+        payload = dynamics_spec_to_dict(spec)
+        assert payload["components"][0] == {
+            "kind": "NodePotential",
+            "target": 1,
+            "parameters": {
+                "center": {"kind": "free"},
+                "stiffness": {"kind": "free"},
+                "quartic": {"kind": "fixed", "value": 0.0},
+            },
+        }
+        comp = dynamics_spec_from_dict(payload).components[0]
         assert isinstance(comp, NodePotentialSpec)
         assert comp.target == 1
-        assert comp.fixed_center is None
-        assert comp.fixed_stiffness is None
-        assert comp.fixed_quartic == 0.0
+        assert isinstance(comp.center, Free)
+        assert isinstance(comp.stiffness, Free)
+        assert comp.quartic == Fixed(0.0)
 
     def test_fixed_and_free_quartic_roundtrip(self):
         spec = DynamicsSpec(
             n_latent=1,
             components=(
                 NodePotentialSpec(
-                    target=0, fixed_center=0.5, fixed_stiffness=1.2, fixed_quartic=None
+                    target=0,
+                    center=Fixed(0.5),
+                    stiffness=Fixed(1.2),
+                    quartic=Free(),
                 ),
             ),
         )
         comp = dynamics_spec_from_dict(dynamics_spec_to_dict(spec)).components[0]
         assert isinstance(comp, NodePotentialSpec)
-        assert comp.fixed_center == pytest.approx(0.5)
-        assert comp.fixed_stiffness == pytest.approx(1.2)
-        assert comp.fixed_quartic is None
+        assert comp.center == Fixed(0.5)
+        assert comp.stiffness == Fixed(1.2)
+        assert isinstance(comp.quartic, Free)
 
 
 class TestWarmupSafety:
@@ -208,9 +227,7 @@ class TestSemanticBindings:
         assert by_name["decay_energy"].prior_field == "dynamics_decay"
 
     def test_free_quartic_adds_self_limit_binding(self):
-        spec = DynamicsSpec(
-            n_latent=2, components=(NodePotentialSpec(target=0, fixed_quartic=None),)
-        )
+        spec = DynamicsSpec(n_latent=2, components=(NodePotentialSpec(target=0, quartic=Free()),))
         names = {
             b.parameter_name
             for b in iter_dynamics_semantic_bindings(spec, latent_names=("mood", "energy"))

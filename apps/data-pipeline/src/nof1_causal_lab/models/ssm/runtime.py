@@ -4,27 +4,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import polars as pl
 
-from nof1_causal_lab.models.ssm import (
-    PriorRegistry,
-    SSMModel,
-    SSMParameterLayout,
-    SSMSpec,
-    fit,
-)
-from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
-from nof1_causal_lab.models.ssm.compile.inputs import (
-    compile_ssm_inputs_from_spec,
-    compile_ssm_inputs_from_statistical_model_spec,
-)
-from nof1_causal_lab.models.ssm.inference.structure import (
+from nof1_causal_lab.models.ssm.execution.planning import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
+from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.observation_support import (
     ObservationSupportRuntime,
     augment_wide_data_with_support_boundaries,
@@ -35,24 +24,27 @@ from nof1_causal_lab.models.ssm.observation_support import (
 )
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
+    build_site_registry,
     load_prior_runtime_bundle,
 )
+from nof1_causal_lab.models.ssm.priors import (
+    PriorRegistry,
+    default_prior_registry_for_sites,
+)
+from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.compile.contracts import (
         CompiledParameterBinding,
         CompiledPriorSemantics,
         CompiledSSMArtifact,
     )
-    from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.sampler_config import (
-        MarginalParticleGibbsOptions,
         SamplerConfig,
         SamplerConfigInput,
     )
-    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
 
@@ -115,74 +107,21 @@ def get_default_sampler_config() -> SamplerConfig:
     return get_config().inference.to_sampler_config()
 
 
-def compile_model_inputs(
-    *,
-    statistical_model_spec: StatisticalModelSpec | dict | None = None,
-    priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
-    ssm_spec: SSMSpec | None = None,
-    prior_registry: PriorRegistry | None = None,
-    causal_design: dict | None = None,
-) -> tuple[SSMSpec, PriorRegistry, list[CompiledParameterBinding]]:
-    """Compile user-facing or direct SSM inputs into executable model inputs."""
-    if statistical_model_spec is not None and (ssm_spec is not None or prior_registry is not None):
-        raise ValueError(
-            "Compile either StatisticalModelSpec-driven inputs or direct SSMSpec inputs, not both."
-        )
-    if statistical_model_spec is None and ssm_spec is not None and causal_design is not None:
-        raise ValueError(
-            "Do not pass causal_design alongside a direct SSMSpec. Compile from StatisticalModelSpec + "
-            "CausalDesign or use a compiled artifact so the causal structure is encoded "
-            "explicitly in the spec masks."
-        )
-
-    if statistical_model_spec is not None:
-        spec, resolved_priors, bindings, _diagnostics, _edge_lag_days = (
-            compile_ssm_inputs_from_statistical_model_spec(
-                statistical_model_spec=statistical_model_spec,
-                priors=dump_prior_payloads(priors or {}),
-                causal_design=causal_design,
-            )
-        )
-    elif ssm_spec is not None:
-        spec, resolved_priors, bindings, _diagnostics, _edge_lag_days = (
-            compile_ssm_inputs_from_spec(
-                ssm_spec=ssm_spec,
-                priors=dump_prior_payloads(priors or {}),
-                prior_registry=prior_registry,
-                statistical_model_spec=statistical_model_spec,
-                causal_design=causal_design,
-            )
-        )
-    else:
-        raise ValueError("Model construction requires either statistical_model_spec or ssm_spec.")
-
-    return spec, resolved_priors, bindings
-
-
 def build_ssm_model(
     wide_data: pl.DataFrame,
     *,
-    statistical_model_spec: StatisticalModelSpec | dict | None = None,
-    priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
-    ssm_spec: SSMSpec | None = None,
+    ssm_spec: SSMSpec,
     prior_registry: PriorRegistry | None = None,
     compiled_prior_semantics: CompiledPriorSemantics | None = None,
     prior_runtime_bundle: PriorRuntimeBundle | None = None,
-    causal_design: dict | None = None,
     parameter_bindings: list[CompiledParameterBinding] | None = None,
 ) -> SSMModel:
-    """Build a live ``SSMModel`` from compiled inputs and wide data."""
+    """Build a live model from an already compiled SSMSpec."""
     if wide_data.is_empty():
         raise ValueError("Cannot build SSM model from empty data")
 
-    spec, resolved_priors, bindings = compile_model_inputs(
-        statistical_model_spec=statistical_model_spec,
-        priors=priors,
-        ssm_spec=ssm_spec,
-        prior_registry=prior_registry,
-        causal_design=causal_design,
-    )
-    spec = hydrate_discrete_manifest_metadata(spec, wide_data)
+    spec = hydrate_discrete_manifest_metadata(ssm_spec, wide_data)
+    resolved_priors = prior_registry or default_prior_registry_for_sites(build_site_registry(spec))
     validate_observation_support(spec, wide_data)
 
     runtime_bundle = prior_runtime_bundle
@@ -194,8 +133,25 @@ def build_ssm_model(
         resolved_priors,
         prior_runtime_bundle=runtime_bundle,
     )
-    model.parameter_bindings = list(parameter_bindings or bindings)
+    model.parameter_bindings = list(parameter_bindings or [])
     return model
+
+
+def hydrate_compiled_model(
+    compiled_ssm: CompiledSSMArtifact,
+    wide_data: pl.DataFrame,
+) -> SSMModel:
+    """Hydrate a compiled artifact into a live model without invoking compilation."""
+    spec = deserialize_ssm_spec(compiled_ssm.spec)
+    semantics = compiled_ssm.compiled_prior_semantics
+    prior_runtime_bundle = load_prior_runtime_bundle(semantics)
+    return build_ssm_model(
+        wide_data,
+        ssm_spec=spec,
+        compiled_prior_semantics=semantics,
+        prior_runtime_bundle=prior_runtime_bundle,
+        parameter_bindings=compiled_ssm.parameter_bindings,
+    )
 
 
 def prepare_fit_inputs(
@@ -274,9 +230,7 @@ def prepare_wide_model_runtime(
     if model is None:
         if compiled_ssm is None:
             raise ValueError("Either model or compiled_ssm must be provided")
-        from nof1_causal_lab.models.ssm.compile.artifact import build_model_from_compiled_artifact
-
-        model = build_model_from_compiled_artifact(compiled_ssm, wide_data)
+        model = hydrate_compiled_model(compiled_ssm, wide_data)
 
     spec = model.spec
     manifest_names = (
@@ -350,23 +304,6 @@ def prepare_model_runtime(
     )
 
 
-def fit_prepared_model(
-    runtime: PreparedModelRuntime,
-    **kwargs: Unpack[MarginalParticleGibbsOptions],
-) -> ParticleMCMCPosterior:
-    """Run public SSM inference against a prepared runtime."""
-    sampler_config = {**runtime.sampler_config, **kwargs}
-    method = sampler_config.get("method", "marginal_particle_gibbs")
-    fit_kwargs = {key: value for key, value in sampler_config.items() if key != "method"}
-    return fit(
-        runtime.model,
-        observations=runtime.observations,
-        times=runtime.times,
-        method=method,
-        **fit_kwargs,
-    )
-
-
 def sample_prior_predictive(
     model: SSMModel,
     *,
@@ -377,7 +314,7 @@ def sample_prior_predictive(
     transition_inputs: jnp.ndarray | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Sample prior predictive draws from a live model and optional prepared schedule."""
-    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
         any_family_needs_level_metadata,
     )
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (

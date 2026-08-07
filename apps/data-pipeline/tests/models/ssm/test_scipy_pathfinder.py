@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -79,7 +79,7 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
             return self._value
 
     class _RecordingExecutor:
-        instances: ClassVar[list] = []
+        instances: ClassVar[list[Any]] = []
 
         def __init__(self, max_workers):
             self.max_workers = max_workers

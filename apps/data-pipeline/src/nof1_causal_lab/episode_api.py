@@ -24,6 +24,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.runtime_events import read_events
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (FastAPI runtime annotation)
     ArtifactId,
     ArtifactVersionInfo,
@@ -93,7 +94,7 @@ class ArtifactEnvelope(BaseModel):
     artifact_id: ArtifactId
     version: int
     meta: ArtifactVersionInfo
-    payload: dict[str, Any]
+    payload: UncheckedJsonObject
     binary_files: list[str]
 
 
@@ -195,7 +196,7 @@ async def upload_file(
 machine_router = APIRouter(prefix="/api")
 
 
-def machine_description() -> dict[str, Any]:
+def machine_description() -> UncheckedJsonObject:
     """The static shape of the episode machine, independent of any workspace.
 
     Aggregates the artifact graph, its roots, and the action/context hierarchy
@@ -245,7 +246,7 @@ def machine_description() -> dict[str, Any]:
 
 
 @machine_router.get("/machine")
-def get_machine() -> dict[str, Any]:
+def get_machine() -> UncheckedJsonObject:
     """The static artifact graph and action hierarchy — read once to orient.
 
     Each transition entry declares what it `consumes`, `produces`, and
@@ -306,7 +307,7 @@ async def _episode_handle(workspace_id: str):
     )
 
 
-async def _propose(workspace_id: str, request_body: MoveBody) -> dict[str, Any]:
+async def _propose(workspace_id: str, request_body: MoveBody) -> UncheckedJsonObject:
     from nof1_causal_lab.machine.temporal.messages import MoveRequest
     from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
@@ -338,7 +339,7 @@ class MoveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     move: Move
-    payload: dict[str, Any] | None = None
+    payload: UncheckedJsonObject | None = None
     options: ExecOptions = Field(default_factory=ExecOptions)
 
 
@@ -353,7 +354,7 @@ class AutoRunBody(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _episode_status(workspace_id: str) -> dict[str, Any]:
+def _episode_status(workspace_id: str) -> UncheckedJsonObject:
     journal = EpisodeJournal(workspace_id)
     state = derive_current_state(workspace_id)
     records = journal.read_all()
@@ -368,7 +369,7 @@ def _episode_status(workspace_id: str) -> dict[str, Any]:
 
 
 @router.get("/{workspace_id}")
-def get_episode(workspace_id: str) -> dict[str, Any]:
+def get_episode(workspace_id: str) -> UncheckedJsonObject:
     """Current episode state: the single read to poll while navigating.
 
     Returns per-artifact freshness (existence, staleness, version, provenance),
@@ -402,7 +403,7 @@ def get_timeline(workspace_id: str) -> TimelineResponse:
 
 
 @router.get("/{workspace_id}/events")
-def get_events(workspace_id: str, after: str | None = None) -> dict[str, Any]:
+def get_events(workspace_id: str, after: str | None = None) -> UncheckedJsonObject:
     """Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).
 
     Pass the last-seen event id as `after` to page forward; omit it for the full
@@ -441,7 +442,7 @@ def get_artifact(
     if not storage.exists(storage.join(version_dir, "meta.json")):
         raise HTTPException(404, f"{artifact_id} v{version} does not exist for {workspace_id}")
 
-    payload: dict[str, Any] = {}
+    payload: UncheckedJsonObject = {}
     binary_files: list[str] = []
     for entry in storage.listdir(version_dir):
         name = entry.rstrip("/").rsplit("/", 1)[-1]
@@ -561,7 +562,7 @@ def get_artifact_file(
 
 
 @router.post("")
-async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
+async def start_episode(body: StartEpisodeBody) -> UncheckedJsonObject:
     """Ensure the episode workflow exists; optionally seed the `question` root.
 
     Idempotent: attaches to an existing episode or starts a fresh one. Passing
@@ -585,7 +586,7 @@ async def start_episode(body: StartEpisodeBody) -> dict[str, Any]:
 
 
 @router.post("/{workspace_id}/moves")
-async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
+async def propose_move(workspace_id: str, body: MoveBody) -> UncheckedJsonObject:
     """Propose one move; blocks until it is applied, rejected, or raises.
 
     Two kinds:
@@ -609,7 +610,7 @@ async def propose_move(workspace_id: str, body: MoveBody) -> dict[str, Any]:
 # Default navigation policy (auto-run)
 # ---------------------------------------------------------------------------
 
-_AUTO_DRIVERS: dict[str, asyncio.Task] = {}
+_AUTO_DRIVERS: dict[str, asyncio.Task[None]] = {}
 
 
 def _needs_run(state: EpisodeState, spec: Transition) -> bool:
@@ -658,7 +659,7 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
 
 
 @router.post("/{workspace_id}/auto")
-async def auto_run(workspace_id: str, body: AutoRunBody) -> dict[str, Any]:
+async def auto_run(workspace_id: str, body: AutoRunBody) -> UncheckedJsonObject:
     """Start the default navigation policy in the background.
 
     Runs enabled stages in dependency order while their outputs are missing or

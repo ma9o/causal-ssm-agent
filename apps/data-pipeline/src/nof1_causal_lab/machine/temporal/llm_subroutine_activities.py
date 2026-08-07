@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 from temporalio import activity
 
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_context_adapters import subroutine_context_messages
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
@@ -52,8 +53,8 @@ _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
 
 
 def _subroutine_tool_message(
-    tool_call: dict[str, Any], content: str, error: str | None = None
-) -> dict[str, Any]:
+    tool_call: UncheckedJsonObject, content: str, error: str | None = None
+) -> UncheckedJsonObject:
     return {
         "role": "tool",
         "content": content,
@@ -179,7 +180,7 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
     assistant_message = assistant_output["message"]
     conversation = read_subroutine_json(input.conversation_ref)
     messages = list(conversation["messages"])
-    tool_messages: list[dict[str, Any]] = []
+    tool_messages: list[UncheckedJsonObject] = []
     tool_calls_fired: list[str] = []
     terminal_success = False
     captured_result_ref: str | None = None
@@ -389,12 +390,12 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
         raise IndexError(f"user message index {input.user_message_index} out of range")
 
     state = cast(
-        "dict[str, Any]",
+        "UncheckedJsonObject",
         read_subroutine_json(input.harness_state_ref)
         if storage.exists(input.harness_state_ref)
         else {"raw_events": [], "turn_index": 0, "session_id": None},
     )
-    raw_events = cast("list[dict[str, Any]]", state.get("raw_events") or [])
+    raw_events = cast("list[UncheckedJsonObject]", state.get("raw_events") or [])
     turn_index = cast("int", state.get("turn_index") or 0)
     session_id = cast("str | None", state.get("session_id"))
     tools = [] if not input.tools else _build_harness_bridge_tools(input)

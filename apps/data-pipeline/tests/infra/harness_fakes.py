@@ -77,7 +77,7 @@ class FakeProcess:
         self.returncode = -9
 
 
-def jsonl(events: list[dict]) -> list[bytes]:
+def jsonl(events: list[dict[str, Any]]) -> list[bytes]:
     return [(json.dumps(event) + "\n").encode() for event in events]
 
 

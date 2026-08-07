@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
     from nof1_causal_lab.flows.artifact_contracts import ToolContract
@@ -17,8 +19,8 @@ class SearchLiteratureInput(BaseModel):
 
 
 async def execute_public_search_literature(
-    _ctx: dict[str, Any], args: dict[str, Any]
-) -> dict[str, Any]:
+    _ctx: UncheckedJsonObject, args: UncheckedJsonObject
+) -> UncheckedJsonObject:
     """Execute the public model-spec literature-search tool."""
     from nof1_causal_lab.flows.transitions.model_spec.tools import search_literature
 

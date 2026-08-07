@@ -1,7 +1,7 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
 import jax.numpy as jnp
 import numpy as np
@@ -9,8 +9,8 @@ import polars as pl
 
 from nof1_causal_lab.flows.transitions.inference import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
-from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
@@ -37,9 +37,11 @@ class _FakeResult(ParticleMCMCPosterior):
         self.diagnostics = {"likelihood_backend": object()}
         self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
+    @override
     def get_smc_diagnostics(self):
         return {"n_levels": 3}
 
+    @override
     def get_loo_diagnostics(
         self,
         model_fn=None,
@@ -48,10 +50,12 @@ class _FakeResult(ParticleMCMCPosterior):
     ):
         return {"elpd_loo": -12.3}
 
+    @override
     def get_posterior_marginals(self, n_bins: int = 50):
         del n_bins
         return [{"parameter": "theta"}]
 
+    @override
     def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200):
         del max_params, max_samples
         return []
@@ -223,7 +227,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     fake_result = _FakeResult()
     fake_model = _make_fake_model()
     runtime = _make_runtime(fake_model)
-    restore_calls: list[tuple[str | None, dict | None, bool]] = []
+    restore_calls: list[tuple[str | None, dict[str, Any] | None, bool]] = []
 
     monkeypatch.setattr(
         stage5_inference,
