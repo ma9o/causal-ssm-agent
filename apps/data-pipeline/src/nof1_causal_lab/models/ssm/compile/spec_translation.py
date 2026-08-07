@@ -617,8 +617,6 @@ def _build_manifest_intercept_support(
     statistical_model_spec: StatisticalModelSpec,
     manifest_cols: list[str],
     manifest_standardized: list[bool],
-    *,
-    structural_plan: StructuralPlan | None,
 ) -> tuple[np.ndarray, list[str]]:
     """Bind only observation intercepts active for the locked likelihood semantics."""
     requested = _build_role_index_lookup(
@@ -630,26 +628,11 @@ def _build_manifest_intercept_support(
     if statistical_model_spec.observation_intercept_policy == ObservationInterceptPolicy.FIXED:
         eligible = np.zeros(len(manifest_cols), dtype=bool)
     else:
-        indicator_lookup = {
-            indicator["name"]: indicator
-            for indicator in (
-                get_plan_indicators(structural_plan) if structural_plan is not None else []
-            )
-        }
         likelihood_lookup = {
             likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
         }
         eligible = np.zeros(len(manifest_cols), dtype=bool)
         for index, manifest_name in enumerate(manifest_cols):
-            indicator = indicator_lookup.get(manifest_name) or {}
-            support_kind = indicator.get("support_kind")
-            summary_operator = indicator.get("summary_operator")
-            if indicator and (
-                not isinstance(support_kind, str) or not isinstance(summary_operator, str)
-            ):
-                semantics = get_observation_semantics(indicator)
-                support_kind = semantics.support_kind.value
-                summary_operator = semantics.summary_operator.value
             likelihood = likelihood_lookup[manifest_name]
             eligible[index] = indicator_requires_observation_intercept(
                 likelihood.distribution,
@@ -953,7 +936,6 @@ def translate_spec(
         statistical_model_spec,
         manifest_cols,
         manifest_standardized,
-        structural_plan=structural_plan,
     )
     errors.extend(manifest_intercept_errors)
     if statistical_model_spec.equilibrium_forcing:

@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.graph import Derivation, topological_derivation_order
+from nof1_causal_lab.machine.graph import Derivation, topological_derivation_order, transition_spec
 from nof1_causal_lab.machine.moves import (
     RetractedArtifact,
     TransitionEffects,
     apply_transition,
     is_stale,
+    run_retractions,
 )
 
 if TYPE_CHECKING:
@@ -20,6 +21,17 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore
+
+
+def complete_computed_transition(
+    store: ArtifactStore,
+    state: EpisodeState,
+    transition_id: ArtifactId,
+    produced: list[ArtifactVersionInfo],
+) -> TransitionEffects:
+    """Apply optional-output retractions and the derivation cascade for one run."""
+    retracted = run_retractions(state, transition_spec(transition_id), produced)
+    return complete_derivation_cascade(store, state, produced, retracted)
 
 
 def complete_derivation_cascade(

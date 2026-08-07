@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import Literal, TypedDict
 
-if TYPE_CHECKING:
-    import jax
+import jax  # noqa: TC002 - Pydantic resolves these array annotations at runtime.
+from pydantic import ConfigDict, TypeAdapter, with_config
 
 
+@with_config(ConfigDict(extra="forbid", arbitrary_types_allowed=True))
 class _MarginalParticleGibbsMethodOptions(TypedDict, total=False):
     """Method-specific options shared by partial and resolved configs."""
 
@@ -91,3 +92,11 @@ class SamplerConfig(_MarginalParticleGibbsMethodOptions):
 
 
 type SamplerConfigInput = SamplerConfig | SamplerConfigOverride
+
+
+_SAMPLER_CONFIG_ADAPTER = TypeAdapter(SamplerConfig)
+
+
+def validate_sampler_config(config: object) -> SamplerConfig:
+    """Validate a resolved sampler config at its untyped construction boundary."""
+    return _SAMPLER_CONFIG_ADAPTER.validate_python(config)

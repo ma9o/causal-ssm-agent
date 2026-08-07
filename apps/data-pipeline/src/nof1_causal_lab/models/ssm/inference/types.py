@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Required, TypedDict, override
+from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, override
 
 import jax.numpy as jnp
 import jax.random as random
@@ -45,6 +45,24 @@ logger = logging.getLogger(__name__)
 
 
 InferenceMethod = Literal["marginal_particle_gibbs"]
+type ArviZArrayMapping = dict[str, Any]
+
+
+def _arviz_idata_from_posterior(
+    posterior: ArviZArrayMapping,
+    *,
+    log_likelihood: ArviZArrayMapping | None = None,
+) -> Any:
+    """Build ArviZ inference data from array-valued posterior dictionaries."""
+    import arviz_base as az_base
+    import numpy as np
+
+    payload = {"posterior": {name: np.asarray(values) for name, values in posterior.items()}}
+    if log_likelihood is not None:
+        payload["log_likelihood"] = {
+            name: np.asarray(values) for name, values in log_likelihood.items()
+        }
+    return az_base.from_dict(payload)
 
 
 class InferenceDiagnostics(TypedDict, total=False):
@@ -184,18 +202,6 @@ class ParticleMCMCPosterior:
         if public_sites is not None:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
-        def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
-            import arviz_base as az_base
-            import numpy as np
-
-            posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
-            kwargs = {"posterior": posterior_np}
-            if log_likelihood is not None:
-                kwargs["log_likelihood"] = {
-                    name: np.asarray(values) for name, values in log_likelihood.items()
-                }
-            return az_base.from_dict(kwargs)
-
         summ = numpyro_summary(chain_samples)
         per_param: list[MCMCParameterDiagnostic] = []
         for name, stats in summ.items():
@@ -314,18 +320,6 @@ class ParticleMCMCPosterior:
         pred = Predictive(model_fn, posterior_samples=flat_samples)
         pred_result = pred(random.PRNGKey(0), observations, times)
 
-        def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
-            import arviz_base as az_base
-            import numpy as np
-
-            posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
-            kwargs = {"posterior": posterior_np}
-            if log_likelihood is not None:
-                kwargs["log_likelihood"] = {
-                    name: np.asarray(values) for name, values in log_likelihood.items()
-                }
-            return az_base.from_dict(kwargs)
-
         if "ll_per_timestep" in pred_result:
             ll_per_t = pred_result["ll_per_timestep"]
             if observations.ndim == 2:
@@ -353,11 +347,9 @@ class ParticleMCMCPosterior:
                 for name, vals in flat_samples.items():
                     v = np.asarray(vals[:n_used])
                     posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
-                idata = az_base.from_dict(
-                    {
-                        "posterior": posterior_dict,
-                        "log_likelihood": {"ll_per_timestep": np.asarray(ll_chained)},
-                    }
+                idata = _arviz_idata_from_posterior(
+                    posterior_dict,
+                    log_likelihood={"ll_per_timestep": ll_chained},
                 )
             ll_per_timestep_found = True
         elif mcmc is not None:

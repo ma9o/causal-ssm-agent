@@ -247,13 +247,6 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/machine/runners.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[2]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/machine/store.py",
       "<module>",
       "unchecked-json-usage",
@@ -282,24 +275,10 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/machine/temporal/llm_transition_workflow.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/machine/temporal/measurement_activities.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[8]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/machine/temporal/measurement_workflow.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
+      "UncheckedJsonObject[6]"
     ],
     [
       "CUSTOM005",
@@ -311,13 +290,6 @@
     [
       "CUSTOM005",
       "src/nof1_causal_lab/machine/temporal/statistical_model_spec_activities.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/machine/temporal/statistical_model_spec_workflow.py",
       "<module>",
       "unchecked-json-usage",
       "UncheckedJsonObject[1]"

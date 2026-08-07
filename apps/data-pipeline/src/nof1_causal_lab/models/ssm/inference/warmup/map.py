@@ -605,6 +605,30 @@ def _optimize_laplace_parameter_mode(
 # ---------------------------------------------------------------------------
 
 
+def _empty_parameter_posterior(
+    z_mode: jnp.ndarray,
+    *,
+    num_samples: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    return (
+        jnp.zeros((num_samples, 0), dtype=z_mode.dtype),
+        jnp.zeros((0, 0), dtype=z_mode.dtype),
+        jnp.zeros((0,), dtype=z_mode.dtype),
+    )
+
+
+def _sample_gaussian_parameter_posterior(
+    rng_key: jnp.ndarray,
+    z_mode: jnp.ndarray,
+    chol_cov: jnp.ndarray,
+    *,
+    num_samples: int,
+) -> jnp.ndarray:
+    with jax.named_scope("map/parameter_sampling"):
+        eps = random.normal(rng_key, (num_samples, z_mode.shape[0]), dtype=z_mode.dtype)
+        return z_mode[None, :] + eps @ chol_cov.T
+
+
 def _sample_laplace_parameter_posterior(
     rng_key: jnp.ndarray,
     z_mode: jnp.ndarray,
@@ -621,11 +645,7 @@ def _sample_laplace_parameter_posterior(
 
     dim = int(z_mode.shape[0])
     if dim == 0:
-        return (
-            jnp.zeros((num_samples, 0), dtype=z_mode.dtype),
-            jnp.zeros((0, 0), dtype=z_mode.dtype),
-            jnp.zeros((0,), dtype=z_mode.dtype),
-        )
+        return _empty_parameter_posterior(z_mode, num_samples=num_samples)
 
     with jax.named_scope("map/parameter_hessian"):
         hessian = _laplace_parameter_hessian_runtime(
@@ -639,9 +659,12 @@ def _sample_laplace_parameter_posterior(
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
         chol_cov = jnp.linalg.cholesky(covariance)
 
-    with jax.named_scope("map/parameter_sampling"):
-        eps = random.normal(rng_key, (num_samples, dim), dtype=z_mode.dtype)
-        unc_samples = z_mode[None, :] + eps @ chol_cov.T
+    unc_samples = _sample_gaussian_parameter_posterior(
+        rng_key,
+        z_mode,
+        chol_cov,
+        num_samples=num_samples,
+    )
 
     return unc_samples, covariance, jnp.linalg.eigvalsh(hessian)
 
@@ -660,11 +683,7 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
 
     dim = int(z_mode.shape[0])
     if dim == 0:
-        return (
-            jnp.zeros((num_samples, 0), dtype=z_mode.dtype),
-            jnp.zeros((0, 0), dtype=z_mode.dtype),
-            jnp.zeros((0,), dtype=z_mode.dtype),
-        )
+        return _empty_parameter_posterior(z_mode, num_samples=num_samples)
     if optimizer_hess_inv is None or not hasattr(optimizer_hess_inv, "todense"):
         raise RuntimeError("L-BFGS-B inverse-Hessian approximation is unavailable.")
 
@@ -676,9 +695,12 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
         chol_cov = jnp.linalg.cholesky(covariance)
 
-    with jax.named_scope("map/parameter_sampling"):
-        eps = random.normal(rng_key, (num_samples, dim), dtype=z_mode.dtype)
-        unc_samples = z_mode[None, :] + eps @ chol_cov.T
+    unc_samples = _sample_gaussian_parameter_posterior(
+        rng_key,
+        z_mode,
+        chol_cov,
+        num_samples=num_samples,
+    )
 
     return unc_samples, covariance, jnp.zeros((0,), dtype=z_mode.dtype)
 

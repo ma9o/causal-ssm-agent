@@ -1,8 +1,11 @@
 "use client";
 
-import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDagLayout } from "@/lib/hooks/use-dag-layout";
+import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
+import { DagDirectionToggle } from "../core/dag-direction-toggle";
+import { DagZoomControls } from "../core/dag-zoom-controls";
 import { orthoPath } from "../core/ortho-path";
 import { clamp01, DAG_COLORS, signColor } from "../core/palette";
 import {
@@ -11,6 +14,7 @@ import {
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
 import type { AnalysisSimulationResult } from "../intervention-dag-types";
+import type { ConstructStatus } from "../structure-dag";
 import { baseId, buildGlyphGraph, CARD_H, CARD_W, GLYPH_H, GLYPH_W } from "./build-cone-graph";
 import {
   getAllEdgeDrift,
@@ -47,6 +51,11 @@ interface InteractiveDagProps {
   result: AnalysisSimulationResult;
   height?: number;
   onSimulate?: SimulateFn;
+  /** Controlled indicator visibility. Omit to retain the DAG's local toggle. */
+  indicatorsVisible?: boolean;
+  /** Identification status keeps marginalized theory nodes visible in the fitted graph. */
+  nodeStatuses?: Record<string, ConstructStatus>;
+  onNodeClick?: (constructName: string) => void;
 }
 
 /**
@@ -62,10 +71,14 @@ export function InteractiveDag({
   indicators = [],
   result,
   onSimulate,
+  indicatorsVisible,
+  nodeStatuses,
+  onNodeClick,
 }: InteractiveDagProps) {
   const outcome = result.outcome;
   const [dir, setDir] = useState<"LR" | "TB">("LR");
-  const [showIndicators, setShowIndicators] = useState(false);
+  const [localShowIndicators, setLocalShowIndicators] = useState(false);
+  const showIndicators = indicatorsVisible ?? localShowIndicators;
   const [zoom, setZoom] = useState(1);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
 
@@ -199,90 +212,37 @@ export function InteractiveDag({
           marginBottom: 12,
         }}
       >
-        <span style={LABEL}>Flow</span>
-        <div
-          style={{ display: "inline-flex", background: "#eef0f3", borderRadius: 10, padding: 3 }}
-        >
-          {(["LR", "TB"] as const).map((d) => (
-            <button key={d} type="button" onClick={() => setDir(d)} style={segBtn(dir === d)}>
-              {d === "LR" ? "→ left to right" : "↓ top to bottom"}
-            </button>
-          ))}
-        </div>
-        <label
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            fontSize: 13,
-            color: "#4a4f57",
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={showIndicators}
-            onChange={(e) => setShowIndicators(e.target.checked)}
-          />{" "}
-          Indicators
-        </label>
-        <span style={LABEL}>Zoom</span>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <button
-            type="button"
-            onClick={() => setZoomClamped(zoom / 1.2)}
-            style={zoomBtn}
-            title="zoom out"
-          >
-            −
-          </button>
-          <span
+        <DagDirectionToggle
+          direction={dir === "LR" ? "horizontal" : "vertical"}
+          onDirectionChange={(direction) => setDir(direction === "horizontal" ? "LR" : "TB")}
+        />
+        {indicatorsVisible === undefined ? (
+          <label
             style={{
-              fontVariantNumeric: "tabular-nums",
-              fontSize: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 13,
               color: "#4a4f57",
-              minWidth: 40,
-              textAlign: "center",
+              cursor: "pointer",
+              userSelect: "none",
             }}
           >
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoomClamped(zoom * 1.2)}
-            style={zoomBtn}
-            title="zoom in"
-          >
-            +
-          </button>
-          <button type="button" onClick={() => setZoom(1)} style={zoomBtn} title="reset zoom">
-            ⤢
-          </button>
-        </div>
+            <input
+              type="checkbox"
+              checked={showIndicators}
+              onChange={(e) => setLocalShowIndicators(e.target.checked)}
+            />{" "}
+            Indicators
+          </label>
+        ) : null}
+        <DagZoomControls zoom={zoom} onZoomChange={setZoomClamped} />
       </div>
 
       {/* output */}
-      <div
-        style={{
-          background: "#fff",
-          border: `1px solid ${DAG_COLORS.line}`,
-          borderRadius: 14,
-          padding: 6,
-          minHeight: 560,
-          maxHeight: "74vh",
-          overflow: "auto",
-          backgroundImage: `radial-gradient(${DAG_COLORS.line} .8px, transparent .8px)`,
-          backgroundSize: "18px 18px",
-        }}
-      >
+      <DagCanvasFrame>
         {isLayouting ? null : (
-          <svg
-            width={Math.ceil(W * zoom)}
-            height={Math.ceil(H * zoom)}
-            viewBox={`0 0 ${Math.ceil(W)} ${Math.ceil(H)}`}
-            style={{ display: "block" }}
-          >
+          <DagSvg contentWidth={W} contentHeight={H} zoom={zoom}>
             <defs>
               {(
                 [
@@ -338,6 +298,9 @@ export function InteractiveDag({
               if (clampedDay === 0 && a.endsWith("__p")) return null;
               const contrib = contributionOf(a, b, isSelf)[clampedDay] ?? 0;
               const col = signColor(contrib);
+              const marginalized =
+                nodeStatuses?.[baseId(a)] === "marginalized" ||
+                nodeStatuses?.[baseId(b)] === "marginalized";
               const tiv = interventions.get(b);
               const pruned = !!tiv && tiv.day === days[clampedDay];
               const head = !e.target.startsWith("G__");
@@ -351,11 +314,13 @@ export function InteractiveDag({
                   <path
                     d={d}
                     fill="none"
-                    stroke={pruned ? DAG_COLORS.pruned : col}
+                    stroke={marginalized ? MUTED : pruned ? DAG_COLORS.pruned : col}
                     strokeWidth={pruned ? 1.4 : hl ? 4.5 : widthOf(contrib)}
-                    strokeOpacity={pruned ? 0.5 : 1}
-                    strokeDasharray={pruned ? "5,4" : undefined}
-                    markerEnd={head && !pruned ? `url(#${markerFor(col)})` : undefined}
+                    strokeOpacity={marginalized ? 0.32 : pruned ? 0.5 : 1}
+                    strokeDasharray={marginalized || pruned ? "5,4" : undefined}
+                    markerEnd={
+                      head && !pruned && !marginalized ? `url(#${markerFor(col)})` : undefined
+                    }
                     style={hl ? { filter: "drop-shadow(0 0 2px rgba(20,25,30,.28))" } : undefined}
                   />
                   {pruned && head && ep ? (
@@ -400,12 +365,15 @@ export function InteractiveDag({
                 : (drift?.contribution ?? []);
               const driverLevel = isSelf ? (self?.level ?? []) : (drift?.driver_level ?? []);
               const col = pruned ? NEUTRAL : signColor(contribution[clampedDay] ?? 0);
+              const marginalized =
+                nodeStatuses?.[baseId(a)] === "marginalized" ||
+                nodeStatuses?.[baseId(b)] === "marginalized";
               const key = `${a}>${b}`;
               return (
                 <g
                   key={nd.id}
                   transform={`translate(${nd.x},${nd.y})`}
-                  opacity={pruned ? 0.3 : 1}
+                  opacity={marginalized ? 0.28 : pruned ? 0.3 : 1}
                   style={{ cursor: "pointer" }}
                   onMouseEnter={() => setHoverEdge(key)}
                   onMouseLeave={() => setHoverEdge(null)}
@@ -417,7 +385,7 @@ export function InteractiveDag({
                     contribution={contribution}
                     driverLevel={driverLevel}
                     timeIndex={clampedDay}
-                    color={col}
+                    color={marginalized ? MUTED : col}
                     label={isSelf ? "self" : TAG[drift?.form ?? "linear"]}
                     xlabel={isSelf ? "vs level" : "vs cause"}
                     highlighted={hoverEdge === key}
@@ -436,11 +404,26 @@ export function InteractiveDag({
               if (!construct) return null;
               const iv = isPrev ? null : (interventions.get(base) ?? null);
               const cardHl = hoverEndpoints.includes(base);
+              const marginalized = nodeStatuses?.[base] === "marginalized";
               return (
                 <g
                   key={nd.id}
                   transform={`translate(${nd.x},${nd.y})`}
-                  style={cardHl ? { filter: "drop-shadow(0 0 5px rgba(20,25,30,.22))" } : undefined}
+                  role={!isPrev && onNodeClick ? "button" : undefined}
+                  tabIndex={!isPrev && onNodeClick ? 0 : undefined}
+                  style={{
+                    cursor: !isPrev && onNodeClick ? "pointer" : undefined,
+                    ...(cardHl ? { filter: "drop-shadow(0 0 5px rgba(20,25,30,.22))" } : {}),
+                  }}
+                  onClick={() => {
+                    if (!isPrev) onNodeClick?.(base);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!isPrev && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      onNodeClick?.(base);
+                    }
+                  }}
                 >
                   <TrajectoryCard
                     width={CARD_W}
@@ -456,7 +439,8 @@ export function InteractiveDag({
                     realized={getNodeRealized(currentResult, base)}
                     timeIndex={clampedDay}
                     intervention={iv}
-                    interactive={!!onSimulate && !isPrev}
+                    marginalized={marginalized}
+                    interactive={!!onSimulate && !isPrev && !marginalized}
                     otherActive={interventions.size > 0 && !interventions.has(base)}
                     onSetDo={(v) => void setDo(base, v)}
                     onRemoveDo={() => void removeDo()}
@@ -472,13 +456,16 @@ export function InteractiveDag({
                 </g>
               );
             })}
-          </svg>
+          </DagSvg>
         )}
-      </div>
+      </DagCanvasFrame>
 
       {/* graph note */}
       <div style={{ fontSize: 11.5, color: MUTED, margin: "8px 4px 0" }}>
-        {`Showing the estimation graph for ${outcome} (${constructs.length} nodes); ★ marks the outcome.`}
+        {`Showing the fitted causal graph for ${outcome} (${constructs.length} nodes); ★ marks the outcome.`}
+        {Object.values(nodeStatuses ?? {}).includes("marginalized")
+          ? "  ·  Marginalized constructs remain visible as subdued causal context."
+          : null}
         {
           "  ·  Unrolled: each latent's faded t−1 card feeds its present-time self (the self-edge = its NodePotential −dV/dη)."
         }
@@ -616,25 +603,6 @@ export function InteractiveDag({
   );
 }
 
-const LABEL: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: ".04em",
-  textTransform: "uppercase",
-  color: MUTED,
-};
-const zoomBtn: React.CSSProperties = {
-  width: 26,
-  height: 26,
-  border: `1px solid ${DAG_COLORS.line2}`,
-  background: "#fff",
-  borderRadius: 7,
-  cursor: "pointer",
-  fontSize: 14,
-  lineHeight: 1,
-  display: "grid",
-  placeItems: "center",
-  color: "#4a4f57",
-};
 const iconBtn: React.CSSProperties = {
   border: `1px solid ${DAG_COLORS.line2}`,
   background: "#fff",
@@ -646,14 +614,3 @@ const iconBtn: React.CSSProperties = {
   display: "grid",
   placeItems: "center",
 };
-const segBtn = (on: boolean): React.CSSProperties => ({
-  border: 0,
-  background: on ? "#fff" : "transparent",
-  padding: "7px 12px",
-  borderRadius: 8,
-  fontSize: 13,
-  color: on ? INK : "#4a4f57",
-  cursor: "pointer",
-  fontWeight: on ? 600 : 400,
-  boxShadow: on ? "0 1px 2px rgba(0,0,0,.08)" : undefined,
-});

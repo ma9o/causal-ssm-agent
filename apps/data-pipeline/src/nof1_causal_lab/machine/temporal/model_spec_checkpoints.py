@@ -287,6 +287,34 @@ def existing_accepted_checkpoint_ref(
     )
 
 
+def _write_next_model_spec_checkpoint(
+    *,
+    parent_ref: str,
+    parent: ModelSpecCheckpoint,
+    checkpoint_id: str,
+    accepted_constructs: list[AcceptedConstructCheckpoint],
+    search_queries: dict[str, str],
+    search_cache: dict[str, str],
+    repair_feedback: dict[str, str],
+    full_model_validated: bool,
+) -> str:
+    checkpoint = ModelSpecCheckpoint(
+        workspace_id=parent.workspace_id,
+        run_id=parent.run_id,
+        seq=parent.seq,
+        checkpoint_index=parent.checkpoint_index + 1,
+        parent_ref=parent_ref,
+        input_pins=parent.input_pins,
+        accepted_constructs=accepted_constructs,
+        search_queries=search_queries,
+        search_cache=search_cache,
+        repair_feedback=repair_feedback,
+        full_model_validated=full_model_validated,
+        created_at=utc_now_iso(),
+    )
+    return _write_checkpoint(accepted_checkpoint_path(parent, checkpoint_id), checkpoint)
+
+
 def write_accepted_model_spec_checkpoint(
     *,
     parent_ref: str,
@@ -295,14 +323,10 @@ def write_accepted_model_spec_checkpoint(
     search_queries: dict[str, str],
     search_cache: dict[str, str],
 ) -> str:
-    path = accepted_checkpoint_path(parent, accepted.submission_id)
-    checkpoint = ModelSpecCheckpoint(
-        workspace_id=parent.workspace_id,
-        run_id=parent.run_id,
-        seq=parent.seq,
-        checkpoint_index=parent.checkpoint_index + 1,
+    return _write_next_model_spec_checkpoint(
         parent_ref=parent_ref,
-        input_pins=parent.input_pins,
+        parent=parent,
+        checkpoint_id=accepted.submission_id,
         accepted_constructs=[*parent.accepted_constructs, accepted],
         search_queries=search_queries,
         search_cache=search_cache,
@@ -312,9 +336,7 @@ def write_accepted_model_spec_checkpoint(
             if name != accepted.construct_name
         },
         full_model_validated=False,
-        created_at=utc_now_iso(),
     )
-    return _write_checkpoint(path, checkpoint)
 
 
 def write_merged_model_spec_checkpoint(
@@ -329,22 +351,16 @@ def write_merged_model_spec_checkpoint(
     full_model_validated: bool = False,
 ) -> str:
     """Write one deterministic single-writer checkpoint after a frontier join."""
-    path = accepted_checkpoint_path(parent, checkpoint_id)
-    checkpoint = ModelSpecCheckpoint(
-        workspace_id=parent.workspace_id,
-        run_id=parent.run_id,
-        seq=parent.seq,
-        checkpoint_index=parent.checkpoint_index + 1,
+    return _write_next_model_spec_checkpoint(
         parent_ref=parent_ref,
-        input_pins=parent.input_pins,
+        parent=parent,
+        checkpoint_id=checkpoint_id,
         accepted_constructs=accepted_constructs,
         search_queries=search_queries,
         search_cache=search_cache,
         repair_feedback=repair_feedback or {},
         full_model_validated=full_model_validated,
-        created_at=utc_now_iso(),
     )
-    return _write_checkpoint(path, checkpoint)
 
 
 def latest_failed_model_spec_checkpoint_ref(workspace_id: str) -> str | None:

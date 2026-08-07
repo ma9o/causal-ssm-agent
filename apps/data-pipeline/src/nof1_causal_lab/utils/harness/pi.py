@@ -23,6 +23,7 @@ from nof1_causal_lab.utils.harness.stream_json import (
     finalize_pi_trace,
     format_pi_event_for_log,
 )
+from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -245,16 +246,7 @@ class PiHarnessSession:
         return self._build_turn_result(self._state.raw_events[pre_event_count:])
 
     async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        if proc.stdout is None:
-            return
-        buffer = bytearray()
-        while chunk := await proc.stdout.read(65536):
-            buffer.extend(chunk)
-            while (newline := buffer.find(b"\n")) >= 0:
-                self._handle_line(bytes(buffer[:newline]))
-                del buffer[: newline + 1]
-        if buffer:
-            self._handle_line(bytes(buffer))
+        await drain_newline_delimited_stream(proc.stdout, self._handle_line)
 
     def _handle_line(self, raw: bytes) -> None:
         line = raw.decode(errors="replace").strip()

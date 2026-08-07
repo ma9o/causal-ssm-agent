@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import logging
 import secrets
-import socket
 import traceback
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -15,6 +12,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -22,12 +20,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
-
-
-def _find_pi_bridge_port(host: str) -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        return sock.getsockname()[1]
 
 
 async def _request_body(receive) -> bytes:
@@ -67,7 +59,7 @@ async def serve_pi_tools_http(
     port: int | None = None,
 ) -> AsyncIterator[str]:
     """Expose exactly ``tools`` through a tokenized request/response endpoint."""
-    resolved_port = port if port is not None else _find_pi_bridge_port(host)
+    resolved_port = port if port is not None else find_free_port(host)
     token = secrets.token_urlsafe(32)
     path = f"/{token}"
     tool_map = {tool.name: tool for tool in tools}
@@ -113,19 +105,9 @@ async def serve_pi_tools_http(
             lifespan="off",
         )
     )
-    task = asyncio.create_task(server.serve(), name=f"pi-tool-bridge-{resolved_port}")
-    try:
-        while not server.started and not task.done():
-            await asyncio.sleep(0.01)
-        if task.done():
-            task.result()
-            raise RuntimeError("Pi tool bridge exited during startup")
+    async with run_uvicorn_server(
+        server,
+        task_name=f"pi-tool-bridge-{resolved_port}",
+        startup_error="Pi tool bridge exited during startup",
+    ):
         yield f"http://{host}:{resolved_port}{path}"
-    finally:
-        server.should_exit = True
-        try:
-            await asyncio.wait_for(task, timeout=5.0)
-        except TimeoutError:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task

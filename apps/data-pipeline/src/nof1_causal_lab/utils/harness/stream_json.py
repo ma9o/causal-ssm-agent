@@ -24,10 +24,26 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
+
+
+class _TraceAccumulator(Protocol):
+    messages: list[TraceMessage]
+    model: str
+    total_time_seconds: float
+    usage: TraceUsage
+
+
+def _materialize_trace(state: _TraceAccumulator) -> LLMTrace:
+    return LLMTrace(
+        messages=list(state.messages),
+        model=state.model,
+        total_time_seconds=state.total_time_seconds,
+        usage=state.usage,
+    )
 
 
 @dataclass
@@ -447,12 +463,7 @@ def format_claude_event_for_log(event: UncheckedJsonObject) -> str | None:
 
 def finalize_trace(state: ClaudeStreamState) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from an accumulator."""
-    return LLMTrace(
-        messages=list(state.messages),
-        model=state.model,
-        total_time_seconds=state.total_time_seconds,
-        usage=state.usage,
-    )
+    return _materialize_trace(state)
 
 
 # ---------------------------------------------------------------------------
@@ -581,12 +592,7 @@ def apply_codex_event(state: CodexStreamState, event: UncheckedJsonObject) -> No
 
 def finalize_codex_trace(state: CodexStreamState) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from a Codex accumulator."""
-    return LLMTrace(
-        messages=list(state.messages),
-        model=state.model,
-        total_time_seconds=state.total_time_seconds,
-        usage=state.usage,
-    )
+    return _materialize_trace(state)
 
 
 # ---------------------------------------------------------------------------
@@ -747,9 +753,4 @@ def format_pi_event_for_log(event: UncheckedJsonObject) -> str | None:
 
 def finalize_pi_trace(state: PiStreamState) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from a Pi accumulator."""
-    return LLMTrace(
-        messages=list(state.messages),
-        model=state.model,
-        total_time_seconds=state.total_time_seconds,
-        usage=state.usage,
-    )
+    return _materialize_trace(state)

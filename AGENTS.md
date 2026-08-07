@@ -10,6 +10,10 @@
 
 - Use `ast-grep` if possible to navigate code. For example the definition of `DesignInfo` can be found more token-efficiently with `bunx ast-grep run --json=stream --lang python --pattern $'@$_DECORATOR\nclass DesignInfo: $$$BODY' ./ | jq -r '.text'`
 
+- After substantive source changes, run `bun run duplicates` for an advisory,
+  diff-aware duplication audit. Review candidates rather than treating the score as proof of
+  equivalence. Use `--deep` for a broader search and `--all` only for repository-wide audits.
+
 # Notebooks
 
 - Notebooks under `apps/data-pipeline/notebooks/` are [marimo](https://docs.marimo.io/) notebooks: plain Python files (`@app.cell` functions), not `.ipynb`. Edit them as ordinary source. Open one with `uv run marimo edit notebooks/<name>.py`; run read-only with `uv run marimo run notebooks/<name>.py`.

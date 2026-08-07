@@ -7,14 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
 from nof1_causal_lab.machine.temporal.messages import (
     SingleLLMTransitionFinalizeInput,
@@ -42,17 +43,6 @@ def _read_raw_data_artifact_frame(path: str):
 
     with storage.open_file(path, "rb") as file:
         return pl.read_ipc(file)
-
-
-def _raw_data_transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, TransitionExecutionError):
-        return ApplicationError(
-            str(exc),
-            exc.diagnostics,
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 @activity.defn
@@ -133,11 +123,9 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
                 parquet_files={parquet_filename("raw_data", "raw"): dataframe},
             )
         ]
-        spec = transition_spec("raw_data")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(store, input.state, "raw_data", produced)
     except Exception as exc:
-        raise _raw_data_transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 RAW_DATA_ACTIVITIES = [

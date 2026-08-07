@@ -27,6 +27,9 @@ from nof1_causal_lab.models.ssm.execution.emissions import (
     build_heterogeneous_mean_log_prob_fn,
     get_mean_param_log_prob_fn,
 )
+from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
+    slice_observation_extra_params,
+)
 
 from .observation_dispatch import (
     PredictiveObservationSampler,
@@ -148,33 +151,6 @@ _RESPONSE_FNS: dict[LinkFunction, ResponseFn] = {
     LinkFunction.PROBIT: _response_probit,
     LinkFunction.INVERSE: _response_inverse,
 }
-
-
-def _slice_observation_extra_params(
-    extra_params: LikelihoodExtraParams | None,
-    ch_indices: list[int],
-) -> LikelihoodExtraParams | None:
-    if extra_params is None:
-        return None
-
-    sliced: LikelihoodExtraParams = {}
-    idx = jnp.array(ch_indices, dtype=jnp.int32)
-    for key, value in extra_params.items():
-        if isinstance(value, (int, float)):
-            sliced[key] = value
-            continue
-        if value.ndim >= 1 and value.shape[0] == len(idx):
-            sliced[key] = value
-            continue
-        if value.ndim >= 1:
-            try:
-                if value.shape[0] >= len(ch_indices):
-                    sliced[key] = value[idx]
-                    continue
-            except TypeError:
-                logger.warning("Unexpected type for kernel parameter %r during slicing", key)
-        sliced[key] = value
-    return sliced
 
 
 # =============================================================================
@@ -358,7 +334,11 @@ def build_heterogeneous_observation_kernel(
         kernel = build_observation_kernel(
             dist,
             link,
-            _slice_observation_extra_params(extra_params, ch_indices),
+            slice_observation_extra_params(
+                extra_params,
+                ch_indices,
+                source_channel_count=n_manifest,
+            ),
             manifest_cov=(
                 manifest_cov[jnp.ix_(jnp.asarray(ch_indices), jnp.asarray(ch_indices))]
                 if manifest_cov is not None
@@ -480,9 +460,10 @@ def compile_observation_model(
         interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
         interval_summary_links = [links[idx] for idx in interval_summary_indices]
-        interval_extra_params = _slice_observation_extra_params(
+        interval_extra_params = slice_observation_extra_params(
             extra_params,
             interval_summary_indices,
+            source_channel_count=n_manifest,
         )
         if len(set(interval_summary_dists)) == 1:
             base_mean_log_prob_fn = get_mean_param_log_prob_fn(

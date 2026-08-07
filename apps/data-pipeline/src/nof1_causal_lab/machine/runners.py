@@ -13,28 +13,21 @@ import asyncio
 import os
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     TransitionEffects,
     input_pins,
-    run_retractions,
 )
 from nof1_causal_lab.machine.store import ArtifactStore
 
 if TYPE_CHECKING:
     import polars as pl
-    from pydantic import BaseModel
 
     from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
-
-
-def _filter_to_contract(cls: type[BaseModel], data: UncheckedJsonObject) -> UncheckedJsonObject:
-    fields = set(cls.model_fields.keys())
-    return {key: value for key, value in data.items() if key in fields}
 
 
 def _panel_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
@@ -85,7 +78,7 @@ async def _run_posterior(
     )
 
     fitted_artifact = result.pop("_fitted_artifact", None)
-    payload = _filter_to_contract(PosteriorContract, result)
+    payload = project_model_fields(PosteriorContract, result)
     info = store.write_version(
         "posterior",
         provenance="computed",
@@ -129,12 +122,10 @@ async def execute_transition_locally(
     if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
         raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
     runner = _TRANSITION_RUNNERS[artifact_id]
-    spec = transition_spec(artifact_id)
     emit_transition_event(workspace_id, artifact_id, "running")
     try:
         produced = await runner(workspace_id, store, pins, options)
-        retracted = run_retractions(state, spec, produced)
-        effects = complete_derivation_cascade(store, state, produced, retracted)
+        effects = complete_computed_transition(store, state, artifact_id, produced)
     except Exception as exc:
         emit_transition_event(
             workspace_id,

@@ -1,35 +1,16 @@
 import type { RawDataData, RawDataPersistedData } from "@nof1-causal-lab/api-types";
-import type { FileMetaData } from "hyparquet";
+import {
+  type ParquetMetadata,
+  type ParquetSchemaColumn,
+  readParquetRows,
+  toArrayBuffer,
+} from "./parquet-utils";
 
 type TemporalKind = "timestamp" | "date" | "time";
 
 interface TemporalInfo {
   kind: TemporalKind;
   unit?: string;
-}
-
-type ParquetSchemaColumn = {
-  name: string;
-  type?: string;
-  converted_type?: string;
-  logical_type?: {
-    type?: string;
-    unit?: string;
-    isAdjustedToUTC?: boolean;
-  };
-  num_children?: number;
-};
-
-type ParquetMetadata = {
-  version: number;
-  num_rows: bigint | number;
-  row_groups: unknown[];
-  schema: ParquetSchemaColumn[];
-  metadata_length: number;
-};
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 function leafColumns(metadata: ParquetMetadata): ParquetSchemaColumn[] {
@@ -173,26 +154,6 @@ function sampleIndices(total: number, n = 15): number[] {
   return Array.from(new Set(Array.from({ length: n }, (_, index) => Math.round(index * step))));
 }
 
-async function readRows(
-  file: ArrayBuffer,
-  metadata: ParquetMetadata,
-  rowStart: number,
-  rowEnd: number,
-  columns?: string[],
-): Promise<Record<string, unknown>[]> {
-  const { parquetReadObjects } = await import("hyparquet");
-  const { compressors } = await import("hyparquet-compressors");
-
-  return parquetReadObjects({
-    file,
-    metadata: metadata as unknown as FileMetaData,
-    compressors,
-    rowStart,
-    rowEnd,
-    columns,
-  });
-}
-
 async function deriveSampleRows(
   file: ArrayBuffer,
   metadata: ParquetMetadata,
@@ -204,11 +165,11 @@ async function deriveSampleRows(
   const indices = sampleIndices(total);
   const rows =
     total <= 15
-      ? await readRows(file, metadata, 0, total)
+      ? await readParquetRows(file, metadata, 0, total)
       : (
           await Promise.all(
             indices.map(async (index) => {
-              const [row] = await readRows(file, metadata, index, index + 1);
+              const [row] = await readParquetRows(file, metadata, index, index + 1);
               return row;
             }),
           )
@@ -232,7 +193,7 @@ async function deriveDateRange(
     const column = metadata.schema.find((item) => item.name === candidate);
     if (!column) continue;
 
-    const rows = await readRows(file, metadata, 0, Number(metadata.num_rows), [candidate]);
+    const rows = await readParquetRows(file, metadata, 0, Number(metadata.num_rows), [candidate]);
     const dates = rows
       .map((row) => extractDateOnly(row[candidate], temporalColumns.get(candidate) ?? null))
       .filter((value): value is string => value != null);

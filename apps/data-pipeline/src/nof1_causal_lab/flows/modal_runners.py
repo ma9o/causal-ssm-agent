@@ -59,6 +59,29 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+async def _run_transition_remote(
+    workspace_id: str,
+    artifact_id: str,
+    pins: dict[str, int],
+    state: JsonObject,
+    options: JsonObject,
+) -> JsonObject:
+    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
+    from nof1_causal_lab.machine.moves import ExecOptions
+    from nof1_causal_lab.machine.runners import execute_transition_locally
+
+    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
+    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
+    result = await execute_transition_locally(
+        workspace_id,
+        validated_artifact_id,
+        validated_pins,
+        EpisodeState.model_validate(state),
+        ExecOptions.model_validate(options),
+    )
+    return cast("JsonObject", result.model_dump(mode="json"))
+
+
 @app.function(
     timeout=10800,
     cpu=8,
@@ -75,20 +98,13 @@ async def _run_transition_gpu(
     options: JsonObject,
 ) -> JsonObject:
     """Run a transition on Modal GPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
-    from nof1_causal_lab.machine.moves import ExecOptions
-    from nof1_causal_lab.machine.runners import execute_transition_locally
-
-    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
-    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
-    result = await execute_transition_locally(
+    return await _run_transition_remote(
         workspace_id,
-        validated_artifact_id,
-        validated_pins,
-        EpisodeState.model_validate(state),
-        ExecOptions.model_validate(options),
+        artifact_id,
+        pins,
+        state,
+        options,
     )
-    return cast("JsonObject", result.model_dump(mode="json"))
 
 
 @app.function(
@@ -112,20 +128,13 @@ async def _run_transition_cpu(
     options: JsonObject,
 ) -> JsonObject:
     """Run a transition on Modal CPU compute against the R2 artifact store."""
-    from nof1_causal_lab.machine.artifacts import ArtifactId, EpisodeState
-    from nof1_causal_lab.machine.moves import ExecOptions
-    from nof1_causal_lab.machine.runners import execute_transition_locally
-
-    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
-    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
-    result = await execute_transition_locally(
+    return await _run_transition_remote(
         workspace_id,
-        validated_artifact_id,
-        validated_pins,
-        EpisodeState.model_validate(state),
-        ExecOptions.model_validate(options),
+        artifact_id,
+        pins,
+        state,
+        options,
     )
-    return cast("JsonObject", result.model_dump(mode="json"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

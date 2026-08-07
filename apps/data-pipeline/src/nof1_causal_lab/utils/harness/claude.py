@@ -38,6 +38,7 @@ from nof1_causal_lab.utils.harness.stream_json import (
     finalize_trace,
     format_claude_event_for_log,
 )
+from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -245,26 +246,7 @@ class ClaudeHarnessSession:
         return self._build_turn_result(turn_events)
 
     async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        if proc.stdout is None:
-            return
-        # Accept arbitrarily long lines; claude's stream-json frames can
-        # exceed asyncio's default 64 KiB readline limit (large assistant
-        # messages, aggregated tool_use blocks, thinking summaries).
-        buffer = bytearray()
-        while True:
-            chunk = await proc.stdout.read(65536)
-            if not chunk:
-                break
-            buffer.extend(chunk)
-            while True:
-                newline_index = buffer.find(b"\n")
-                if newline_index < 0:
-                    break
-                raw = bytes(buffer[:newline_index])
-                del buffer[: newline_index + 1]
-                self._handle_claude_line(raw)
-        if buffer:
-            self._handle_claude_line(bytes(buffer))
+        await drain_newline_delimited_stream(proc.stdout, self._handle_claude_line)
 
     def _handle_claude_line(self, raw: bytes) -> None:
         line = raw.decode("utf-8", errors="replace").strip()

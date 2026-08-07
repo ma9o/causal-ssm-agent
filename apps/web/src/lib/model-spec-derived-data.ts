@@ -4,58 +4,13 @@ import type {
   StatisticalModelSpecData,
   StatisticalModelSpecPersistedViewData,
 } from "@nof1-causal-lab/api-types";
-import type { FileMetaData } from "hyparquet";
 import { buildModelSpecLikelihoodDiagnostics } from "./model-spec-likelihood-diagnostics";
-
-type ParquetSchemaColumn = {
-  name: string;
-  num_children?: number;
-};
-
-type ParquetMetadata = {
-  num_rows: bigint | number;
-  schema: ParquetSchemaColumn[];
-};
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-async function readRows(
-  file: ArrayBuffer,
-  metadata: ParquetMetadata,
-  rowStart: number,
-  rowEnd: number,
-  columns?: string[],
-): Promise<Record<string, unknown>[]> {
-  const { parquetReadObjects } = await import("hyparquet");
-  const { compressors } = await import("hyparquet-compressors");
-
-  return parquetReadObjects({
-    file,
-    metadata: metadata as unknown as FileMetaData,
-    compressors,
-    rowStart,
-    rowEnd,
-    columns,
-  });
-}
-
-function normalizeScalar(value: unknown): number | boolean | string | null {
-  if (value == null) return null;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "bigint") {
-    return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
-      ? Number(value)
-      : value.toString();
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  return String(value);
-}
+import {
+  normalizeParquetScalar,
+  type ParquetMetadata,
+  readParquetRows,
+  toArrayBuffer,
+} from "./parquet-utils";
 
 async function readObservationRecords(parquetBytes: Uint8Array): Promise<ObservationRecord[]> {
   const file = toArrayBuffer(parquetBytes);
@@ -67,10 +22,10 @@ async function readObservationRecords(parquetBytes: Uint8Array): Promise<Observa
     return [];
   }
 
-  const rows = await readRows(file, metadata, 0, totalRows, ["indicator", "value"]);
+  const rows = await readParquetRows(file, metadata, 0, totalRows, ["indicator", "value"]);
   return rows.map((row) => ({
     indicator: String(row.indicator ?? ""),
-    value: normalizeScalar(row.value),
+    value: normalizeParquetScalar(row.value),
     anchor_time: null,
   }));
 }

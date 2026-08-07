@@ -64,6 +64,14 @@ class PredictiveObservationSampler:
     manifest_dists: tuple[str, ...]
 
 
+def _trajectory_sampler(sample_vector):
+    def sample_trajectory(key, trajectory):
+        keys = jax.random.split(key, trajectory.shape[0])
+        return jax.vmap(sample_vector)(keys, trajectory)
+
+    return sample_trajectory
+
+
 def build_predictive_observation_sampler(
     manifest_dists,
     manifest_cov: jnp.ndarray,
@@ -94,9 +102,7 @@ def build_predictive_observation_sampler(
             ) from mean_sampler_error
         return mean_sample_fn(key, mean_t, manifest_cov)
 
-    def _sample_mean_trajectory(key, mean_trajectory):
-        mean_keys = jax.random.split(key, mean_trajectory.shape[0])
-        return jax.vmap(_sample_mean_vector)(mean_keys, mean_trajectory)
+    sample_mean_trajectory = _trajectory_sampler(_sample_mean_vector)
 
     if all_gaussian:
         manifest_cov_adj = symmetrize_with_jitter(manifest_cov)
@@ -105,13 +111,11 @@ def build_predictive_observation_sampler(
         def _sample_point_vector(key, linear_predictor):
             return linear_predictor + manifest_chol @ jax.random.normal(key, linear_predictor.shape)
 
-        def _sample_point_trajectory(key, linear_predictors):
-            point_keys = jax.random.split(key, linear_predictors.shape[0])
-            return jax.vmap(_sample_point_vector)(point_keys, linear_predictors)
+        sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
         return PredictiveObservationSampler(
-            sample_point_trajectory=_sample_point_trajectory,
-            sample_mean_trajectory=_sample_mean_trajectory,
+            sample_point_trajectory=sample_point_trajectory,
+            sample_mean_trajectory=sample_mean_trajectory,
             all_gaussian=True,
             manifest_dists=manifest_dist_values,
         )
@@ -194,13 +198,11 @@ def build_predictive_observation_sampler(
             cat_slopes,
         )
 
-    def _sample_point_trajectory(key, linear_predictors):
-        point_keys = jax.random.split(key, linear_predictors.shape[0])
-        return jax.vmap(_sample_point_vector)(point_keys, linear_predictors)
+    sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
     return PredictiveObservationSampler(
-        sample_point_trajectory=_sample_point_trajectory,
-        sample_mean_trajectory=_sample_mean_trajectory,
+        sample_point_trajectory=sample_point_trajectory,
+        sample_mean_trajectory=sample_mean_trajectory,
         all_gaussian=False,
         manifest_dists=manifest_dist_values,
     )

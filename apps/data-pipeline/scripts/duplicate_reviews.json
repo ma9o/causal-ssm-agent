@@ -1,0 +1,36 @@
+{
+  "reviews": [
+    {
+      "category": "class schema",
+      "first": "apps/data-pipeline/src/nof1_causal_lab/utils/harness/stream_json.py::_TraceAccumulator",
+      "second": "apps/data-pipeline/src/nof1_causal_lab/utils/llm.py::LLMTrace",
+      "fingerprint": "61ae685cf533f2750c485e1b5594397f77c95feb15a727e69d28b1aed6f97c7c",
+      "classification": "intentional mirror/parity check",
+      "rationale": "The protocol describes the minimum mutable parser-state surface; LLMTrace is the validated persisted result model."
+    },
+    {
+      "category": "function behavior",
+      "first": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/compile/prior_indexing.py::_handle_loading",
+      "second": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/compile/prior_indexing.py::_handle_correlation",
+      "fingerprint": "571eecfa7d4912393b951418948abd7e3ff113b62a54c7e017e85440f4d265b8",
+      "classification": "related implementation",
+      "rationale": "Compound-name parsing is shared, while loading binds a rectangular manifest-latent coordinate and correlation binds a reordered symmetric lower-triangle coordinate."
+    },
+    {
+      "category": "function behavior",
+      "first": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/emissions.py::get_mean_param_log_prob_fn",
+      "second": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/emissions.py::get_mean_param_sample_fn",
+      "fingerprint": "477ba4624096acd0d0178906168a7457d5340d9a5d0b15d976478106d6aeb063",
+      "classification": "related implementation",
+      "rationale": "These are parallel family dispatch surfaces for different operations: density evaluation and random sampling."
+    },
+    {
+      "category": "function behavior",
+      "first": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/emissions.py::get_mean_param_sample_fn.gamma",
+      "second": "apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/observation_families.py::_ppc_gamma_inverse",
+      "fingerprint": "89d3c9c17e33ff713dc26b38d48c611cd180cfff57f87f451325ab7905d66de0",
+      "classification": "intentional mirror/parity check",
+      "rationale": "Both deliberately use the shared gamma draw, but one consumes a validated mean and the other validates and transforms an inverse-linked predictor."
+    }
+  ]
+}

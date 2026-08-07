@@ -18,6 +18,7 @@
     "docs:check:markdown": "markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
     "docs:check:spell": "cspell --config cspell.config.json --no-progress --show-suggestions \"README.md\" \"docs/**/*.md\"",
     "docs:check": "bun run --parallel --no-exit-on-error docs:check:distribution docs:check:latex docs:check:markdown docs:check:spell",
+    "duplicates": "bun run --cwd apps/data-pipeline duplicates",
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@ast-grep/cli": "^0.44.1",
     "cspell": "^10.0.0",
+    "jscpd": "5.0.12",
     "knip": "^6.20.0",
     "markdownlint-cli2": "^0.22.0",
     "mathjax-full": "3.2.2",

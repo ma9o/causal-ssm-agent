@@ -15,6 +15,12 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     param_marginal as _param_marginal,
 )
+from nof1_causal_lab.models.ssm.inference.schemas import (
+    EnergyDiagnostics,
+    PosteriorMarginal,
+    RankHistogram,
+    TraceData,
+)
 
 
 class TestBuildTraceData:
@@ -29,6 +35,7 @@ class TestBuildTraceData:
         assert traces[0]["parameter"] == "a"
         assert len(traces[0]["chains"]) == 2
         assert len(traces[0]["chains"][0]["values"]) == 50
+        assert all(TraceData.model_validate(trace) for trace in traces)
 
     def test_trace_data_thinning(self):
         chain_samples = {"x": jnp.ones((2, 1000))}
@@ -49,6 +56,7 @@ class TestBuildRankHistograms:
         assert len(hists[0]["chains"][0]["counts"]) == 10
         # Total counts should equal n_samples
         assert sum(hists[0]["chains"][0]["counts"]) == 200
+        assert all(RankHistogram.model_validate(histogram) for histogram in hists)
 
     def test_skips_multidim(self):
         chain_samples = {"matrix": jnp.ones((2, 100, 3, 3))}
@@ -66,6 +74,7 @@ class TestParamMarginal:
         assert m["hdi_3"] < m["mean"] < m["hdi_97"]
         # Density should be non-negative
         assert all(d >= 0 for d in m["density"])
+        assert PosteriorMarginal.model_validate(m)
 
 
 class TestBuildEnergyDiagnostics:
@@ -79,6 +88,7 @@ class TestBuildEnergyDiagnostics:
         assert len(result["energy_hist"]["bin_centers"]) == 20
         assert len(result["energy_hist"]["density"]) == 20
         assert len(result["energy_transition_hist"]["bin_centers"]) == 20
+        assert EnergyDiagnostics.model_validate(result)
 
     def test_energy_shape_1d(self):
         energy = jnp.ones(400)

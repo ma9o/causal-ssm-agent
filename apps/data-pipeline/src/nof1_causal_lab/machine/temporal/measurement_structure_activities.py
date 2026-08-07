@@ -6,14 +6,15 @@ import json
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.latent_structure_activities import (
     _llm_backend_config,
 )
@@ -32,17 +33,6 @@ def _write_measurement_structure_json(path: str, value: Any) -> None:
 
 def _read_measurement_structure_json(path: str) -> Any:
     return storage.read_json(path)
-
-
-def _measurement_structure_transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, TransitionExecutionError):
-        return ApplicationError(
-            str(exc),
-            exc.diagnostics,
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 @activity.defn
@@ -146,11 +136,14 @@ async def finalize_measurement_structure_activity(
                 },
             )
         ]
-        spec = transition_spec("measurement_structure")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(
+            store,
+            input.state,
+            "measurement_structure",
+            produced,
+        )
     except Exception as exc:
-        raise _measurement_structure_transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 MEASUREMENT_STRUCTURE_ACTIVITIES = [

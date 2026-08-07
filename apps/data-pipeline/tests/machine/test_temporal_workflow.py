@@ -17,7 +17,13 @@ from typing import Any
 import pytest
 
 from nof1_causal_lab.machine import runners as runners_module
-from nof1_causal_lab.machine.moves import RunArtifact, TransitionEffects, WriteArtifact
+from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.machine.moves import (
+    RunArtifact,
+    TransitionEffects,
+    WriteArtifact,
+    run_retractions,
+)
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
 from nof1_causal_lab.machine.temporal import (
     latent_structure_activities,
@@ -179,8 +185,8 @@ def machine_env(monkeypatch, tmp_path):
         fake_validate_full_admission_state,
     )
 
-    def complete_without_derivations(store, state, produced, retracted=None):
-        del state
+    def complete_without_derivations(store, state, transition_id, produced):
+        retracted = run_retractions(state, transition_spec(transition_id), produced)
         extra = []
         measurement_structure = next(
             (info for info in produced if info.artifact_id == "measurement_structure"),
@@ -238,26 +244,26 @@ def machine_env(monkeypatch, tmp_path):
                     json_files={"validation_report.json": {"indicators": {}}},
                 )
             )
-        return TransitionEffects(produced=[*produced, *extra], retracted=retracted or [])
+        return TransitionEffects(produced=[*produced, *extra], retracted=retracted)
 
     monkeypatch.setattr(
         runners_module,
-        "complete_derivation_cascade",
+        "complete_computed_transition",
         complete_without_derivations,
     )
     monkeypatch.setattr(
         measurement_activities,
-        "complete_derivation_cascade",
+        "complete_computed_transition",
         complete_without_derivations,
     )
     monkeypatch.setattr(
         latent_structure_activities,
-        "complete_derivation_cascade",
+        "complete_computed_transition",
         complete_without_derivations,
     )
     monkeypatch.setattr(
         measurement_structure_activities,
-        "complete_derivation_cascade",
+        "complete_computed_transition",
         complete_without_derivations,
     )
 

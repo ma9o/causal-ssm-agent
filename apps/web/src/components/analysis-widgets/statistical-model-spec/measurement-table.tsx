@@ -3,15 +3,14 @@
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatNumber } from "@/lib/utils/format";
 import type { LikelihoodSpec, ModelSpecLikelihoodDiagnostics } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { scaleLinear } from "d3-scale";
 import { curveMonotoneX, line } from "d3-shape";
 import katex from "katex";
-import { ExternalLink } from "lucide-react";
 import { type MouseEvent, memo, useMemo, useState } from "react";
+import { SourceBadges } from "../source-badges";
 import { SparklineTooltip } from "./sparkline-tooltip";
 
 // ── Row type ──────────────────────────────────────────────
@@ -499,50 +498,7 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
         tooltip="Literature sources supporting this likelihood distribution choice. Click to open."
       />
     ),
-    cell: ({ row }) => {
-      const sources = row.original.likelihood.sources;
-      if (!sources || sources.length === 0) {
-        return <span className="text-xs text-muted-foreground">--</span>;
-      }
-      return (
-        <div className="flex items-center gap-1.5">
-          {sources.map((source, i) => (
-            <Tooltip
-              key={`source-${
-                // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered list
-                i
-              }`}
-            >
-              <TooltipTrigger>
-                {source.url ? (
-                  <a
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-0.5 text-primary hover:underline"
-                  >
-                    <Badge variant="secondary" className="cursor-pointer text-[10px] px-1.5">
-                      {i + 1}
-                      <ExternalLink className="ml-0.5 h-2.5 w-2.5" />
-                    </Badge>
-                  </a>
-                ) : (
-                  <Badge variant="secondary" className="text-[10px] px-1.5">
-                    {i + 1}
-                  </Badge>
-                )}
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="max-w-xs text-xs">
-                  <p className="font-medium">{source.title}</p>
-                  <p className="text-muted-foreground">{source.snippet}</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      );
-    },
+    cell: ({ row }) => <SourceBadges sources={row.original.likelihood.sources} />,
     meta: { align: "center" },
   }),
 ];

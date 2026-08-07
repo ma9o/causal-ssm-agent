@@ -4,9 +4,11 @@ import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import type { DagDirection, DagGraphInput, Point } from "@/lib/utils/dag-graph-layout";
 import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import { useCallback, useMemo, useState } from "react";
+import { DagCanvasFrame, DagSvg } from "./core/dag-canvas";
+import { DagDirectionToggle } from "./core/dag-direction-toggle";
 import { DagEdge } from "./core/dag-edge";
 import { DagNodeShell } from "./core/dag-node";
-import { DAG_COLORS } from "./core/palette";
+import { DagZoomControls } from "./core/dag-zoom-controls";
 import {
   baseId,
   buildGhostLinks,
@@ -337,73 +339,22 @@ export function StructureDag({
           marginBottom: 10,
         }}
       >
-        <span style={LABEL}>Flow</span>
-        <div
-          style={{ display: "inline-flex", background: "#eef0f3", borderRadius: 10, padding: 3 }}
-        >
-          {(["RIGHT", "DOWN"] as const).map((d) => (
-            <button key={d} type="button" onClick={() => setDir(d)} style={segBtn(dir === d)}>
-              {d === "RIGHT" ? "→ left to right" : "↓ top to bottom"}
-            </button>
-          ))}
-        </div>
-        <span style={LABEL}>Zoom</span>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <button
-            type="button"
-            onClick={() => setZoomClamped(zoom / 1.2)}
-            style={zoomBtn}
-            title="zoom out"
-          >
-            −
-          </button>
-          <span
-            style={{
-              fontVariantNumeric: "tabular-nums",
-              fontSize: 12,
-              color: "#4a4f57",
-              minWidth: 40,
-              textAlign: "center",
-            }}
-          >
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoomClamped(zoom * 1.2)}
-            style={zoomBtn}
-            title="zoom in"
-          >
-            +
-          </button>
-          <button type="button" onClick={() => setZoom(1)} style={zoomBtn} title="reset zoom">
-            ⤢
-          </button>
-        </div>
+        <DagDirectionToggle
+          direction={dir === "RIGHT" ? "horizontal" : "vertical"}
+          onDirectionChange={(direction) => setDir(direction === "horizontal" ? "RIGHT" : "DOWN")}
+        />
+        <DagZoomControls zoom={zoom} onZoomChange={setZoomClamped} />
       </div>
 
       {/* scrollable, content-sized canvas */}
-      <div
-        style={{
-          background: "#fff",
-          border: `1px solid ${DAG_COLORS.line}`,
-          borderRadius: 14,
-          padding: 6,
-          minHeight: 560,
-          maxHeight: "74vh",
-          overflow: "auto",
-          backgroundImage: `radial-gradient(${DAG_COLORS.line} .8px, transparent .8px)`,
-          backgroundSize: "18px 18px",
-        }}
-      >
+      <DagCanvasFrame>
         {isLayouting ? null : (
-          <svg
-            width={Math.ceil(W * zoom)}
-            height={Math.ceil(H * zoom)}
-            viewBox={`0 0 ${Math.ceil(W)} ${Math.ceil(H)}`}
+          <DagSvg
+            contentWidth={W}
+            contentHeight={H}
+            zoom={zoom}
             role="img"
             aria-label="Causal structure graph"
-            style={{ display: "block" }}
             onClick={(e) => {
               if (e.target === e.currentTarget) setSelected(null);
             }}
@@ -464,9 +415,9 @@ export function StructureDag({
                 </g>
               );
             })}
-          </svg>
+          </DagSvg>
         )}
-      </div>
+      </DagCanvasFrame>
 
       {/* legend */}
       {hasGhosts || hasMarginalized || hasBlocking ? (
@@ -494,34 +445,3 @@ export function StructureDag({
     </div>
   );
 }
-
-const LABEL: React.CSSProperties = {
-  fontSize: 11,
-  letterSpacing: ".04em",
-  textTransform: "uppercase",
-  color: DAG_COLORS.muted,
-};
-const zoomBtn: React.CSSProperties = {
-  width: 26,
-  height: 26,
-  border: `1px solid ${DAG_COLORS.line2}`,
-  background: "#fff",
-  borderRadius: 7,
-  cursor: "pointer",
-  fontSize: 14,
-  lineHeight: 1,
-  display: "grid",
-  placeItems: "center",
-  color: "#4a4f57",
-};
-const segBtn = (on: boolean): React.CSSProperties => ({
-  border: 0,
-  background: on ? "#fff" : "transparent",
-  padding: "7px 12px",
-  borderRadius: 8,
-  fontSize: 13,
-  color: on ? DAG_COLORS.ink : "#4a4f57",
-  cursor: "pointer",
-  fontWeight: on ? 600 : 400,
-  boxShadow: on ? "0 1px 2px rgba(0,0,0,.08)" : undefined,
-});

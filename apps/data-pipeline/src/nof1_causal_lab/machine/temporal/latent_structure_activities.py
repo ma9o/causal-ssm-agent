@@ -6,14 +6,16 @@ import json
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.machine.artifact_files import json_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.model_contracts import project_model_fields
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
     LLMBackendConfig,
@@ -37,17 +39,6 @@ def _first_latent_config_value(*values: Any) -> Any:
         if value is not None:
             return value
     return None
-
-
-def _latent_transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, TransitionExecutionError):
-        return ApplicationError(
-            str(exc),
-            exc.diagnostics,
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 def _llm_backend_config(
@@ -171,8 +162,7 @@ async def finalize_latent_structure_activity(
         if input.result_ref is None:
             raise RuntimeError("latent-structure subroutine completed without a result ref")
         payload = _read_latent_json(input.result_ref)
-        fields = set(LatentStructureContract.model_fields.keys())
-        payload = {key: value for key, value in payload.items() if key in fields}
+        payload = project_model_fields(LatentStructureContract, payload)
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -184,11 +174,9 @@ async def finalize_latent_structure_activity(
                 json_files={json_filename("latent_structure", "latent_structure"): payload},
             )
         ]
-        spec = transition_spec("latent_structure")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(store, input.state, "latent_structure", produced)
     except Exception as exc:
-        raise _latent_transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 LATENT_STRUCTURE_ACTIVITIES = [

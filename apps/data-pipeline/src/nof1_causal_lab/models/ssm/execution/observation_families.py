@@ -51,6 +51,14 @@ from .observation_kernel_helpers import (
     _make_variance_negative_binomial,
     _make_variance_poisson,
 )
+from .observation_sampling import (
+    sample_bernoulli_from_mean,
+    sample_beta_from_mean,
+    sample_gamma_from_mean,
+    sample_negative_binomial_from_mean,
+    sample_poisson_from_mean,
+    sample_student_t_from_location,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -449,26 +457,27 @@ def _ppc_gaussian(
 def _ppc_student_t(
     loc, key, std, df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    key_num, key_den = jax.random.split(key)
-    z = jax.random.normal(key_num, ())
-    chi2 = 2.0 * jax.random.gamma(key_den, df / 2.0)
-    t_val = z * jnp.sqrt(df / jnp.maximum(chi2, NUMERICAL_EPSILON))
-    return loc + std * t_val
+    return sample_student_t_from_location(key, loc, std, df)
 
 
 def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     rate = jnp.exp(loc)
-    return jax.random.poisson(key, rate).astype(jnp.float32)
+    return sample_poisson_from_mean(key, rate)
 
 
 def _ppc_gamma_log(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jnp.exp(loc)
-    scale = jnp.maximum(mean / jnp.maximum(shape, 1e-8), 1e-8)
-    return jax.random.gamma(key, shape) * scale
+    return sample_gamma_from_mean(
+        key,
+        mean,
+        shape,
+        denominator_floor=1e-8,
+        scale_floor=1e-8,
+    )
 
 
 def _ppc_gamma_inverse(
@@ -477,57 +486,47 @@ def _ppc_gamma_inverse(
     valid_loc = jnp.isfinite(loc) & (loc > 0.0)
     safe_loc = jnp.where(valid_loc, loc, 1.0)
     mean = 1.0 / safe_loc
-    scale = jnp.maximum(mean / jnp.maximum(shape, 1e-8), 1e-8)
-    draw = jax.random.gamma(key, shape) * scale
+    draw = sample_gamma_from_mean(
+        key,
+        mean,
+        shape,
+        denominator_floor=1e-8,
+        scale_floor=1e-8,
+    )
     return jnp.where(valid_loc, draw, jnp.nan)
 
 
 def _ppc_bernoulli_logit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.nn.sigmoid(loc)).astype(jnp.float32)
+    return sample_bernoulli_from_mean(key, jax.nn.sigmoid(loc))
 
 
 def _ppc_bernoulli_probit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.scipy.stats.norm.cdf(loc)).astype(jnp.float32)
+    return sample_bernoulli_from_mean(key, jax.scipy.stats.norm.cdf(loc))
 
 
 def _ppc_negative_binomial(
     loc, key, _std, _df, _shape, r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mu = jnp.exp(loc)
-    key_gamma, key_poisson = jax.random.split(key)
-    gamma_draw = jax.random.gamma(key_gamma, r) * mu / jnp.maximum(r, 1e-8)
-    return jax.random.poisson(
-        key_poisson,
-        jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
-    ).astype(jnp.float32)
+    return sample_negative_binomial_from_mean(key, mu, r)
 
 
 def _ppc_beta_logit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jax.nn.sigmoid(loc)
-    alpha = jnp.maximum(mean * phi, 1e-4)
-    beta_param = jnp.maximum((1.0 - mean) * phi, 1e-4)
-    key_alpha, key_beta = jax.random.split(key)
-    gamma_alpha = jax.random.gamma(key_alpha, alpha)
-    gamma_beta = jax.random.gamma(key_beta, beta_param)
-    return gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+    return sample_beta_from_mean(key, mean, phi)
 
 
 def _ppc_beta_probit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jax.scipy.stats.norm.cdf(loc)
-    alpha = jnp.maximum(mean * phi, 1e-4)
-    beta_param = jnp.maximum((1.0 - mean) * phi, 1e-4)
-    key_alpha, key_beta = jax.random.split(key)
-    gamma_alpha = jax.random.gamma(key_alpha, alpha)
-    gamma_beta = jax.random.gamma(key_beta, beta_param)
-    return gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+    return sample_beta_from_mean(key, mean, phi)
 
 
 def _ppc_ordered_logistic(

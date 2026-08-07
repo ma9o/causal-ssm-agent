@@ -25,6 +25,17 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     PROB_CLIP_MIN,
     LikelihoodExtraParams,
 )
+from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
+    slice_observation_extra_params,
+)
+from nof1_causal_lab.models.ssm.execution.observation_sampling import (
+    sample_bernoulli_from_mean,
+    sample_beta_from_mean,
+    sample_gamma_from_mean,
+    sample_negative_binomial_from_mean,
+    sample_poisson_from_mean,
+    sample_student_t_from_location,
+)
 from nof1_causal_lab.models.ssm.shapes import Array, Bool, Float, FloatScalar, Int, Shaped
 
 type MeanLogProbFn = Callable[
@@ -709,56 +720,39 @@ def get_mean_param_sample_fn(
     def student_t(key, mean_t, R):
         df = extra_params.get("obs_df", 5.0)
         scale = jnp.sqrt(jnp.maximum(jnp.diag(R), NUMERICAL_EPSILON))
-        key_num, key_den = jax.random.split(key)
-        z = jax.random.normal(key_num, mean_t.shape)
-        chi2 = 2.0 * jax.random.gamma(key_den, df / 2.0, shape=mean_t.shape)
-        t_val = z * jnp.sqrt(df / jnp.maximum(chi2, NUMERICAL_EPSILON))
-        return mean_t + scale * t_val
+        return sample_student_t_from_location(key, mean_t, scale, df)
 
     def poisson(key, mean_t, _R):
         valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
         safe_rate = jnp.where(valid_mean, mean_t, 1.0)
-        draw = jax.random.poisson(key, safe_rate).astype(jnp.float32)
+        draw = sample_poisson_from_mean(key, safe_rate)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def gamma(key, mean_t, _R):
         shape = extra_params.get("obs_shape", 1.0)
         valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0)
         safe_mean = jnp.where(valid_mean, mean_t, 1.0)
-        scale = safe_mean / jnp.maximum(shape, NUMERICAL_EPSILON)
-        draw = jax.random.gamma(key, shape, shape=mean_t.shape) * scale
+        draw = sample_gamma_from_mean(key, safe_mean, shape)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def bernoulli(key, mean_t, _R):
         valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
         safe_p = jnp.where(valid_mean, mean_t, 0.5)
-        draw = jax.random.bernoulli(key, safe_p).astype(jnp.float32)
+        draw = sample_bernoulli_from_mean(key, safe_p)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def negative_binomial(key, mean_t, _R):
         r = extra_params.get("obs_r", 5.0)
         valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
         safe_mean = jnp.where(valid_mean, mean_t, 1.0)
-        key_gamma, key_poisson = jax.random.split(key)
-        gamma_draw = (
-            jax.random.gamma(key_gamma, r, shape=mean_t.shape) * safe_mean / jnp.maximum(r, 1e-8)
-        )
-        draw = jax.random.poisson(
-            key_poisson,
-            jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
-        ).astype(jnp.float32)
+        draw = sample_negative_binomial_from_mean(key, safe_mean, r)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def beta(key, mean_t, _R):
         concentration = extra_params.get("obs_concentration", 10.0)
         valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0) & (mean_t < 1.0)
         safe_mean = jnp.where(valid_mean, mean_t, 0.5)
-        alpha = jnp.maximum(safe_mean * concentration, 1e-4)
-        beta_param = jnp.maximum((1.0 - safe_mean) * concentration, 1e-4)
-        key_alpha, key_beta = jax.random.split(key)
-        gamma_alpha = jax.random.gamma(key_alpha, alpha)
-        gamma_beta = jax.random.gamma(key_beta, beta_param)
-        draw = gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+        draw = sample_beta_from_mean(key, safe_mean, concentration)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     mean_sample_fns = {
@@ -775,33 +769,6 @@ def get_mean_param_sample_fn(
             f"Mean-parameter sampler is not defined for manifest_dist='{manifest_dist}'."
         )
     return mean_sample_fns[dist]
-
-
-def _slice_per_channel_extra_params(
-    extra_params: LikelihoodExtraParams | None,
-    ch_indices: list[int],
-) -> LikelihoodExtraParams | None:
-    if extra_params is None:
-        return None
-
-    sliced: LikelihoodExtraParams = {}
-    idx = jnp.array(ch_indices, dtype=jnp.int32)
-    for key, value in extra_params.items():
-        if isinstance(value, (int, float)):
-            sliced[key] = value
-            continue
-        if value.ndim >= 1 and value.shape[0] == len(idx):
-            sliced[key] = value
-            continue
-        if value.ndim >= 1:
-            try:
-                if value.shape[0] >= len(ch_indices):
-                    sliced[key] = value[idx]
-                    continue
-            except TypeError:
-                pass
-        sliced[key] = value
-    return sliced
 
 
 def build_heterogeneous_mean_log_prob_fn(
@@ -828,7 +795,11 @@ def build_heterogeneous_mean_log_prob_fn(
                 ch_indices,
                 get_mean_param_log_prob_fn(
                     dist,
-                    _slice_per_channel_extra_params(extra_params, ch_indices),
+                    slice_observation_extra_params(
+                        extra_params,
+                        ch_indices,
+                        source_channel_count=len(dists),
+                    ),
                 ),
             )
         )
@@ -871,7 +842,11 @@ def build_heterogeneous_mean_sample_fn(
                 ch_indices,
                 get_mean_param_sample_fn(
                     dist,
-                    _slice_per_channel_extra_params(extra_params, ch_indices),
+                    slice_observation_extra_params(
+                        extra_params,
+                        ch_indices,
+                        source_channel_count=len(dists),
+                    ),
                 ),
             )
         )

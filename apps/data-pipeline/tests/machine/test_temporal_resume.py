@@ -15,7 +15,13 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.machine.moves import RunArtifact, TransitionEffects, WriteArtifact
+from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.machine.moves import (
+    RunArtifact,
+    TransitionEffects,
+    WriteArtifact,
+    run_retractions,
+)
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, derive_current_state
 from nof1_causal_lab.machine.temporal import latent_structure_activities
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
@@ -86,13 +92,16 @@ def resume_env(monkeypatch, tmp_path):
         ),
     )
 
-    def complete_without_derivations(store, state, produced, retracted=None):
-        del store, state
-        return TransitionEffects(produced=produced, retracted=retracted or [])
+    def complete_without_derivations(store, state, transition_id, produced):
+        del store
+        return TransitionEffects(
+            produced=produced,
+            retracted=run_retractions(state, transition_spec(transition_id), produced),
+        )
 
     monkeypatch.setattr(
         latent_structure_activities,
-        "complete_derivation_cascade",
+        "complete_computed_transition",
         complete_without_derivations,
     )
 

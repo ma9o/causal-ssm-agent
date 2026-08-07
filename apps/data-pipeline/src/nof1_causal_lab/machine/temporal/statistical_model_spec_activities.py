@@ -12,11 +12,15 @@ from temporalio.exceptions import ApplicationError
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import ModelCompileError, TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
+from nof1_causal_lab.machine.errors import ModelCompileError
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.model_contracts import filter_model_fields, project_model_fields
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
@@ -65,22 +69,6 @@ def _read_model_spec_json(path: str) -> Any:
 
 def _slug(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-").lower() or "construct"
-
-
-def _filter_model_spec_contract(cls: Any, data: UncheckedJsonObject) -> UncheckedJsonObject:
-    fields = set(cls.model_fields.keys())
-    return {key: value for key, value in data.items() if key in fields}
-
-
-def _model_spec_transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, (TransitionExecutionError, ModelCompileError)):
-        return ApplicationError(
-            str(exc),
-            getattr(exc, "diagnostics", None),
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 def _barrier_reopen_constructs(units: list[Any], failed_constructs: list[str]) -> set[str]:
@@ -686,13 +674,14 @@ async def finalize_statistical_model_spec_activity(
         ]
 
         compiled_ssm = materialized.pop("_compiled_ssm", None)
-        report = _filter_model_spec_contract(StatisticalModelSpecContract, materialized)
         if compiled_ssm is None:
+            report = filter_model_fields(StatisticalModelSpecContract, materialized)
             raise ModelCompileError(
                 "statistical_model_spec produced no compilable SSM from the proposed spec",
                 transition_id="statistical_model_spec",
                 diagnostics={"report": report},
             )
+        report = project_model_fields(StatisticalModelSpecContract, materialized)
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -706,11 +695,14 @@ async def finalize_statistical_model_spec_activity(
                 },
             )
         ]
-        spec = transition_spec("statistical_model_spec")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(
+            store,
+            input.state,
+            "statistical_model_spec",
+            produced,
+        )
     except Exception as exc:
-        raise _model_spec_transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 @activity.defn

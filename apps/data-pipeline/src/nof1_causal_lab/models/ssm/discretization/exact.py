@@ -242,8 +242,8 @@ def discretize_system_batched(
 ) -> tuple[Float[Array, "T D D"], Float[Array, "T D D"], Array | None]:
     """Batch-discretize CT system over an array of time intervals.
 
-    Uses jax.vmap over the dt dimension. For T timesteps, produces
-    (T, n, n) arrays for drift and Q, and (T, n) for cint.
+    For T timesteps, produces (T, n, n) arrays for drift and Q, and
+    (T, n) for cint.
 
     Args:
         drift: (n, n) continuous drift matrix A
@@ -256,18 +256,6 @@ def discretize_system_batched(
         Qd: (T, n, n) discrete process noise covariances
         cd: (T, n) discrete intercepts, or None if cint is None
     """
-    n_steps = dt_array.shape[0]
-    n_latent = drift.shape[0]
-
-    if n_steps == 0:
-        Ad = jnp.empty((0, n_latent, n_latent), dtype=drift.dtype)
-        Qd = jnp.empty((0, n_latent, n_latent), dtype=diffusion_cov.dtype)
-        if cint is None:
-            return Ad, Qd, None
-        cint_arr = _normalize_batched_cint(jnp.asarray(cint))
-        cd = jnp.empty((0, *cint_arr.shape), dtype=cint_arr.dtype)
-        return Ad, Qd, cd
-
     return discretize_linear_system_exact_batched(drift, diffusion_cov, cint, dt_array)
 
 

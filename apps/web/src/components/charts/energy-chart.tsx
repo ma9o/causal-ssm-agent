@@ -17,18 +17,46 @@ interface EnergyChartProps {
   energy: EnergyDiagnostics;
 }
 
+function DensityHistogram({
+  title,
+  histogram,
+  color,
+}: {
+  title: string;
+  histogram: EnergyDiagnostics["energy_hist"];
+  color: string;
+}) {
+  const data = histogram.bin_centers.map((x, index) => ({
+    x,
+    density: histogram.density[index],
+  }));
+
+  return (
+    <div>
+      <span className="text-xs font-mono text-muted-foreground">{title}</span>
+      <div className="h-36 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis
+              dataKey="x"
+              tick={{ fontSize: 9 }}
+              tickFormatter={(value: number) => formatNumber(value, 0)}
+            />
+            <YAxis
+              tick={{ fontSize: 9 }}
+              tickFormatter={(value: number) => formatNumber(value, 2)}
+            />
+            <RechartsTooltip formatter={(value) => [formatNumber(Number(value), 4), "Density"]} />
+            <Area dataKey="density" stroke={color} fill={color} fillOpacity={0.2} type="monotone" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 export function EnergyChart({ energy }: EnergyChartProps) {
-  // Merge energy and transition histograms into a single dataset
-  const data = energy.energy_hist.bin_centers.map((x, i) => ({
-    x,
-    energy: energy.energy_hist.density[i],
-  }));
-
-  const transData = energy.energy_transition_hist.bin_centers.map((x, i) => ({
-    x,
-    transition: energy.energy_transition_hist.density[i],
-  }));
-
   const minBfmi = Math.min(...energy.bfmi);
 
   return (
@@ -51,60 +79,16 @@ export function EnergyChart({ energy }: EnergyChartProps) {
         )}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
-        {/* Marginal energy distribution */}
-        <div>
-          <span className="text-xs font-mono text-muted-foreground">Marginal Energy E</span>
-          <div className="h-36 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={data} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis
-                  dataKey="x"
-                  tick={{ fontSize: 9 }}
-                  tickFormatter={(v: number) => formatNumber(v, 0)}
-                />
-                <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
-                <RechartsTooltip
-                  formatter={(value) => [formatNumber(Number(value), 4), "Density"]}
-                />
-                <Area
-                  dataKey="energy"
-                  stroke="var(--primary)"
-                  fill="var(--primary)"
-                  fillOpacity={0.2}
-                  type="monotone"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-        {/* Energy transition distribution */}
-        <div>
-          <span className="text-xs font-mono text-muted-foreground">Energy Transition dE</span>
-          <div className="h-36 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={transData} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis
-                  dataKey="x"
-                  tick={{ fontSize: 9 }}
-                  tickFormatter={(v: number) => formatNumber(v, 0)}
-                />
-                <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => formatNumber(v, 2)} />
-                <RechartsTooltip
-                  formatter={(value) => [formatNumber(Number(value), 4), "Density"]}
-                />
-                <Area
-                  dataKey="transition"
-                  stroke="var(--chart-2)"
-                  fill="var(--chart-2)"
-                  fillOpacity={0.2}
-                  type="monotone"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <DensityHistogram
+          title="Marginal Energy E"
+          histogram={energy.energy_hist}
+          color="var(--primary)"
+        />
+        <DensityHistogram
+          title="Energy Transition dE"
+          histogram={energy.energy_transition_hist}
+          color="var(--chart-2)"
+        />
       </div>
     </div>
   );

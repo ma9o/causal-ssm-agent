@@ -58,6 +58,7 @@ from nof1_causal_lab.utils.harness.stream_json import (
     finalize_codex_trace,
     format_codex_event_for_log,
 )
+from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -378,28 +379,7 @@ class CodexHarnessSession:
         return self._build_turn_result(turn_events)
 
     async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        if proc.stdout is None:
-            return
-        # Codex can emit single JSON events (e.g. large reasoning or agent
-        # messages) that exceed asyncio's default 64 KiB readline limit.
-        # Read raw bytes and split on newlines ourselves to accept arbitrarily
-        # long lines without raising ``Separator is found, but chunk is
-        # longer than limit``.
-        buffer = bytearray()
-        while True:
-            chunk = await proc.stdout.read(65536)
-            if not chunk:
-                break
-            buffer.extend(chunk)
-            while True:
-                newline_index = buffer.find(b"\n")
-                if newline_index < 0:
-                    break
-                raw = bytes(buffer[:newline_index])
-                del buffer[: newline_index + 1]
-                self._handle_codex_line(raw)
-        if buffer:
-            self._handle_codex_line(bytes(buffer))
+        await drain_newline_delimited_stream(proc.stdout, self._handle_codex_line)
 
     def _handle_codex_line(self, raw: bytes) -> None:
         line = raw.decode("utf-8", errors="replace").strip()

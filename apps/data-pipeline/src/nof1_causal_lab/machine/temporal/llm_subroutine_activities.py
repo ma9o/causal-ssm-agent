@@ -335,21 +335,6 @@ async def execute_harness_tool_request_activity(
     success = False
     if input.tool_name != input.tool.name:
         output = f"Unknown tool: {input.tool_name}"
-    elif input.tool.executor != "context_json_validation":
-        try:
-            output, captured_result_ref = await execute_subroutine_tool(
-                input=input,
-                tool=input.tool,
-                args=input.arguments,
-                result_ref=input.result_ref,
-                request_id=input.request_id,
-            )
-        except json.JSONDecodeError as exc:
-            output = f"JSON parse error: {exc}"
-        except _RECOVERABLE_TOOL_EXECUTION_ERRORS as exc:
-            output = _tool_execution_failed(exc)
-        else:
-            success = _terminal_tool_succeeded(input.tool, output, None)
     else:
         try:
             output, captured_result_ref = await execute_subroutine_tool(

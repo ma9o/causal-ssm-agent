@@ -36,6 +36,8 @@ interface TrajectoryCardProps {
   realized: number[] | null;
   timeIndex: number;
   intervention: NodeIntervention | null;
+  /** Kept in the causal graph as context, but integrated out of the fitted runtime. */
+  marginalized?: boolean;
   /** do() control state. */
   interactive?: boolean;
   otherActive?: boolean;
@@ -62,6 +64,7 @@ export function TrajectoryCard({
   realized,
   timeIndex,
   intervention,
+  marginalized = false,
   interactive,
   otherActive,
   onSetDo,
@@ -133,7 +136,13 @@ export function TrajectoryCard({
 
   const pkey = latent && !moved ? reference : action;
   const atT = iv != null && day === iv.day;
-  const border = isPrev ? "#d8dce2" : atT ? BLUE : signColor((action[day] ?? 0) - base);
+  const border = marginalized
+    ? DAG_COLORS.line2
+    : isPrev
+      ? "#d8dce2"
+      : atT
+        ? BLUE
+        : signColor((action[day] ?? 0) - base);
   const strokeWidth = atT ? 2.6 : isTarget ? 2.0 : 1.4;
 
   const yTicks = ticks(mn, mx, 3);
@@ -142,16 +151,24 @@ export function TrajectoryCard({
   const hov = hoverDay != null ? Math.max(0, Math.min(n - 1, hoverDay)) : null;
 
   return (
-    <g opacity={isPrev ? 0.42 : 1}>
-      <rect width={w} height={h} rx={11} fill="#fff" stroke={border} strokeWidth={strokeWidth} />
+    <g opacity={isPrev ? 0.42 : marginalized ? 0.46 : 1}>
+      <rect
+        width={w}
+        height={h}
+        rx={11}
+        fill={marginalized ? "#f1f3f5" : "#fff"}
+        stroke={border}
+        strokeWidth={strokeWidth}
+        strokeDasharray={marginalized ? "5,4" : undefined}
+      />
       <text x={14} y={24} fontSize={13} fontWeight={650} fill={INK}>
         {(isTarget ? "★ " : "") + name.replace(/_/g, " ") + (isPrev ? "  · t−1" : "")}
       </text>
       <text x={14} y={40} fontSize={9.5} fill={MUTED}>
-        {`${kind} · ${vary}${kind === "exo" ? " · held" : ""}`}
+        {`${kind} · ${vary}${kind === "exo" ? " · held" : ""}${marginalized ? " · marginalized" : ""}`}
       </text>
 
-      {!isPrev && interactive ? (
+      {!isPrev && interactive && !marginalized ? (
         <foreignObject x={w - 120} y={28} width={108} height={22}>
           <div data-dag-interactive style={{ display: "flex", justifyContent: "flex-end" }}>
             {iv ? (

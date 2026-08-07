@@ -43,7 +43,7 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 - **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
 - **Support for large datasets, irregular timestamps and semantic heterogeneity** - via a continuous-discrete nonlinear state-space model — continuous-time latent dynamics observed at discrete, irregular timestamps — with non-Gaussian indicator-specific likelihoods (Poisson, Bernoulli, Beta, etc.).
 - **Robust LLM-based numerical modeling and prior elicitation** - by admitting one construct at a time, checkpointing every accepted contribution, and gating progression on exact prior-predictive reachability checks.
-- **Fast and accurate parameter and state estimation in `jax`** - Exact inference in minutes using parallel-in-time particle smoothing on GPU ([Corenflos et al. 2024](https://arxiv.org/pdf/2401.14868)). Efficient caching ensures that we never waste time waiting for compilation.
+- **Fast and accurate parameter and state estimation in `jax`** - Exact inference in minutes using [parallel-in-time particle smoothing](https://arxiv.org/pdf/2401.14868) on GPU. Efficient caching ensures that we never waste time waiting for compilation.
 - **Compatible with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
 
 ## Demo

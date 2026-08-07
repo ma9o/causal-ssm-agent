@@ -9,8 +9,6 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import TransitionEffects
     from nof1_causal_lab.machine.temporal.client import MODEL_SPEC_SIMULATION_TASK_QUEUE
@@ -30,59 +28,25 @@ with workflow.unsafe.imports_passed_through():
         StatisticalModelSpecPlan,
         StatisticalModelSpecWorkflowInput,
         TransitionRuntimeError,
-        TransitionRuntimeEventInput,
-        TransitionRuntimeStatus,
+    )
+    from nof1_causal_lab.machine.temporal.workflow_support import (
+        EVENT_RETRY,
+        EVENT_TIMEOUT,
+        emit_transition_runtime_event,
+        temporal_failure_details,
     )
 
-_EVENT_TIMEOUT = timedelta(seconds=30)
 _ATTEMPT_PLAN_TIMEOUT = timedelta(minutes=5)
 _ATTEMPT_FINALIZE_TIMEOUT = timedelta(minutes=5)
 _FINALIZE_TIMEOUT = timedelta(minutes=30)
 _SIMULATION_TIMEOUT = timedelta(hours=1)
 
-_EVENT_RETRY = RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=5)
 _ACTIVITY_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
     maximum_attempts=3,
 )
-
-
-async def _emit_model_spec_transition_event(
-    workspace_id: str,
-    transition_id: str,
-    status: TransitionRuntimeStatus,
-    error: TransitionRuntimeError | None = None,
-) -> None:
-    await workflow.execute_activity(
-        "emit_transition_runtime_event_activity",
-        TransitionRuntimeEventInput(
-            workspace_id=workspace_id,
-            transition_id=transition_id,
-            status=status,
-            error=error,
-        ),
-        start_to_close_timeout=_EVENT_TIMEOUT,
-        retry_policy=_EVENT_RETRY,
-    )
-
-
-def _model_spec_failure_details(
-    exc: BaseException,
-) -> tuple[str, str, UncheckedJsonObject]:
-    cause = exc
-    while not isinstance(cause, ApplicationError):
-        next_cause = getattr(cause, "cause", None)
-        if not isinstance(next_cause, BaseException):
-            break
-        cause = next_cause
-    if isinstance(cause, ApplicationError):
-        diagnostics = (
-            cause.details[0] if cause.details and isinstance(cause.details[0], dict) else {}
-        )
-        return cause.type or "ApplicationError", cause.message, dict(diagnostics)
-    return type(cause).__name__, str(cause), {}
 
 
 def _ready_constructs(
@@ -189,9 +153,7 @@ async def _run_construct(
 class StatisticalModelSpecWorkflow:
     @workflow.run
     async def run(self, input: StatisticalModelSpecWorkflowInput) -> TransitionEffects:
-        await _emit_model_spec_transition_event(
-            input.workspace_id, "statistical_model_spec", "running"
-        )
+        await emit_transition_runtime_event(input.workspace_id, "statistical_model_spec", "running")
         current_construct: str | None = None
         checkpoint_ref: str | None = None
         plan: StatisticalModelSpecPlan | None = None
@@ -325,7 +287,7 @@ class StatisticalModelSpecWorkflow:
                 summary="Finalize statistical model spec",
             )
         except Exception as exc:
-            failure_type, failure_message, diagnostics = _model_spec_failure_details(exc)
+            failure_type, failure_message, diagnostics = temporal_failure_details(exc)
             if current_construct is not None:
                 await workflow.execute_activity(
                     "emit_model_spec_failed_event_activity",
@@ -335,11 +297,11 @@ class StatisticalModelSpecWorkflow:
                         message=failure_message,
                         checkpoint_ref=checkpoint_ref,
                     ),
-                    start_to_close_timeout=_EVENT_TIMEOUT,
-                    retry_policy=_EVENT_RETRY,
+                    start_to_close_timeout=EVENT_TIMEOUT,
+                    retry_policy=EVENT_RETRY,
                     summary="Emit model-spec admission failure",
                 )
-            await _emit_model_spec_transition_event(
+            await emit_transition_runtime_event(
                 input.workspace_id,
                 "statistical_model_spec",
                 "failed",
@@ -366,7 +328,7 @@ class StatisticalModelSpecWorkflow:
                 non_retryable=True,
             ) from exc
 
-        await _emit_model_spec_transition_event(
+        await emit_transition_runtime_event(
             input.workspace_id, "statistical_model_spec", "completed"
         )
         return effects

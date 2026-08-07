@@ -69,17 +69,18 @@ def run_inference_with_data(
         compute_loo_diagnostics=compute_loo_diagnostics,
     )
     inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
+    inference_metadata = {
+        "method": inf_method,
+        "n_samples": int(fitted_result.get("n_samples", 0)),
+        "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
+    }
 
     if not fitted_result.get("fitted", False):
         raise ModelFitError(
             fitted_result.get("error") or "model fit failed",
             transition_id="posterior",
             diagnostics={
-                "inference_metadata": {
-                    "method": inf_method,
-                    "n_samples": int(fitted_result.get("n_samples", 0)),
-                    "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
-                },
+                "inference_metadata": inference_metadata,
                 "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
                 "smc_diagnostics": fitted_result.get("smc_diagnostics"),
             },
@@ -107,11 +108,7 @@ def run_inference_with_data(
     return {
         "_fitted_artifact": fitted_artifact,
         "ppc": ppc_result,
-        "inference_metadata": {
-            "method": inf_method,
-            "n_samples": int(fitted_result.get("n_samples", 0)),
-            "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
-        },
+        "inference_metadata": inference_metadata,
         "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
         "smc_diagnostics": fitted_result.get("smc_diagnostics"),
         "loo_diagnostics": fitted_result.get("loo_diagnostics"),

@@ -7,15 +7,17 @@ import logging
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, pickle_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.model_contracts import project_model_fields
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import subroutine_root
 from nof1_causal_lab.machine.temporal.messages import (
@@ -34,17 +36,6 @@ def _write_baseline_json(path: str, value: Any) -> None:
 
 def _read_baseline_json(path: str) -> Any:
     return storage.read_json(path)
-
-
-def _baseline_transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, TransitionExecutionError):
-        return ApplicationError(
-            str(exc),
-            exc.diagnostics,
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 def _baseline_draws_stats(draws: list[float] | None) -> tuple[float | None, float | None]:
@@ -220,8 +211,7 @@ async def finalize_baseline_report_activity(
         final_summary = _first_baseline_assistant_summary(trace)
         if final_summary:
             payload["final_summary"] = final_summary
-        fields = set(BaselineReportContract.model_fields.keys())
-        payload = {key: value for key, value in payload.items() if key in fields}
+        payload = project_model_fields(BaselineReportContract, payload)
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -233,11 +223,9 @@ async def finalize_baseline_report_activity(
                 json_files={json_filename("baseline_report", "baseline_report"): payload},
             )
         ]
-        spec = transition_spec("baseline_report")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(store, input.state, "baseline_report", produced)
     except Exception as exc:
-        raise _baseline_transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 BASELINE_REPORT_ACTIVITIES = [

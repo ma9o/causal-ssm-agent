@@ -513,25 +513,12 @@ def admit_construct(
     """Attempt to admit one construct; run the battery on the cumulative model."""
     trial = trial_admission_state(state, contribution)
 
-    started = perf_counter_ns()
-    spec, registry = _compile_partial(trial, structural_plan)
-    timings = [
-        AdmissionTiming(
-            phase="model_compilation",
-            label="Model compilation",
-            duration_ms=_elapsed_ms(started),
-        )
-    ]
-
-    started = perf_counter_ns()
-    pred = _sample_partial(spec, registry, design)
-    jax.block_until_ready(pred)
-    timings.append(
-        AdmissionTiming(
-            phase="prior_predictive",
-            label="Exact prior-predictive simulation",
-            duration_ms=_elapsed_ms(started),
-        )
+    spec, pred, timings = _compile_and_sample_admission_state(
+        trial,
+        structural_plan,
+        design,
+        compilation_label="Model compilation",
+        predictive_label="Exact prior-predictive simulation",
     )
 
     results, diagnostic_timings = _run_battery(spec, pred, design, contribution)
@@ -580,6 +567,37 @@ def _sample_partial(
 
 def _elapsed_ms(started_ns: int) -> float:
     return (perf_counter_ns() - started_ns) / 1_000_000
+
+
+def _compile_and_sample_admission_state(
+    state: AdmissionState,
+    structural_plan: StructuralPlan,
+    design: DesignInfo,
+    *,
+    compilation_label: str,
+    predictive_label: str,
+) -> tuple[SSMSpec, dict[str, jnp.ndarray], list[AdmissionTiming]]:
+    started = perf_counter_ns()
+    spec, registry = _compile_partial(state, structural_plan)
+    timings = [
+        AdmissionTiming(
+            phase="model_compilation",
+            label=compilation_label,
+            duration_ms=_elapsed_ms(started),
+        )
+    ]
+
+    started = perf_counter_ns()
+    pred = _sample_partial(spec, registry, design)
+    jax.block_until_ready(pred)
+    timings.append(
+        AdmissionTiming(
+            phase="prior_predictive",
+            label=predictive_label,
+            duration_ms=_elapsed_ms(started),
+        )
+    )
+    return spec, pred, timings
 
 
 def _run_battery(
@@ -792,24 +810,12 @@ def recheck_member(
     set (``edge_parents`` now include the feedback source). Informational: the caller
     surfaces the results as a coupled recheck; they do not gate the admission.
     """
-    started = perf_counter_ns()
-    spec, registry = _compile_partial(state, structural_plan)
-    timings = [
-        AdmissionTiming(
-            phase="model_compilation",
-            label="Model compilation",
-            duration_ms=_elapsed_ms(started),
-        )
-    ]
-    started = perf_counter_ns()
-    pred = _sample_partial(spec, registry, design)
-    jax.block_until_ready(pred)
-    timings.append(
-        AdmissionTiming(
-            phase="prior_predictive",
-            label="Exact prior-predictive simulation",
-            duration_ms=_elapsed_ms(started),
-        )
+    spec, pred, timings = _compile_and_sample_admission_state(
+        state,
+        structural_plan,
+        design,
+        compilation_label="Model compilation",
+        predictive_label="Exact prior-predictive simulation",
     )
     results, diagnostic_timings = _run_battery(spec, pred, design, target)
     timings.extend(diagnostic_timings)
@@ -824,25 +830,12 @@ def validate_full_admission_state(
     accepted: Mapping[str, Mapping[tuple[str, str], str]] | None = None,
 ) -> FullAdmissionValidation:
     """Gate publication with one exact full-model simulation and all construct batteries."""
-    started = perf_counter_ns()
-    spec, registry = _compile_partial(state, structural_plan)
-    timings = [
-        AdmissionTiming(
-            phase="model_compilation",
-            label="Full-model compilation",
-            duration_ms=_elapsed_ms(started),
-        )
-    ]
-
-    started = perf_counter_ns()
-    pred = _sample_partial(spec, registry, design)
-    jax.block_until_ready(pred)
-    timings.append(
-        AdmissionTiming(
-            phase="prior_predictive",
-            label="Exact full-model prior-predictive simulation",
-            duration_ms=_elapsed_ms(started),
-        )
+    spec, pred, timings = _compile_and_sample_admission_state(
+        state,
+        structural_plan,
+        design,
+        compilation_label="Full-model compilation",
+        predictive_label="Exact full-model prior-predictive simulation",
     )
 
     accepted = accepted or {}

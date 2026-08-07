@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -269,6 +269,8 @@ class InferenceConfig:
 
     def to_sampler_config(self, method_override: str | None = None) -> SamplerConfig:
         """Build a flat sampler config dict for SSM inference."""
+        from nof1_causal_lab.sampler_config import validate_sampler_config
+
         method = method_override or self.method
         if method != "marginal_particle_gibbs":
             raise ValueError(
@@ -287,7 +289,7 @@ class InferenceConfig:
                 **dataclasses.asdict(self.marginal_particle_gibbs),
             }
         )
-        return cast("SamplerConfig", config)
+        return validate_sampler_config(config)
 
 
 # ---------------------------------------------------------------------------

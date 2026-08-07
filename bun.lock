@@ -1,11 +1,13 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "nof1-causal-lab",
       "devDependencies": {
         "@ast-grep/cli": "^0.44.1",
         "cspell": "^10.0.0",
+        "jscpd": "5.0.12",
         "knip": "^6.20.0",
         "markdownlint-cli2": "^0.22.0",
         "mathjax-full": "3.2.2",
@@ -1746,6 +1748,20 @@
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
     "js-yaml": ["js-yaml@4.1.1", "", { "dependencies": { "argparse": "^2.0.1" }, "bin": { "js-yaml": "bin/js-yaml.js" } }, "sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA=="],
+
+    "jscpd": ["jscpd@5.0.12", "", { "optionalDependencies": { "jscpd-darwin-arm64": "5.0.12", "jscpd-darwin-x64": "5.0.12", "jscpd-linux-arm64-gnu": "5.0.12", "jscpd-linux-x64-gnu": "5.0.12", "jscpd-linux-x64-musl": "5.0.12", "jscpd-windows-x64-msvc": "5.0.12" }, "bin": { "jscpd": "run-jscpd.js" } }, "sha512-87dC+akj2mCywlt8p3xnRlDg0B55u4GDbfE9cuwOOeIxbEuWuIoNqGoYi65A0516aJ4EzAjGwBj1Qb/Ahc8WAQ=="],
+
+    "jscpd-darwin-arm64": ["jscpd-darwin-arm64@5.0.12", "", { "os": "darwin", "cpu": "arm64" }, "sha512-CQCDYhQY9yOGGeauzkRGYW/QtXurPCjfDkEhUoM/M5UdmpzxfG3i9mnNsaheJ0RdFRf73mL7JaLVRP8U2l5/kA=="],
+
+    "jscpd-darwin-x64": ["jscpd-darwin-x64@5.0.12", "", { "os": "darwin", "cpu": "x64" }, "sha512-7XNCDfChP9fPkIWLepd0zGnTov7/5mR7rJ5Utc1MdWFdgkN//qz6FAJ1FhQA0E/qjFedy9XTucfUCgLybSBsjw=="],
+
+    "jscpd-linux-arm64-gnu": ["jscpd-linux-arm64-gnu@5.0.12", "", { "os": "linux", "cpu": "arm64" }, "sha512-i/usHD0/8twzb2Qo4vFWcnuAD4IDLS6K/mTXwYy1CiJZDw4gmjfH45jtjdKUyoutTAiNs+ZWZgx1gIRljUbFuA=="],
+
+    "jscpd-linux-x64-gnu": ["jscpd-linux-x64-gnu@5.0.12", "", { "os": "linux", "cpu": "x64" }, "sha512-TqaeSTaGawcqyXSrQvYJFtLRn4aQeHgphGGsq2ZtVAg+lPeuMmh81c3bl0yi2dL3gDX1RGBQKBVul1XQknOuoA=="],
+
+    "jscpd-linux-x64-musl": ["jscpd-linux-x64-musl@5.0.12", "", { "os": "linux", "cpu": "x64" }, "sha512-WelugY1/rdoo0Y0sqJ2XQOIvyIZTfRe+vP3MJe4XvEUwPF0v+9SQoS34FnfblRhsddVixyNkgl7x/sHid9UMJw=="],
+
+    "jscpd-windows-x64-msvc": ["jscpd-windows-x64-msvc@5.0.12", "", { "os": "win32", "cpu": "x64" }, "sha512-01x1klKjvfzI6Of5tI9u72x7TIQZQLLG6kMdsEPJKl/BXbskdknrfCepeTXRBbdFPKs25jfcd0klZ4OdDvww5w=="],
 
     "jsdom": ["jsdom@29.0.1", "", { "dependencies": { "@asamuzakjp/css-color": "^5.0.1", "@asamuzakjp/dom-selector": "^7.0.3", "@bramus/specificity": "^2.4.2", "@csstools/css-syntax-patches-for-csstree": "^1.1.1", "@exodus/bytes": "^1.15.0", "css-tree": "^3.2.1", "data-urls": "^7.0.0", "decimal.js": "^10.6.0", "html-encoding-sniffer": "^6.0.0", "is-potential-custom-element-name": "^1.0.1", "lru-cache": "^11.2.7", "parse5": "^8.0.0", "saxes": "^6.0.0", "symbol-tree": "^3.2.4", "tough-cookie": "^6.0.1", "undici": "^7.24.5", "w3c-xmlserializer": "^5.0.0", "webidl-conversions": "^8.0.1", "whatwg-mimetype": "^5.0.0", "whatwg-url": "^16.0.1", "xml-name-validator": "^5.0.0" }, "peerDependencies": { "canvas": "^3.0.0" }, "optionalPeers": ["canvas"] }, "sha512-z6JOK5gRO7aMybVq/y/MlIpKh8JIi68FBKMUtKkK2KH/wMSRlCxQ682d08LB9fYXplyY/UXG8P4XXTScmdjApg=="],
 

@@ -12,10 +12,8 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from nof1_causal_lab.utils.harness.mcp_server import (
-    _find_free_port,
-    serve_tools_http,
-)
+from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
+from nof1_causal_lab.utils.harness.networking import find_free_port
 from nof1_causal_lab.utils.openrouter_client import Tool
 from tests.helpers import run_async as _run
 
@@ -148,7 +146,7 @@ class TestMCPServer:
         assert url_a != url_b
 
     def test_find_free_port_returns_bindable_port(self):
-        port = _find_free_port()
+        port = find_free_port()
         assert 1024 < port < 65536
 
     @pytest.mark.timeout(10)

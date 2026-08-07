@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "uv run uvicorn nof1_causal_lab.tool_server:app --reload --port 8100",
+    "duplicates": "uv run python scripts/find_duplicates.py",
     "notebooks": "bash scripts/notebooks.sh",
     "fit:cached": "uv run modal run scripts/cached_fit.py",
     "codegen:docs": "uv run python scripts/export_distribution_docs.py",

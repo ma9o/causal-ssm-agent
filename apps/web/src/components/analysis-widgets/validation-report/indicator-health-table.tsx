@@ -8,7 +8,7 @@ import type {
   IndicatorValidation,
 } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 
 type IndicatorAuditRow = {
   indicator: string;
@@ -109,6 +109,36 @@ function buildRows(audits: Record<string, IndicatorAudit | undefined>): Indicato
     }));
 }
 
+function buildStatusColumn<TValue extends number | boolean>(
+  summaries: Record<StatusField, ColumnIssueSummary>,
+  config: {
+    field: StatusField;
+    label: string;
+    tooltip: string;
+    value: (row: IndicatorAuditRow) => TValue | null | undefined;
+    format: (value: TValue) => ReactNode;
+    align?: "right";
+  },
+) {
+  return col.accessor(config.value, {
+    id: config.field,
+    header: () => (
+      <span className="inline-flex items-center">
+        <HeaderWithTooltip label={config.label} tooltip={config.tooltip} />
+        <IssueBadge summary={summaries[config.field]} />
+      </span>
+    ),
+    cell: (info) => {
+      const value = info.getValue();
+      return value == null ? "--" : config.format(value);
+    },
+    meta: {
+      align: config.align,
+      severity: (_value, row) => cellSeverity(rowStatus(row, config.field)),
+    },
+  });
+}
+
 function buildColumns(summaries: Record<StatusField, ColumnIssueSummary>) {
   return [
     col.accessor("indicator", {
@@ -133,25 +163,13 @@ function buildColumns(summaries: Record<StatusField, ColumnIssueSummary>) {
       },
       meta: { align: "right" },
     }),
-    col.accessor((row) => row.profile?.n_obs, {
-      id: "n_obs",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Obs"
-            tooltip="Number of model-ready observations available for this indicator."
-          />
-          <IssueBadge summary={summaries.n_obs} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : value.toLocaleString();
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "n_obs")),
-      },
+    buildStatusColumn(summaries, {
+      field: "n_obs",
+      label: "Obs",
+      tooltip: "Number of model-ready observations available for this indicator.",
+      value: (row) => row.profile?.n_obs,
+      format: (value) => value.toLocaleString(),
+      align: "right",
     }),
     col.accessor((row) => row.profile?.mean, {
       id: "mean",
@@ -167,142 +185,61 @@ function buildColumns(summaries: Record<StatusField, ColumnIssueSummary>) {
       },
       meta: { align: "right" },
     }),
-    col.accessor((row) => row.profile?.variance, {
-      id: "variance",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Variance"
-            tooltip="Sample variance of the model-ready values. Near-zero variance means the series is effectively constant."
-          />
-          <IssueBadge summary={summaries.variance} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : formatNumber(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "variance")),
-      },
+    buildStatusColumn(summaries, {
+      field: "variance",
+      label: "Variance",
+      tooltip:
+        "Sample variance of the model-ready values. Near-zero variance means the series is effectively constant.",
+      value: (row) => row.profile?.variance,
+      format: (value) => formatNumber(value),
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.n_unparseable_timestamps, {
-      id: "n_unparseable_timestamps",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Bad TS"
-            tooltip="Count of timestamps that could not be parsed during validation."
-          />
-          <IssueBadge summary={summaries.n_unparseable_timestamps} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : String(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "n_unparseable_timestamps")),
-      },
+    buildStatusColumn(summaries, {
+      field: "n_unparseable_timestamps",
+      label: "Bad TS",
+      tooltip: "Count of timestamps that could not be parsed during validation.",
+      value: (row) => row.profile?.n_unparseable_timestamps,
+      format: String,
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.time_coverage_ratio, {
-      id: "time_coverage_ratio",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Coverage"
-            tooltip="Fraction of the requested time span covered by extracted observations."
-          />
-          <IssueBadge summary={summaries.time_coverage_ratio} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : formatNumber(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "time_coverage_ratio")),
-      },
+    buildStatusColumn(summaries, {
+      field: "time_coverage_ratio",
+      label: "Coverage",
+      tooltip: "Fraction of the requested time span covered by extracted observations.",
+      value: (row) => row.profile?.time_coverage_ratio,
+      format: (value) => formatNumber(value),
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.max_gap_ratio, {
-      id: "max_gap_ratio",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Max Gap"
-            tooltip="Largest timestamp gap relative to the acceptable gap threshold."
-          />
-          <IssueBadge summary={summaries.max_gap_ratio} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : formatNumber(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "max_gap_ratio")),
-      },
+    buildStatusColumn(summaries, {
+      field: "max_gap_ratio",
+      label: "Max Gap",
+      tooltip: "Largest timestamp gap relative to the acceptable gap threshold.",
+      value: (row) => row.profile?.max_gap_ratio,
+      format: (value) => formatNumber(value),
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.dtype_violations, {
-      id: "dtype_violations",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Type Viol."
-            tooltip="Number of values that violated the expected measurement dtype."
-          />
-          <IssueBadge summary={summaries.dtype_violations} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : String(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "dtype_violations")),
-      },
+    buildStatusColumn(summaries, {
+      field: "dtype_violations",
+      label: "Type Viol.",
+      tooltip: "Number of values that violated the expected measurement dtype.",
+      value: (row) => row.profile?.dtype_violations,
+      format: String,
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.duplicate_pct, {
-      id: "duplicate_pct",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Dup %"
-            tooltip="Share of repeated values that may indicate extraction artifacts."
-          />
-          <IssueBadge summary={summaries.duplicate_pct} />
-        </span>
-      ),
-      cell: (info) => {
-        const value = info.getValue();
-        return value == null ? "--" : formatNumber(value);
-      },
-      meta: {
-        align: "right",
-        severity: (_v, row) => cellSeverity(rowStatus(row, "duplicate_pct")),
-      },
+    buildStatusColumn(summaries, {
+      field: "duplicate_pct",
+      label: "Dup %",
+      tooltip: "Share of repeated values that may indicate extraction artifacts.",
+      value: (row) => row.profile?.duplicate_pct,
+      format: (value) => formatNumber(value),
+      align: "right",
     }),
-    col.accessor((row) => row.profile?.arithmetic_sequence_detected, {
-      id: "arithmetic_sequence_detected",
-      header: () => (
-        <span className="inline-flex items-center">
-          <HeaderWithTooltip
-            label="Arith. Seq."
-            tooltip="Whether the indicator values form a suspicious arithmetic sequence."
-          />
-          <IssueBadge summary={summaries.arithmetic_sequence_detected} />
-        </span>
-      ),
-      cell: (info) =>
-        info.getValue() ? "detected" : <span className="text-muted-foreground">none</span>,
-      meta: {
-        severity: (_v, row) => cellSeverity(rowStatus(row, "arithmetic_sequence_detected")),
-      },
+    buildStatusColumn(summaries, {
+      field: "arithmetic_sequence_detected",
+      label: "Arith. Seq.",
+      tooltip: "Whether the indicator values form a suspicious arithmetic sequence.",
+      value: (row) => row.profile?.arithmetic_sequence_detected,
+      format: (value) => (value ? "detected" : <span className="text-muted-foreground">none</span>),
     }),
   ];
 }

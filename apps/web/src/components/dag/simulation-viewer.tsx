@@ -5,9 +5,9 @@ import { Bot, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
 import { ManifestProjection } from "@/components/analysis-widgets/posterior/treatment-effect-visuals";
 import { TreatmentRankingTable } from "@/components/analysis-widgets/posterior/treatment-ranking-table";
+import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
 import {
   Accordion,
   AccordionContent,
@@ -18,12 +18,15 @@ import { InteractiveDag } from "./interactive/interactive-dag";
 import type { SimulateFn } from "./interactive/simulate-input";
 import type { EdgePosterior } from "./intervention-dag-types";
 import { ScenarioRail } from "./scenario-rail";
+import type { ConstructStatus } from "./structure-dag";
 
 export interface SimulationViewerGraph {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
   edgePosteriors?: Record<string, EdgePosterior>;
+  nodeStatuses?: Record<string, ConstructStatus>;
+  indicatorsVisible?: boolean;
 }
 
 export interface SimulationViewerProps {
@@ -35,6 +38,7 @@ export interface SimulationViewerProps {
   rankingResults?: TreatmentEffect[];
   /** Live simulate seam; when present, do() editing is enabled on the DAG. */
   onSimulate?: SimulateFn;
+  onNodeClick?: (constructName: string) => void;
 }
 
 /**
@@ -73,10 +77,12 @@ function ScenarioDetail({
   scenario,
   graph,
   onSimulate,
+  onNodeClick,
 }: {
   scenario: BaselineReportScenario;
   graph: SimulationViewerGraph;
   onSimulate?: SimulateFn;
+  onNodeClick?: (constructName: string) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -84,8 +90,11 @@ function ScenarioDetail({
         constructs={graph.constructs}
         edges={graph.edges}
         indicators={graph.indicators}
+        indicatorsVisible={graph.indicatorsVisible}
+        nodeStatuses={graph.nodeStatuses}
         result={scenario.result}
         onSimulate={onSimulate}
+        onNodeClick={onNodeClick}
       />
       <SimulationWarnings warnings={scenario.result.warnings} />
       {scenario.manifestEffects ? (
@@ -112,6 +121,7 @@ export function SimulationViewer({
   onSelect,
   rankingResults,
   onSimulate,
+  onNodeClick,
 }: SimulationViewerProps) {
   const selected = useMemo(
     () => scenarios.find((scenario) => scenario.key === selectedKey) ?? scenarios[0] ?? null,
@@ -133,7 +143,12 @@ export function SimulationViewer({
           />
           {selected ? <ScenarioBlurb scenario={selected} /> : null}
           {selected ? (
-            <ScenarioDetail scenario={selected} graph={graph} onSimulate={onSimulate} />
+            <ScenarioDetail
+              scenario={selected}
+              graph={graph}
+              onSimulate={onSimulate}
+              onNodeClick={onNodeClick}
+            />
           ) : null}
         </>
       )}

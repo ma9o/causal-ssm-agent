@@ -592,8 +592,15 @@ def _build_eval_fns(
         unc = unravel_fn(z)
         return {name: transforms[name](unc[name]) for name in unc}, unc
 
-    def _log_lik_fn_bound(z, latent_mode_init=None):
-        """Log-likelihood p(y|theta) via the configured backend only."""
+    def _evaluate_likelihood(
+        z,
+        eval_observations,
+        eval_times,
+        transition_inputs,
+        latent_mode_init,
+        *,
+        with_aux: bool,
+    ):
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
         dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
@@ -602,171 +609,87 @@ def _build_eval_fns(
             registry=runtime_registry,
         )
         time_intervals = (
-            jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
-        )
-        if latent_mode_init is None:
-            lnc = likelihood_backend.compute_log_likelihood(
-                dynamics,
-                measurement_params,
-                initial_state,
-                observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=bound_transition_inputs,
-            )
-        else:
-            lnc = likelihood_backend.compute_log_likelihood(
-                dynamics,
-                measurement_params,
-                initial_state,
-                observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=bound_transition_inputs,
-                latent_mode_init=latent_mode_init,
-            )
-        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
-
-    def _log_lik_fn_runtime(z, runtime_observations, runtime_times, latent_mode_init=None):
-        """Runtime-argument log-likelihood p(y|theta)."""
-        con, _ = _constrain(z)
-        original_samples = con if sample_resolver is None else sample_resolver(con)
-        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            original_samples,
-            model.spec,
-            registry=runtime_registry,
-        )
-        time_intervals = (
-            jnp.diff(runtime_times, prepend=runtime_times[0])
+            jnp.diff(eval_times, prepend=eval_times[0])
             .at[0]
-            .set(jnp.asarray(MIN_DT, dtype=runtime_times.dtype))
+            .set(jnp.asarray(MIN_DT, dtype=eval_times.dtype))
         )
-        runtime_transition_inputs = (
-            None
-            if bound_transition_inputs is None
-            else bound_transition_inputs[: runtime_times.shape[0]]
+        backend_fn = (
+            likelihood_backend.compute_log_likelihood_with_aux
+            if with_aux
+            else likelihood_backend.compute_log_likelihood
         )
+        backend_kwargs = {
+            "extra_params": extra_params,
+            "transition_inputs": transition_inputs,
+        }
         if latent_mode_init is None:
-            lnc = likelihood_backend.compute_log_likelihood(
+            evaluated = backend_fn(
                 dynamics,
                 measurement_params,
                 initial_state,
-                runtime_observations,
+                eval_observations,
                 time_intervals,
-                extra_params=extra_params,
-                transition_inputs=runtime_transition_inputs,
+                **backend_kwargs,
             )
         else:
-            lnc = likelihood_backend.compute_log_likelihood(
+            evaluated = backend_fn(
                 dynamics,
                 measurement_params,
                 initial_state,
-                runtime_observations,
+                eval_observations,
                 time_intervals,
-                extra_params=extra_params,
-                transition_inputs=runtime_transition_inputs,
+                **backend_kwargs,
                 latent_mode_init=latent_mode_init,
             )
+        aux = None
+        if with_aux:
+            lnc, aux = evaluated
+        else:
+            lnc = evaluated
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
+        total_ll = jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
+        return (total_ll, aux) if with_aux else total_ll
 
-    log_lik_base = _log_lik_fn_runtime if runtime_observations_times else _log_lik_fn_bound
+    def _likelihood_function(*, with_aux: bool):
+        if runtime_observations_times:
+
+            def _runtime(z, runtime_observations, runtime_times, latent_mode_init=None):
+                runtime_transition_inputs = (
+                    None
+                    if bound_transition_inputs is None
+                    else bound_transition_inputs[: runtime_times.shape[0]]
+                )
+                return _evaluate_likelihood(
+                    z,
+                    runtime_observations,
+                    runtime_times,
+                    runtime_transition_inputs,
+                    latent_mode_init,
+                    with_aux=with_aux,
+                )
+
+            return _runtime
+
+        def _bound(z, latent_mode_init=None):
+            return _evaluate_likelihood(
+                z,
+                observations,
+                times,
+                bound_transition_inputs,
+                latent_mode_init,
+                with_aux=with_aux,
+            )
+
+        return _bound
+
+    log_lik_base = _likelihood_function(with_aux=False)
     log_lik_fn = (
         jax.checkpoint(log_lik_base) if likelihood_backend.checkpoint_loglik else log_lik_base
     )
 
-    def _log_lik_with_aux_fn_bound(z, latent_mode_init=None):
-        """Log-likelihood p(y|theta) plus a fixed-shape backend aux payload."""
-        con, _ = _constrain(z)
-        original_samples = con if sample_resolver is None else sample_resolver(con)
-        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            original_samples,
-            model.spec,
-            registry=runtime_registry,
-        )
-        time_intervals = (
-            jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
-        )
-        if latent_mode_init is None:
-            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                dynamics,
-                measurement_params,
-                initial_state,
-                observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=bound_transition_inputs,
-            )
-        else:
-            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                dynamics,
-                measurement_params,
-                initial_state,
-                observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=bound_transition_inputs,
-                latent_mode_init=latent_mode_init,
-            )
-        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        total_ll = jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
-        return total_ll, aux
-
-    def _log_lik_with_aux_fn_runtime(
-        z,
-        runtime_observations,
-        runtime_times,
-        latent_mode_init=None,
-    ):
-        """Runtime-argument log-likelihood p(y|theta) plus fixed-shape aux."""
-        con, _ = _constrain(z)
-        original_samples = con if sample_resolver is None else sample_resolver(con)
-        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            original_samples,
-            model.spec,
-            registry=runtime_registry,
-        )
-        time_intervals = (
-            jnp.diff(runtime_times, prepend=runtime_times[0])
-            .at[0]
-            .set(jnp.asarray(MIN_DT, dtype=runtime_times.dtype))
-        )
-        runtime_transition_inputs = (
-            None
-            if bound_transition_inputs is None
-            else bound_transition_inputs[: runtime_times.shape[0]]
-        )
-        if latent_mode_init is None:
-            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                dynamics,
-                measurement_params,
-                initial_state,
-                runtime_observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=runtime_transition_inputs,
-            )
-        else:
-            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                dynamics,
-                measurement_params,
-                initial_state,
-                runtime_observations,
-                time_intervals,
-                extra_params=extra_params,
-                transition_inputs=runtime_transition_inputs,
-                latent_mode_init=latent_mode_init,
-            )
-        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        total_ll = jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
-        return total_ll, aux
-
     # The aux payload can include latent-mode state reused across outer evaluations.
     # Rematerializing that path leaks tracers through the returned aux tree.
-    log_lik_with_aux_fn = (
-        _log_lik_with_aux_fn_runtime if runtime_observations_times else _log_lik_with_aux_fn_bound
-    )
+    log_lik_with_aux_fn = _likelihood_function(with_aux=True)
 
     def log_prior_unc_fn(z):
         """Log-prior in unconstrained space: log p(T(z)) + log|J(z)|."""

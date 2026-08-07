@@ -23,10 +23,7 @@ Design notes:
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
-import socket
 import traceback
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -37,6 +34,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -45,13 +43,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-def _find_free_port(host: str = "127.0.0.1") -> int:
-    """Ask the OS for an unused TCP port on ``host``."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        return sock.getsockname()[1]
 
 
 def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Server:
@@ -123,7 +114,7 @@ async def serve_tools_http(
     On exit, the uvicorn task is cancelled and any in-flight sessions
     are torn down. The port is discovered automatically if not supplied.
     """
-    resolved_port = port if port is not None else _find_free_port(host)
+    resolved_port = port if port is not None else find_free_port(host)
     server = build_mcp_server(tools, name=name)
 
     session_manager = StreamableHTTPSessionManager(
@@ -154,22 +145,12 @@ async def serve_tools_http(
     )
     uvicorn_server = uvicorn.Server(config)
 
-    async with session_manager.run():
-        serve_task = asyncio.create_task(uvicorn_server.serve(), name=f"mcp-server-{resolved_port}")
-        try:
-            # Wait for uvicorn to finish startup before yielding the URL.
-            while not uvicorn_server.started and not serve_task.done():
-                await asyncio.sleep(0.01)
-            if serve_task.done():
-                # Bubble up startup failure.
-                serve_task.result()
-                raise RuntimeError("MCP uvicorn server exited during startup")
-            yield f"http://{host}:{resolved_port}/mcp"
-        finally:
-            uvicorn_server.should_exit = True
-            try:
-                await asyncio.wait_for(serve_task, timeout=5.0)
-            except TimeoutError:
-                serve_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await serve_task
+    async with (
+        session_manager.run(),
+        run_uvicorn_server(
+            uvicorn_server,
+            task_name=f"mcp-server-{resolved_port}",
+            startup_error="MCP uvicorn server exited during startup",
+        ),
+    ):
+        yield f"http://{host}:{resolved_port}/mcp"

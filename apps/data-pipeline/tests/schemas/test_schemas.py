@@ -257,6 +257,38 @@ class TestIndicator:
         )
         assert ind.ordinal_levels == ["low", "medium", "high"]
 
+    def test_categorical_requires_levels(self):
+        with pytest.raises(ValueError, match="categorical_levels is required"):
+            Indicator(
+                name="location",
+                construct_name="context",
+                how_to_measure="Extract location",
+                measurement_dtype="categorical",
+                aggregation="last",
+            )
+
+    def test_categorical_needs_at_least_two_levels(self):
+        with pytest.raises(ValueError, match="at least 2 items"):
+            Indicator(
+                name="location",
+                construct_name="context",
+                how_to_measure="Extract location",
+                measurement_dtype="categorical",
+                aggregation="last",
+                categorical_levels=["home"],
+            )
+
+    def test_categorical_rejects_duplicate_levels(self):
+        with pytest.raises(ValueError, match="duplicate labels"):
+            Indicator(
+                name="location",
+                construct_name="context",
+                how_to_measure="Extract location",
+                measurement_dtype="categorical",
+                aggregation="last",
+                categorical_levels=["home", "home"],
+            )
+
     def test_non_ordinal_ignores_levels(self):
         """Non-ordinal dtype doesn't require ordinal_levels."""
         ind = Indicator(

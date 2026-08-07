@@ -1,9 +1,12 @@
 """Tests for config.py: dataclass methods and load_config parsing."""
 
+import dataclasses
 import textwrap
 
 import pytest
+from pydantic import ValidationError
 
+from nof1_causal_lab.sampler_config import SamplerConfig, validate_sampler_config
 from nof1_causal_lab.utils.config import (
     AnalysisCommentaryConfig,
     ClaudeCodeDefaults,
@@ -34,6 +37,26 @@ from tests.helpers import run_async
 
 
 class TestToSamplerConfig:
+    def test_authorable_fields_are_accepted_by_runtime_contract(self):
+        authorable_fields = {
+            "method",
+            "num_warmup",
+            "num_samples",
+            "num_chains",
+            "seed",
+            "n_ieks_iters",
+            *(field.name for field in dataclasses.fields(MarginalParticleGibbsConfig)),
+        }
+        accepted_fields = SamplerConfig.__required_keys__ | SamplerConfig.__optional_keys__
+
+        assert authorable_fields <= accepted_fields
+
+    def test_runtime_contract_rejects_unknown_fields(self):
+        config = InferenceConfig().to_sampler_config()
+
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            validate_sampler_config({**config, "unknown_option": True})
+
     def test_marginal_particle_gibbs_explicit(self):
         cfg = InferenceConfig(method="marginal_particle_gibbs")
         result = cfg.to_sampler_config()

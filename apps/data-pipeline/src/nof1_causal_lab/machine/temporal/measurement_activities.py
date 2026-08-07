@@ -12,15 +12,17 @@ from dataclasses import replace
 from typing import Any, cast
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_derivation_cascade
-from nof1_causal_lab.machine.errors import TransitionExecutionError
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins, run_retractions
+from nof1_causal_lab.machine.model_contracts import project_model_fields
+from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.temporal.activity_errors import (
+    as_non_retryable_application_error,
+)
 from nof1_causal_lab.machine.temporal.messages import (
     ExtractionChunkFinalizeInput,
     ExtractionChunkResult,
@@ -56,22 +58,6 @@ def _first_config_value(*values: Any) -> Any:
         if value is not None:
             return value
     return None
-
-
-def _filter_measurements_contract(cls: Any, data: UncheckedJsonObject) -> UncheckedJsonObject:
-    fields = set(cls.model_fields.keys())
-    return {key: value for key, value in data.items() if key in fields}
-
-
-def _transition_failure(exc: Exception) -> ApplicationError:
-    if isinstance(exc, TransitionExecutionError):
-        return ApplicationError(
-            str(exc),
-            exc.diagnostics,
-            type=type(exc).__name__,
-            non_retryable=True,
-        )
-    return ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True)
 
 
 @activity.defn
@@ -406,7 +392,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
         panel = materialized["data_for_model"]
         report: UncheckedJsonObject = {"workers": materialized["worker_statuses"]}
-        report = _filter_measurements_contract(MeasurementsContract, report)
+        report = project_model_fields(MeasurementsContract, report)
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -429,11 +415,9 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                 )
             )
 
-        spec = transition_spec("measurements")
-        retracted = run_retractions(input.state, spec, produced)
-        return complete_derivation_cascade(store, input.state, produced, retracted)
+        return complete_computed_transition(store, input.state, "measurements", produced)
     except Exception as exc:
-        raise _transition_failure(exc) from exc
+        raise as_non_retryable_application_error(exc) from exc
 
 
 MEASUREMENT_ACTIVITIES = [

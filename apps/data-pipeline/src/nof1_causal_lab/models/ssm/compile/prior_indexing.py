@@ -249,6 +249,24 @@ class _BindingContext:
 type SpecialParameterHandler = Callable[[Any, _BindingContext], None]
 
 
+def _split_compound_parameter(
+    compound: str,
+    left_names: set[str],
+    right_names: set[str],
+    *,
+    error_message: str,
+    ctx: _BindingContext,
+) -> tuple[str, str] | None:
+    result = split_compound_name(compound, left_names, right_names)
+    if result is not None:
+        return result
+    if ctx.strict_structure:
+        ctx.errors.append(error_message)
+    else:
+        logger.warning("%s", error_message)
+    return None
+
+
 def _apply_simple_axis_rule(
     rule: _SimpleAxisRule,
     parameter: Any,
@@ -288,22 +306,19 @@ def _apply_simple_axis_rule(
 
 def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
     compound = parameter.name.removeprefix("beta_")
-    result = split_compound_name(
+    result = _split_compound_parameter(
         compound,
         ctx.latent_name_set | ctx.input_name_set,
         ctx.latent_name_set,
-    )
-    if result is None:
-        message = (
+        error_message=(
             "Could not parse FIXED_EFFECT parameter "
             f"{parameter.name!r} into (cause, effect) from known causes "
             f"{sorted(ctx.latent_name_set | ctx.input_name_set)} and latent effects "
             f"{sorted(ctx.latent_name_set)}"
-        )
-        if ctx.strict_structure:
-            ctx.errors.append(message)
-        else:
-            logger.warning("%s", message)
+        ),
+        ctx=ctx,
+    )
+    if result is None:
         return
     cause_name, effect_name = result
     effect_idx = ctx.latent_idx_map[effect_name]
@@ -334,17 +349,18 @@ def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
 
 def _handle_loading(parameter: Any, ctx: _BindingContext) -> None:
     compound = parameter.name.removeprefix("lambda_")
-    result = split_compound_name(compound, ctx.manifest_name_set, ctx.latent_name_set)
-    if result is None:
-        message = (
+    result = _split_compound_parameter(
+        compound,
+        ctx.manifest_name_set,
+        ctx.latent_name_set,
+        error_message=(
             "Could not parse LOADING parameter "
             f"{parameter.name!r} into (indicator, construct) from known manifests "
             f"{sorted(ctx.manifest_name_set)} / latents {sorted(ctx.latent_name_set)}"
-        )
-        if ctx.strict_structure:
-            ctx.errors.append(message)
-        else:
-            logger.warning("%s", message)
+        ),
+        ctx=ctx,
+    )
+    if result is None:
         return
     indicator_name, construct_name = result
     position = (
@@ -464,17 +480,18 @@ def _handle_correlation(parameter: Any, ctx: _BindingContext) -> None:
     if ctx.parameter_layout.n_diffusion_lower <= 0:
         return
     compound = parameter.name.removeprefix("cor_")
-    result = split_compound_name(compound, ctx.latent_name_set, ctx.latent_name_set)
-    if result is None:
-        message = (
+    result = _split_compound_parameter(
+        compound,
+        ctx.latent_name_set,
+        ctx.latent_name_set,
+        error_message=(
             "Could not parse CORRELATION parameter "
             f"{parameter.name!r} into (state1, state2) from known latents "
             f"{sorted(ctx.latent_name_set)}"
-        )
-        if ctx.strict_structure:
-            ctx.errors.append(message)
-        else:
-            logger.warning("%s", message)
+        ),
+        ctx=ctx,
+    )
+    if result is None:
         return
     state1_name, state2_name = result
     idx1 = ctx.latent_idx_map[state1_name]

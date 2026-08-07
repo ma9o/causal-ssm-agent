@@ -212,6 +212,31 @@ class TestDiscretizeSystem:
 
 
 class TestDiscretizeSystemBatched:
+    def test_empty_batch_without_intercept(self):
+        Ad, Qd, cd = discretize_system_batched(
+            -jnp.eye(2),
+            jnp.eye(2),
+            None,
+            jnp.empty((0,)),
+        )
+
+        assert Ad.shape == (0, 2, 2)
+        assert Qd.shape == (0, 2, 2)
+        assert cd is None
+
+    def test_empty_batch_with_intercept(self):
+        Ad, Qd, cd = discretize_system_batched(
+            -jnp.eye(2),
+            jnp.eye(2),
+            jnp.asarray([1.0, 2.0]),
+            jnp.empty((0,)),
+        )
+
+        assert Ad.shape == (0, 2, 2)
+        assert Qd.shape == (0, 2, 2)
+        assert cd is not None
+        assert cd.shape == (0, 2)
+
     def test_output_shapes(self):
         """Batched output should have (T, n, n) shapes."""
         n = 2

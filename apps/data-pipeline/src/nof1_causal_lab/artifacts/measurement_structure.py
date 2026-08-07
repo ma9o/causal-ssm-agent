@@ -235,38 +235,27 @@ class Indicator(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_ordinal_levels(self) -> Indicator:
-        """Ensure ordinal_levels is valid when measurement_dtype is 'ordinal'."""
-        if self.measurement_dtype == "ordinal":
-            if not self.ordinal_levels:
-                raise ValueError(
-                    "ordinal_levels is required when measurement_dtype='ordinal' "
-                    "(provide at least 2 ordered level labels)"
-                )
-            if len(self.ordinal_levels) < 2:
-                raise ValueError(
-                    f"ordinal_levels must have at least 2 items, got {len(self.ordinal_levels)}"
-                )
-            if len(self.ordinal_levels) != len(set(self.ordinal_levels)):
-                raise ValueError("ordinal_levels must not contain duplicate labels")
-        return self
+    def validate_discrete_levels(self) -> Indicator:
+        """Require at least two unique labels for ordinal and categorical indicators."""
+        if self.measurement_dtype not in {"ordinal", "categorical"}:
+            return self
 
-    @model_validator(mode="after")
-    def validate_categorical_levels(self) -> Indicator:
-        """Ensure categorical_levels is valid for categorical indicators."""
-        if self.measurement_dtype == "categorical":
-            if not self.categorical_levels:
-                raise ValueError(
-                    "categorical_levels is required when measurement_dtype='categorical' "
-                    "(provide at least 2 level labels)"
-                )
-            if len(self.categorical_levels) < 2:
-                raise ValueError(
-                    "categorical_levels must have at least 2 items, "
-                    f"got {len(self.categorical_levels)}"
-                )
-            if len(self.categorical_levels) != len(set(self.categorical_levels)):
-                raise ValueError("categorical_levels must not contain duplicate labels")
+        field_name = f"{self.measurement_dtype}_levels"
+        levels = (
+            self.ordinal_levels if self.measurement_dtype == "ordinal" else self.categorical_levels
+        )
+        label_description = (
+            "ordered level labels" if self.measurement_dtype == "ordinal" else "level labels"
+        )
+        if not levels:
+            raise ValueError(
+                f"{field_name} is required when measurement_dtype={self.measurement_dtype!r} "
+                f"(provide at least 2 {label_description})"
+            )
+        if len(levels) < 2:
+            raise ValueError(f"{field_name} must have at least 2 items, got {len(levels)}")
+        if len(levels) != len(set(levels)):
+            raise ValueError(f"{field_name} must not contain duplicate labels")
         return self
 
     @model_validator(mode="after")

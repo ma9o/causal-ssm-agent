@@ -3,55 +3,12 @@ import type {
   MeasurementsData,
   MeasurementsPersistedData,
 } from "@nof1-causal-lab/api-types";
-import type { FileMetaData } from "hyparquet";
-
-type ParquetSchemaColumn = {
-  name: string;
-  num_children?: number;
-};
-
-type ParquetMetadata = {
-  num_rows: bigint | number;
-  schema: ParquetSchemaColumn[];
-};
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-async function readRows(
-  file: ArrayBuffer,
-  metadata: ParquetMetadata,
-  rowStart: number,
-  rowEnd: number,
-  columns?: string[],
-): Promise<Record<string, unknown>[]> {
-  const { parquetReadObjects } = await import("hyparquet");
-  const { compressors } = await import("hyparquet-compressors");
-
-  return parquetReadObjects({
-    file,
-    metadata: metadata as unknown as FileMetaData,
-    compressors,
-    rowStart,
-    rowEnd,
-    columns,
-  });
-}
-
-function normalizeScalar(value: unknown): number | boolean | string | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "bigint") {
-    return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
-      ? Number(value)
-      : value.toString();
-  }
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "string") {
-    return value;
-  }
-  return String(value);
-}
+import {
+  normalizeParquetScalar,
+  type ParquetMetadata,
+  readParquetRows,
+  toArrayBuffer,
+} from "./parquet-utils";
 
 function normalizeOptionalString(value: unknown): string | null | undefined {
   if (value == null) return null;
@@ -66,7 +23,7 @@ function normalizeOptionalString(value: unknown): string | null | undefined {
 function normalizeObservationRecord(row: Record<string, unknown>): ObservationRecord {
   return {
     indicator: String(row.indicator ?? ""),
-    value: normalizeScalar(row.value),
+    value: normalizeParquetScalar(row.value),
     anchor_time: normalizeOptionalString(row.anchor_time) ?? null,
     support_kind: normalizeOptionalString(row.support_kind),
     summary_operator: normalizeOptionalString(row.summary_operator),
@@ -84,7 +41,7 @@ async function derivePerIndicatorCounts(
   const totalRows = Number(metadata.num_rows);
   if (totalRows === 0) return {};
 
-  const rows = await readRows(file, metadata, 0, totalRows, ["indicator"]);
+  const rows = await readParquetRows(file, metadata, 0, totalRows, ["indicator"]);
   const counts = new Map<string, number>();
 
   for (const row of rows) {
@@ -105,7 +62,7 @@ async function deriveExtractionSample(
   const sampleSize = Math.min(Number(metadata.num_rows), 20);
   if (sampleSize === 0) return [];
 
-  const rows = await readRows(file, metadata, 0, sampleSize);
+  const rows = await readParquetRows(file, metadata, 0, sampleSize);
   return rows.map(normalizeObservationRecord);
 }
 
