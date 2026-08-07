@@ -3,8 +3,7 @@
   "globalDependencies": [".env", ".env.local"],
   "tasks": {
     "//#docs:check": {
-      "inputs": ["README.md", "docs/**/*.md", ".markdownlint-docs.json"],
-      "outputs": []
+      "cache": false
     },
     "//#knip": {
       "inputs": [
@@ -34,6 +33,7 @@
     "format": {
       "cache": false
     },
+    "format:check": {},
     "test": {
       "cache": false,
       "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
@@ -50,8 +50,7 @@
       "cache": false
     },
     "codegen:check": {
-      "cache": false,
-      "dependsOn": ["codegen"]
+      "cache": false
     },
     "check": {
       "cache": false

@@ -13,11 +13,17 @@
     "lint": "biome check .",
     "lint:fix": "biome check --fix .",
     "format": "biome format --write .",
-    "codegen:docs": "cd ../../apps/data-pipeline && uv run python scripts/export_distribution_docs.py",
-    "codegen:schemas": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py && uv run python scripts/export_agent_api.py && cd ../../packages/api-types && bun run scripts/generate.ts",
-    "codegen": "bun run codegen:docs && bun run codegen:schemas",
-    "check": "bun run codegen:check && bun run lint && bun run type-check",
-    "codegen:check": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py --check && uv run python scripts/export_agent_api.py --check && cd ../../packages/api-types && bun run scripts/generate.ts --check"
+    "format:check": "biome format .",
+    "codegen:contracts:json": "uv run --directory ../../apps/data-pipeline python scripts/export_schemas.py",
+    "codegen:contracts:typescript": "bun run scripts/generate.ts",
+    "codegen:contracts": "bun run codegen:contracts:json && bun run codegen:contracts:typescript",
+    "codegen:agent-api": "uv run --directory ../../apps/data-pipeline python scripts/export_agent_api.py",
+    "codegen": "bun run --parallel --no-exit-on-error codegen:contracts codegen:agent-api",
+    "codegen:check:contracts-json": "uv run --directory ../../apps/data-pipeline python scripts/export_schemas.py --check",
+    "codegen:check:contracts-typescript": "bun run scripts/generate.ts --check",
+    "codegen:check:agent-api": "uv run --directory ../../apps/data-pipeline python scripts/export_agent_api.py --check",
+    "codegen:check": "bun run --parallel --no-exit-on-error codegen:check:contracts-json codegen:check:contracts-typescript codegen:check:agent-api",
+    "check": "bun run --parallel --no-exit-on-error codegen:check lint type-check"
   },
   "devDependencies": {
     "@nof1-causal-lab/typescript-config": "workspace:*",

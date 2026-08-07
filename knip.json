@@ -16,14 +16,11 @@
         "!src/**/__fixtures__/**",
         "!src/**/story-decorators.tsx",
         "!src/**/stage-story-*.{ts,tsx}",
+        "!src/components/pipeline/output-story-helpers.tsx",
+        "!src/components/pipeline/output-story-template.tsx",
         "!src/integration/**"
       ],
-      "ignoreDependencies": [
-        "@tailwindcss/typography",
-        "shadcn",
-        "tailwindcss",
-        "tw-animate-css"
-      ]
+      "ignoreDependencies": ["@tailwindcss/typography", "shadcn", "tailwindcss", "tw-animate-css"]
     }
   }
 }

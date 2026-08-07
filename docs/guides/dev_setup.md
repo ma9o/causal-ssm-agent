@@ -5,7 +5,7 @@
 | Tool | Version | Check |
 |------|---------|-------|
 | Node.js | 23 (`.node-version`) | `node --version` |
-| Bun | 1.2.23 (`package.json` `packageManager`) | `bun --version` |
+| Bun | 1.3.14 (`package.json` `packageManager`) | `bun --version` |
 | Python | 3.12+ (`apps/data-pipeline/.python-version`) | `python3 --version` |
 | uv | Latest | `uv --version` |
 
@@ -26,7 +26,8 @@ cp .env.example.dev .env
 # Fill in OPENROUTER_API_KEY (required)
 # Optional: EXA_API_KEY, TOOL_SERVER_URL
 
-# 4. Code generation (Python Pydantic → TypeScript types and generated docs)
+# 4. Code generation
+bun run codegen
 bun run docs:codegen
 ```
 
@@ -41,9 +42,9 @@ Optional keys:
 - `TEMPORAL_ADDRESS` — override the Temporal dev server address (default `localhost:7233`)
 - `EPISODE_FACADE_READ_ONLY=1` — serve reads only (what the hosted viewer's facade sets)
 
-### 4. Generate Types and Docs
+### 4. Generate API Artifacts and Docs
 
-Generates committed TypeScript contracts and generated docs from Python sources. See the [code generation guide](codegen.md) for details.
+Generates committed API artifacts and documentation from Python sources. See the [code generation guide](codegen.md) for details.
 
 ### 5. Start development servers
 
@@ -71,7 +72,9 @@ All commands run from the repo root via Turbo across all packages:
 bun run lint          # Lint (ruff, eslint, biome)
 bun run lint:fix      # Auto-fix lint issues
 bun run format        # Format (ruff, biome)
+bun run format:check  # Check formatting without writing
 bun run test          # Tests (pytest -m 'not slow', vitest)
 bun run type-check    # TypeScript type-check
-bun run docs:check    # Generated docs/codegen drift and markdown
+bun run codegen:check # Generated API artifact drift
+bun run docs:check    # Generated documentation drift and markdown
 ```

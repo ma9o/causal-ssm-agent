@@ -312,7 +312,7 @@ async function main() {
   generateMetadata();
 
   if (checkOnly && changedPaths.length > 0) {
-    console.error("TypeScript API type generation is out of date. Run `bun run docs:codegen`.");
+    console.error("TypeScript API type generation is out of date. Run `bun run codegen`.");
     for (const path of changedPaths) {
       console.error(`  ${path}`);
     }

@@ -5,12 +5,23 @@
   "scripts": {
     "dev": "uv run uvicorn nof1_causal_lab.tool_server:app --reload --port 8100",
     "notebooks": "bash scripts/notebooks.sh",
+    "fit:cached": "uv run modal run scripts/cached_fit.py",
+    "codegen:docs": "uv run python scripts/export_distribution_docs.py",
+    "codegen:docs:check": "uv run python scripts/export_distribution_docs.py --check",
     "test": "uv run pytest tests/ -m 'not slow'",
     "test:all": "uv run pytest tests/",
-    "lint": "uv run ruff check src/ tests/ evaluation/ notebooks/ && uv run ruff format --check src/ tests/ evaluation/ notebooks/ && uv run python scripts/validate_config.py && uv run python scripts/run_vulture.py",
+    "lint:ruff": "uv run ruff check src/ tests/ evaluation/ notebooks/",
+    "format:check": "uv run ruff format --check src/ tests/ evaluation/ notebooks/",
+    "lint:deptry": "uv run deptry src",
+    "lint:config": "uv run python scripts/validate_config.py",
+    "lint:type-boundaries": "uv run python scripts/check_type_boundaries.py",
+    "lint:test-type-boundaries": "uv run python scripts/check_type_boundaries.py --select CUSTOM001 tests",
+    "lint:architecture": "uv run python scripts/check_architecture_boundaries.py",
+    "lint:vulture": "uv run python scripts/run_vulture.py",
+    "lint": "bun run --parallel --no-exit-on-error lint:ruff format:check lint:deptry lint:config lint:type-boundaries lint:test-type-boundaries lint:architecture lint:vulture",
     "lint:fix": "uv run ruff check --fix src/ tests/ evaluation/ notebooks/ && uv run ruff format src/ tests/ evaluation/ notebooks/ && uv run python scripts/validate_config.py --fix",
     "format": "uv run ruff format src/ tests/ evaluation/ notebooks/",
-    "check": "bun run lint && bun run type-check && bun run test",
+    "check": "bun run --parallel --no-exit-on-error lint type-check test",
     "type-check": "uv run ty check"
   }
 }

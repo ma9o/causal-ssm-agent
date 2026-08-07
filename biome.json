@@ -22,6 +22,7 @@
       "!**/generated",
       "!packages/api-types/schemas",
       "!apps/web/public/perspective",
+      "!apps/web/src/components/__fixtures__/demo-run/*.json",
       "!apps/web/src/app/globals.css"
     ]
   }

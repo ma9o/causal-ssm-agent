@@ -3,7 +3,6 @@ import type {
   EpisodeArtifactStatus,
   EpisodeEvent as EpisodeEventRecord,
   EpisodeTransitionRecord,
-  MachineDescription,
 } from "@/lib/episode-types";
 export type {
   EpisodeArtifactStatus,
@@ -50,10 +49,6 @@ export function getAnalysisManifestQueryKey(workspaceId: string) {
 
 export async function getAnalysisManifest(workspaceId: string): Promise<AnalysisManifest> {
   return apiFetch<AnalysisManifest>(`/api/analysis/${workspaceId}`);
-}
-
-export async function getMachineDescription(): Promise<MachineDescription> {
-  return apiFetch<MachineDescription>("/api/machine");
 }
 
 export async function getEpisodeProgress(
