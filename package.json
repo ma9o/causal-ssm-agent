@@ -36,11 +36,11 @@
     "storybook": "turbo storybook"
   },
   "devDependencies": {
-    "@ast-grep/cli": "^0.44.1",
+    "@ast-grep/cli": "^0.45.1",
     "cspell": "^10.0.0",
-    "jscpd": "5.0.12",
+    "jscpd": "5.0.15",
     "knip": "^6.20.0",
-    "markdownlint-cli2": "^0.22.0",
+    "markdownlint-cli2": "^0.23.2",
     "mathjax-full": "3.2.2",
     "turbo": "^2"
   },
