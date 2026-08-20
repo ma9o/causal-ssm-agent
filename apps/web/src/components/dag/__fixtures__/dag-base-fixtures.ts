@@ -3,8 +3,9 @@ import { demoLatentStructure, demoMeasurementStructure } from "../../__fixtures_
 
 const latentStructure = demoLatentStructure as LatentStructureData;
 const measurementStructure = demoMeasurementStructure as MeasurementStructureViewData;
-
+export const design = measurementStructure.causal_design;
+export const structuralPlan = measurementStructure.structural_plan;
 export const constructs = latentStructure.latent_structure.constructs;
 export const edges = latentStructure.latent_structure.edges;
-const spec = measurementStructure.causal_design;
-export const indicators = spec.measurement.indicators;
+export const indicators = design.measurement.indicators;
+export const knownInputs = design.known_inputs;

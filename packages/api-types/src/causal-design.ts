@@ -1,8 +1,8 @@
 import type {
-  CausalEdge,
   KnownInput,
   LatentStructure,
   MeasurementStructure,
+  ScientificOnlyConstruct,
 } from "./generated/models";
 
 export interface IdentifiedTreatmentStatus {
@@ -22,22 +22,10 @@ export interface IdentifiabilityStatus {
   non_identifiable_treatments: Record<string, NonIdentifiableTreatmentStatus>;
 }
 
-export interface InducedDependency {
-  between: [string, string];
-  kind: "innovation_correlation" | "initial_state_correlation";
-  source_confounders: string[];
-}
-
-export interface EstimationSpec {
-  state_order: string[];
-  edges: CausalEdge[];
-  induced_dependencies: InducedDependency[];
-  known_inputs: KnownInput[];
-}
-
 export interface CausalDesign {
   latent: LatentStructure;
   measurement: MeasurementStructure;
   identifiability?: IdentifiabilityStatus | null;
-  estimation?: EstimationSpec | null;
+  known_inputs: KnownInput[];
+  scientific_only_constructs: ScientificOnlyConstruct[];
 }

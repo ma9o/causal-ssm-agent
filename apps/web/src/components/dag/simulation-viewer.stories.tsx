@@ -7,16 +7,14 @@ import {
   constructs,
   edgePosteriors,
   edges,
+  identifiableTreatments,
   indicators,
+  knownInputs,
   materializedBaselineReportData,
   demoBaselineTrace,
-  outcomeName,
+  nodeStatuses,
+  persistencePosteriors,
 } from "./__fixtures__/baseline_report-materialized-fixture";
-import {
-  buildDevMockMessages,
-  makeMockSimulate,
-  synthesizeMockScenarios,
-} from "./interactive/dev-mock-scenario";
 import { SimulationViewer } from "./simulation-viewer";
 
 /**
@@ -24,26 +22,29 @@ import { SimulationViewer } from "./simulation-viewer";
  *
  * Two layers (per the output view design):
  *  - Generative — direct `simulate` dispatch mints new scenarios. Disabled read-only.
- *  - Presentational — the viewer (left) shows a rail of scenarios (the no-intervention
- *    baseline first, then interventions), the LLM's blurb for the focused scenario,
+ *  - Presentational — the viewer (left) shows persisted intervention scenarios,
+ *    the LLM's blurb for the focused scenario,
  *    and the living DAG. Selection is shared: chat "View" ↔ rail.
  *
- * Scenarios come from the persisted trace (exercising the real string→object
- * coercion + per-scenario blurbs) merged with synthesized rich mock scenarios
- * (full drift + bands + indicators) so the viewer demonstrates the complete
- * living DAG in context.
+ * Scenarios come entirely from the persisted DEMO trace, exercising the real
+ * string→object coercion and the production simulation visualization payload
+ * without a component-local world.
  */
 
-const mockScenarios = synthesizeMockScenarios(constructs, edges, indicators, outcomeName);
-const scenarios = buildBaselineReportScenarios({
-  trace: demoBaselineTrace,
-  extraMessages: buildDevMockMessages(mockScenarios),
-});
+const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
-const graph = { constructs, edges, indicators, edgePosteriors };
-const mockSimulate = makeMockSimulate(mockScenarios.baseline.result);
+const graph = {
+  constructs,
+  edges,
+  indicators,
+  knownInputs,
+  edgePosteriors,
+  persistencePosteriors,
+  identifiableTreatments,
+  nodeStatuses,
+};
 
-function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
+function SimulationViewerWithChat() {
   const [selectedKey, setSelectedKey] = useState<string | null>(scenarios[0]?.key ?? null);
 
   return (
@@ -54,7 +55,6 @@ function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
         selectedKey={selectedKey}
         onSelect={setSelectedKey}
         rankingResults={materializedBaselineReportData.intervention_results}
-        onSimulate={readOnly ? undefined : mockSimulate}
       />
       <div className="flex h-[760px] min-h-0 flex-col rounded-lg border bg-muted/30 p-3">
         <LLMTracePanelView
@@ -75,12 +75,7 @@ const meta = {
 
 export default meta;
 
-export const LiveSession: StoryObj = {
-  name: "Live session (read-write)",
-  render: () => <SimulationViewerWithChat readOnly={false} />,
-};
-
-export const ReadOnly: StoryObj = {
-  name: "Read-only (materialized)",
-  render: () => <SimulationViewerWithChat readOnly={true} />,
+export const Materialized: StoryObj = {
+  name: "Materialized fixture scenarios",
+  render: () => <SimulationViewerWithChat />,
 };

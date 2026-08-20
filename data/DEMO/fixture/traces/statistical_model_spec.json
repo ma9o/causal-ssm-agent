@@ -1,0 +1,41 @@
+{
+  "model": "fixture/nof1-causal-lab",
+  "total_time_seconds": 18.6,
+  "usage": {
+    "input_tokens": 11240,
+    "output_tokens": 3260,
+    "reasoning_tokens": 1480
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "Artificial DEMO model-spec trace for Storybook. It mirrors the compiler-owned decision surfaces without claiming a completed fit.",
+      "reasoning": null,
+      "tool_calls": null,
+      "tool_call_id": null,
+      "tool_name": null,
+      "tool_result": null,
+      "tool_is_error": false
+    },
+    {
+      "role": "user",
+      "content": "Specify the validated daily model with 7 constructs and 10 retained indicators.",
+      "reasoning": null,
+      "tool_calls": null,
+      "tool_call_id": null,
+      "tool_name": null,
+      "tool_result": null,
+      "tool_is_error": false
+    },
+    {
+      "role": "assistant",
+      "content": "Materialized one likelihood per indicator (gamma=2, gaussian=1, negative_binomial=1, ordered_logistic=6) and 48 compiler-shaped prior surfaces. The model uses stationary initialization, free eligible observation intercepts, and no equilibrium forcing. Sparse safety and event channels remain visible as warnings rather than being silently removed.",
+      "reasoning": "Resolve support-compatible likelihoods from declared dtypes and empirical profiles; then enumerate persistence, causal-edge, diffusion, measurement, threshold, loading, and static-state parameters in the same semantic namespaces used by compilation.",
+      "tool_calls": null,
+      "tool_call_id": null,
+      "tool_name": null,
+      "tool_result": null,
+      "tool_is_error": false
+    }
+  ]
+}

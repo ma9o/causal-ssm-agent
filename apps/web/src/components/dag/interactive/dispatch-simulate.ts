@@ -17,6 +17,14 @@ export function createSimulateDispatch(workspaceId: string): SimulateFn {
     if (!response.ok || payload.error) {
       throw new Error(payload.error ?? `simulate dispatch failed (HTTP ${response.status})`);
     }
+    if (
+      typeof payload.output === "object" &&
+      payload.output != null &&
+      "error" in payload.output &&
+      typeof payload.output.error === "string"
+    ) {
+      throw new Error(payload.output.error);
+    }
     return payload.output as AnalysisSimulationResult;
   };
 }

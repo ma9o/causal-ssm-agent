@@ -16,12 +16,8 @@ import type {
 import { type ComponentType, lazy, memo, type ReactNode, Suspense, useMemo } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisTransitionRun } from "@/lib/api/analysis";
+import { deriveConstructStatuses } from "@/components/dag/construct-statuses";
 import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
-import {
-  buildDevMockMessages,
-  makeMockSimulate,
-  synthesizeMockScenarios,
-} from "@/components/dag/interactive/dev-mock-scenario";
 import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
 import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
 import { useArtifactView } from "@/lib/hooks/use-artifact-view";
@@ -29,6 +25,7 @@ import { useLLMTrace } from "@/lib/hooks/use-llm-trace";
 import { resolveTransitionObservedStatus } from "@/lib/transition-runtime";
 import {
   buildEdgePosteriors,
+  buildPersistencePosteriors,
   buildBaselineReportScenarios,
 } from "./output-views/baseline-report-scenarios";
 import { OutputPresentationShell } from "./output-presentation-shell";
@@ -227,70 +224,29 @@ function BaselineReportConnectedContent({
   const { data: posterior } = useArtifactView<PosteriorData>(workspaceId, "posterior", true);
   const { data: llmTrace } = useLLMTrace(workspaceId, "baseline_report", true);
 
-  const outcomeName = useMemo(
-    () =>
-      latentStructure?.latent_structure.constructs.find((construct) => construct.is_outcome)
-        ?.name ?? null,
-    [latentStructure],
-  );
-  // analysis visualizes the estimation projection — the retained latent states plus
-  // the observed known-input drivers that the SSM actually fits and simulates — not
-  // the full theoretical latent-structure model. Nodes dropped in measurement-structure (marginalized
-  // root confounders, non-identifiable treatments) are therefore excluded, and known
-  // inputs render as exogenous (held drivers, no self-dynamics) since they leave the
-  // latent state vector.
+  // The scientific DAG remains the stable base. Fitted edge posteriors and simulation
+  // trajectories appear only where the backend materialized them; marginalized
+  // constructs stay visible as subdued theory context.
   const graph = useMemo(() => {
-    const estimation = measurementStructure?.causal_design.estimation;
-    const stateOrder = new Set(estimation?.state_order ?? []);
-    const knownInputs = new Set((estimation?.known_inputs ?? []).map((input) => input.construct));
-    const constructs = (latentStructure?.latent_structure.constructs ?? [])
-      .filter((c) => stateOrder.has(c.name) || knownInputs.has(c.name))
-      .map((c) => (knownInputs.has(c.name) ? { ...c, role: "exogenous" as const } : c));
+    const design = measurementStructure?.causal_design;
     return {
-      constructs,
-      edges: estimation?.edges ?? [],
-      indicators: measurementStructure?.causal_design.measurement.indicators,
+      constructs: latentStructure?.latent_structure.constructs ?? [],
+      edges: latentStructure?.latent_structure.edges ?? [],
+      indicators: design?.measurement.indicators,
+      knownInputs: design?.known_inputs,
       edgePosteriors: buildEdgePosteriors({ latentStructure, modelSpec, posterior }),
+      persistencePosteriors: buildPersistencePosteriors({ modelSpec, posterior }),
+      identifiableTreatments: data.intervention_results.map(({ treatment }) => treatment),
+      nodeStatuses:
+        design && measurementStructure
+          ? deriveConstructStatuses(design, measurementStructure.structural_plan)
+          : undefined,
     };
-  }, [latentStructure, measurementStructure, modelSpec, posterior]);
-  // Synthesize the trajectory / drift visuals for the data's saved scenarios
-  // (each carries its own clamps + summary) against the projected estimation
-  // graph, so the interactive DAG is visible on the baseline_report page until the
-  // backend simulate tool joins the local loop. The trajectories are synthesized
-  // client-side (not real inference output), so in production this is restricted
-  // to read-only (published/demo) workspaces, where live simulate is unavailable
-  // anyway — it never fabricates scenarios for a live user analysis. Dev runs it
-  // everywhere for previewing.
-  const allowMockScenarios = process.env.NODE_ENV !== "production" || readOnly;
-  const mockScenarios = useMemo(
-    () =>
-      allowMockScenarios && outcomeName && graph.constructs.length > 0
-        ? synthesizeMockScenarios(
-            graph.constructs,
-            graph.edges,
-            graph.indicators ?? [],
-            outcomeName,
-            data.saved_scenarios,
-          )
-        : null,
-    [allowMockScenarios, outcomeName, graph, data.saved_scenarios],
-  );
-  const scenarios = useMemo(
-    () =>
-      buildBaselineReportScenarios({
-        trace: llmTrace,
-        extraMessages: mockScenarios ? buildDevMockMessages(mockScenarios) : [],
-      }),
-    [llmTrace, mockScenarios],
-  );
+  }, [data.intervention_results, latentStructure, measurementStructure, modelSpec, posterior]);
+  const scenarios = useMemo(() => buildBaselineReportScenarios({ trace: llmTrace }), [llmTrace]);
   const onSimulate = useMemo(
-    () =>
-      mockScenarios
-        ? makeMockSimulate(mockScenarios.baseline.result)
-        : readOnly
-          ? undefined
-          : createSimulateDispatch(workspaceId),
-    [mockScenarios, readOnly, workspaceId],
+    () => (readOnly ? undefined : createSimulateDispatch(workspaceId)),
+    [readOnly, workspaceId],
   );
 
   return (

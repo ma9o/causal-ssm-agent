@@ -1,0 +1,423 @@
+{
+  "latent_structure": {
+    "constructs": [
+      {
+        "name": "natural_recovery_propensity",
+        "description": "Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "past_escitalopram_response_tolerability",
+        "description": "Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "patient_taper_preference_beliefs",
+        "description": "Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "taper_speed_dose_reduction",
+        "description": "Rate and size of escitalopram dose reductions, including abrupt, linear, hyperbolic, paused, or reversed taper patterns.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "adherence_to_regimen",
+        "description": "Consistency with intended dose or taper plan, including missed doses, extra doses, and reinstatement behavior.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "escitalopram_dose_taken",
+        "description": "Actual escitalopram amount ingested at each model tick after taper instructions and adherence are realized.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "duration_current_escitalopram_use",
+        "description": "Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "stable_withdrawal_susceptibility",
+        "description": "Stable person-specific susceptibility to SSRI discontinuation symptoms, distinct from the historical fact of prior withdrawal episodes.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant"
+      },
+      {
+        "name": "neuroadaptation_dependence_state",
+        "description": "Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "withdrawal_symptom_burden",
+        "description": "Discontinuation symptoms after dose reduction, including dizziness, insomnia, anxiety, irritability, flu-like symptoms, nausea, and disequilibrium.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "external_stressful_events",
+        "description": "External shocks during follow-up such as loss, conflict, job strain, financial events, illness in others, or major schedule disruption.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "perceived_stress_burden",
+        "description": "Subjective stress load, threat appraisal, overload, uncontrollability, and daily hassles.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "physical_activity",
+        "description": "Amount and regularity of movement and exercise sufficient to affect sleep, reward, energy, and mood regulation.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "sleep_circadian_disruption",
+        "description": "Insomnia, hypersomnia, irregular sleep timing, circadian misalignment, and poor sleep quality.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "clinical_monitoring_rescue_care",
+        "description": "Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "other_psychotropic_or_somatic_treatments",
+        "description": "Concurrent medication changes, supplements, sleep aids, anxiolytics, stimulants, hormonal treatments, or somatic treatments affecting symptoms or exposure.",
+        "role": "endogenous",
+        "is_outcome": false,
+        "temporal_status": "time_varying"
+      },
+      {
+        "name": "internalizing_symptom_burden",
+        "description": "Primary outcome: latent depressive and anxiety symptom burden over the next two months, including mood, anhedonia, worry, irritability, somatic anxiety, and distress.",
+        "role": "endogenous",
+        "is_outcome": true,
+        "temporal_status": "time_varying"
+      }
+    ],
+    "edges": [
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "internalizing_symptom_burden",
+        "description": "Underlying remission and relapse propensity changes symptom burden independently of the taper pathway.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "natural_recovery_propensity",
+        "effect": "past_escitalopram_response_tolerability",
+        "description": "Natural improvement can be misattributed to escitalopram if medication began during spontaneous improvement.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Posternak and Miller (2001). Untreated short-term course of major depression.",
+            "url": "https://doi.org/10.1016/S0165-0327(00)00304-9",
+            "snippet": "Wait-list studies show measurable spontaneous improvement over weeks."
+          }
+        ]
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "duration_current_escitalopram_use",
+        "description": "Perceived benefit and acceptable tolerability make extended use more likely.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "past_escitalopram_response_tolerability",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Perceived past benefit discourages tapering, while side effects or lack of perceived benefit encourage it.",
+        "lagged": false,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Worsening symptoms can increase fear of tapering; wellness can increase confidence to taper.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "patient_taper_preference_beliefs",
+        "effect": "taper_speed_dose_reduction",
+        "description": "Motivation, fear of relapse, and coping confidence affect how quickly the person attempts to reduce dose.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "patient_taper_preference_beliefs",
+        "effect": "adherence_to_regimen",
+        "description": "Beliefs about benefit, harm, or dependence influence missed doses, self-directed dose changes, and reinstatement.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "taper_speed_dose_reduction",
+        "effect": "escitalopram_dose_taken",
+        "description": "Planned reductions mechanically lower the subsequent amount of escitalopram taken.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "adherence_to_regimen",
+        "effect": "escitalopram_dose_taken",
+        "description": "Missed doses, extra doses, and partial adherence change actual escitalopram dose relative to the plan.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.",
+            "url": "https://doi.org/10.1001/archinte.160.14.2101",
+            "snippet": "Depression is associated with poorer adherence to medical regimens."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "adherence_to_regimen",
+        "description": "Worsening depression or anxiety can reduce organization and motivation for taking medication as intended, or prompt rescue dosing.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "DiMatteo, Lepper, and Croghan (2000). Depression is a risk factor for noncompliance with medical treatment.",
+            "url": "https://doi.org/10.1001/archinte.160.14.2101",
+            "snippet": "Depressed patients were less likely to adhere to treatment recommendations."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "escitalopram_dose_taken",
+        "description": "Withdrawal symptoms can lead to pausing the taper, reinstating, or taking rescue doses.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Withdrawal symptoms can motivate reinstatement and slower tapering."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "patient_taper_preference_beliefs",
+        "description": "Discontinuation symptoms update beliefs about how risky or feasible tapering is.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "duration_current_escitalopram_use",
+        "effect": "neuroadaptation_dependence_state",
+        "description": "Longer continuous exposure allows more physiologic adaptation to SSRI blockade.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Horowitz and Taylor (2019). Tapering of SSRI treatment to mitigate withdrawal symptoms.",
+            "url": "https://doi.org/10.1016/S2215-0366(19)30032-X",
+            "snippet": "Withdrawal risk is framed in relation to adaptation and nonlinear dose occupancy."
+          }
+        ]
+      },
+      {
+        "cause": "stable_withdrawal_susceptibility",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Underlying discontinuation susceptibility causally affects current withdrawal burden, while prior history is treated as a marker and belief-shaper.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Withdrawal reactions are variable in incidence, duration, and severity."
+          }
+        ]
+      },
+      {
+        "cause": "taper_speed_dose_reduction",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Faster or larger dose reductions can precipitate withdrawal when physiologic adaptation and susceptibility are present.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "neuroadaptation_dependence_state",
+        "effect": "withdrawal_symptom_burden",
+        "description": "Greater adaptation to chronic SSRI exposure increases susceptibility to symptoms when exposure falls.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Withdrawal reactions are reported by a substantial proportion of discontinuers."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Discontinuation symptoms often include insomnia or disturbed sleep, which can worsen mood and anxiety.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Davies and Read (2019). A systematic review into antidepressant withdrawal effects.",
+            "url": "https://doi.org/10.1016/j.addbeh.2018.08.027",
+            "snippet": "Insomnia and related symptoms are among reported withdrawal effects."
+          }
+        ]
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "perceived_stress_burden",
+        "description": "Unpleasant or frightening withdrawal sensations increase threat appraisal and stress.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Withdrawal can directly raise anxiety, irritability, low mood, distress, and somatic symptoms.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Lewis et al. (2021). Maintenance or Discontinuation of Antidepressants in Primary Care.",
+            "url": "https://doi.org/10.1056/NEJMoa2106356",
+            "snippet": "Discontinuation increased relapse and withdrawal symptoms compared with maintenance."
+          }
+        ]
+      },
+      {
+        "cause": "escitalopram_dose_taken",
+        "effect": "internalizing_symptom_burden",
+        "description": "Actual dose changes the maintenance of antidepressant benefit and can alter subsequent internalizing symptom burden.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "external_stressful_events",
+        "effect": "perceived_stress_burden",
+        "description": "External life events and demands increase perceived stress depending on appraisal and resources.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hammen (2005). Stress and depression.",
+            "url": "https://doi.org/10.1146/annurev.clinpsy.1.102803.143938",
+            "snippet": "Stressful experiences are central precipitants and maintainers of depression."
+          }
+        ]
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Stress and arousal impair sleep onset, continuity, and circadian regularity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "perceived_stress_burden",
+        "effect": "internalizing_symptom_burden",
+        "description": "Perceived overload and threat directly increase anxiety, dysphoria, irritability, and bodily arousal.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "physical_activity",
+        "effect": "sleep_circadian_disruption",
+        "description": "Regular physical activity improves sleep pressure, circadian stability, and sleep quality.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "physical_activity",
+        "effect": "internalizing_symptom_burden",
+        "description": "Exercise can directly improve mood, anxiety, energy, and self-efficacy.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Schuch et al. (2016). Exercise as a treatment for depression.",
+            "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
+            "snippet": "Physical exercise was associated with reduced depressive symptoms."
+          }
+        ]
+      },
+      {
+        "cause": "sleep_circadian_disruption",
+        "effect": "internalizing_symptom_burden",
+        "description": "Poor sleep and circadian disruption worsen next-period mood, anxiety, irritability, energy, and concentration.",
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Baglioni et al. (2011). Insomnia as a predictor of depression: a meta-analytic evaluation of longitudinal epidemiological studies.",
+            "url": "https://doi.org/10.1016/j.jad.2011.01.011",
+            "snippet": "Insomnia prospectively predicted depression."
+          }
+        ]
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "sleep_circadian_disruption",
+        "description": "Depression and anxiety can disturb sleep through worry, arousal, hypersomnia, irregular routines, and low activity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "physical_activity",
+        "description": "Symptoms reduce energy, motivation, confidence, and routine, lowering subsequent physical activity.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "withdrawal_symptom_burden",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Severe discontinuation symptoms prompt clinician contact and potential taper modification.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "internalizing_symptom_burden",
+        "effect": "clinical_monitoring_rescue_care",
+        "description": "Worsening symptoms prompt more clinical contact, safety monitoring, and treatment adjustment.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "clinical_monitoring_rescue_care",
+        "effect": "other_psychotropic_or_somatic_treatments",
+        "description": "Clinical contact can initiate or change adjunctive treatments for sleep, anxiety, mood, or medical contributors.",
+        "lagged": true,
+        "sources": []
+      },
+      {
+        "cause": "other_psychotropic_or_somatic_treatments",
+        "effect": "internalizing_symptom_burden",
+        "description": "Other medication or somatic treatment changes can improve or worsen mood and anxiety independently of escitalopram tapering.",
+        "lagged": true,
+        "sources": []
+      }
+    ]
+  }
+}

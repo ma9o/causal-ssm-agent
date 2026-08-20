@@ -62,6 +62,43 @@ data/
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
+### Promoting a workspace to the DEMO fixture
+
+Keep ordinary data workspaces and the committed fixture separate. Once a candidate
+workspace has a complete, fresh artifact chain, promote it explicitly:
+
+```bash
+bun run fixture:promote --from <WORKSPACE_ID>
+```
+
+The command validates the episode journal, copies the durable workspace into
+`data/DEMO`, and rebuilds stable JSON and trace copies under `data/DEMO/fixture/`
+for Storybook and tests. It replaces `data/DEMO` as a unit rather than merging,
+and excludes `cache/` and `scratch/`.
+
+Artificial projections may temporarily fill artifacts that the checked-in DEMO
+episode has not materialized. They belong only under `data/DEMO/fixture/`; the
+next successful promotion replaces them automatically.
+
+Regenerate the deterministic artificial completion from DEMO's real latent and
+measurement structures, validation profiles, and panel with:
+
+```bash
+bun run fixture:complete-demo
+bun run fixture:check-demo
+```
+
+This leaves `data/DEMO/store/` and the episode journal untouched. Inside the
+fixture only, it selects a compact scientific DAG and reduced indicator set
+from the stored DEMO proposal, projects the corresponding validation audits,
+grounds `known_inputs` and `scientific_only_constructs`, and rebuilds the causal
+design through the production identification and structural-plan paths. It then
+writes the missing downstream artifact and trace projections. Raw data and
+extracted measurement values remain unchanged. Generation passes the production
+artifact models, model-spec semantic validator and compiler, and simulate
+input/output contracts; the original upstream validation report, including its
+failures, remains in `data/DEMO/store/`.
+
 ## Step-by-Step Flow
 
 ### 1. Create the workspace and start the run

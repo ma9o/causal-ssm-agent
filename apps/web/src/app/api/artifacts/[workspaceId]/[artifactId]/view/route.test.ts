@@ -207,7 +207,7 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     expect(deriveMeasurementsData).toHaveBeenCalledWith(persisted, parquet);
   });
 
-  it("unwraps the causal design artifact for the measurement-structure view", async () => {
+  it("unwraps causal design and structural plan for the measurement-structure view", async () => {
     const measurementStructure = {
       measurement_structure: { model_clock: "1d", indicators: [] },
     };
@@ -225,6 +225,17 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
         known_inputs: [],
       },
     };
+    const structuralPlan = {
+      schema_version: 1,
+      semantics: { constructs: {}, edges: {}, indicators: {}, model_clock: "1d" },
+      state_order: [],
+      edges: [],
+      manifest_indicator_order: [],
+      reference_indicator_ids: {},
+      known_inputs: [],
+      induced_dependencies: [],
+      dispositions: [],
+    };
 
     mockFacade({
       artifacts: {
@@ -234,6 +245,9 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
         ),
         [facadeArtifactPath("user", "causal_design")]: artifactResponse("causal_design", {
           "causal_design.json": { causal_design: causalDesign },
+        }),
+        [facadeArtifactPath("user", "structural_plan")]: artifactResponse("structural_plan", {
+          "structural-plan.json": { structural_plan: structuralPlan },
         }),
       },
     });
@@ -252,6 +266,7 @@ describe("GET /api/artifacts/[workspaceId]/[artifactId]/view", () => {
     await expect(response.json()).resolves.toEqual({
       ...measurementStructure,
       causal_design: causalDesign,
+      structural_plan: structuralPlan,
     });
   });
 

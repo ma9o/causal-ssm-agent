@@ -6,12 +6,20 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import {
-  counterfactualResult,
-  interventionResult,
-} from "@/components/dag/__fixtures__/intervention-dag-fixture";
 import { demoBaselineTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
-import { buildEdgePosteriors, buildBaselineReportScenarios } from "./baseline-report-scenarios";
+import {
+  buildBaselineReportScenarios,
+  buildEdgePosteriors,
+  buildPersistencePosteriors,
+} from "./baseline-report-scenarios";
+
+const fixtureScenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const interventionResult = fixtureScenarios.find((scenario) => scenario.key === "sim-5")?.result;
+const counterfactualResult = fixtureScenarios.find((scenario) => scenario.key === "sim-4")?.result;
+
+if (!interventionResult || !counterfactualResult) {
+  throw new Error("The canonical DEMO trace is missing its materialized test scenarios.");
+}
 
 /** A refinement assistant turn carrying a live (object-valued) simulation result. */
 function refinementSimMessage(
@@ -37,41 +45,21 @@ function refinementSimMessage(
   };
 }
 
-describe("buildBaselineReportScenarios — baseline (no intervention)", () => {
-  it("surfaces the clamp-less simulation as the single baseline, first", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
-
-    const baselines = scenarios.filter((scenario) => scenario.provenance === "baseline");
-    expect(baselines).toHaveLength(1);
-
-    const baseline = scenarios[0];
-    expect(baseline.provenance).toBe("baseline");
-    expect(baseline.key).toBe("sim-0");
-    expect(baseline.title).toBe("No intervention");
-    expect(baseline.result.clamps).toHaveLength(0);
-    // The LLM blurb produced with the scenario is carried through.
-    expect(baseline.blurb).toContain("No intervention");
-  });
-});
-
 describe("buildBaselineReportScenarios — interventions from a persisted trace", () => {
   it("recovers interventions from the trace where tool_result is a JSON string (reload path)", () => {
     const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
-    // One baseline + four interventions (newest first).
     expect(scenarios).toHaveLength(5);
-    expect(scenarios.slice(1).every((scenario) => scenario.provenance === "intervention")).toBe(
-      true,
-    );
+    expect(scenarios.every((scenario) => scenario.provenance === "intervention")).toBe(true);
 
-    const newest = scenarios[1];
-    expect(newest.key).toBe("sim-4");
+    const newest = scenarios[0];
+    expect(newest.key).toBe("sim-5");
     expect(newest.result.start.kind).toBe("baseline");
-    expect(newest.title).toBe("do(serotonergic_exposure shift +1.0)");
+    expect(newest.title).toBe("do(taper_speed_dose_reduction set 0.9)");
     expect(newest.requestedHorizonDays).toBe(60);
-    expect(newest.userQuery).toContain("serotonergic exposure by 1 SD");
+    expect(newest.userQuery).toContain("taper speed is raised sharply");
     // The assistant text beside the tool call becomes the scenario blurb.
-    expect(newest.blurb).toContain("Raising serotonergic exposure");
+    expect(newest.blurb).toContain("Rapid taper");
     // String-coerced result round-trips to the structured object.
     expect(newest.result.summary.mean).toBe(interventionResult.summary.mean);
     expect(newest.result.visualization?.node_effect_trajectories).toBeDefined();
@@ -81,12 +69,12 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
     const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     const counterfactual = scenarios.find((scenario) => scenario.result.start.kind === "abducted");
-    expect(counterfactual?.key).toBe("sim-3");
+    expect(counterfactual?.key).toBe("sim-4");
     expect(counterfactual?.result.summary.mean).toBe(counterfactualResult.summary.mean);
 
     // Manifest projection carried through on the set-mode simulation.
-    const setMode = scenarios.find((scenario) => scenario.key === "sim-2");
-    expect(setMode?.manifestEffects).toMatchObject({ state_of_mind_valence: 0.24 });
+    const setMode = scenarios.find((scenario) => scenario.key === "sim-5");
+    expect(setMode?.manifestEffects).toHaveProperty("state_of_mind_valence");
   });
 });
 
@@ -99,22 +87,22 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
 
     const scenarios = buildBaselineReportScenarios({
       trace: demoBaselineTrace,
-      extraMessages: [refinementSimMessage("sim-4", edited)],
+      extraMessages: [refinementSimMessage("sim-5", edited)],
     });
 
-    // sim-4 is not duplicated…
+    // sim-5 is not duplicated…
     expect(scenarios).toHaveLength(5);
-    expect(scenarios.filter((scenario) => scenario.key === "sim-4")).toHaveLength(1);
-    // …the refinement copy wins and leads the interventions (after the baseline).
-    expect(scenarios[1].key).toBe("sim-4");
-    expect(scenarios[1].result.summary.mean).toBe(0.99);
+    expect(scenarios.filter((scenario) => scenario.key === "sim-5")).toHaveLength(1);
+    // …the refinement copy wins and leads the interventions.
+    expect(scenarios[0].key).toBe("sim-5");
+    expect(scenarios[0].result.summary.mean).toBe(0.99);
   });
 
-  it("places the baseline first, then interventions newest-first", () => {
+  it("orders production-valid interventions newest-first", () => {
     const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
-    expect(scenarios[0].provenance).toBe("baseline");
-    expect(scenarios.slice(1).map((scenario) => scenario.key)).toEqual([
+    expect(scenarios.map((scenario) => scenario.key)).toEqual([
+      "sim-5",
       "sim-4",
       "sim-3",
       "sim-2",
@@ -159,7 +147,7 @@ describe("buildEdgePosteriors", () => {
           likelihoods: [],
           parameters: [
             {
-              name: "beta_stress_load_sleep_quality",
+              name: "coefficient_42",
               role: "fixed_effect",
               constraint: "none",
               description: "Effect of stress_load on sleep_quality",
@@ -172,7 +160,7 @@ describe("buildEdgePosteriors", () => {
       posterior: {
         posterior_marginals: [
           {
-            parameter: "beta_stress_load_sleep_quality",
+            parameter: "coefficient_42",
             x_values: [0.1, 0.2],
             density: [1, 1],
             mean: 0.2,
@@ -195,5 +183,59 @@ describe("buildEdgePosteriors", () => {
 
   it("returns an empty map without latent_structure", () => {
     expect(buildEdgePosteriors({})).toEqual({});
+  });
+});
+
+describe("buildPersistencePosteriors", () => {
+  it("maps only backend-declared AR parameters onto fitted latent states", () => {
+    const persistence = buildPersistencePosteriors({
+      modelSpec: {
+        statistical_model_spec: {
+          likelihoods: [],
+          parameters: [
+            {
+              name: "rho_sleep_quality",
+              role: "ar_coefficient",
+              constraint: "unit_interval",
+              description: "Baseline daily persistence absent incoming feedback for sleep_quality",
+            },
+            {
+              name: "sigma_sleep_quality",
+              role: "residual_sd",
+              constraint: "positive",
+              description: "Residual scale for sleep_quality",
+            },
+          ],
+        },
+        authored_priors: {},
+        resolved_priors: [],
+      } as unknown as StatisticalModelSpecData,
+      posterior: {
+        posterior_marginals: [
+          {
+            parameter: "rho_sleep_quality",
+            x_values: [0.7, 0.8],
+            density: [1, 1],
+            mean: 0.76,
+            sd: 0.03,
+            hdi_3: 0.7,
+            hdi_97: 0.82,
+          },
+          {
+            parameter: "sigma_sleep_quality",
+            x_values: [0.1, 0.2],
+            density: [1, 1],
+            mean: 0.15,
+            sd: 0.02,
+            hdi_3: 0.11,
+            hdi_97: 0.19,
+          },
+        ],
+      } as unknown as PosteriorData,
+    });
+
+    expect(persistence).toEqual({
+      sleep_quality: { mean: 0.76, ci_lower: 0.7, ci_upper: 0.82 },
+    });
   });
 });

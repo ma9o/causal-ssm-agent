@@ -5,17 +5,35 @@ function formatSignedAmount(value: number, digits = 1): string {
   return value >= 0 ? `+${magnitude}` : `-${magnitude}`;
 }
 
+function requiredClampNumber(
+  clamp: LatentClamp,
+  field: "value" | "amount" | "value_start" | "value_end",
+): number {
+  const value = clamp[field];
+  if (value == null) {
+    throw new Error(`Invalid ${clamp.mode} clamp from backend: ${field} is required`);
+  }
+  return value;
+}
+
+function requiredClampTrajectory(clamp: LatentClamp): number[] {
+  if (clamp.values == null || clamp.values.length < 2) {
+    throw new Error("Invalid trajectory clamp from backend: values requires at least two points");
+  }
+  return clamp.values;
+}
+
 /** Compact value descriptor for a single clamp (e.g. `shift +1.0`, `set 0.5`). */
 export function formatClampValue(clamp: LatentClamp): string {
   switch (clamp.mode) {
     case "set":
-      return `set ${Number(clamp.value ?? 0).toFixed(1)}`;
+      return `set ${requiredClampNumber(clamp, "value").toFixed(1)}`;
     case "shift":
-      return `shift ${formatSignedAmount(clamp.amount ?? 0)}`;
+      return `shift ${formatSignedAmount(requiredClampNumber(clamp, "amount"))}`;
     case "ramp":
-      return `ramp ${Number(clamp.value_start ?? 0).toFixed(1)}→${Number(clamp.value_end ?? 0).toFixed(1)}`;
+      return `ramp ${requiredClampNumber(clamp, "value_start").toFixed(1)}→${requiredClampNumber(clamp, "value_end").toFixed(1)}`;
     default:
-      return `trajectory (${clamp.values?.length ?? 0} pts)`;
+      return `trajectory (${requiredClampTrajectory(clamp).length} pts)`;
   }
 }
 

@@ -1,56 +1,18 @@
 "use client";
 
-import { type ConstructStatus, StructureDag } from "@/components/dag/structure-dag";
+import { deriveConstructStatuses } from "@/components/dag/construct-statuses";
+import { StructureDag } from "@/components/dag/structure-dag";
 import { IndicatorTable } from "@/components/analysis-widgets/measurement-structure/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
-import { useMemo } from "react";
-
-function useNodeStatuses(data: MeasurementStructureViewData): Record<string, ConstructStatus> {
-  const spec = data.causal_design;
-  return useMemo(() => {
-    const statuses: Record<string, ConstructStatus> = {};
-
-    // Marginalized confounders integrated out across all identified treatments.
-    const marginalized = new Set<string>();
-    for (const status of Object.values(spec.identifiability?.identifiable_treatments ?? {})) {
-      for (const c of status?.marginalized_confounders ?? []) {
-        marginalized.add(c);
-      }
-    }
-
-    // Blocked treatments and their blocking confounders read red on both ends.
-    const blocking = new Set<string>();
-    for (const [treatment, status] of Object.entries(
-      spec.identifiability?.non_identifiable_treatments ?? {},
-    )) {
-      blocking.add(treatment);
-      for (const c of status?.confounders ?? []) {
-        blocking.add(c);
-      }
-    }
-
-    for (const c of spec.latent.constructs) {
-      if (blocking.has(c.name)) {
-        statuses[c.name] = "blocking";
-      } else if (marginalized.has(c.name)) {
-        statuses[c.name] = "marginalized";
-      } else {
-        statuses[c.name] = "observed";
-      }
-    }
-
-    return statuses;
-  }, [spec]);
-}
 
 export default function MeasurementStructureView({ data }: { data: MeasurementStructureViewData }) {
   const spec = data.causal_design;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
-  const nodeStatuses = useNodeStatuses(data);
+  const nodeStatuses = deriveConstructStatuses(spec, data.structural_plan);
 
   return (
     <div className="space-y-4">
@@ -88,6 +50,7 @@ export default function MeasurementStructureView({ data }: { data: MeasurementSt
         constructs={spec.latent.constructs}
         edges={spec.latent.edges}
         indicators={spec.measurement.indicators}
+        knownInputs={spec.known_inputs}
         nodeStatuses={nodeStatuses}
       />
       <IndicatorTable indicators={spec.measurement.indicators} />

@@ -148,6 +148,22 @@ export type PriorParams =
   | RatePriorParams
   | BetaPriorParams
   | ValuePriorParams;
+/**
+ * Explicit disposition of a source item during structural compilation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralDisposition".
+ */
+export type StructuralDisposition =
+  | "retained_state"
+  | "known_input"
+  | "marginalized"
+  | "identification_only"
+  | "retained_edge"
+  | "projected_edge"
+  | "manifest"
+  | "known_input_source"
+  | "excluded_indicator";
 
 /**
  * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
@@ -1180,6 +1196,96 @@ export interface TraceUsage {
   input_tokens: number;
   output_tokens: number;
   reasoning_tokens?: number | null;
+}
+/**
+ * One retained executable directed edge.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralEdge".
+ */
+export interface StructuralEdge {
+  source_id: string;
+  cause_id: string;
+  effect_id: string;
+  lagged: boolean;
+}
+/**
+ * Dependence induced by projected latent root confounders.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralInducedDependency".
+ */
+export interface StructuralInducedDependency {
+  source_id: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  between: [any, any];
+  kind: "innovation_correlation" | "initial_state_correlation";
+  source_confounder_ids: string[];
+}
+/**
+ * Projection outcome for one source item.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralItemDisposition".
+ */
+export interface StructuralItemDisposition {
+  source_id: string;
+  source_kind: "construct" | "edge" | "indicator";
+  disposition: StructuralDisposition;
+  reason: string;
+}
+/**
+ * One observed transition driver in the executable plan.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralKnownInput".
+ */
+export interface StructuralKnownInput {
+  source_id: string;
+  construct_id: string;
+  source_indicator_id: string;
+  scale: number;
+  missing_policy: "zero" | "forward_fill";
+}
+/**
+ * Single normalized source for model authoring and SSM compilation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralPlan".
+ */
+export interface StructuralPlan {
+  schema_version: 1;
+  semantics: StructuralSemanticCatalog;
+  state_order: string[];
+  edges: StructuralEdge[];
+  manifest_indicator_order: string[];
+  reference_indicator_ids: {
+    [k: string]: string | undefined;
+  };
+  known_inputs: StructuralKnownInput[];
+  induced_dependencies: StructuralInducedDependency[];
+  dispositions: StructuralItemDisposition[];
+}
+/**
+ * Authoring semantics keyed by the same IDs used by structural items.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralSemanticCatalog".
+ */
+export interface StructuralSemanticCatalog {
+  constructs: {
+    [k: string]: Construct;
+  };
+  edges: {
+    [k: string]: CausalEdge;
+  };
+  indicators: {
+    [k: string]: Indicator;
+  };
+  model_clock: string;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema

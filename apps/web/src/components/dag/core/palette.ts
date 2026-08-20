@@ -42,9 +42,6 @@ export const DAG_COLORS = {
   realized: "#7b818b",
 } as const;
 
-/** Clamp to the unit interval (construct levels live in [0, 1]). */
-export const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
-
 /**
  * Map a signed value to the pos/neg color axis. `eps` keeps near-zero values
  * calm (neutral) instead of flickering between teal and red.

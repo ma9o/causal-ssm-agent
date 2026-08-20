@@ -6,9 +6,13 @@ import {
   constructs,
   edgePosteriors,
   edges,
+  identifiableTreatments,
   indicators,
+  knownInputs,
   materializedBaselineReportData,
   demoBaselineTrace,
+  nodeStatuses,
+  persistencePosteriors,
 } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
 import { SimulationViewer } from "@/components/dag/simulation-viewer";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
@@ -17,7 +21,16 @@ import { OutputStoryTemplate } from "../output-story-template";
 import { buildBaselineReportScenarios } from "./baseline-report-scenarios";
 
 const output = TRANSITIONS.find((s) => s.id === "baseline_report")!;
-const graph = { constructs, edges, indicators, edgePosteriors };
+const graph = {
+  constructs,
+  edges,
+  indicators,
+  knownInputs,
+  edgePosteriors,
+  persistencePosteriors,
+  identifiableTreatments,
+  nodeStatuses,
+};
 const interventionResults = materializedBaselineReportData.intervention_results;
 
 function scenariosFor(trace: LLMTrace | null) {

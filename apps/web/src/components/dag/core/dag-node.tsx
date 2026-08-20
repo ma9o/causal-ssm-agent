@@ -7,8 +7,11 @@ interface DagNodeShellProps {
   height: number;
   title?: string;
   subtitle?: string;
+  /** Card fill. Defaults to the theme card color. */
+  fill?: string;
   /** Border accent (e.g. sign color, status). Defaults to the theme border. */
   accent?: string;
+  dashed?: boolean;
   highlighted?: boolean;
   /** Outcome nodes get a heavier border. */
   outcome?: boolean;
@@ -25,7 +28,9 @@ export function DagNodeShell({
   height,
   title,
   subtitle,
+  fill,
   accent,
+  dashed,
   highlighted,
   outcome,
   children,
@@ -37,9 +42,10 @@ export function DagNodeShell({
         width={width}
         height={height}
         rx={11}
-        fill="var(--card)"
+        fill={fill ?? "var(--card)"}
         stroke={accent ?? "var(--border)"}
         strokeWidth={strokeWidth}
+        strokeDasharray={dashed ? "6,4" : undefined}
         style={{ transition: "stroke 200ms" }}
       />
       {title ? (

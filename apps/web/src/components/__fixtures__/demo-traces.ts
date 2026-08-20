@@ -1,10 +1,10 @@
 import type { ArtifactViewId, LLMTrace } from "@nof1-causal-lab/api-types";
-import rawDataTrace from "../../../../../data/DEMO/episode/traces/000001/raw-data.json";
-import latentStructureTrace from "../../../../../data/DEMO/episode/traces/000003/latent-structure.json";
-import measurementStructureTrace from "../../../../../data/DEMO/episode/traces/000004/measurement-structure.json";
-import measurementsTrace from "../../../../../data/DEMO/episode/traces/000005/measurement-chunk-000000-attempt-001.json";
-import statisticalModelSpecTrace from "../../../../../data/DEMO/episode/traces/000006/statistical_model_spec.json";
-import baselineReportTrace from "./demo-run/baseline_report_trace.json";
+import baselineReportTrace from "../../../../../data/DEMO/fixture/traces/baseline_report.json";
+import latentStructureTrace from "../../../../../data/DEMO/fixture/traces/latent_structure.json";
+import measurementStructureTrace from "../../../../../data/DEMO/fixture/traces/measurement_structure.json";
+import measurementsTrace from "../../../../../data/DEMO/fixture/traces/measurements.json";
+import rawDataTrace from "../../../../../data/DEMO/fixture/traces/raw_data.json";
+import statisticalModelSpecTrace from "../../../../../data/DEMO/fixture/traces/statistical_model_spec.json";
 
 export const demoTraces = {
   raw_data: rawDataTrace as LLMTrace,

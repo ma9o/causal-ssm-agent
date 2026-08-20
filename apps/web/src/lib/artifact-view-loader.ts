@@ -15,6 +15,7 @@ import type {
   LatentStructureData,
   RawDataData,
   MeasurementsData,
+  StructuralPlan,
 } from "@nof1-causal-lab/api-types";
 import { ARTIFACT_VIEW_IDS } from "@nof1-causal-lab/api-types";
 import {
@@ -31,6 +32,7 @@ type ArtifactViewLoader<K extends ArtifactViewId> = (
 ) => Promise<ArtifactViewData<K>>;
 type ArtifactViewLoaders = { [K in ArtifactViewId]: ArtifactViewLoader<K> };
 type CausalDesignArtifactData = { causal_design: CausalDesign };
+type StructuralPlanArtifactData = { structural_plan: StructuralPlan };
 
 const ARTIFACT_VIEW_LOADERS = {
   raw_data: async (workspaceId): Promise<RawDataData> => {
@@ -43,15 +45,24 @@ const ARTIFACT_VIEW_LOADERS = {
   latent_structure: (workspaceId): Promise<LatentStructureData> =>
     readArtifactJson<LatentStructureData>(workspaceId, "latent_structure", "latent_structure"),
   measurement_structure: async (workspaceId): Promise<MeasurementStructureViewData> => {
-    const [payload, causalDesignPayload] = await Promise.all([
+    const [payload, causalDesignPayload, structuralPlanPayload] = await Promise.all([
       readArtifactJson<MeasurementStructureData>(
         workspaceId,
         "measurement_structure",
         "measurement_structure",
       ),
       readArtifactJson<CausalDesignArtifactData>(workspaceId, "causal_design", "causal_design"),
+      readArtifactJson<StructuralPlanArtifactData>(
+        workspaceId,
+        "structural_plan",
+        "structural_plan",
+      ),
     ]);
-    return { ...payload, causal_design: causalDesignPayload.causal_design };
+    return {
+      ...payload,
+      causal_design: causalDesignPayload.causal_design,
+      structural_plan: structuralPlanPayload.structural_plan,
+    };
   },
   measurements: async (workspaceId): Promise<MeasurementsData> => {
     const [payload, panel] = await Promise.all([

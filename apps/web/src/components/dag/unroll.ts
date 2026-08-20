@@ -3,17 +3,17 @@
  * DAG and the analysis interactive DAG).
  *
  * A lagged dependency — something at t−1 driving an effect at t — is drawn by
- * *unrolling time* rather than by tagging the edge: the t−1 source becomes a
- * faded "ghost" copy of the present node and the edge runs ghost → present. The
- * present and past slices look identical, the past just fainter. This mirrors
- * the 2-timestep unrolling the backend uses for identification (A3a in
- * docs/modeling/assumptions.md), so the picture matches the modeling semantics.
+ * *unrolling time* rather than merely tagging the edge: the t−1 source becomes
+ * a faded "ghost" copy of the present node and the edge runs ghost → present.
+ * A contemporaneous dependency stays present → present. State persistence is a
+ * separate ghost → matching-present self edge. This mirrors the backend's
+ * 2-timestep unrolling for identification.
  *
  * This module owns only the cross-consumer *convention* (the `__p` id suffix,
  * the ghost fade, and the ghost→present link builder). It is deliberately NOT
  * in `core/`: the core renderer is domain-agnostic (plain `{nodes, edges}`),
- * whereas which links are temporal is a domain decision each consumer makes
- * (lagged structural edges here; NodePotential self-dynamics in analysis).
+ * whereas which constructs are time-varying and which self-dynamics have
+ * materialized is a domain decision each consumer makes.
  */
 
 /** Suffix marking a node id as the t−1 (previous-timestep) ghost of its base. */
@@ -43,6 +43,53 @@ export interface GhostLinks {
   ghosts: string[];
   /** Edges routed from each ghost into its present-time target. */
   edges: { source: string; target: string }[];
+}
+
+export interface CausalLink {
+  cause: string;
+  effect: string;
+  lagged: boolean;
+}
+
+export interface UnrolledCausalLink extends CausalLink {
+  source: string;
+  target: string;
+}
+
+export interface UnrolledCausalLinks {
+  /** Distinct t−1 copies required by lagged, time-varying causes. */
+  ghosts: string[];
+  /** Causal links with their rendered temporal endpoints. */
+  edges: UnrolledCausalLink[];
+}
+
+/**
+ * Resolve the temporal endpoints of backend-declared causal edges.
+ *
+ * - lagged, time-varying cause: cause(t−1) → effect(t)
+ * - contemporaneous cause: cause(t) → effect(t)
+ * - time-invariant cause: cause → effect(t), regardless of the lag flag, because
+ *   the stable construct has only one node in the backend unrolling
+ *
+ * Self-dynamics are intentionally not created here; callers add those as a
+ * separate set of ghost → matching-present links.
+ */
+export function unrollCausalLinks(
+  links: CausalLink[],
+  timeVaryingNames: ReadonlySet<string>,
+): UnrolledCausalLinks {
+  const ghosts = new Set<string>();
+  const edges = links.map((link) => {
+    const source =
+      link.lagged && timeVaryingNames.has(link.cause) ? ghostId(link.cause) : link.cause;
+    if (isGhost(source)) ghosts.add(source);
+    return {
+      ...link,
+      source,
+      target: link.effect,
+    };
+  });
+  return { ghosts: [...ghosts], edges };
 }
 
 /**

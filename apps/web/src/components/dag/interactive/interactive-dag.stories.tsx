@@ -1,11 +1,33 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { constructs, edges, indicators } from "../__fixtures__/dag-base-fixtures";
-import { makeMockSimulate, synthesizeMockScenarios } from "./dev-mock-scenario";
+import {
+  demoBaselineTrace,
+  edgePosteriors,
+  identifiableTreatments,
+  nodeStatuses,
+  persistencePosteriors,
+} from "../__fixtures__/baseline_report-materialized-fixture";
+import { constructs, edges, indicators, knownInputs } from "../__fixtures__/dag-base-fixtures";
+import { buildBaselineReportScenarios } from "../../pipeline/output-views/baseline-report-scenarios";
 import { InteractiveDag } from "./interactive-dag";
 
-const outcome = constructs.find((c) => c.is_outcome)?.name ?? "affective_state";
-const { baseline, interventions } = synthesizeMockScenarios(constructs, edges, indicators, outcome);
-const intervention = interventions[0]?.result ?? baseline.result;
+const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const firstScenario = scenarios[0]?.result;
+const comparisonScenario = scenarios[scenarios.length - 1]?.result;
+
+if (!firstScenario || !comparisonScenario) {
+  throw new Error("The DEMO trace must contain materialized simulation scenarios.");
+}
+
+const graphArgs = {
+  constructs,
+  edges,
+  indicators,
+  knownInputs,
+  edgePosteriors,
+  persistencePosteriors,
+  identifiableTreatments,
+  nodeStatuses,
+};
 
 const meta: Meta<typeof InteractiveDag> = {
   title: "DAG/Interactive/Living DAG",
@@ -25,23 +47,12 @@ export default meta;
 
 type Story = StoryObj<typeof InteractiveDag>;
 
-/** No-intervention baseline: the reference world, every node on its baseline line. */
-export const Baseline: Story = {
-  args: { constructs, edges, indicators, result: baseline.result },
+/** A production-shaped result with its backend reference and action rollouts. */
+export const ReferenceAndAction: Story = {
+  args: { ...graphArgs, result: firstScenario },
 };
 
 /** Read-only living DAG with an intervention applied (no do() editing). */
-export const ReadOnly: Story = {
-  args: { constructs, edges, indicators, result: intervention },
-};
-
-/** Interactive: type a do() value on any node to re-simulate (mock backend). */
-export const Interactive: Story = {
-  args: {
-    constructs,
-    edges,
-    indicators,
-    result: intervention,
-    onSimulate: makeMockSimulate(intervention),
-  },
+export const Intervention: Story = {
+  args: { ...graphArgs, result: comparisonScenario },
 };

@@ -27,6 +27,7 @@ const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = {
   latent_structure: { json: { latent_structure: "latent-structure.json" } },
   measurement_structure: { json: { measurement_structure: "measurement_structure.json" } },
   causal_design: { json: { causal_design: "causal_design.json" } },
+  structural_plan: { json: { structural_plan: "structural-plan.json" } },
   identification_report: { json: { identification_report: "identification_report.json" } },
   measurements: { json: { measurements: "measurements.json" } },
   panel: { parquet: { panel: "panel.parquet" } },

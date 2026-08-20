@@ -2,7 +2,7 @@
 
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import type { DagDirection, DagGraphInput, Point } from "@/lib/utils/dag-graph-layout";
-import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
+import type { CausalEdge, Construct, Indicator, KnownInput } from "@nof1-causal-lab/api-types";
 import { useCallback, useMemo, useState } from "react";
 import { DagCanvasFrame, DagSvg } from "./core/dag-canvas";
 import { DagDirectionToggle } from "./core/dag-direction-toggle";
@@ -17,6 +17,7 @@ import {
   type GlyphPair,
   isGhost,
   splitEdgesWithGlyphs,
+  unrollCausalLinks,
 } from "./unroll";
 
 export type ConstructStatus = "observed" | "marginalized" | "blocking";
@@ -25,9 +26,11 @@ interface StructureDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
+  /** Constructs compiled as observed transition inputs rather than latent states. */
+  knownInputs?: KnownInput[];
   /**
-   * Per-construct identifiability status (measurement-structure). Colors the node border and any
-   * edge incident to it: blocking → destructive (red), marginalized → warning (amber).
+   * Per-construct backend disposition/identifiability status. Colors the node border and any
+   * incident edge: blocking → destructive, marginalized → warning.
    */
   nodeStatuses?: Record<string, ConstructStatus>;
   onNodeClick?: (constructName: string) => void;
@@ -50,9 +53,8 @@ function nodeHeight(indicatorCount: number): number {
   return SEPARATOR_Y + indicatorCount * INDICATOR_ROW_H + 8;
 }
 
-// Edge colors as theme tokens. Lagged and contemporaneous causal edges are drawn
-// identically (as in the analysis DAG) — the temporal slice is carried by the
-// faded t−1 self-dynamics ghosts, not by edge styling. Self-edges render fainter.
+// Cross-construct lagged edges and self-dynamics originate from t−1 ghosts;
+// contemporaneous edges stay within the present-time slice.
 const EDGE_DEFAULT = "var(--edge-contemporary)";
 const EDGE_BLOCKING = "var(--destructive)";
 const EDGE_MARGINALIZED = "var(--warning)";
@@ -73,8 +75,8 @@ function edgeStatusColor(
  * Stitch the two glyph-split halves into one polyline and remove the spacer spur.
  * Splitting a → [spacer] → b makes ELK route into the spacer's ports; on a back-edge
  * it enters and exits the same side, leaving a short out-and-back "spur" by the
- * spacer (analysis hides this behind its drift-glyph box; our empty slot would expose
- * it as a squiggle). A spur is a H-V-H (or V-H-V) run whose outer two segments
+ * spacer (an empty slot would otherwise expose it as a squiggle). A spur is a
+ * H-V-H (or V-H-V) run whose outer two segments
  * reverse direction with only a short perpendicular hop between — that overshoot is
  * dropped. Genuine routing detours (large perpendicular travel to clear a node) are
  * left untouched.
@@ -127,6 +129,7 @@ interface StructureNodeProps {
   height: number;
   construct: Construct;
   indicators: Indicator[];
+  knownInput?: KnownInput;
   status?: ConstructStatus;
   lit: boolean;
   /** Rendered as the faded t−1 ghost (no indicators, no status). */
@@ -139,13 +142,14 @@ function StructureNode({
   height,
   construct,
   indicators,
+  knownInput,
   status,
   lit,
   isPrev,
 }: StructureNodeProps) {
   const isExo = construct.role === "exogenous";
   const vary = construct.temporal_status === "time_varying" ? "varying" : "invariant";
-  const subtitle = `${isExo ? "exo" : "endo"} · ${vary}${isExo ? " · held" : ""}`;
+  const subtitle = `${isExo ? "theory exo" : "theory endo"} · ${vary}${knownInput ? " · known input" : isExo ? " · held" : ""}`;
 
   const reserved = (construct.is_outcome ? 44 : 28) + (isPrev ? 36 : 0);
   const title = `${construct.is_outcome ? "★ " : ""}${truncate(labelize(construct.name), Math.floor((width - reserved) / 6.6))}${isPrev ? " · t−1" : ""}`;
@@ -221,11 +225,12 @@ function LegendSwatch({ border, faded }: { border?: string; faded?: boolean }) {
  * `onNodeClick`, and edge hover.
  *
  * Topology AND layout mirror the analysis interactive DAG (the reference "good
- * state"): the ELK graph is built the same way — every causal edge stays present
- * → present and is split a → [glyph] → b (the glyph node per edge is what gives
- * the layered layout its column rhythm; see `splitEdgesWithGlyphs`), each
- * endogenous latent gets a faded t−1 self-ghost (self-dynamics), and the same ELK
- * spacing (`DAG_LAYOUT_OPTIONS`) is used — so nodes land in the same columns. The
+ * state"): the ELK graph is built the same way — every causal edge is split
+ * a → [glyph] → b (the glyph node per edge gives the layered layout its column
+ * rhythm; see `splitEdgesWithGlyphs`), lagged causal arrows originate at faded
+ * t−1 copies, contemporaneous arrows remain within t, and self-dynamics use
+ * separate t−1 → matching-t edges. The same ELK spacing
+ * (`DAG_LAYOUT_OPTIONS`) is used — so nodes land in the same columns. The
  * structural DAG leaves each glyph slot empty (drawing the edge straight through)
  * and uses compact cards instead of analysis's trajectory cards. It does not
  * cone-restrict: the structural stages show the full proposed model.
@@ -234,6 +239,7 @@ export function StructureDag({
   constructs,
   edges,
   indicators,
+  knownInputs = [],
   nodeStatuses,
   onNodeClick,
   direction = "RIGHT",
@@ -245,6 +251,10 @@ export function StructureDag({
   const setZoomClamped = (z: number) => setZoom(Math.max(ZMIN, Math.min(ZMAX, z)));
 
   const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
+  const knownInputByName = useMemo(
+    () => new Map(knownInputs.map((input) => [input.construct, input])),
+    [knownInputs],
+  );
 
   const indicatorsByConstruct = useMemo(() => {
     const map = new Map<string, Indicator[]>();
@@ -258,21 +268,41 @@ export function StructureDag({
 
   const nodeWidth = indicatorsByConstruct.size > 0 ? NODE_W_WITH_INDICATORS : NODE_W;
 
-  // Same ELK construction as the analysis interactive DAG: every causal edge is split
-  // a → [spacer] → b, and each endogenous latent gets a faded t−1 self-ghost feeding
-  // its present-time self. The spacer node per edge inserts an extra layer, which is
-  // what gives the layered layout its column rhythm — so the structural and
-  // intervention DAGs land their nodes in the same columns. The spacer slot is
-  // rendered empty; the routing spur it leaves is removed by `cleanGlyphPath`.
+  // Lagged cross-construct edges start at the cause's t−1 copy, while
+  // contemporaneous edges stay within t. Endogenous time-varying self-dynamics
+  // are added separately. The spacer preserves the established layout rhythm.
   const { graph, glyphs } = useMemo(() => {
-    const selfLinks = buildGhostLinks(
-      constructs.filter((c) => c.role === "endogenous").map((c) => ({ from: c.name, to: c.name })),
+    const timeVaryingNames = new Set(
+      constructs
+        .filter((construct) => construct.temporal_status === "time_varying")
+        .map((construct) => construct.name),
     );
+    const causalLinks = unrollCausalLinks(
+      edges.filter((edge) => edge.cause !== edge.effect),
+      timeVaryingNames,
+    );
+    const selfLinks = buildGhostLinks(
+      constructs
+        .filter(
+          (construct) =>
+            construct.role === "endogenous" && construct.temporal_status === "time_varying",
+        )
+        .map((construct) => ({ from: construct.name, to: construct.name })),
+    );
+    const ghosts = new Set([...causalLinks.ghosts, ...selfLinks.ghosts]);
     const pairs: GlyphPair[] = [
-      ...edges
-        .filter((e) => e.cause !== e.effect)
-        .map((e) => ({ a: e.cause, b: e.effect, isSelf: false, lagged: e.lagged })),
-      ...selfLinks.edges.map((se) => ({ a: se.source, b: se.target, isSelf: true, lagged: false })),
+      ...causalLinks.edges.map((edge) => ({
+        a: edge.source,
+        b: edge.target,
+        isSelf: false,
+        lagged: edge.lagged,
+      })),
+      ...selfLinks.edges.map((edge) => ({
+        a: edge.source,
+        b: edge.target,
+        isSelf: true,
+        lagged: true,
+      })),
     ];
     const split = splitEdgesWithGlyphs(pairs);
     const built: DagGraphInput = {
@@ -282,7 +312,7 @@ export function StructureDag({
           width: nodeWidth,
           height: nodeHeight(indicatorsByConstruct.get(c.name)?.length ?? 0),
         })),
-        ...selfLinks.ghosts.map((g) => ({ id: g, width: nodeWidth, height: HEADER_H })),
+        ...[...ghosts].map((ghost) => ({ id: ghost, width: nodeWidth, height: HEADER_H })),
         ...split.glyphNodes,
       ],
       edges: split.edges,
@@ -322,7 +352,16 @@ export function StructureDag({
     [onNodeClick],
   );
 
-  const hasGhosts = constructs.some((c) => c.role === "endogenous");
+  const hasGhosts = constructs.some(
+    (construct) =>
+      construct.temporal_status === "time_varying" &&
+      (construct.role === "endogenous" ||
+        edges.some((edge) => edge.lagged && edge.cause === construct.name)),
+  );
+  const hasCrossLagged = edges.some(
+    (edge) => edge.lagged && byName.get(edge.cause)?.temporal_status === "time_varying",
+  );
+  const hasContemporaneous = edges.some((edge) => !edge.lagged);
   const statusValues = nodeStatuses ? Object.values(nodeStatuses) : [];
   const hasMarginalized = statusValues.includes("marginalized");
   const hasBlocking = statusValues.includes("blocking");
@@ -408,6 +447,7 @@ export function StructureDag({
                     height={nd.height}
                     construct={construct}
                     indicators={indicatorsByConstruct.get(base) ?? []}
+                    knownInput={knownInputByName.get(base)}
                     status={nodeStatuses?.[base]}
                     lit={lit}
                     isPrev={prev}
@@ -425,9 +465,12 @@ export function StructureDag({
           {hasGhosts ? (
             <span className="flex items-center gap-1.5">
               <LegendSwatch border="var(--foreground)" faded />
-              t−1 (self-dynamics)
+              t−1 construct
             </span>
           ) : null}
+          {hasCrossLagged ? <span>Lagged: cause(t−1) → effect(t)</span> : null}
+          {hasContemporaneous ? <span>Contemporaneous: cause(t) → effect(t)</span> : null}
+          {hasGhosts ? <span>Self-dynamics: construct(t−1) → construct(t)</span> : null}
           {hasMarginalized ? (
             <span className="flex items-center gap-1.5">
               <LegendSwatch border="var(--warning)" />

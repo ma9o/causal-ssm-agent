@@ -3,13 +3,10 @@
  *
  * Every analysis "scenario" is a materialized `simulate` tool result — a start
  * state + a list of timed latent clamps — sourced from the persisted output
- * trace (plus any injected extra message streams, e.g. dev mocks), carrying the
- * full per-node `visualization` trajectories that drive the living DAG. Two
- * provenances, distinguished purely by whether any clamp is applied:
- *
- *  - **baseline** — the no-intervention reference world (`clamps: []`): the system
- *    evolving under its own dynamics. There is at most one, shown first.
- *  - **intervention** — one or more `do()` clamps applied at some point.
+ * trace, carrying the
+ * full per-node `visualization` trajectories that drive the living DAG. The
+ * production tool contract requires one or more `do()` clamps; each result also
+ * carries the corresponding reference rollout for visual comparison.
  *
  * Each scenario also carries the natural-language **blurb** the LLM produced
  * alongside it (the assistant text co-located with the `simulate` tool call),
@@ -28,12 +25,11 @@ import type {
   EdgePosterior,
   AnalysisSimulationResult,
 } from "@/components/dag/intervention-dag-types";
-import { parseFixedEffect } from "@/lib/utils/ssm-latex";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 
 // ── scenario types ──────────────────────────────────────────────────────────
 
-export type ScenarioProvenance = "baseline" | "intervention";
+export type ScenarioProvenance = "intervention";
 
 /** Summary statistics for the rail card + effect summary. */
 export interface ScenarioSummaryStats {
@@ -79,6 +75,7 @@ function isSimulationResult(value: unknown): value is AnalysisSimulationResult {
     typeof candidate.summary === "object" &&
     candidate.summary != null &&
     Array.isArray(candidate.clamps) &&
+    candidate.clamps.length > 0 &&
     typeof candidate.start === "object" &&
     candidate.start != null
   );
@@ -204,11 +201,10 @@ function collectSimulations(
 
 function toScenario(raw: RawSimulation): BaselineReportScenario {
   const peak = peakOfTrajectory(raw.result);
-  const isBaseline = raw.result.clamps.length === 0;
   return {
     key: raw.toolCallId,
-    provenance: isBaseline ? "baseline" : "intervention",
-    title: isBaseline ? "No intervention" : formatScenarioActionDescription(raw.result),
+    provenance: "intervention",
+    title: formatScenarioActionDescription(raw.result),
     outcome: raw.result.outcome,
     summary: {
       mean: raw.result.summary.mean,
@@ -227,13 +223,11 @@ function toScenario(raw: RawSimulation): BaselineReportScenario {
 }
 
 /**
- * Build the ordered scenario list: the no-intervention baseline first (the most
- * recent clamp-less simulation, if any), then the intervention scenarios newest
- * first. The first entry is the sensible default selection.
+ * Build the intervention scenario list newest first.
  */
 export function buildBaselineReportScenarios(args: {
   trace?: LLMTrace | null;
-  /** Additional UI-message streams to source simulations from (e.g. dev mocks). */
+  /** Additional live UI-message streams to merge with the persisted trace. */
   extraMessages?: UIMessage[];
 }): BaselineReportScenario[] {
   const { trace, extraMessages } = args;
@@ -245,14 +239,7 @@ export function buildBaselineReportScenarios(args: {
   }
   collectSimulations(extraMessages ?? [], simulations, order);
 
-  const scenarios = [...simulations.values()]
-    .sort((left, right) => right.order - left.order)
-    .map(toScenario);
-
-  const baseline = scenarios.find((scenario) => scenario.provenance === "baseline") ?? null;
-  const interventions = scenarios.filter((scenario) => scenario.provenance === "intervention");
-
-  return baseline ? [baseline, ...interventions] : interventions;
+  return [...simulations.values()].sort((left, right) => right.order - left.order).map(toScenario);
 }
 
 // ── edge posteriors (graph-level, scenario-independent) ──────────────────────
@@ -316,14 +303,11 @@ export function buildEdgePosteriors({
   const edgePosteriors: Record<string, EdgePosterior> = {};
 
   for (const marginal of marginals) {
-    if (!marginal.parameter.startsWith("beta_")) {
+    const parameter = parametersByName.get(marginal.parameter);
+    if (parameter?.role !== "fixed_effect") {
       continue;
     }
-    const parameter = parametersByName.get(marginal.parameter);
-    const parsed =
-      (parameter?.description
-        ? parseFixedEffectDescription(parameter.description, constructNames)
-        : null) ?? parseFixedEffect(marginal.parameter, constructNames);
+    const parsed = parseFixedEffectDescription(parameter.description, constructNames);
     if (!parsed) {
       continue;
     }
@@ -335,4 +319,35 @@ export function buildEdgePosteriors({
   }
 
   return edgePosteriors;
+}
+
+/** Map fitted `ar_coefficient` marginals onto their backend-declared latent states. */
+export function buildPersistencePosteriors({
+  modelSpec,
+  posterior,
+}: {
+  modelSpec?: StatisticalModelSpecData;
+  posterior?: PosteriorData;
+}): Record<string, EdgePosterior> {
+  const parametersByName = new Map(
+    (modelSpec?.statistical_model_spec.parameters ?? []).map((parameter) => [
+      parameter.name,
+      parameter,
+    ]),
+  );
+  const persistencePosteriors: Record<string, EdgePosterior> = {};
+
+  for (const marginal of posterior?.posterior_marginals ?? []) {
+    const parameter = parametersByName.get(marginal.parameter);
+    if (parameter?.role !== "ar_coefficient" || !parameter.name.startsWith("rho_")) {
+      continue;
+    }
+    persistencePosteriors[parameter.name.slice("rho_".length)] = {
+      mean: marginal.mean,
+      ci_lower: marginal.hdi_3,
+      ci_upper: marginal.hdi_97,
+    };
+  }
+
+  return persistencePosteriors;
 }

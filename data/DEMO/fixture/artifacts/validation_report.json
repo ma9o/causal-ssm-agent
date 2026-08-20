@@ -1,0 +1,824 @@
+{
+  "is_valid": true,
+  "indicators": {
+    "phq9_screening_score": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 5,
+        "mean": 8.8,
+        "std": 5.630275304103699,
+        "min": 3.0,
+        "max": 16.0,
+        "q25": 4.0,
+        "q50": 8.0,
+        "q75": 13.0,
+        "variance": 31.700000000000003,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 2.8,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.2,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 3.6022727272727275
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "phq9_screening_score",
+            "issue_type": "low_n",
+            "severity": "warning",
+            "message": "Only 5 observations (recommend >= 10)"
+          },
+          {
+            "indicator": "phq9_screening_score",
+            "issue_type": "large_timestamp_gap",
+            "severity": "warning",
+            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "warning",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "warning",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "gad7_screening_score": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 5,
+        "mean": 6.2,
+        "std": 3.8340579025361627,
+        "min": 2.0,
+        "max": 11.0,
+        "q25": 3.0,
+        "q50": 6.0,
+        "q75": 9.0,
+        "variance": 14.7,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 2.8,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.2,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 2.3709677419354835
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "gad7_screening_score",
+            "issue_type": "low_n",
+            "severity": "warning",
+            "message": "Only 5 observations (recommend >= 10)"
+          },
+          {
+            "indicator": "gad7_screening_score",
+            "issue_type": "large_timestamp_gap",
+            "severity": "warning",
+            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "warning",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "warning",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "state_of_mind_valence": {
+      "profile": {
+        "measurement_dtype": "continuous",
+        "n_obs": 145,
+        "mean": 0.27420689655172414,
+        "std": 0.30548156192204057,
+        "min": -0.49,
+        "max": 0.69,
+        "q25": 0.05,
+        "q50": 0.36,
+        "q75": 0.51,
+        "variance": 0.09331898467432949,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.2,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.05517241379310345,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": false,
+        "is_unit_interval": false,
+        "looks_integer_valued": false,
+        "variance_to_mean_ratio": 0.340323258998435
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "journal_internalizing_symptom_severity": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 74,
+        "mean": 0.9594594594594594,
+        "std": 0.5837805270933611,
+        "min": 0.0,
+        "max": 2.0,
+        "q25": 1.0,
+        "q50": 1.0,
+        "q75": 1.0,
+        "variance": 0.3407997038134025,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.6621621621621622,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.1891891891891892,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.3551996912984759
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "journal_internalizing_symptom_severity",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 1.0 (49/74)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "taper_speed_instruction_intensity": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 79,
+        "mean": 0.4810126582278481,
+        "std": 0.6575159058945885,
+        "min": 0.0,
+        "max": 2.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 1.0,
+        "variance": 0.43232716650438147,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.6075949367088608,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.6075949367088608,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.8987854251012141
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "taper_speed_instruction_intensity",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 0.0 (48/79)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "escitalopram_documented_dose_mg": {
+      "profile": {
+        "measurement_dtype": "continuous",
+        "n_obs": 19,
+        "mean": 16.842105263157894,
+        "std": 4.775669329409194,
+        "min": 10.0,
+        "max": 20.0,
+        "q25": 10.0,
+        "q50": 20.0,
+        "q75": 20.0,
+        "variance": 22.807017543859658,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.2,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.6842105263157895,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 1.3541666666666672
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "escitalopram_documented_dose_mg",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 20.0 (13/19)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "medication_adherence_documented": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 61,
+        "mean": 1.9508196721311475,
+        "std": 0.21803894974650143,
+        "min": 1.0,
+        "max": 2.0,
+        "q25": 2.0,
+        "q50": 2.0,
+        "q75": 2.0,
+        "variance": 0.047540983606557376,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.9508196721311475,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.024369747899159664
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "medication_adherence_documented",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 2.0 (58/61)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "sleep_efficiency_pct": {
+      "profile": {
+        "measurement_dtype": "continuous",
+        "n_obs": 1448,
+        "mean": 86.72306629834254,
+        "std": 3.858766984911013,
+        "min": 70.0,
+        "max": 93.0,
+        "q25": 85.0,
+        "q50": 87.0,
+        "q75": 89.0,
+        "variance": 14.890082643839229,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.2,
+        "dtype_violations": 12,
+        "duplicate_pct": 0.12845303867403315,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.17169691155308942
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "sleep_efficiency_pct",
+            "issue_type": "dtype_violation",
+            "severity": "warning",
+            "message": "12 outlier(s) outside [73.00, 101.00]"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "warning",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "daily_step_count": {
+      "profile": {
+        "measurement_dtype": "count",
+        "n_obs": 1589,
+        "mean": 8051.470736312146,
+        "std": 1605.0118187158014,
+        "min": 2076.0,
+        "max": 11971.0,
+        "q25": 6957.0,
+        "q50": 7974.0,
+        "q75": 9314.0,
+        "variance": 2576062.9382174043,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.2,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.0025173064820641915,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 319.94936361121654
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "journal_stress_severity": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 72,
+        "mean": 0.9444444444444444,
+        "std": 0.709867849016486,
+        "min": 0.0,
+        "max": 3.0,
+        "q25": 0.0,
+        "q50": 1.0,
+        "q75": 1.0,
+        "variance": 0.5039123630672926,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.5416666666666666,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.2638888888888889,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.5335542667771334
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "journal_stress_severity",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 1.0 (39/72)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "external_stressor_event_count": {
+      "profile": {
+        "measurement_dtype": "count",
+        "n_obs": 679,
+        "mean": 0.053019145802650956,
+        "std": 0.27181057615261,
+        "min": 0.0,
+        "max": 4.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 0.0,
+        "variance": 0.07388098930841382,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.9543446244477173,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.9543446244477173,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 1.393477548344805
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "other_treatment_change_count": {
+      "profile": {
+        "measurement_dtype": "count",
+        "n_obs": 74,
+        "mean": 0.02702702702702703,
+        "std": 0.16326908396901554,
+        "min": 0.0,
+        "max": 1.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 0.0,
+        "variance": 0.026656793780081445,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.972972972972973,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.972972972972973,
+        "is_nonnegative": true,
+        "is_unit_interval": true,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.9863013698630134
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "patient_taper_preference_level": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 61,
+        "mean": 1.5573770491803278,
+        "std": 0.6461318277238897,
+        "min": 0.0,
+        "max": 3.0,
+        "q25": 1.0,
+        "q50": 2.0,
+        "q75": 2.0,
+        "variance": 0.4174863387978142,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.5901639344262295,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.06557377049180328,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.2680701754385965
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "patient_taper_preference_level",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 2.0 (36/61)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "natural_recovery_evidence_level": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 15,
+        "mean": 0.3333333333333333,
+        "std": 0.48795003647426666,
+        "min": 0.0,
+        "max": 1.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 1.0,
+        "variance": 0.23809523809523814,
+        "time_coverage_ratio": null,
+        "max_gap_ratio": null,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.6666666666666666,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.6666666666666666,
+        "is_nonnegative": true,
+        "is_unit_interval": true,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.7142857142857144
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "natural_recovery_evidence_level",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 0.0 (10/15)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "past_escitalopram_response_tolerability_level": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 67,
+        "mean": 2.6865671641791047,
+        "std": 0.6788795408809172,
+        "min": 1.0,
+        "max": 3.0,
+        "q25": 3.0,
+        "q50": 3.0,
+        "q75": 3.0,
+        "variance": 0.4608774310266848,
+        "time_coverage_ratio": null,
+        "max_gap_ratio": null,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.8059701492537313,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.17154882154882156
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "past_escitalopram_response_tolerability_level",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 3.0 (54/67)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "current_escitalopram_use_duration_proxy": {
+      "profile": {
+        "measurement_dtype": "continuous",
+        "n_obs": 56,
+        "mean": 676.8928571428571,
+        "std": 307.50306301927105,
+        "min": 0.0,
+        "max": 913.0,
+        "q25": 656.0,
+        "q50": 730.0,
+        "q75": 913.0,
+        "variance": 94558.13376623378,
+        "time_coverage_ratio": null,
+        "max_gap_ratio": null,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.35714285714285715,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.03571428571428571,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 139.6943885112935
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "long_term_ssri_adaptation_proxy": {
+      "profile": {
+        "measurement_dtype": "ordinal",
+        "n_obs": 86,
+        "mean": 2.488372093023256,
+        "std": 0.589000869798851,
+        "min": 1.0,
+        "max": 3.0,
+        "q25": 2.0,
+        "q50": 3.0,
+        "q75": 3.0,
+        "variance": 0.34692202462380306,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.5348837209302325,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.0,
+        "is_nonnegative": true,
+        "is_unit_interval": false,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.13941726223199563
+      },
+      "validation": {
+        "issues": [
+          {
+            "indicator": "long_term_ssri_adaptation_proxy",
+            "issue_type": "suspicious_pattern",
+            "severity": "warning",
+            "message": ">50% of values are 3.0 (46/86)"
+          }
+        ],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "warning"
+        }
+      }
+    },
+    "clinical_contact_count": {
+      "profile": {
+        "measurement_dtype": "count",
+        "n_obs": 1597,
+        "mean": 0.0031308703819661866,
+        "std": 0.05588401908442992,
+        "min": 0.0,
+        "max": 1.0,
+        "q25": 0.0,
+        "q50": 0.0,
+        "q75": 0.0,
+        "variance": 0.003123023589028928,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.2,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.9968691296180339,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.9968691296180339,
+        "is_nonnegative": true,
+        "is_unit_interval": true,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.9974937343358397
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    },
+    "rescue_or_monitoring_action": {
+      "profile": {
+        "measurement_dtype": "binary",
+        "n_obs": 82,
+        "mean": 0.8536585365853658,
+        "std": 0.3556232997793875,
+        "min": 0.0,
+        "max": 1.0,
+        "q25": 1.0,
+        "q50": 1.0,
+        "q75": 1.0,
+        "variance": 0.1264679313459801,
+        "time_coverage_ratio": 1.0,
+        "max_gap_ratio": 0.6,
+        "dtype_violations": 0,
+        "duplicate_pct": 0.8536585365853658,
+        "arithmetic_sequence_detected": false,
+        "n_unparseable_timestamps": 0,
+        "zero_fraction": 0.14634146341463414,
+        "is_nonnegative": true,
+        "is_unit_interval": true,
+        "looks_integer_valued": true,
+        "variance_to_mean_ratio": 0.14814814814814814
+      },
+      "validation": {
+        "issues": [],
+        "checks": {
+          "max_gap_ratio": "ok",
+          "dtype_violations": "ok",
+          "time_coverage_ratio": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "variance": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "duplicate_pct": "ok"
+        }
+      }
+    }
+  },
+  "dataset_issues": []
+}

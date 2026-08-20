@@ -1,6 +1,6 @@
 import type { DagDirection, DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
-import { baseId, buildGhostLinks } from "../unroll";
+import { baseId, buildGhostLinks, unrollCausalLinks } from "../unroll";
 
 // Re-exported so existing importers (e.g. interactive-dag) keep their import path
 // while the convention itself lives in the shared ../unroll module.
@@ -8,9 +8,8 @@ export { baseId };
 
 export const CARD_W = 252;
 export const CARD_H = 152;
-export const GLYPH_W = 86;
-export const GLYPH_H = 36;
-export const MINI_H = 34;
+export const HISTORY_H = 64;
+export const MINI_H = 22;
 export const IGAP = 6;
 export const ISTACK_TOP = 16;
 
@@ -23,28 +22,18 @@ const LAYOUT_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.edgeNodeBetweenLayers": "28",
 };
 
-export interface GlyphGraph {
+export interface SimulationGraph {
   graph: DagGraphInput;
-  /** Glyph layout-node id → the edge it sits on. */
-  glyphs: Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>;
+  edgeMeta: Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>;
 }
 
 /**
- * Build the ELK graph for the interactive DAG, exactly as the playground does:
- * each causal edge a→b is split into a→[glyph]→b with the drift glyph as a real
- * layout node on the edge; every endo latent gets a faded t−1 ghost + a
- * self-edge carrying its self-effect glyph. Cards grow to reserve indicator-stack
- * space when toggled on. (Partitions are omitted — lagged edges can form cycles,
- * which ELK's layered algorithm breaks on its own.)
- *
- * Renders the full projected estimation graph: every passed-in construct (the
- * retained latent states plus the known-input drivers) and every edge among
- * them. Marginalized confounders and non-identifiable nodes are already excluded
- * upstream by the estimation projection, so no further filtering happens here —
- * held drivers that don't reach the outcome stay visible as disconnected cards
- * rather than silently disappearing.
+ * Build the scientific DAG directly from backend-declared constructs and edges.
+ * Lagged cross-construct effects originate at t−1; contemporaneous effects stay
+ * within t. A fitted state gets a separate persistence edge only when an
+ * `ar_coefficient` posterior exists.
  */
-export function buildGlyphGraph(
+export function buildSimulationGraph(
   constructs: Construct[],
   edges: CausalEdge[],
   opts: {
@@ -52,22 +41,38 @@ export function buildGlyphGraph(
     showIndicators: boolean;
     showUnroll: boolean;
     indicators: Indicator[];
+    /** Fitted states with a materialized daily-persistence posterior. */
+    persistenceNodes: string[];
   },
-): GlyphGraph {
+): SimulationGraph {
   const present = new Set(constructs.map((c) => c.name));
-  const isEndo = new Map(constructs.map((c) => [c.name, c.role === "endogenous"]));
+  const timeVaryingNames = new Set(
+    constructs
+      .filter((construct) => construct.temporal_status === "time_varying")
+      .map((construct) => construct.name),
+  );
   const indCount = (node: string) =>
     opts.indicators.filter((ind) => ind.construct_name === node).length;
 
-  const selfTap = constructs.filter((c) => isEndo.get(c.name)).map((c) => c.name);
-  // Each endo latent's NodePotential self-dynamics: its faded t−1 ghost feeds its
-  // present-time self. Same unrolling convention as the static structure DAG.
+  const selfTap = opts.persistenceNodes.filter((name) => present.has(name));
+  // A fitted persistence parameter materializes a t−1 → t self edge without
+  // inventing the richer drift decomposition that simulation results do not expose.
   const selfLinks = opts.showUnroll
     ? buildGhostLinks(selfTap.map((id) => ({ from: id, to: id })))
     : { ghosts: [] as string[], edges: [] as { source: string; target: string }[] };
+  const causalLinks = unrollCausalLinks(
+    edges.filter(
+      (edge) => edge.cause !== edge.effect && present.has(edge.cause) && present.has(edge.effect),
+    ),
+    opts.showUnroll ? timeVaryingNames : new Set<string>(),
+  );
+  const ghosts = new Set([...causalLinks.ghosts, ...selfLinks.ghosts]);
 
   const sizeOf = (id: string): { w: number; h: number } => {
     const base = baseId(id);
+    if (id !== base) {
+      return { w: CARD_W, h: HISTORY_H };
+    }
     if (opts.showIndicators && id === base && indCount(base) > 0) {
       return { w: CARD_W, h: CARD_H + ISTACK_TOP + indCount(base) * (MINI_H + IGAP) };
     }
@@ -79,31 +84,28 @@ export function buildGlyphGraph(
     const s = sizeOf(c.name);
     nodes.push({ id: c.name, width: s.w, height: s.h });
   }
-  for (const g of selfLinks.ghosts) {
-    nodes.push({ id: g, width: CARD_W, height: CARD_H });
+  for (const g of ghosts) {
+    nodes.push({ id: g, width: CARD_W, height: HISTORY_H });
   }
 
   const pairs: { a: string; b: string; lagged: boolean }[] = [];
-  for (const e of edges) {
-    if (e.cause === e.effect || !present.has(e.cause) || !present.has(e.effect)) continue;
-    pairs.push({ a: e.cause, b: e.effect, lagged: e.lagged });
+  for (const edge of causalLinks.edges) {
+    pairs.push({ a: edge.source, b: edge.target, lagged: edge.lagged });
   }
   for (const link of selfLinks.edges) {
-    pairs.push({ a: link.source, b: link.target, lagged: false });
+    pairs.push({ a: link.source, b: link.target, lagged: true });
   }
 
-  const glyphs = new Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>();
+  const edgeMeta = new Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>();
   const elkEdges: DagGraphInput["edges"] = [];
   pairs.forEach(({ a, b, lagged }, i) => {
-    const gid = `G__${i}`;
-    nodes.push({ id: gid, width: GLYPH_W, height: GLYPH_H });
-    glyphs.set(gid, { a, b, isSelf: baseId(a) === baseId(b), lagged });
-    elkEdges.push({ id: `e${i}s`, source: a, target: gid });
-    elkEdges.push({ id: `e${i}t`, source: gid, target: b });
+    const id = `e${i}`;
+    edgeMeta.set(id, { a, b, isSelf: baseId(a) === baseId(b), lagged });
+    elkEdges.push({ id, source: a, target: b });
   });
 
   return {
     graph: { nodes, edges: elkEdges, direction: opts.dir, layoutOptions: LAYOUT_OPTIONS },
-    glyphs,
+    edgeMeta,
   };
 }

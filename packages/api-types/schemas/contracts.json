@@ -2666,6 +2666,289 @@
       "title": "StatisticalModelSpecContract",
       "type": "object"
     },
+    "StructuralDisposition": {
+      "description": "Explicit disposition of a source item during structural compilation.",
+      "enum": [
+        "retained_state",
+        "known_input",
+        "marginalized",
+        "identification_only",
+        "retained_edge",
+        "projected_edge",
+        "manifest",
+        "known_input_source",
+        "excluded_indicator"
+      ],
+      "title": "StructuralDisposition",
+      "type": "string"
+    },
+    "StructuralEdge": {
+      "additionalProperties": false,
+      "description": "One retained executable directed edge.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "cause_id": {
+          "title": "Cause Id",
+          "type": "string"
+        },
+        "effect_id": {
+          "title": "Effect Id",
+          "type": "string"
+        },
+        "lagged": {
+          "title": "Lagged",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cause_id",
+        "effect_id",
+        "lagged",
+        "source_id"
+      ],
+      "title": "StructuralEdge",
+      "type": "object"
+    },
+    "StructuralInducedDependency": {
+      "additionalProperties": false,
+      "description": "Dependence induced by projected latent root confounders.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "between": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Between",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "innovation_correlation",
+            "initial_state_correlation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_confounder_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Confounder Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "between",
+        "kind",
+        "source_confounder_ids",
+        "source_id"
+      ],
+      "title": "StructuralInducedDependency",
+      "type": "object"
+    },
+    "StructuralItemDisposition": {
+      "additionalProperties": false,
+      "description": "Projection outcome for one source item.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_kind": {
+          "enum": [
+            "construct",
+            "edge",
+            "indicator"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/StructuralDisposition"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disposition",
+        "reason",
+        "source_id",
+        "source_kind"
+      ],
+      "title": "StructuralItemDisposition",
+      "type": "object"
+    },
+    "StructuralKnownInput": {
+      "additionalProperties": false,
+      "description": "One observed transition driver in the executable plan.",
+      "properties": {
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "construct_id": {
+          "title": "Construct Id",
+          "type": "string"
+        },
+        "source_indicator_id": {
+          "title": "Source Indicator Id",
+          "type": "string"
+        },
+        "scale": {
+          "exclusiveMinimum": 0.0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "missing_policy": {
+          "enum": [
+            "zero",
+            "forward_fill"
+          ],
+          "title": "Missing Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "construct_id",
+        "missing_policy",
+        "scale",
+        "source_id",
+        "source_indicator_id"
+      ],
+      "title": "StructuralKnownInput",
+      "type": "object"
+    },
+    "StructuralPlan": {
+      "additionalProperties": false,
+      "description": "Single normalized source for model authoring and SSM compilation.",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "semantics": {
+          "$ref": "#/$defs/StructuralSemanticCatalog"
+        },
+        "state_order": {
+          "items": {
+            "type": "string"
+          },
+          "title": "State Order",
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/StructuralEdge"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "manifest_indicator_order": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Manifest Indicator Order",
+          "type": "array"
+        },
+        "reference_indicator_ids": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reference Indicator Ids",
+          "type": "object"
+        },
+        "known_inputs": {
+          "items": {
+            "$ref": "#/$defs/StructuralKnownInput"
+          },
+          "title": "Known Inputs",
+          "type": "array"
+        },
+        "induced_dependencies": {
+          "items": {
+            "$ref": "#/$defs/StructuralInducedDependency"
+          },
+          "title": "Induced Dependencies",
+          "type": "array"
+        },
+        "dispositions": {
+          "items": {
+            "$ref": "#/$defs/StructuralItemDisposition"
+          },
+          "title": "Dispositions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dispositions",
+        "edges",
+        "induced_dependencies",
+        "known_inputs",
+        "manifest_indicator_order",
+        "reference_indicator_ids",
+        "schema_version",
+        "semantics",
+        "state_order"
+      ],
+      "title": "StructuralPlan",
+      "type": "object"
+    },
+    "StructuralSemanticCatalog": {
+      "additionalProperties": false,
+      "description": "Authoring semantics keyed by the same IDs used by structural items.",
+      "properties": {
+        "constructs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Construct"
+          },
+          "title": "Constructs",
+          "type": "object"
+        },
+        "edges": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CausalEdge"
+          },
+          "title": "Edges",
+          "type": "object"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Indicator"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "model_clock": {
+          "title": "Model Clock",
+          "type": "string"
+        }
+      },
+      "required": [
+        "constructs",
+        "edges",
+        "indicators",
+        "model_clock"
+      ],
+      "title": "StructuralSemanticCatalog",
+      "type": "object"
+    },
     "SummaryOperator": {
       "description": "Supported summary operators for indicator observations.",
       "enum": [

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from artifact_contract_catalog import ARTIFACT_CONTRACTS
 
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
     ArtifactEnvelope,
@@ -57,6 +58,7 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     UploadResponse,
     ArtifactEnvelope,
     LLMTrace,
+    StructuralPlan,
 )
 
 EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
@@ -72,6 +74,7 @@ EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
 INTERACTIVE_CONTEXTS = frozenset(
     {"latent-structure", "measurement-structure", "statistical-model-spec", "ranking"}
 )
+
 
 def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
     """Make all properties with defaults required in serialization schema.

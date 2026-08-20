@@ -1,30 +1,21 @@
 "use client";
 
-import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
+import type { CausalEdge, Construct, Indicator, KnownInput } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagDirectionToggle } from "../core/dag-direction-toggle";
 import { DagZoomControls } from "../core/dag-zoom-controls";
 import { orthoPath } from "../core/ortho-path";
-import { clamp01, DAG_COLORS, signColor } from "../core/palette";
+import { DAG_COLORS, signColor } from "../core/palette";
 import {
   getEffectTrajectoryDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
-import type { AnalysisSimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult, EdgePosterior } from "../intervention-dag-types";
 import type { ConstructStatus } from "../structure-dag";
-import { baseId, buildGlyphGraph, CARD_H, CARD_W, GLYPH_H, GLYPH_W } from "./build-cone-graph";
-import {
-  getAllEdgeDrift,
-  getAllSelfEffects,
-  getEdgeDrift,
-  getNodeIndicators,
-  getNodeRealized,
-  getSelfEffect,
-} from "./contract-extension";
-import { DriftGlyph } from "./drift-glyph";
+import { baseId, buildSimulationGraph, CARD_H, CARD_W } from "./build-cone-graph";
 import { IndicatorStack } from "./indicator-stack";
 import { buildSimulateInput, type SimulateFn } from "./simulate-input";
 import { TrajectoryCard } from "./trajectory-card";
@@ -37,9 +28,6 @@ const {
   intervention: BLUE,
   ink: INK,
 } = DAG_COLORS;
-const TAG: Record<string, string> = { linear: "lin", hill: "Hill", mult: "×" };
-const W_MIN = 1.0;
-const W_MAX = 5.5;
 const ZMIN = 0.4;
 const ZMAX = 2.5;
 const markerFor = (col: string) => (col === TEAL ? "arrPos" : col === RED ? "arrNeg" : "arrZero");
@@ -48,6 +36,10 @@ interface InteractiveDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
+  knownInputs?: KnownInput[];
+  edgePosteriors?: Record<string, EdgePosterior>;
+  persistencePosteriors?: Record<string, EdgePosterior>;
+  identifiableTreatments?: string[];
   result: AnalysisSimulationResult;
   height?: number;
   onSimulate?: SimulateFn;
@@ -59,16 +51,18 @@ interface InteractiveDagProps {
 }
 
 /**
- * analysis "Living DAG" — a faithful port of the design playground. Layered
- * cause→effect layout over the full projected estimation graph; every construct
- * carries its own counterfactual trajectory card; every cross-edge and
- * self-effect carries a two-panel drift glyph; one playhead sweeps them all;
- * per-node do() editing re-simulates via `onSimulate`.
+ * Layer the backend's fitted and simulated artifacts over the full scientific
+ * DAG. Theory-only structure remains visible; posterior summaries style fitted
+ * edges; simulation results materialize reference and action node trajectories.
  */
 export function InteractiveDag({
   constructs,
   edges,
   indicators = [],
+  knownInputs = [],
+  edgePosteriors = {},
+  persistencePosteriors = {},
+  identifiableTreatments = [],
   result,
   onSimulate,
   indicatorsVisible,
@@ -102,79 +96,58 @@ export function InteractiveDag({
   }, [playing, n]);
 
   const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
-  const { graph, glyphs } = useMemo(
+  const { graph, edgeMeta } = useMemo(
     () =>
-      buildGlyphGraph(constructs, edges, {
+      buildSimulationGraph(constructs, edges, {
         dir: dir === "LR" ? "RIGHT" : "DOWN",
         showIndicators,
         showUnroll: true,
         indicators,
+        persistenceNodes: Object.keys(persistencePosteriors),
       }),
-    [constructs, edges, dir, showIndicators, indicators],
+    [constructs, edges, dir, showIndicators, indicators, persistencePosteriors],
   );
   const { nodes, edges: routed, width: W, height: H, isLayouting } = useDagLayout(graph);
 
-  // active interventions, derived from the current result's clamps
-  const interventions = useMemo(() => {
-    const m = new Map<string, { day: number; value: number }>();
-    for (const c of currentResult.clamps) {
-      m.set(c.variable, { day: c.from_day ?? 0, value: c.value ?? c.amount ?? 0 });
-    }
-    return m;
-  }, [currentResult]);
-
-  // drift lookups + the global edge-width scale
-  const contributionOf = useCallback(
-    (a: string, b: string, isSelf: boolean): number[] =>
-      isSelf
-        ? (getSelfEffect(currentResult, baseId(b))?.contribution ?? [])
-        : (getEdgeDrift(currentResult, a, b)?.contribution ?? []),
-    [currentResult],
+  const identifiableTreatmentSet = useMemo(
+    () => new Set(identifiableTreatments),
+    [identifiableTreatments],
   );
-  const absMax = useMemo(() => {
-    let m = 0;
-    for (const d of getAllEdgeDrift(currentResult))
-      for (const c of d.contribution) m = Math.max(m, Math.abs(c));
-    for (const s of getAllSelfEffects(currentResult))
-      for (const c of s.contribution) m = Math.max(m, Math.abs(c));
-    return m;
-  }, [currentResult]);
-  const widthOf = (c: number) =>
-    absMax > 0
-      ? Math.max(W_MIN, Math.min(W_MAX, W_MIN + (Math.abs(c) / absMax) * (W_MAX - W_MIN)))
-      : 2;
+  const knownInputSet = useMemo(
+    () => new Set(knownInputs.map((input) => input.construct)),
+    [knownInputs],
+  );
 
-  const movedOf = useCallback(
-    (node: string) => {
-      const ref = getNodeReferenceSeries(currentResult, node) ?? [];
-      const act = getNodeActionSeries(currentResult, node) ?? [];
-      return act.some((v, t) => Math.abs(v - (ref[t] ?? 0)) > 0.003);
-    },
-    [currentResult],
+  // Active interventions are read directly from the current backend result.
+  const interventions = currentResult.clamps;
+  const maximumPosteriorMean = useMemo(
+    () =>
+      Math.max(
+        0,
+        ...Object.values(edgePosteriors).map(({ mean }) => Math.abs(mean)),
+        ...Object.values(persistencePosteriors).map(({ mean }) => Math.abs(mean)),
+      ),
+    [edgePosteriors, persistencePosteriors],
   );
 
   const setDo = useCallback(
     async (node: string, value: number) => {
-      if (!onSimulate) return;
-      const fromDay = days[clampedDay] ?? 0;
+      const fromDay = days[clampedDay];
+      const horizonDay = days[n - 1];
+      if (!onSimulate || fromDay == null || horizonDay == null) return;
+      const horizonDays = Math.max(horizonDay, 1);
       const res = await onSimulate(
         buildSimulateInput(
           result,
-          [{ variable: node, mode: "set", value: clamp01(value), from_day: fromDay }],
-          60,
+          [{ variable: node, mode: "set", value, from_day: fromDay }],
+          horizonDays,
         ),
       );
       setCurrentResult(res);
     },
-    [onSimulate, days, clampedDay, result],
+    [onSimulate, days, clampedDay, n, result],
   );
-  const removeDo = useCallback(async () => {
-    if (!onSimulate) {
-      setCurrentResult(result);
-      return;
-    }
-    setCurrentResult(await onSimulate(buildSimulateInput(result, [], 60)));
-  }, [onSimulate, result]);
+  const resetScenario = useCallback(() => setCurrentResult(result), [result]);
 
   const setZoomClamped = (z: number) => setZoom(Math.max(ZMIN, Math.min(ZMAX, z)));
 
@@ -291,39 +264,55 @@ export function InteractiveDag({
 
             {/* edges */}
             {routed.map((e) => {
-              const glyphId = e.source.startsWith("G__") ? e.source : e.target;
-              const meta = glyphs.get(glyphId);
+              const meta = edgeMeta.get(e.id);
               if (!meta) return null;
-              const { a, b, isSelf } = meta;
-              if (clampedDay === 0 && a.endsWith("__p")) return null;
-              const contrib = contributionOf(a, b, isSelf)[clampedDay] ?? 0;
-              const col = signColor(contrib);
-              const marginalized =
-                nodeStatuses?.[baseId(a)] === "marginalized" ||
-                nodeStatuses?.[baseId(b)] === "marginalized";
-              const tiv = interventions.get(b);
-              const pruned = !!tiv && tiv.day === days[clampedDay];
-              const head = !e.target.startsWith("G__");
+              const { a, b, isSelf, lagged } = meta;
+              const posterior = isSelf
+                ? persistencePosteriors[baseId(b)]
+                : edgePosteriors[`${baseId(a)}→${baseId(b)}`];
+              const theoryOnly = !isSelf && posterior == null;
+              const col = posterior ? signColor(posterior.mean) : NEUTRAL;
+              const sourceStatus = nodeStatuses?.[baseId(a)];
+              const targetStatus = nodeStatuses?.[baseId(b)];
+              const contextOnly =
+                sourceStatus === "marginalized" || targetStatus === "marginalized";
+              const currentDay = days[clampedDay];
+              const pruned =
+                currentDay != null &&
+                interventions.some(
+                  (clamp) =>
+                    clamp.variable === baseId(b) &&
+                    clamp.from_day <= currentDay &&
+                    (clamp.to_day == null || currentDay < clamp.to_day),
+                );
               const key = `${a}>${b}`;
               const hl = hoverEdge === key;
               const d = orthoPath(e.points);
               const pts = e.points;
               const ep = pts[pts.length - 1];
+              const fittedWidth = posterior
+                ? 1.4 +
+                  (maximumPosteriorMean > 0
+                    ? (Math.abs(posterior.mean) / maximumPosteriorMean) * 3.4
+                    : 0)
+                : 1.2;
               return (
                 <g key={e.id}>
                   <path
                     d={d}
                     fill="none"
-                    stroke={marginalized ? MUTED : pruned ? DAG_COLORS.pruned : col}
-                    strokeWidth={pruned ? 1.4 : hl ? 4.5 : widthOf(contrib)}
-                    strokeOpacity={marginalized ? 0.32 : pruned ? 0.5 : 1}
-                    strokeDasharray={marginalized || pruned ? "5,4" : undefined}
+                    stroke={contextOnly ? MUTED : pruned ? DAG_COLORS.pruned : col}
+                    strokeWidth={pruned ? 1.4 : hl ? fittedWidth + 1.4 : fittedWidth}
+                    strokeOpacity={contextOnly ? 0.3 : pruned ? 0.5 : theoryOnly ? 0.35 : 0.9}
+                    strokeDasharray={
+                      contextOnly || pruned || theoryOnly || lagged ? "5,4" : undefined
+                    }
                     markerEnd={
-                      head && !pruned && !marginalized ? `url(#${markerFor(col)})` : undefined
+                      !pruned ? `url(#${markerFor(contextOnly ? NEUTRAL : col)})` : undefined
                     }
                     style={hl ? { filter: "drop-shadow(0 0 2px rgba(20,25,30,.28))" } : undefined}
                   />
-                  {pruned && head && ep ? (
+                  {pruned && ep ? (
                     <text
                       x={ep.x - 9}
                       y={ep.y - 4}
@@ -348,63 +337,20 @@ export function InteractiveDag({
               );
             })}
 
-            {/* glyph nodes */}
-            {nodes.map((nd) => {
-              if (!nd.id.startsWith("G__")) return null;
-              const meta = glyphs.get(nd.id);
-              if (!meta) return null;
-              const { a, b, isSelf } = meta;
-              if (clampedDay === 0 && a.endsWith("__p")) return null;
-              const tiv = interventions.get(b);
-              const pruned = !!tiv && tiv.day === days[clampedDay];
-              const drift = isSelf ? null : getEdgeDrift(currentResult, a, b);
-              const self = isSelf ? getSelfEffect(currentResult, baseId(b)) : null;
-              const transfer = isSelf ? (self?.transfer ?? []) : (drift?.transfer ?? []);
-              const contribution = isSelf
-                ? (self?.contribution ?? [])
-                : (drift?.contribution ?? []);
-              const driverLevel = isSelf ? (self?.level ?? []) : (drift?.driver_level ?? []);
-              const col = pruned ? NEUTRAL : signColor(contribution[clampedDay] ?? 0);
-              const marginalized =
-                nodeStatuses?.[baseId(a)] === "marginalized" ||
-                nodeStatuses?.[baseId(b)] === "marginalized";
-              const key = `${a}>${b}`;
-              return (
-                <g
-                  key={nd.id}
-                  transform={`translate(${nd.x},${nd.y})`}
-                  opacity={marginalized ? 0.28 : pruned ? 0.3 : 1}
-                  style={{ cursor: "pointer" }}
-                  onMouseEnter={() => setHoverEdge(key)}
-                  onMouseLeave={() => setHoverEdge(null)}
-                >
-                  <DriftGlyph
-                    width={GLYPH_W}
-                    height={GLYPH_H}
-                    transfer={transfer}
-                    contribution={contribution}
-                    driverLevel={driverLevel}
-                    timeIndex={clampedDay}
-                    color={marginalized ? MUTED : col}
-                    label={isSelf ? "self" : TAG[drift?.form ?? "linear"]}
-                    xlabel={isSelf ? "vs level" : "vs cause"}
-                    highlighted={hoverEdge === key}
-                  />
-                </g>
-              );
-            })}
-
             {/* node cards */}
             {nodes.map((nd) => {
-              if (nd.id.startsWith("G__")) return null;
               const base = baseId(nd.id);
               const isPrev = nd.id !== base;
-              if (clampedDay === 0 && isPrev) return null;
               const construct = byName.get(base);
               if (!construct) return null;
-              const iv = isPrev ? null : (interventions.get(base) ?? null);
+              const referenceSeries = getNodeReferenceSeries(currentResult, base) ?? [];
+              const actionSeries = getNodeActionSeries(currentResult, base) ?? [];
+              const nodeInterventions = isPrev
+                ? []
+                : interventions.filter((clamp) => clamp.variable === base);
               const cardHl = hoverEndpoints.includes(base);
-              const marginalized = nodeStatuses?.[base] === "marginalized";
+              const status = nodeStatuses?.[base];
+              const contextOnly = status === "marginalized";
               return (
                 <g
                   key={nd.id}
@@ -434,23 +380,29 @@ export function InteractiveDag({
                     isTarget={construct.is_outcome}
                     isPrev={isPrev}
                     days={days}
-                    reference={getNodeReferenceSeries(currentResult, base) ?? []}
-                    action={getNodeActionSeries(currentResult, base) ?? []}
-                    realized={getNodeRealized(currentResult, base)}
+                    reference={referenceSeries}
+                    action={actionSeries}
                     timeIndex={clampedDay}
-                    intervention={iv}
-                    marginalized={marginalized}
-                    interactive={!!onSimulate && !isPrev && !marginalized}
-                    otherActive={interventions.size > 0 && !interventions.has(base)}
+                    interventions={nodeInterventions}
+                    status={status}
+                    knownInput={knownInputSet.has(base)}
+                    persistence={persistencePosteriors[base]}
+                    interactive={
+                      !!onSimulate &&
+                      n > 0 &&
+                      referenceSeries.length === n &&
+                      !isPrev &&
+                      !contextOnly &&
+                      identifiableTreatmentSet.has(base)
+                    }
                     onSetDo={(v) => void setDo(base, v)}
-                    onRemoveDo={() => void removeDo()}
+                    onRemoveDo={currentResult !== result ? resetScenario : undefined}
                   />
                   {showIndicators && !isPrev ? (
                     <IndicatorStack
-                      indicators={getNodeIndicators(currentResult, base)}
-                      days={days}
-                      timeIndex={clampedDay}
-                      moved={movedOf(base)}
+                      indicators={indicators.filter(
+                        (indicator) => indicator.construct_name === base,
+                      )}
                     />
                   ) : null}
                 </g>
@@ -462,143 +414,168 @@ export function InteractiveDag({
 
       {/* graph note */}
       <div style={{ fontSize: 11.5, color: MUTED, margin: "8px 4px 0" }}>
-        {`Showing the fitted causal graph for ${outcome} (${constructs.length} nodes); ★ marks the outcome.`}
+        {`Showing the full scientific DAG for ${outcome} (${constructs.length} nodes); ★ marks the outcome.`}
         {Object.values(nodeStatuses ?? {}).includes("marginalized")
-          ? "  ·  Marginalized constructs remain visible as subdued causal context."
+          ? "  ·  Marginalized confounders remain visible as subdued causal context."
           : null}
         {
-          "  ·  Unrolled: each latent's faded t−1 card feeds its present-time self (the self-edge = its NodePotential −dV/dη)."
+          "  ·  Solid colored edges have fitted posterior coefficients; subdued dashed edges are theory-only context."
         }
       </div>
 
       {/* scrubber */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          marginTop: 12,
-          background: "#fff",
-          border: `1px solid ${DAG_COLORS.line}`,
-          borderRadius: 12,
-          padding: "12px 16px",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setPlaying((p) => !p)}
-          style={iconBtn}
-          title="play / pause"
-        >
-          {playing ? "⏸" : "▶"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setPlaying(false);
-            setDay(0);
-          }}
-          style={iconBtn}
-          title="reset"
-        >
-          ↺
-        </button>
-        <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
-          <input
-            type="range"
-            min={0}
-            max={60}
-            step={1}
-            value={clampedDay}
-            onChange={(e) => setDay(Number(e.target.value))}
-            style={{ width: "100%", accentColor: INK }}
-          />
-          <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-            {[...interventions.entries()].map(([id, iv]) => (
-              <span
-                key={id}
-                style={{ position: "absolute", top: 0, bottom: 0, left: `${(iv.day / 60) * 100}%` }}
-              >
-                <i
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    bottom: 2,
-                    left: -1.25,
-                    width: 2.5,
-                    background: BLUE,
-                    borderRadius: 2,
-                  }}
-                />
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -16,
-                    left: 0,
-                    transform: "translateX(-50%)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 3,
-                  }}
-                >
-                  <b
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 600,
-                      color: "#fff",
-                      background: BLUE,
-                      borderRadius: 4,
-                      padding: "1px 5px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {`do · ${id.replace(/_/g, " ")} @d${iv.day}`}
-                  </b>
+      {n > 0 ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              marginTop: 12,
+              background: "#fff",
+              border: `1px solid ${DAG_COLORS.line}`,
+              borderRadius: 12,
+              padding: "12px 16px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setPlaying((p) => !p)}
+              style={iconBtn}
+              title="play / pause"
+            >
+              {playing ? "⏸" : "▶"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPlaying(false);
+                setDay(0);
+              }}
+              style={iconBtn}
+              title="reset"
+            >
+              ↺
+            </button>
+            <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, n - 1)}
+                step={1}
+                value={clampedDay}
+                onChange={(e) => setDay(Number(e.target.value))}
+                style={{ width: "100%", accentColor: INK }}
+              />
+              <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                {interventions.map((iv, index) => (
                   <span
-                    onClick={() => void removeDo()}
+                    key={`${iv.variable}-${iv.from_day}-${index}`}
                     style={{
-                      cursor: "pointer",
-                      pointerEvents: "auto",
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: "#fff",
-                      background: RED,
-                      borderRadius: 4,
-                      padding: "1px 4px",
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: `${(iv.from_day / Math.max(days[n - 1], 1)) * 100}%`,
                     }}
                   >
-                    ✕
+                    <i
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        bottom: 2,
+                        left: -1.25,
+                        width: 2.5,
+                        background: BLUE,
+                        borderRadius: 2,
+                      }}
+                    />
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: -16,
+                        left: 0,
+                        transform: "translateX(-50%)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                      }}
+                    >
+                      <b
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 600,
+                          color: "#fff",
+                          background: BLUE,
+                          borderRadius: 4,
+                          padding: "1px 5px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {`do · ${iv.variable.replace(/_/g, " ")} @d${iv.from_day}`}
+                      </b>
+                      {currentResult !== result ? (
+                        <span
+                          title="Reset to the selected scenario"
+                          onClick={resetScenario}
+                          style={{
+                            cursor: "pointer",
+                            pointerEvents: "auto",
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: "#fff",
+                            background: RED,
+                            borderRadius: 4,
+                            padding: "1px 4px",
+                          }}
+                        >
+                          ↺
+                        </span>
+                      ) : null}
+                    </span>
                   </span>
-                </span>
-              </span>
-            ))}
+                ))}
+              </div>
+            </div>
+            <span
+              style={{
+                fontVariantNumeric: "tabular-nums",
+                minWidth: 96,
+                textAlign: "right",
+                color: "#3a3f47",
+              }}
+            >
+              {`day ${days[clampedDay]}`}
+            </span>
           </div>
-        </div>
-        <span
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: 11,
+              color: MUTED,
+              margin: "6px 8px 0",
+            }}
+          >
+            <span>{`${days[0]}d`}</span>
+            <span>{`${days[Math.floor((n - 1) / 2)]}d`}</span>
+            <span>{`${days[n - 1]}d`}</span>
+          </div>
+        </>
+      ) : (
+        <div
           style={{
-            fontVariantNumeric: "tabular-nums",
-            minWidth: 96,
-            textAlign: "right",
-            color: "#3a3f47",
+            marginTop: 12,
+            background: "#fff",
+            border: `1px solid ${DAG_COLORS.line}`,
+            borderRadius: 12,
+            padding: "12px 16px",
+            color: MUTED,
+            fontSize: 11.5,
           }}
         >
-          {`day ${clampedDay}`}
-        </span>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: 11,
-          color: MUTED,
-          margin: "6px 8px 0",
-        }}
-      >
-        <span>1d</span>
-        <span>7d</span>
-        <span>30d</span>
-        <span>60d</span>
-      </div>
+          {`End-state result · effect ${currentResult.summary.mean.toFixed(3)} [${currentResult.summary.lower_95.toFixed(3)}, ${currentResult.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
+        </div>
+      )}
     </div>
   );
 }

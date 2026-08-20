@@ -1,0 +1,563 @@
+{
+  "measurement_structure": {
+    "indicators": [
+      {
+        "name": "phq9_screening_score",
+        "construct_name": "internalizing_symptom_burden",
+        "how_to_measure": "Use the `phq9_score` column directly when a PHQ-9 screening scale score is recorded. The score reflects depressive symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded PHQ-9 score.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": "2w",
+        "ordinal_levels": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16",
+          "17",
+          "18",
+          "19",
+          "20",
+          "21",
+          "22",
+          "23",
+          "24",
+          "25",
+          "26",
+          "27"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "phq9_score"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "gad7_screening_score",
+        "construct_name": "internalizing_symptom_burden",
+        "how_to_measure": "Use the `gad7_score` column directly when a GAD-7 screening scale score is recorded. The score reflects anxiety symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded GAD-7 score.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": "2w",
+        "ordinal_levels": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16",
+          "17",
+          "18",
+          "19",
+          "20",
+          "21"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "gad7_score"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "state_of_mind_valence",
+        "construct_name": "internalizing_symptom_burden",
+        "how_to_measure": "Use the `mood_valence` column directly from Apple State of Mind entries. Average all observed entries within the day. Higher valence means better mood and therefore less internalizing symptom burden.",
+        "construct_polarity": "negative",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "mood_valence"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "interval",
+        "summary_operator": "mean",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "journal_internalizing_symptom_severity",
+        "construct_name": "internalizing_symptom_burden",
+        "how_to_measure": "Within each day, inspect `local_date`, `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for first-person evidence of depressed mood, anhedonia, anxiety, worry, irritability, panic, somatic anxiety, hopelessness, guilt, or distress. Rate severity as none, mild, moderate, or severe based only on evidence in that day. Return `none` only when there is usable mood-related text or labels and they indicate no such symptoms; return null when there is no usable symptom evidence in the support window.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "none",
+          "mild",
+          "moderate",
+          "severe"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "local_date",
+          "journal_text",
+          "imessage_text",
+          "mood_labels",
+          "mood_associations"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "taper_speed_instruction_intensity",
+        "construct_name": "taper_speed_dose_reduction",
+        "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `medication_name`, and `drug_name` for the escitalopram taper plan. Classify the intended reduction speed as none_or_continue, slow_or_paused_reduction, moderate_reduction, or rapid_stop_or_large_reduction. Return null if no escitalopram taper or continuation plan is documented in the support window.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "none_or_continue",
+          "slow_or_paused_reduction",
+          "moderate_reduction",
+          "rapid_stop_or_large_reduction"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "plan_text",
+          "clinical_note_text",
+          "medication_action",
+          "medication_name",
+          "drug_name"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "escitalopram_documented_dose_mg",
+        "construct_name": "escitalopram_dose_taken",
+        "how_to_measure": "Within each day, use medication rows where `medication_name` or `drug_name` contains escitalopram or Lexapro. Return the last non-null `medication_dose_mg` documented for escitalopram that day, in milligrams. Return null if no escitalopram dose is documented that day. This is a documented dose proxy, not proof of ingestion.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "continuous",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "medication_name",
+          "drug_name",
+          "medication_dose_mg"
+        ],
+        "computed_rule": {
+          "window_expr": "last(medication_dose_mg if contains_any(lower(coalesce(medication_name, drug_name, \"\")), [\"escitalopram\", \"lexapro\"]) else None)"
+        },
+        "extraction_mode": "computed",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "medication_adherence_documented",
+        "construct_name": "adherence_to_regimen",
+        "how_to_measure": "Within each day, inspect `clinical_note_text`, `plan_text`, `journal_text`, and `imessage_text` for evidence about taking escitalopram as prescribed, missed doses, extra doses, self-directed changes, or reinstatement. Rate adherence as poor, partial, or consistent. Use `consistent` only when source evidence explicitly says the medication was taken as directed or no missed doses were reported in a medication-adherence context. Return null when there is no usable adherence evidence.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "poor",
+          "partial",
+          "consistent"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "clinical_note_text",
+          "plan_text",
+          "journal_text",
+          "imessage_text"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "sleep_efficiency_pct",
+        "construct_name": "sleep_circadian_disruption",
+        "how_to_measure": "Use the `sleep_efficiency_pct` column directly from Oura sleep periods. Average values over all sleep periods assigned to the day. Higher sleep efficiency indicates less sleep/circadian disruption.",
+        "construct_polarity": "negative",
+        "measurement_dtype": "continuous",
+        "aggregation": "mean",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "sleep_efficiency_pct"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "interval",
+        "summary_operator": "mean",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "daily_step_count",
+        "construct_name": "physical_activity",
+        "how_to_measure": "Use the `step_count_count` column directly from Apple Health step count intervals. Sum all step counts within the day.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "count",
+        "aggregation": "sum",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "step_count_count"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "interval",
+        "summary_operator": "sum",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "journal_stress_severity",
+        "construct_name": "perceived_stress_burden",
+        "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for subjective stress, overwhelm, threat, uncontrollability, pressure, daily hassles, or feeling unable to cope. Rate as none, mild, moderate, or severe. Return `none` only when usable affect/stress evidence is present and indicates low or absent stress; return null if there is no usable evidence.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "none",
+          "mild",
+          "moderate",
+          "severe"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "journal_text",
+          "imessage_text",
+          "mood_labels",
+          "mood_associations"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "external_stressor_event_count",
+        "construct_name": "external_stressful_events",
+        "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "count",
+        "aggregation": "count",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "calendar_summary",
+          "calendar_description",
+          "journal_text",
+          "imessage_text",
+          "transaction_name",
+          "merchant_name",
+          "finance_category_primary",
+          "finance_category_detailed"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "interval",
+        "summary_operator": "count",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "other_treatment_change_count",
+        "construct_name": "other_psychotropic_or_somatic_treatments",
+        "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "count",
+        "aggregation": "count",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "medication_name",
+          "drug_name",
+          "medication_dose_mg",
+          "medication_action",
+          "clinical_note_text",
+          "assessment_text",
+          "plan_text"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "interval",
+        "summary_operator": "count",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "patient_taper_preference_level",
+        "construct_name": "patient_taper_preference_beliefs",
+        "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `clinical_note_text`, and `plan_text` for the patient's motivation to taper or continue escitalopram, perceived benefit, side-effect concerns, dependence concerns, fear of relapse, and coping confidence. Rate taper preference as wants_continue, ambivalent, prefers_slow_taper, or wants_stop_or_fast_taper. Return null if there is no usable preference/belief evidence.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "wants_continue",
+          "ambivalent",
+          "prefers_slow_taper",
+          "wants_stop_or_fast_taper"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "journal_text",
+          "imessage_text",
+          "clinical_note_text",
+          "plan_text"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "natural_recovery_evidence_level",
+        "construct_name": "natural_recovery_propensity",
+        "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `journal_text`, `mood_valence`, `phq9_score`, and `gad7_score` for evidence that symptoms improved or remained well during periods without medication change, through nonpharmacologic coping, stable life conditions, or spontaneous remission. Rate as low, moderate, or high. Return null if the available evidence cannot distinguish natural recovery or resilience from medication response.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "low",
+          "moderate",
+          "high"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "clinical_note_text",
+          "assessment_text",
+          "journal_text",
+          "mood_valence",
+          "phq9_score",
+          "gad7_score"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "past_escitalopram_response_tolerability_level",
+        "construct_name": "past_escitalopram_response_tolerability",
+        "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `plan_text`, `journal_text`, medication fields, `phq9_score`, and `gad7_score` for historical improvement, relapse prevention, side effects, dose changes due to response/tolerability, or patient-reported benefit/harm while taking escitalopram. Rate net historical response/tolerability as poor_or_harmful, mixed_or_unclear, beneficial_with_side_effects, or clearly_beneficial_tolerated. Return null if no usable escitalopram response/tolerability history is available.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "poor_or_harmful",
+          "mixed_or_unclear",
+          "beneficial_with_side_effects",
+          "clearly_beneficial_tolerated"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "clinical_note_text",
+          "assessment_text",
+          "plan_text",
+          "journal_text",
+          "medication_name",
+          "drug_name",
+          "medication_dose_mg",
+          "phq9_score",
+          "gad7_score"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "current_escitalopram_use_duration_proxy",
+        "construct_name": "duration_current_escitalopram_use",
+        "how_to_measure": "Use escitalopram-related `drug_name`, `medication_name`, `timestamp`, `local_date`, `days_supply`, `clinical_note_text`, and `plan_text` to estimate the length of continuous current escitalopram use before the taper decision. Prefer explicit duration statements in notes; otherwise use the span from first documented escitalopram record to the latest pre-taper escitalopram record when continuity is plausible from fills/notes. Return duration in days; return null if current-use duration cannot be estimated.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "continuous",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "drug_name",
+          "medication_name",
+          "timestamp",
+          "local_date",
+          "days_supply",
+          "clinical_note_text",
+          "plan_text"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "long_term_ssri_adaptation_proxy",
+        "construct_name": "neuroadaptation_dependence_state",
+        "how_to_measure": "Within each day, inspect escitalopram-related `clinical_note_text`, `plan_text`, `medication_name`, `drug_name`, `medication_dose_mg`, `days_supply`, and `strength` for evidence of ongoing long-term escitalopram use or stable maintenance dosing. Rate adaptation proxy as none, short_or_uncertain, ongoing_maintenance, or long_term_maintenance. Return null if no escitalopram-use-duration or maintenance context is available in that day.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "ordinal",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": [
+          "none",
+          "short_or_uncertain",
+          "ongoing_maintenance",
+          "long_term_maintenance"
+        ],
+        "categorical_levels": null,
+        "source_columns": [
+          "clinical_note_text",
+          "plan_text",
+          "medication_name",
+          "drug_name",
+          "medication_dose_mg",
+          "days_supply",
+          "strength"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "clinical_contact_count",
+        "construct_name": "clinical_monitoring_rescue_care",
+        "how_to_measure": "Count non-null `clinical_note_text` rows within each day. This measures clinical monitoring/contact volume. Return 0 when the day has rows from other sources but no clinical note; return null only if the support window has no rows at all.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "count",
+        "aggregation": "count",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "clinical_note_text"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "computed",
+        "support_kind": "interval",
+        "summary_operator": "count",
+        "anchor_policy": "support_end"
+      },
+      {
+        "name": "rescue_or_monitoring_action",
+        "construct_name": "clinical_monitoring_rescue_care",
+        "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `visit_type`, `department`, `calendar_summary`, and `calendar_description` for monitoring visits, follow-up plans, medication rescue, dose reinstatement, urgent care, crisis support, safety monitoring, or advice to pause/reverse taper. Return 1 if such monitoring or rescue care is documented, 0 if a relevant clinical/taper plan is present and no monitoring or rescue action is indicated, and null if there is no usable clinical or taper-care evidence.",
+        "construct_polarity": "positive",
+        "measurement_dtype": "binary",
+        "aggregation": "last",
+        "observation_window": null,
+        "ordinal_levels": null,
+        "categorical_levels": null,
+        "source_columns": [
+          "plan_text",
+          "clinical_note_text",
+          "medication_action",
+          "visit_type",
+          "department",
+          "calendar_summary",
+          "calendar_description"
+        ],
+        "computed_rule": null,
+        "extraction_mode": "semantic",
+        "support_kind": "point",
+        "summary_operator": "last",
+        "anchor_policy": "support_end"
+      }
+    ],
+    "model_clock": "1d"
+  },
+  "known_inputs": [
+    {
+      "construct": "external_stressful_events",
+      "source_indicator": "external_stressor_event_count",
+      "scale": 1.0,
+      "missing_policy": "zero"
+    },
+    {
+      "construct": "other_psychotropic_or_somatic_treatments",
+      "source_indicator": "other_treatment_change_count",
+      "scale": 1.0,
+      "missing_policy": "zero"
+    }
+  ],
+  "scientific_only_constructs": [
+    {
+      "construct": "patient_taper_preference_beliefs",
+      "reason": "The sparse semantic proxy is entangled with the documented taper plan, so it remains assignment context rather than an executable latent state."
+    },
+    {
+      "construct": "duration_current_escitalopram_use",
+      "reason": "Historical exposure duration is observed only as sparse static context and feeds an unsupported neuroadaptation mechanism."
+    },
+    {
+      "construct": "neuroadaptation_dependence_state",
+      "reason": "The available text-derived adaptation proxy cannot independently resolve the physiologic state from duration and taper documentation."
+    },
+    {
+      "construct": "natural_recovery_propensity",
+      "reason": "Only sparse retrospective evidence is available for the untreated illness course, so it remains scientific and identification context."
+    },
+    {
+      "construct": "past_escitalopram_response_tolerability",
+      "reason": "Historical response is represented by a sparse retrospective summary, so it remains measured assignment context rather than an executable dynamic state."
+    },
+    {
+      "construct": "clinical_monitoring_rescue_care",
+      "reason": "Clinical contacts and rescue actions are sparse, event-triggered assignment signals that preserve treatment-change context without supporting a latent state."
+    }
+  ]
+}

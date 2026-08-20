@@ -11,7 +11,6 @@ import { demoPosterior } from "../../__fixtures__/demo-artifacts";
 
 const output = TRANSITIONS.find((s) => s.id === "posterior")!;
 const data = demoPosterior as PosteriorData;
-const auxKalmanMCMCData = demoPosterior as PosteriorData;
 
 const meta = {
   title: "Pipeline/Outputs/Posterior/Panel",
@@ -25,19 +24,11 @@ export const Pending = createOutputStatusStory(output, "pending");
 
 export const Running = createOutputStatusStory(output, "running");
 
-export const CompletedMAP = createCompletedOutputStory({
-  name: "Completed (MAP)",
+export const CompletedParticleMCMC = createCompletedOutputStory({
+  name: "Completed (marginal particle Gibbs)",
   output,
   args: { data, workspaceId: "demo-user" },
-  elapsedMs: 124_500,
-  renderContent: (args) => <PosteriorView {...args} />,
-});
-
-export const CompletedAuxKalmanMCMC = createCompletedOutputStory({
-  name: "Completed (Auxiliary Kalman MCMC)",
-  output,
-  args: { data: auxKalmanMCMCData, workspaceId: "demo-user" },
-  elapsedMs: 342_000,
+  elapsedMs: Math.round(data.inference_metadata.duration_seconds * 1000),
   renderContent: (args) => <PosteriorView {...args} />,
 });
 

@@ -4,6 +4,7 @@ export const ARTIFACT_IDS = [
   "latent_structure",
   "measurement_structure",
   "causal_design",
+  "structural_plan",
   "identification_report",
   "measurements",
   "panel",

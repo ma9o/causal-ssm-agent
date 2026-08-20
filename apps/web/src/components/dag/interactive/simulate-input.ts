@@ -7,7 +7,7 @@ import type { AnalysisSimulationResult } from "../intervention-dag-types";
  */
 export interface SimulateInput {
   start: { kind: "baseline" | "abducted"; time_index?: number | null; time?: string | null };
-  clamps: LatentClampInput[];
+  clamps: [LatentClampInput, ...LatentClampInput[]];
   outcome: string;
   query: {
     estimand: "trajectory" | "end_state";
@@ -18,21 +18,26 @@ export interface SimulateInput {
 
 /**
  * Runs a scenario and returns its result. The interactive DAG is agnostic to
- * how: Storybook injects a mock; prod injects a `POST /api/tools/dispatch`
- * call (the non-LLM tool seam). Absent this, the DAG is a read-only viewer.
+ * how: production injects a `POST /api/tools/dispatch` call (the non-LLM tool
+ * seam). Absent this, the DAG is a read-only viewer.
  */
 export type SimulateFn = (input: SimulateInput) => Promise<AnalysisSimulationResult>;
 
 /** Re-run `base`'s scenario start with a new set of clamps over the same horizon. */
 export function buildSimulateInput(
   base: AnalysisSimulationResult,
-  clamps: LatentClampInput[],
+  clamps: [LatentClampInput, ...LatentClampInput[]],
   horizonDays: number,
 ): SimulateInput {
-  const start =
-    base.start.kind === "abducted"
-      ? { kind: "abducted" as const, time_index: base.start.time_index, time: base.start.time }
-      : { kind: "baseline" as const };
+  let start: SimulateInput["start"] = { kind: "baseline" };
+  if (base.start.kind === "abducted") {
+    start =
+      base.start.time_index != null
+        ? { kind: "abducted", time_index: base.start.time_index }
+        : base.start.time != null
+          ? { kind: "abducted", time: base.start.time }
+          : { kind: "abducted" };
+  }
   return {
     start,
     clamps,

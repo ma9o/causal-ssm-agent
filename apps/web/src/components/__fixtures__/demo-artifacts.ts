@@ -10,18 +10,17 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import { demoArtifactSources } from "./demo-artifact-sources";
 
-const { store, temporaryDemoRun } = demoArtifactSources;
-
-export const demoRawData = store.raw_data as RawDataData;
-export const demoLatentStructure = store.latent_structure as LatentStructureData;
+export const demoRawData = demoArtifactSources.raw_data as RawDataData;
+export const demoLatentStructure = demoArtifactSources.latent_structure as LatentStructureData;
 export const demoMeasurementStructure = {
-  ...store.measurement_structure,
-  causal_design: store.causal_design,
+  ...demoArtifactSources.measurement_structure,
+  causal_design: demoArtifactSources.causal_design,
+  structural_plan: demoArtifactSources.structural_plan,
 } as unknown as MeasurementStructureViewData;
-export const demoMeasurements = store.measurements as MeasurementsData;
-export const demoValidationReport = store.validation_report as ValidationReportData;
+export const demoMeasurements = demoArtifactSources.measurements as MeasurementsData;
+export const demoValidationReport = demoArtifactSources.validation_report as ValidationReportData;
 
 export const demoStatisticalModelSpec =
-  temporaryDemoRun.statistical_model_spec as unknown as StatisticalModelSpecData;
-export const demoPosterior = temporaryDemoRun.posterior as PosteriorData;
-export const demoBaselineReport = temporaryDemoRun.baseline_report as BaselineReportData;
+  demoArtifactSources.statistical_model_spec as unknown as StatisticalModelSpecData;
+export const demoPosterior = demoArtifactSources.posterior as PosteriorData;
+export const demoBaselineReport = demoArtifactSources.baseline_report as BaselineReportData;

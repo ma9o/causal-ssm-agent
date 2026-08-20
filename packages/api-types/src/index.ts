@@ -51,6 +51,7 @@ export type {
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
   IndicatorValidationContract as IndicatorValidation,
   InferenceMetadataContract as InferenceMetadata,
+  KnownInput,
   LatentStructure,
   LatentStructureContract as LatentStructureData,
   LikelihoodSource,
@@ -81,9 +82,17 @@ export type {
   RankHistogramChain,
   RawDataContract as RawDataPersistedData,
   Role,
+  ScientificOnlyConstruct,
   SMCDiagnostics,
   StatisticalModelSpec,
   StatisticalModelSpecContract as StatisticalModelSpecPersistedData,
+  StructuralDisposition,
+  StructuralEdge,
+  StructuralInducedDependency,
+  StructuralItemDisposition,
+  StructuralKnownInput,
+  StructuralPlan,
+  StructuralSemanticCatalog,
   TemporalStatus,
   TraceChain,
   TraceData,
@@ -135,6 +144,7 @@ export type StatisticalModelSpecData = StatisticalModelSpecPersistedViewData & {
 export type MeasurementStructureViewData =
   import("./generated/models").MeasurementStructureContract & {
     causal_design: import("./causal-design").CausalDesign;
+    structural_plan: import("./generated/models").StructuralPlan;
   };
 
 export interface ArtifactViewDataMap {

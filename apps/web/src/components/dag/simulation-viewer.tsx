@@ -1,6 +1,12 @@
 "use client";
 
-import type { CausalEdge, Construct, Indicator, TreatmentEffect } from "@nof1-causal-lab/api-types";
+import type {
+  CausalEdge,
+  Construct,
+  Indicator,
+  KnownInput,
+  TreatmentEffect,
+} from "@nof1-causal-lab/api-types";
 import { Bot, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 import Markdown from "react-markdown";
@@ -24,7 +30,10 @@ export interface SimulationViewerGraph {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
+  knownInputs?: KnownInput[];
   edgePosteriors?: Record<string, EdgePosterior>;
+  persistencePosteriors?: Record<string, EdgePosterior>;
+  identifiableTreatments?: string[];
   nodeStatuses?: Record<string, ConstructStatus>;
   indicatorsVisible?: boolean;
 }
@@ -90,6 +99,10 @@ function ScenarioDetail({
         constructs={graph.constructs}
         edges={graph.edges}
         indicators={graph.indicators}
+        knownInputs={graph.knownInputs}
+        edgePosteriors={graph.edgePosteriors}
+        persistencePosteriors={graph.persistencePosteriors}
+        identifiableTreatments={graph.identifiableTreatments}
         indicatorsVisible={graph.indicatorsVisible}
         nodeStatuses={graph.nodeStatuses}
         result={scenario.result}
@@ -109,7 +122,7 @@ function ScenarioDetail({
 
 /**
  * analysis simulation viewer. The left output column: a rail of
- * scenarios (the no-intervention baseline first, then chat-minted interventions),
+ * backend-materialized intervention scenarios,
  * the LLM's blurb for the focused scenario, and the living DAG. The chat that
  * mints new scenarios lives in the shell's trace pane and shares selection via
  * RefinementContext.
